@@ -1,44 +1,126 @@
 import DashboardLayout from "@/components/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Calendar } from "@/components/ui/calendar"
 import { Textarea } from "@/components/ui/textarea";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { useData } from "@/contexts/DataContext";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useState } from "react";
-import { UserPlus, Users, MessageSquare, Phone, Edit, Trash2, Eye, Plus } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-const FrontOffice = () => {
-  const {
-    inquiries,
-    addInquiry,
-    updateInquiry,
-    deleteInquiry,
-    visitors,
-    addVisitor,
-    updateVisitor,
-    deleteVisitor,
-    complaints,
-    addComplaint,
-    updateComplaint,
-    deleteComplaint,
-    contacts,
-    addContact,
-    updateContact,
-    deleteContact
-  } = useData();
-  const {
-    toast
-  } = useToast();
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
+import { CalendarIcon, Clock } from "lucide-react"
+import { format } from "date-fns"
 
-  // Inquiry State
+
+import {
+  UserPlus,
+  Users,
+  MessageSquare,
+  Phone,
+  Edit,
+  Trash2,
+  Eye,
+  Plus,
+} from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  createInquiry,
+  getProgramNames,
+  updateInquiry,
+  delInquiry,
+  getInquiries,
+  getVisitors,
+  createVisitor,
+  updateVisitor,
+  delVisitor,
+  delComplaint as delComplaintApi,
+  updateComplaint as updateComplaintApi,
+  createComplaint as createComplaintApi,
+  getComplaints,
+  getContacts,
+  createContact as createContactApi,
+  updateContact as UpdateContactApi,
+  delContact
+} from "../../config/apis";
+import { formatTime } from "../lib/utils";
+
+const FrontOffice = () => {
+
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // === STATE ===
   const [inquiryDialog, setInquiryDialog] = useState(false);
+  const [visitorDialog, setVisitorDialog] = useState(false);
+  const [complaintDialog, setComplaintDialog] = useState(false);
+  const [contactDialog, setContactDialog] = useState(false);
+
   const [editingInquiry, setEditingInquiry] = useState(null);
+  const [editingVisitor, setEditingVisitor] = useState(null);
+  const [editingComplaint, setEditingComplaint] = useState(null);
+  const [editingContact, setEditingContact] = useState(null);
+
+  const [dateOpen, setDateOpen] = useState(false)
+
+  const [selectedProgram, setSelectedProgram] = useState("");
+
+  const [deleteDialog, setDeleteDialog] = useState({
+    open: false,
+    type: "",
+    id: "",
+  });
+
+  const [viewDetailsDialog, setViewDetailsDialog] = useState({
+    open: false,
+    type: "",
+    data: null,
+  });
+
+  // === FORM STATES ===
   const [inquiryForm, setInquiryForm] = useState({
     studentName: "",
     fatherName: "",
@@ -48,79 +130,221 @@ const FrontOffice = () => {
     address: "",
     programInterest: "",
     previousInstitute: "",
-    remarks: ""
+    remarks: "",
   });
 
-  // Visitor State
-  const [visitorDialog, setVisitorDialog] = useState(false);
-  const [editingVisitor, setEditingVisitor] = useState(null);
   const [visitorForm, setVisitorForm] = useState({
     visitorName: "",
     phoneNumber: "",
+    ID: "",
     purpose: "",
+    persons: "",
     visitDate: new Date().toISOString().split("T")[0],
     inTime: "",
     outTime: "",
-    remarks: ""
+    remarks: "",
   });
 
-  // Complaint State
-  const [complaintDialog, setComplaintDialog] = useState(false);
-  const [editingComplaint, setEditingComplaint] = useState(null);
   const [complaintForm, setComplaintForm] = useState({
-    complainantType: "Student",
+    type: "Student",
     complainantName: "",
-    contactNumber: "",
-    complaintNature: "",
+    contact: "",
     details: "",
-    assignedTo: ""
+    subject: "",
+    status: "Pending",
+
   });
 
-  // Contact State
-  const [contactDialog, setContactDialog] = useState(false);
-  const [editingContact, setEditingContact] = useState(null);
   const [contactForm, setContactForm] = useState({
-    contactName: "",
+    name: "",
     category: "Emergency",
-    phoneNumber: "",
+    phone: "",
     email: "",
-    description: ""
-  });
-  const [deleteDialog, setDeleteDialog] = useState({
-    open: false,
-    type: "",
-    id: ""
-  });
-  const [viewDetailsDialog, setViewDetailsDialog] = useState({
-    open: false,
-    type: "",
-    data: null
+    details: "",
   });
 
-  // Inquiry Handlers
-  const handleInquirySubmit = () => {
-    if (!inquiryForm.studentName || !inquiryForm.contactNumber) {
+  const [categoryFilter, setCategoryFilter] = useState("All");
+
+
+  // === FETCH DATA ===
+  const { data: programs } = useQuery({
+    queryKey: ["programs"],
+    queryFn: getProgramNames,
+  });
+
+  const { data: inquiries = [], isLoading: inquiriesLoading } = useQuery({
+    queryKey: ["inquiries", selectedProgram],
+    queryFn: () => getInquiries(selectedProgram || undefined),
+  });
+
+  const { data: visitors = [], isLoading: visitorsLoading } = useQuery({
+    queryKey: ["visitors"],
+    queryFn: getVisitors,
+    onError: (err) =>
       toast({
-        title: "Please fill required fields",
-        variant: "destructive"
-      });
+        title: err.message || "Failed to load visitors",
+        variant: "destructive",
+      }),
+  });
+
+  // === MUTATIONS ===
+  // Inquiry
+  const createMutation = useMutation({
+    mutationFn: createInquiry,
+    onSuccess: () => {
+      toast({ title: "Inquiry added successfully" });
+      queryClient.invalidateQueries(["inquiries"]);
+      closeInquiryDialog();
+    },
+    onError: (err) =>
+      toast({ title: err.message || "Failed to add inquiry", variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }) => updateInquiry(id, payload),
+    onSuccess: () => {
+      toast({ title: "Inquiry updated successfully" });
+      queryClient.invalidateQueries(["inquiries"]);
+      closeInquiryDialog();
+    },
+    onError: (err) =>
+      toast({ title: err.message || "Failed to update inquiry", variant: "destructive" }),
+  });
+
+  const deleteInqMutation = useMutation({
+    mutationFn: delInquiry,
+    onSuccess: () => {
+      toast({ title: "Inquiry deleted" });
+      queryClient.invalidateQueries(["inquiries"]);
+    },
+    onError: (err) =>
+      toast({ title: err.message || "Failed to delete inquiry", variant: "destructive" }),
+  });
+
+  // Visitor
+  const createVisitorMutation = useMutation({
+    mutationFn: createVisitor,
+    onSuccess: () => {
+      toast({ title: "Visitor recorded successfully" });
+      queryClient.invalidateQueries(["visitors"]);
+      closeVisitorDialog();
+    },
+    onError: (err) =>
+      toast({ title: err.message || "Failed to record visitor", variant: "destructive" }),
+  });
+
+  const updateVisitorMutation = useMutation({
+    mutationFn: ({ id, payload }) => updateVisitor(id, payload),
+    onSuccess: () => {
+      toast({ title: "Visitor updated successfully" });
+      queryClient.invalidateQueries(["visitors"]);
+      closeVisitorDialog();
+    },
+    onError: (err) =>
+      toast({ title: err.message || "Failed to update visitor", variant: "destructive" }),
+  });
+
+  const deleteVisitorMutation = useMutation({
+    mutationFn: delVisitor,
+    onSuccess: () => {
+      toast({ title: "Visitor deleted" });
+      queryClient.invalidateQueries(["visitors"]);
+      setDeleteDialog({ open: false, type: "", id: "" });
+    },
+    onError: (err) =>
+      toast({ title: err.message || "Failed to delete visitor", variant: "destructive" }),
+  });
+
+
+  // complaints
+  const [dateFilter, setDateFilter] = useState();
+  const { data: complaints } = useQuery({
+    queryKey: ["complaints", dateFilter],
+    queryFn: () => getComplaints(dateFilter),
+    enabled: !!dateFilter
+  });
+
+  const { mutate: createComplaint } = useMutation({
+    mutationFn: createComplaintApi,
+    onSuccess: () => {
+      toast({ title: "Complaint registered successfully" });
+      queryClient.invalidateQueries(["complaints"])
+    },
+    onError: (err) => {
+      toast({ title: err.message || "Complaint registration failed", variant: "destructive" });
+    },
+  });
+
+  const { mutate: updateComplaint } = useMutation({
+    mutationFn: ({ id, payload }) => updateComplaintApi(id, payload),
+    onSuccess: () => {
+      toast({ title: "Complaint updated successfully" });
+      queryClient.invalidateQueries(["complaints"])
+    },
+    onError: (err) => {
+      toast({ title: err.message || "Complaint registration failed", variant: "destructive" });
+    },
+  });
+
+  const { mutate: deleteComplaint } = useMutation({
+    mutationFn: delComplaintApi,
+    onSuccess: () => queryClient.invalidateQueries(["complaints"]),
+  });
+
+
+  // contact
+  const { data: contacts } = useQuery({
+    queryKey: ["contacts"],
+    queryFn: () => getContacts(),
+  });
+
+  const { mutate: createContact } = useMutation({
+    mutationFn: createContactApi,
+    onSuccess: () => {
+      closeContactDialog();
+      toast({ title: "contact created successfully" });
+      queryClient.invalidateQueries(["contacts"])
+    },
+    onError: (err) => {
+      toast({ title: err.message || "contact creation failed", variant: "destructive" });
+    },
+  });
+
+  const { mutate: updateContact } = useMutation({
+    mutationFn: ({ id, payload }) => UpdateContactApi(id, payload),
+    onSuccess: () => {
+      closeContactDialog();
+      toast({ title: "contact updated successfully" });
+      queryClient.invalidateQueries(["contacts"])
+    },
+    onError: (err) => {
+      toast({ title: err.message || "contacts creation failed", variant: "destructive" });
+    },
+  });
+
+  const { mutate: deleteContact } = useMutation({
+    mutationFn: delContact,
+    onSuccess: () => queryClient.invalidateQueries(["contacts"]),
+  });
+
+  const handleDateSelect = (date) => {
+    if (!date) {
+      setDateFilter(undefined);
       return;
     }
-    if (editingInquiry) {
-      updateInquiry(editingInquiry, inquiryForm);
-      toast({
-        title: "Inquiry updated successfully"
-      });
-    } else {
-      addInquiry({
-        ...inquiryForm,
-        status: "new",
-        date: new Date().toISOString().split("T")[0]
-      });
-      toast({
-        title: "Inquiry registered successfully"
-      });
-    }
+
+    const localDate = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate()
+    );
+
+    setDateFilter(localDate);
+  };
+
+
+  // === FORM RESET & DIALOG CONTROL ===
+  const closeInquiryDialog = () => {
     setInquiryForm({
       studentName: "",
       fatherName: "",
@@ -130,12 +354,68 @@ const FrontOffice = () => {
       address: "",
       programInterest: "",
       previousInstitute: "",
-      remarks: ""
+      remarks: "",
     });
     setEditingInquiry(null);
     setInquiryDialog(false);
   };
-  const handleEditInquiry = inquiry => {
+
+  const closeVisitorDialog = () => {
+    setVisitorForm({
+      visitorName: "",
+      phoneNumber: "",
+      ID: "",
+      purpose: "",
+      persons: "",
+      visitDate: new Date().toISOString().split("T")[0],
+      inTime: "",
+      outTime: "",
+      remarks: "",
+    });
+    setEditingVisitor(null);
+    setVisitorDialog(false);
+  };
+
+  const closeComplaintDialog = () => {
+    setComplaintForm({
+      type: "Student",
+      complainantName: "",
+      contact: "",
+      details: "",
+      subject: "",
+      status: "Pending",
+    });
+    setEditingComplaint(null);
+    setComplaintDialog(false);
+  };
+
+  const closeContactDialog = () => {
+    setContactForm({
+      name: "",
+      category: "Emergency",
+      phone: "",
+      email: "",
+      details: "",
+    });
+    setEditingContact(null);
+    setContactDialog(false);
+  };
+
+  // === HANDLERS ===
+  const handleInquirySubmit = () => {
+    if (!inquiryForm.studentName || !inquiryForm.contactNumber) {
+      toast({ title: "Please fill required fields", variant: "destructive" });
+      return;
+    }
+
+    if (editingInquiry) {
+      updateMutation.mutate({ id: editingInquiry.id, payload: inquiryForm });
+    } else {
+      createMutation.mutate({ ...inquiryForm, status: "NEW" });
+    }
+  };
+
+  const handleEditInquiry = (inquiry) => {
     setInquiryForm({
       studentName: inquiry.studentName,
       fatherName: inquiry.fatherName,
@@ -143,189 +423,173 @@ const FrontOffice = () => {
       contactNumber: inquiry.contactNumber,
       email: inquiry.email,
       address: inquiry.address,
-      programInterest: inquiry.programInterest,
+      programInterest: inquiry.programInterest || inquiry.program?.id || "",
       previousInstitute: inquiry.previousInstitute,
-      remarks: inquiry.remarks
+      remarks: inquiry.remarks,
     });
-    setEditingInquiry(inquiry.id);
+    setEditingInquiry(inquiry);
     setInquiryDialog(true);
   };
 
-  // Visitor Handlers
   const handleVisitorSubmit = () => {
-    if (!visitorForm.visitorName || !visitorForm.phoneNumber) {
-      toast({
-        title: "Please fill required fields",
-        variant: "destructive"
-      });
+    if (!visitorForm.visitorName || !visitorForm.phoneNumber || !visitorForm.ID) {
+      toast({ title: "Please fill required fields", variant: "destructive" });
       return;
     }
+
+    const payload = {
+      ...visitorForm,
+      visitDate: visitorForm.visitDate || new Date().toISOString().split("T")[0],
+    };
+
     if (editingVisitor) {
-      updateVisitor(editingVisitor, visitorForm);
-      toast({
-        title: "Visitor updated successfully"
-      });
+      updateVisitorMutation.mutate({ id: editingVisitor.id, payload });
     } else {
-      addVisitor(visitorForm);
-      toast({
-        title: "Visitor recorded successfully"
-      });
+      createVisitorMutation.mutate(payload);
     }
-    setVisitorForm({
-      visitorName: "",
-      phoneNumber: "",
-      purpose: "",
-      visitDate: new Date().toISOString().split("T")[0],
-      inTime: "",
-      outTime: "",
-      remarks: ""
-    });
-    setEditingVisitor(null);
-    setVisitorDialog(false);
   };
-  const handleEditVisitor = visitor => {
-    setVisitorForm(visitor);
-    setEditingVisitor(visitor.id);
+
+  const handleEditVisitor = (visitor) => {
+    // console.log(visitor.inTime)
+    setVisitorForm({
+      visitorName: visitor.visitorName,
+      phoneNumber: visitor.phone,
+      ID: visitor.IDCard,
+      purpose: visitor.purpose || "",
+      persons: visitor.persons,
+      visitDate: visitor.date.split("T")[0],
+      inTime: visitor.inTime ? visitor.inTime.split("T")[1].slice(0, 5) : "",
+      outTime: visitor.outTime ? visitor.outTime.split("T")[1].slice(0, 5) : "",
+      remarks: visitor.remarks || "",
+    });
+    setEditingVisitor(visitor);
     setVisitorDialog(true);
   };
 
-  // Complaint Handlers
   const handleComplaintSubmit = () => {
     if (!complaintForm.complainantName || !complaintForm.details) {
-      toast({
-        title: "Please fill required fields",
-        variant: "destructive"
-      });
+      toast({ title: "Please fill required fields", variant: "destructive" });
       return;
     }
+
     if (editingComplaint) {
       updateComplaint(editingComplaint, complaintForm);
-      toast({
-        title: "Complaint updated successfully"
-      });
     } else {
-      addComplaint({
+      createComplaint({
         ...complaintForm,
-        status: "pending",
-        date: new Date().toISOString().split("T")[0]
+        status: "Pending",
       });
-      toast({
-        title: "Complaint registered successfully"
-      });
+
     }
-    setComplaintForm({
-      complainantType: "Student",
-      complainantName: "",
-      contactNumber: "",
-      complaintNature: "",
-      details: "",
-      assignedTo: ""
-    });
-    setEditingComplaint(null);
-    setComplaintDialog(false);
+    closeComplaintDialog();
   };
-  const handleEditComplaint = complaint => {
-    setComplaintForm({
-      complainantType: complaint.complainantType,
-      complainantName: complaint.complainantName,
-      contactNumber: complaint.contactNumber,
-      complaintNature: complaint.complaintNature,
-      details: complaint.details,
-      assignedTo: complaint.assignedTo
-    });
-    setEditingComplaint(complaint.id);
+
+  const handleEditComplaint = (complaint) => {
+    setComplaintForm(complaint);
+    setEditingComplaint(complaint);
     setComplaintDialog(true);
   };
 
-  // Contact Handlers
   const handleContactSubmit = () => {
-    if (!contactForm.contactName || !contactForm.phoneNumber) {
-      toast({
-        title: "Please fill required fields",
-        variant: "destructive"
-      });
+    if (!contactForm.name || !contactForm.phone) {
+      toast({ title: "Please fill required fields", variant: "destructive" });
       return;
     }
+
     if (editingContact) {
-      updateContact(editingContact, contactForm);
-      toast({
-        title: "Contact updated successfully"
-      });
+      updateContact({ id: editingContact.id, payload: contactForm });
+      toast({ title: "Contact updated successfully" });
     } else {
-      addContact(contactForm);
-      toast({
-        title: "Contact added successfully"
-      });
+      createContact(contactForm);
+      toast({ title: "Contact added successfully" });
     }
-    setContactForm({
-      contactName: "",
-      category: "Emergency",
-      phoneNumber: "",
-      email: "",
-      description: ""
-    });
-    setEditingContact(null);
-    setContactDialog(false);
+
   };
-  const handleEditContact = contact => {
+
+  const handleEditContact = (contact) => {
     setContactForm(contact);
-    setEditingContact(contact.id);
+    setEditingContact(contact);
     setContactDialog(true);
   };
 
-  // Delete Handler
   const handleDelete = () => {
-    const {
-      type,
-      id
-    } = deleteDialog;
+    const { type, id } = deleteDialog;
     switch (type) {
       case "inquiry":
-        deleteInquiry(id);
-        toast({
-          title: "Inquiry deleted"
-        });
+        deleteInqMutation.mutate(id);
         break;
       case "visitor":
-        deleteVisitor(id);
-        toast({
-          title: "Visitor record deleted"
-        });
+        deleteVisitorMutation.mutate(id);
         break;
       case "complaint":
         deleteComplaint(id);
-        toast({
-          title: "Complaint deleted"
-        });
+        toast({ title: "Complaint deleted" });
         break;
       case "contact":
         deleteContact(id);
-        toast({
-          title: "Contact deleted"
-        });
+        toast({ title: "Contact deleted" });
         break;
     }
-    setDeleteDialog({
-      open: false,
-      type: "",
-      id: ""
-    });
+    setDeleteDialog({ open: false, type: "", id: "" });
   };
-  const getStatusColor = status => {
-    switch (status) {
+  const filteredContacts = categoryFilter === "All"
+    ? contacts
+    : contacts.filter(c => c.category === categoryFilter);
+
+
+  const getStatusColor = (status) => {
+    switch (status?.toLowerCase()) {
+      case "pending":
+        return "bg-yellow-200 text-yellow-900";
       case "approved":
       case "resolved":
-        return "bg-success/20 text-success";
+        return "bg-green-100 text-green-700";
       case "rejected":
-        return "bg-destructive/20 text-destructive";
+        return "bg-red-200 text-red-900";
       case "in-progress":
-      case "follow-up":
-        return "bg-warning/20 text-warning";
+      case "follow_up":
+        return "bg-yellow-100 text-yellow-700";
       default:
-        return "bg-muted text-muted-foreground";
+        return "bg-gray-100 text-gray-700";
     }
   };
-  return <DashboardLayout>
+  const handlePrintTable = () => {
+  const content = document.getElementById("printableContacts").innerHTML;
+
+  const printWindow = window.open("", "_blank");
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Contacts</title>
+        <style>
+          table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          th, td {
+            border: 1px solid #000;
+            padding: 8px;
+            text-align: left;
+          }
+
+          /* HIDE ACTION COLUMN IN PRINT */
+          .no-print {
+            display: none !important;
+          }
+        </style>
+      </head>
+      <body>${content}</body>
+    </html>
+  `);
+
+  printWindow.document.close();
+  printWindow.print();
+};
+
+
+
+  return (
+    <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
         <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium">
           <h2 className="text-2xl font-bold mb-2">Front Office Management</h2>
@@ -350,153 +614,209 @@ const FrontOffice = () => {
                   <UserPlus className="w-5 h-5" />
                   All Inquiries
                 </CardTitle>
-                <Dialog open={inquiryDialog} onOpenChange={setInquiryDialog}>
-                  <DialogTrigger asChild>
-                    <Button onClick={() => setEditingInquiry(null)}>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Inquiry
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle>{editingInquiry ? "Edit" : "New"} Inquiry</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Student Name *</Label>
-                          <Input value={inquiryForm.studentName} onChange={e => setInquiryForm({
-                          ...inquiryForm,
-                          studentName: e.target.value
-                        })} placeholder="Enter student name" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Father Name</Label>
-                          <Input value={inquiryForm.fatherName} onChange={e => setInquiryForm({
-                          ...inquiryForm,
-                          fatherName: e.target.value
-                        })} placeholder="Enter father name" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Father CNIC</Label>
-                          <Input value={inquiryForm.fatherCnic} onChange={e => setInquiryForm({
-                          ...inquiryForm,
-                          fatherCnic: e.target.value
-                        })} placeholder="12345-1234567-1" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Contact Number *</Label>
-                          <Input value={inquiryForm.contactNumber} onChange={e => setInquiryForm({
-                          ...inquiryForm,
-                          contactNumber: e.target.value
-                        })} placeholder="0300-1234567" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Email</Label>
-                          <Input value={inquiryForm.email} onChange={e => setInquiryForm({
-                          ...inquiryForm,
-                          email: e.target.value
-                        })} placeholder="student@email.com" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Program Interest</Label>
-                          <Select value={inquiryForm.programInterest} onValueChange={v => setInquiryForm({
-                          ...inquiryForm,
-                          programInterest: v
-                        })}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select program" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="HSSC Pre-Engineering">HSSC Pre-Engineering</SelectItem>
-                              <SelectItem value="HSSC Pre-Medical">HSSC Pre-Medical</SelectItem>
-                              <SelectItem value="BS Computer Science">BS Computer Science</SelectItem>
-                              <SelectItem value="BS Software Engineering">BS Software Engineering</SelectItem>
-                              <SelectItem value="Diploma in IT">Diploma in IT</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Address</Label>
-                        <Input value={inquiryForm.address} onChange={e => setInquiryForm({
-                        ...inquiryForm,
-                        address: e.target.value
-                      })} placeholder="Enter address" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Previous Institute</Label>
-                        <Input value={inquiryForm.previousInstitute} onChange={e => setInquiryForm({
-                        ...inquiryForm,
-                        previousInstitute: e.target.value
-                      })} placeholder="Enter previous institute" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Remarks</Label>
-                        <Textarea value={inquiryForm.remarks} onChange={e => setInquiryForm({
-                        ...inquiryForm,
-                        remarks: e.target.value
-                      })} placeholder="Add remarks" rows={3} />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setInquiryDialog(false)}>Cancel</Button>
-                      <Button onClick={handleInquirySubmit}>
-                        {editingInquiry ? "Update" : "Submit"} Inquiry
+                <div className="flex items-center gap-3">
+                  <Select value={selectedProgram} onValueChange={setSelectedProgram}>
+                    <SelectTrigger className="w-[220px]">
+                      <SelectValue placeholder="Filter by program" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="*">Select a Program</SelectItem>
+                      {programs?.map((program) => (
+                        <SelectItem key={program.id} value={program.id}>
+                          {program.name} — {program.department?.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Dialog open={inquiryDialog} onOpenChange={setInquiryDialog}>
+                    <DialogTrigger asChild>
+                      <Button onClick={closeInquiryDialog}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Inquiry
                       </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>
+                          {editingInquiry ? "Edit" : "New"} Inquiry
+                        </DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Student Name *</Label>
+                            <Input
+                              value={inquiryForm.studentName}
+                              onChange={(e) =>
+                                setInquiryForm({ ...inquiryForm, studentName: e.target.value })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Father Name</Label>
+                            <Input
+                              value={inquiryForm.fatherName}
+                              onChange={(e) =>
+                                setInquiryForm({ ...inquiryForm, fatherName: e.target.value })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Father CNIC</Label>
+                            <Input
+                              value={inquiryForm.fatherCnic}
+                              onChange={(e) =>
+                                setInquiryForm({ ...inquiryForm, fatherCnic: e.target.value })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Contact Number *</Label>
+                            <Input
+                              value={inquiryForm.contactNumber}
+                              onChange={(e) =>
+                                setInquiryForm({ ...inquiryForm, contactNumber: e.target.value })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Email</Label>
+                            <Input
+                              value={inquiryForm.email}
+                              onChange={(e) =>
+                                setInquiryForm({ ...inquiryForm, email: e.target.value })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Program Interest</Label>
+                            <Select
+                              value={inquiryForm.programInterest}
+                              onValueChange={(v) =>
+                                setInquiryForm({ ...inquiryForm, programInterest: v })
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select program" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {programs?.map((program) => (
+                                  <SelectItem key={program.id} value={program.id}>
+                                    {program.name} — {program.department?.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Address</Label>
+                          <Input
+                            value={inquiryForm.address}
+                            onChange={(e) =>
+                              setInquiryForm({ ...inquiryForm, address: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Previous Institute</Label>
+                          <Input
+                            value={inquiryForm.previousInstitute}
+                            onChange={(e) =>
+                              setInquiryForm({
+                                ...inquiryForm,
+                                previousInstitute: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Remarks</Label>
+                          <Textarea
+                            value={inquiryForm.remarks}
+                            onChange={(e) =>
+                              setInquiryForm({ ...inquiryForm, remarks: e.target.value })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={closeInquiryDialog}>
+                          Cancel
+                        </Button>
+                        <Button onClick={handleInquirySubmit}>
+                          {editingInquiry ? "Update" : "Submit"} Inquiry
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Student Name</TableHead>
-                      <TableHead>Contact</TableHead>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {inquiries.map(inquiry => <TableRow key={inquiry.id}>
-                        <TableCell>{inquiry.date}</TableCell>
-                        <TableCell className="font-medium">{inquiry.studentName}</TableCell>
-                        <TableCell>{inquiry.contactNumber}</TableCell>
-                        <TableCell>{inquiry.programInterest}</TableCell>
-                        <TableCell>
-                          <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(inquiry.status)}`}>
-                            {inquiry.status}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="ghost" onClick={() => setViewDetailsDialog({
-                            open: true,
-                            type: "inquiry",
-                            data: inquiry
-                          })}>
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => handleEditInquiry(inquiry)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
-                            open: true,
-                            type: "inquiry",
-                            id: inquiry.id
-                          })}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
-                  </TableBody>
-                </Table>
-                </div>
+                {inquiriesLoading ? (
+                  <p className="text-center py-8 text-muted-foreground">Loading...</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Student Name</TableHead>
+                        <TableHead>Father Name</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>Program</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {inquiries.map((inquiry) => (
+                        <TableRow key={inquiry.id}>
+                          <TableCell>{inquiry.createdAt.split("T")[0]}</TableCell>
+                          <TableCell className="font-medium">{inquiry.studentName}</TableCell>
+                          <TableCell>{inquiry.fatherName}</TableCell>
+                          <TableCell>{inquiry.contactNumber}</TableCell>
+                          <TableCell>{inquiry.program?.name}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  setViewDetailsDialog({
+                                    open: true,
+                                    type: "inquiry",
+                                    data: {
+                                      ...inquiry,
+                                      programInterest: inquiry.program?.name,
+                                      date: inquiry.createdAt.split("T")[0],
+                                    },
+                                  })
+                                }
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleEditInquiry(inquiry)}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  setDeleteDialog({ open: true, type: "inquiry", id: inquiry.id })
+                                }
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -511,7 +831,7 @@ const FrontOffice = () => {
                 </CardTitle>
                 <Dialog open={visitorDialog} onOpenChange={setVisitorDialog}>
                   <DialogTrigger asChild>
-                    <Button onClick={() => setEditingVisitor(null)}>
+                    <Button onClick={closeVisitorDialog}>
                       <Plus className="w-4 h-4 mr-2" />
                       Add Visitor
                     </Button>
@@ -524,57 +844,132 @@ const FrontOffice = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Visitor Name *</Label>
-                          <Input value={visitorForm.visitorName} onChange={e => setVisitorForm({
-                          ...visitorForm,
-                          visitorName: e.target.value
-                        })} placeholder="Enter visitor name" />
+                          <Input
+                            value={visitorForm.visitorName}
+                            onChange={(e) =>
+                              setVisitorForm({ ...visitorForm, visitorName: e.target.value })
+                            }
+                            placeholder="Enter visitor name"
+                          />
                         </div>
                         <div className="space-y-2">
                           <Label>Phone *</Label>
-                          <Input value={visitorForm.phoneNumber} onChange={e => setVisitorForm({
-                          ...visitorForm,
-                          phoneNumber: e.target.value
-                        })} placeholder="0300-1234567" />
+                          <Input
+                            value={visitorForm.phoneNumber}
+                            onChange={(e) =>
+                              setVisitorForm({ ...visitorForm, phoneNumber: e.target.value })
+                            }
+                            placeholder="0300-1234567"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>ID Card *</Label>
+                          <Input
+                            value={visitorForm.ID}
+                            onChange={(e) =>
+                              setVisitorForm({ ...visitorForm, ID: e.target.value })
+                            }
+                            placeholder="12345-1234567-1"
+                          />
                         </div>
                         <div className="space-y-2">
                           <Label>Visit Date</Label>
-                          <Input type="date" value={visitorForm.visitDate} onChange={e => setVisitorForm({
-                          ...visitorForm,
-                          visitDate: e.target.value
-                        })} />
+                          <Popover open={dateOpen} onOpenChange={setDateOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                className="w-full justify-start text-left font-normal"
+                              >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {visitorForm.visitDate
+                                  ? format(new Date(visitorForm.visitDate), "PPP")
+                                  : "Pick a date"}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <Calendar
+                                mode="single"
+                                selected={
+                                  visitorForm.visitDate ? new Date(visitorForm.visitDate) : undefined
+                                }
+                                onSelect={(date) => {
+                                  setVisitorForm({
+                                    ...visitorForm,
+                                    visitDate: date ? date.toLocaleDateString("en-CA") : "",
+                                  });
+                                  setDateOpen(false);
+                                }}
+                                initialFocus
+                              />
+                            </PopoverContent>
+                          </Popover>
                         </div>
+
+                        {/* In Time */}
                         <div className="space-y-2">
                           <Label>In Time</Label>
-                          <Input type="time" value={visitorForm.inTime} onChange={e => setVisitorForm({
-                          ...visitorForm,
-                          inTime: e.target.value
-                        })} />
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="time"
+                              value={visitorForm.inTime}
+                              onChange={(e) =>
+                                setVisitorForm({ ...visitorForm, inTime: e.target.value })
+                              }
+                            />
+                          </div>
                         </div>
+
+                        {/* Out Time */}
                         <div className="space-y-2">
                           <Label>Out Time</Label>
-                          <Input type="time" value={visitorForm.outTime} onChange={e => setVisitorForm({
-                          ...visitorForm,
-                          outTime: e.target.value
-                        })} />
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="time"
+                              value={visitorForm.outTime}
+                              onChange={(e) =>
+                                setVisitorForm({ ...visitorForm, outTime: e.target.value })
+                              }
+                            />
+                          </div>
                         </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Persons</Label>
+
+                        <Input
+                          value={visitorForm.persons}
+                          onChange={(e) =>
+                            setVisitorForm({ ...visitorForm, persons: e.target.value })
+                          }
+                          placeholder="Number of visitors"
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label>Purpose</Label>
-                        <Input value={visitorForm.purpose} onChange={e => setVisitorForm({
-                        ...visitorForm,
-                        purpose: e.target.value
-                      })} placeholder="Purpose of visit" />
+                        <Input
+                          value={visitorForm.purpose}
+                          onChange={(e) =>
+                            setVisitorForm({ ...visitorForm, purpose: e.target.value })
+                          }
+                          placeholder="Purpose of visit"
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label>Remarks</Label>
-                        <Textarea value={visitorForm.remarks} onChange={e => setVisitorForm({
-                        ...visitorForm,
-                        remarks: e.target.value
-                      })} placeholder="Additional notes" rows={2} />
+                        <Textarea
+                          value={visitorForm.remarks}
+                          onChange={(e) =>
+                            setVisitorForm({ ...visitorForm, remarks: e.target.value })
+                          }
+                          placeholder="Additional notes"
+                          rows={2}
+                        />
                       </div>
                     </div>
                     <DialogFooter>
-                      <Button variant="outline" onClick={() => setVisitorDialog(false)}>Cancel</Button>
+                      <Button variant="outline" onClick={closeVisitorDialog}>
+                        Cancel
+                      </Button>
                       <Button onClick={handleVisitorSubmit}>
                         {editingVisitor ? "Update" : "Record"} Visit
                       </Button>
@@ -583,43 +978,70 @@ const FrontOffice = () => {
                 </Dialog>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Visitor Name</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Purpose</TableHead>
-                      <TableHead>In Time</TableHead>
-                      <TableHead>Out Time</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {visitors.map(visitor => <TableRow key={visitor.id}>
-                        <TableCell>{visitor.visitDate}</TableCell>
-                        <TableCell className="font-medium">{visitor.visitorName}</TableCell>
-                        <TableCell>{visitor.phoneNumber}</TableCell>
-                        <TableCell>{visitor.purpose}</TableCell>
-                        <TableCell>{visitor.inTime}</TableCell>
-                        <TableCell>{visitor.outTime}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="ghost" onClick={() => handleEditVisitor(visitor)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
-                          open: true,
-                          type: "visitor",
-                          id: visitor.id
-                        })}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
-                  </TableBody>
-                </Table>
+                {visitorsLoading ? (
+                  <p className="text-center py-8 text-muted-foreground">Loading visitors...</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Visitor Name</TableHead>
+                        <TableHead>Phone</TableHead>
+                        <TableHead>Purpose</TableHead>
+                        <TableHead>In Time</TableHead>
+                        <TableHead>Out Time</TableHead>
+                        <TableHead>Persons</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {visitors.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-muted-foreground">
+                            No visitors recorded yet.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        visitors.map((visitor) => (
+                          <TableRow key={visitor.id}>
+                            <TableCell>{visitor.date.split("T")[0]}</TableCell>
+                            <TableCell className="font-medium truncate max-w-[130px] overflow-hidden whitespace-nowrap">{visitor.visitorName}</TableCell>
+                            <TableCell>{visitor.phone}</TableCell>
+                            <TableCell className="font-medium truncate max-w-[130px] overflow-hidden whitespace-nowrap">{visitor.purpose || "-"}</TableCell>
+                            <TableCell>{formatTime(visitor.inTime)}</TableCell>
+                            <TableCell>{formatTime(visitor.outTime)}</TableCell>
+
+                            <TableCell>{visitor.persons}</TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleEditVisitor(visitor)}
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    setDeleteDialog({
+                                      open: true,
+                                      type: "visitor",
+                                      id: visitor.id,
+                                    })
+                                  }
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -633,27 +1055,39 @@ const FrontOffice = () => {
                   All Complaints
                 </CardTitle>
                 <Dialog open={complaintDialog} onOpenChange={setComplaintDialog}>
-                  <DialogTrigger asChild>
-                    <Button onClick={() => setEditingComplaint(null)}>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Register Complaint
-                    </Button>
-                  </DialogTrigger>
+                  <div className="flex items-center justify-center gap-x-2">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline">
+                          {dateFilter ? dateFilter.toDateString() : "Pick a Date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent>
+                        <Calendar
+                          mode="single"
+                          selected={dateFilter}
+                          onSelect={handleDateSelect}
+                        />
+                      </PopoverContent>
+                    </Popover>
+
+                    <DialogTrigger asChild>
+                      <Button onClick={() => setEditingComplaint(null)}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Register Complaint
+                      </Button>
+                    </DialogTrigger>
+                  </div>
                   <DialogContent>
                     <DialogHeader>
                       <DialogTitle>{editingComplaint ? "Edit" : "Register"} Complaint</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
+                        <div>
                           <Label>Complainant Type *</Label>
-                          <Select value={complaintForm.complainantType} onValueChange={v => setComplaintForm({
-                          ...complaintForm,
-                          complainantType: v
-                        })}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
+                          <Select value={complaintForm.type} onValueChange={v => setComplaintForm({ ...complaintForm, type: v })}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="Student">Student</SelectItem>
                               <SelectItem value="Parent">Parent</SelectItem>
@@ -661,54 +1095,41 @@ const FrontOffice = () => {
                             </SelectContent>
                           </Select>
                         </div>
-                        <div className="space-y-2">
-                          <Label>Complainant Name *</Label>
-                          <Input value={complaintForm.complainantName} onChange={e => setComplaintForm({
-                          ...complaintForm,
-                          complainantName: e.target.value
-                        })} placeholder="Enter name" />
+
+                        <div>
+                          <Label>Name *</Label>
+                          <Input
+                            value={complaintForm.complainantName}
+                            onChange={e => setComplaintForm({ ...complaintForm, complainantName: e.target.value })}
+                          />
                         </div>
-                        <div className="space-y-2">
-                          <Label>Contact Number</Label>
-                          <Input value={complaintForm.contactNumber} onChange={e => setComplaintForm({
-                          ...complaintForm,
-                          contactNumber: e.target.value
-                        })} placeholder="0300-1234567" />
+
+                        <div>
+                          <Label>Contact *</Label>
+                          <Input
+                            value={complaintForm.contact}
+                            onChange={e => setComplaintForm({ ...complaintForm, contact: Number(e.target.value) })}
+                          />
                         </div>
-                        <div className="space-y-2">
-                          <Label>Complaint Nature</Label>
-                          <Input value={complaintForm.complaintNature} onChange={e => setComplaintForm({
-                          ...complaintForm,
-                          complaintNature: e.target.value
-                        })} placeholder="e.g., Facility Issue" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Assign To</Label>
-                          <Select value={complaintForm.assignedTo} onValueChange={v => setComplaintForm({
-                          ...complaintForm,
-                          assignedTo: v
-                        })}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select person" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="MD">MD</SelectItem>
-                              <SelectItem value="Principal">Principal</SelectItem>
-                              <SelectItem value="HOD Science">HOD Science</SelectItem>
-                              <SelectItem value="HOD IT">HOD IT</SelectItem>
-                              <SelectItem value="Admin">Admin</SelectItem>
-                            </SelectContent>
-                          </Select>
+
+                        <div>
+                          <Label>Subject *</Label>
+                          <Input
+                            value={complaintForm.subject}
+                            onChange={e => setComplaintForm({ ...complaintForm, subject: e.target.value })}
+                          />
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Complaint Details *</Label>
-                        <Textarea value={complaintForm.details} onChange={e => setComplaintForm({
-                        ...complaintForm,
-                        details: e.target.value
-                      })} placeholder="Describe the complaint in detail" rows={4} />
+
+                      <div>
+                        <Label>Detail *</Label>
+                        <Textarea
+                          value={complaintForm.details}
+                          onChange={e => setComplaintForm({ ...complaintForm, details: e.target.value })}
+                        />
                       </div>
                     </div>
+
                     <DialogFooter>
                       <Button variant="outline" onClick={() => setComplaintDialog(false)}>Cancel</Button>
                       <Button onClick={handleComplaintSubmit}>
@@ -725,46 +1146,61 @@ const FrontOffice = () => {
                       <TableHead>Date</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Name</TableHead>
-                      <TableHead>Nature</TableHead>
-                      <TableHead>Assigned To</TableHead>
+                      <TableHead>Subject</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {complaints.map(complaint => <TableRow key={complaint.id}>
-                        <TableCell>{complaint.date}</TableCell>
-                        <TableCell>{complaint.complainantType}</TableCell>
-                        <TableCell className="font-medium">{complaint.complainantName}</TableCell>
-                        <TableCell>{complaint.complaintNature}</TableCell>
-                        <TableCell>{complaint.assignedTo}</TableCell>
-                        <TableCell>
-                          <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(complaint.status)}`}>
-                            {complaint.status}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="ghost" onClick={() => setViewDetailsDialog({
-                          open: true,
-                          type: "complaint",
-                          data: complaint
-                        })}>
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => handleEditComplaint(complaint)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
-                          open: true,
-                          type: "complaint",
-                          id: complaint.id
-                        })}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
+                    {complaints?.map(complaint => <TableRow key={complaint.id}>
+                      <TableCell>{complaint.createdAt.split("T")[0]}</TableCell>
+                      <TableCell>{complaint.type}</TableCell>
+                      <TableCell className="font-medium">{complaint.complainantName}</TableCell>
+                      <TableCell className="font-medium italic">{complaint.subject}</TableCell>
+                      <TableCell>
+                        <Select
+                          value={complaint.status}
+                          onValueChange={(v) =>
+                            updateComplaint({
+                              id: complaint.id,
+                              payload: { ...complaint, status: v },
+                            })
+                          }
+                        >
+                          <SelectTrigger className={`w-[130px] ${getStatusColor(complaint.status)}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Pending">Pending</SelectItem>
+                            <SelectItem value="In_Progress">In Progress</SelectItem>
+                            <SelectItem value="Resolved">Resolved</SelectItem>
+                            <SelectItem value="Rejected">Rejected</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => setViewDetailsDialog({
+                            open: true,
+                            type: "complaint",
+                            data: complaint
+                          })}>
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => handleEditComplaint(complaint)}>
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
+                            open: true,
+                            type: "complaint",
+                            id: complaint.id
+                          })}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>)}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -779,32 +1215,58 @@ const FrontOffice = () => {
                   <Phone className="w-5 h-5" />
                   Contact Directory
                 </CardTitle>
+
                 <Dialog open={contactDialog} onOpenChange={setContactDialog}>
-                  <DialogTrigger asChild>
-                    <Button onClick={() => setEditingContact(null)}>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Contact
-                    </Button>
-                  </DialogTrigger>
+                  <div className="flex items-center justify-center gap-x-2">
+                    <div className="flex items-center gap-3">
+                      {/* CATEGORY FILTER */}
+                      <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                        <SelectTrigger className="w-[150px]">
+                          <SelectValue placeholder="Filter by Category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="All">All</SelectItem>
+                          <SelectItem value="Emergency">Emergency</SelectItem>
+                          <SelectItem value="Academic">Academic</SelectItem>
+                          <SelectItem value="Technical">Technical</SelectItem>
+                          <SelectItem value="Maintenance">Maintenance</SelectItem>
+                          <SelectItem value="Other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      {/* PRINT BUTTON */}
+                      <Button variant="secondary" onClick={handlePrintTable}>
+                        Print
+                      </Button>
+                    </div>
+                    <DialogTrigger asChild>
+
+                      <Button onClick={() => setEditingContact(null)}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Contact
+                      </Button>
+                    </DialogTrigger>
+
+                  </div>
                   <DialogContent>
                     <DialogHeader>
                       <DialogTitle>{editingContact ? "Edit" : "Add"} Contact</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4">
+                    <div className="space-y-4" id="printableContacts">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Contact Name *</Label>
-                          <Input value={contactForm.contactName} onChange={e => setContactForm({
-                          ...contactForm,
-                          contactName: e.target.value
-                        })} placeholder="Enter name" />
+                          <Input value={contactForm.name} onChange={e => setContactForm({
+                            ...contactForm,
+                            name: e.target.value
+                          })} placeholder="Enter name" />
                         </div>
                         <div className="space-y-2">
                           <Label>Category *</Label>
                           <Select value={contactForm.category} onValueChange={v => setContactForm({
-                          ...contactForm,
-                          category: v
-                        })}>
+                            ...contactForm,
+                            category: v
+                          })}>
                             <SelectTrigger>
                               <SelectValue />
                             </SelectTrigger>
@@ -813,30 +1275,31 @@ const FrontOffice = () => {
                               <SelectItem value="Academic">Academic</SelectItem>
                               <SelectItem value="Technical">Technical</SelectItem>
                               <SelectItem value="Maintenance">Maintenance</SelectItem>
+                              <SelectItem value="Other">Other</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                         <div className="space-y-2">
                           <Label>Phone *</Label>
-                          <Input value={contactForm.phoneNumber} onChange={e => setContactForm({
-                          ...contactForm,
-                          phoneNumber: e.target.value
-                        })} placeholder="Enter phone" />
+                          <Input value={contactForm.phone} onChange={e => setContactForm({
+                            ...contactForm,
+                            phone: e.target.value
+                          })} placeholder="Enter phone" />
                         </div>
                         <div className="space-y-2">
                           <Label>Email</Label>
                           <Input value={contactForm.email} onChange={e => setContactForm({
-                          ...contactForm,
-                          email: e.target.value
-                        })} placeholder="email@example.com" />
+                            ...contactForm,
+                            email: e.target.value
+                          })} placeholder="email@example.com" />
                         </div>
                       </div>
                       <div className="space-y-2">
                         <Label>Description</Label>
-                        <Textarea value={contactForm.description} onChange={e => setContactForm({
-                        ...contactForm,
-                        description: e.target.value
-                      })} placeholder="Additional details" rows={2} />
+                        <Textarea value={contactForm.details} onChange={e => setContactForm({
+                          ...contactForm,
+                          details: e.target.value
+                        })} placeholder="Additional details" rows={2} />
                       </div>
                     </div>
                     <DialogFooter>
@@ -849,6 +1312,7 @@ const FrontOffice = () => {
                 </Dialog>
               </CardHeader>
               <CardContent>
+                <div id="printableContacts">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -857,37 +1321,38 @@ const FrontOffice = () => {
                       <TableHead>Phone</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Description</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="no-print">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {contacts.map(contact => <TableRow key={contact.id}>
-                        <TableCell className="font-medium">{contact.contactName}</TableCell>
-                        <TableCell>
-                          <span className="px-2 py-1 rounded-full text-xs bg-primary/10 text-primary">
-                            {contact.category}
-                          </span>
-                        </TableCell>
-                        <TableCell>{contact.phoneNumber}</TableCell>
-                        <TableCell>{contact.email}</TableCell>
-                        <TableCell>{contact.description}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="ghost" onClick={() => handleEditContact(contact)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
-                          open: true,
-                          type: "contact",
-                          id: contact.id
-                        })}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
+                    {filteredContacts?.map(contact => <TableRow key={contact.id}>
+                      <TableCell className="font-medium">{contact.name}</TableCell>
+                      <TableCell>
+                        <span className="px-2 py-1 rounded-full text-xs bg-primary/10 text-primary">
+                          {contact.category}
+                        </span>
+                      </TableCell>
+                      <TableCell>{contact.phone ? contact.phone : "-"}</TableCell>
+                      <TableCell>{contact.email ? contact.email : "-"}</TableCell>
+                      <TableCell>{contact.details ? contact.details : "-"}</TableCell>
+                      <TableCell className="no-print">
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => handleEditContact(contact)}>
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
+                            open: true,
+                            type: "contact",
+                            id: contact.id
+                          })}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>)}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -895,9 +1360,9 @@ const FrontOffice = () => {
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog open={deleteDialog.open} onOpenChange={open => setDeleteDialog({
-        ...deleteDialog,
-        open
-      })}>
+          ...deleteDialog,
+          open
+        })}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Are you sure?</AlertDialogTitle>
@@ -913,23 +1378,41 @@ const FrontOffice = () => {
         </AlertDialog>
 
         {/* View Details Dialog */}
-        <Dialog open={viewDetailsDialog.open} onOpenChange={open => setViewDetailsDialog({
-        ...viewDetailsDialog,
-        open
-      })}>
-          <DialogContent>
+        <Dialog
+          open={viewDetailsDialog.open}
+          onOpenChange={(open) =>
+            setViewDetailsDialog({ ...viewDetailsDialog, open })
+          }
+        >
+          <DialogContent className="max-h-[90vh] min-w-[80vw] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Details</DialogTitle>
             </DialogHeader>
-            {viewDetailsDialog.data && <div className="space-y-3">
-                {Object.entries(viewDetailsDialog.data).map(([key, value]) => <div key={key} className="flex justify-between border-b pb-2">
-                    <span className="font-medium capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}:</span>
-                    <span className="text-muted-foreground">{value}</span>
-                  </div>)}
-              </div>}
+
+            {viewDetailsDialog.data && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 mt-2">
+                {Object.entries(viewDetailsDialog.data).map(([key, value]) => (
+                  <div
+                    key={key}
+                    className="flex items-start border-b pb-2 gap-x-2 overflow-hidden"
+                  >
+                    <span className="font-medium capitalize whitespace-nowrap flex-shrink-0">
+                      {key.replace(/([A-Z])/g, " $1").trim()}:
+                    </span>
+                    <span className="text-muted-foreground break-words text-left flex-1 min-w-0">
+                      {typeof value === "object" && value?.name
+                        ? value.name
+                        : String(value ?? "")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </DialogContent>
         </Dialog>
+
       </div>
-    </DashboardLayout>;
+    </DashboardLayout>
+  )
 };
 export default FrontOffice;

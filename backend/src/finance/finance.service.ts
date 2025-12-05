@@ -1,0 +1,473 @@
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateIncomeDto } from './dto/create-income.dto';
+import { UpdateIncomeDto } from './dto/update-income.dto';
+import { CreateExpenseDto } from './dto/create-expense.dto';
+import { UpdateExpenseDto } from './dto/update-expense.dto';
+import { CreateClosingDto } from './dto/create-closing.dto';
+
+@Injectable()
+export class FinanceService {
+    constructor(private prisma: PrismaService) { }
+
+    // ==================== INCOME ====================
+    async createIncome(createIncomeDto: CreateIncomeDto) {
+        return this.prisma.financeIncome.create({
+            data: {
+                ...createIncomeDto,
+                date: new Date(createIncomeDto.date),
+            },
+        });
+    }
+
+    async getIncomes(filters?: { dateFrom?: string; dateTo?: string; category?: string }) {
+        const where: any = {};
+
+        if (filters?.dateFrom || filters?.dateTo) {
+            where.date = {};
+            if (filters.dateFrom) {
+                where.date.gte = new Date(filters.dateFrom);
+            }
+            if (filters.dateTo) {
+                where.date.lte = new Date(filters.dateTo);
+            }
+        }
+
+        if (filters?.category && filters.category !== 'all' && filters.category !== 'Fee') {
+            where.category = filters.category;
+        }
+
+        // Fetch manual income records only if category is not exclusively 'Fee'
+        let manualIncomes: any[] = [];
+        if (filters?.category !== 'Fee') {
+            manualIncomes = await this.prisma.financeIncome.findMany({
+                where,
+                orderBy: { date: 'desc' },
+            });
+        }
+
+        // If category is 'Fee' or 'all', fetch paid fee challans and aggregate by month
+        let feeChallans: any[] = [];
+        if (!filters?.category || filters.category === 'all' || filters.category === 'Fee') {
+            const challanWhere: any = {
+                status: 'PAID',
+            };
+
+            if (filters?.dateFrom || filters?.dateTo) {
+                challanWhere.paidDate = {};
+                if (filters.dateFrom) {
+                    challanWhere.paidDate.gte = new Date(filters.dateFrom);
+                }
+                if (filters.dateTo) {
+                    challanWhere.paidDate.lte = new Date(filters.dateTo);
+                }
+            }
+
+            const challans = await this.prisma.feeChallan.findMany({
+                where: challanWhere,
+                include: {
+                    student: true,
+                },
+                orderBy: { paidDate: 'desc' },
+            });
+
+            // Aggregate by month
+            const monthlyAggregation = new Map<string, { total: number; date: Date; count: number }>();
+
+            challans.forEach((c) => {
+                const paidDate = c.paidDate || c.createdAt;
+                const monthKey = `${paidDate.getFullYear()}-${String(paidDate.getMonth() + 1).padStart(2, '0')}`;
+
+                if (!monthlyAggregation.has(monthKey)) {
+                    monthlyAggregation.set(monthKey, {
+                        total: 0,
+                        date: new Date(paidDate.getFullYear(), paidDate.getMonth(), 1),
+                        count: 0,
+                    });
+                }
+
+                const entry = monthlyAggregation.get(monthKey) || { total: 0, date: new Date(), count: 0 };
+                entry.total += Number(c.paidAmount);
+                entry.count += 1;
+            });
+
+            // Convert to array of income records
+            feeChallans = Array.from(monthlyAggregation.entries()).map(([monthKey, data]) => {
+                const [year, month] = monthKey.split('-');
+                const monthName = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+                return {
+                    id: `fee-${monthKey}`,
+                    date: data.date,
+                    category: 'Fee',
+                    description: `Fee payments from ${monthName} (${data.count} payments)`,
+                    amount: data.total,
+                    createdAt: data.date,
+                    updatedAt: data.date,
+                    source: 'fee-challan-aggregated',
+                    sourceId: monthKey,
+                };
+            });
+        }
+
+        // Combine and sort by date
+        const allIncomes = [...manualIncomes, ...feeChallans].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+        );
+
+        return allIncomes;
+    }
+
+    async updateIncome(id: number, updateIncomeDto: UpdateIncomeDto) {
+        const data: any = { ...updateIncomeDto };
+        if (updateIncomeDto.date) {
+            data.date = new Date(updateIncomeDto.date);
+        }
+
+        return this.prisma.financeIncome.update({
+            where: { id },
+            data,
+        });
+    }
+
+    async deleteIncome(id: number) {
+        return this.prisma.financeIncome.delete({
+            where: { id },
+        });
+    }
+
+    // ==================== EXPENSE ====================
+    async createExpense(createExpenseDto: CreateExpenseDto) {
+        return this.prisma.financeExpense.create({
+            data: {
+                ...createExpenseDto,
+                date: new Date(createExpenseDto.date),
+            },
+        });
+    }
+
+    async getExpenses(filters?: { dateFrom?: string; dateTo?: string; category?: string }) {
+        const where: any = {};
+
+        if (filters?.dateFrom || filters?.dateTo) {
+            where.date = {};
+            if (filters.dateFrom) {
+                where.date.gte = new Date(filters.dateFrom);
+            }
+            if (filters.dateTo) {
+                where.date.lte = new Date(filters.dateTo);
+            }
+        }
+
+        if (filters?.category && filters?.category !== 'all' && filters?.category !== 'Salaries' && filters?.category !== 'Inventory') {
+            where.category = filters.category;
+        }
+
+        // Fetch manual expense records only if category is not exclusively 'Salaries' or 'Inventory'
+        let manualExpenses: any[] = [];
+        if (filters?.category !== 'Salaries' && filters?.category !== 'Inventory') {
+            manualExpenses = await this.prisma.financeExpense.findMany({
+                where,
+                orderBy: { date: 'desc' },
+            });
+        }
+
+        // If category is 'Salaries' or 'all', fetch paid payrolls and aggregate by month
+        let salaryExpenses: any[] = [];
+        if (!filters?.category || filters.category === 'all' || filters.category === 'Salaries') {
+            const payrollWhere: any = {
+                status: 'PAID',
+            };
+
+            if (filters?.dateFrom || filters?.dateTo) {
+                payrollWhere.paymentDate = {};
+                if (filters.dateFrom) {
+                    payrollWhere.paymentDate.gte = new Date(filters.dateFrom);
+                }
+                if (filters.dateTo) {
+                    payrollWhere.paymentDate.lte = new Date(filters.dateTo);
+                }
+            }
+
+            const paidPayrolls = await this.prisma.payroll.findMany({
+                where: payrollWhere,
+                include: {
+                    employee: true,
+                    teacher: true,
+                },
+                orderBy: { paymentDate: 'desc' },
+            });
+
+            // Aggregate by month
+            const monthlyAggregation = new Map<string, { total: number; date: Date; count: number }>();
+
+            paidPayrolls.forEach((p) => {
+                const paymentDate = p.paymentDate || p.createdAt;
+                const monthKey = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
+
+                if (!monthlyAggregation.has(monthKey)) {
+                    monthlyAggregation.set(monthKey, {
+                        total: 0,
+                        date: new Date(paymentDate.getFullYear(), paymentDate.getMonth(), 1),
+                        count: 0,
+                    });
+                }
+
+                const entry = monthlyAggregation.get(monthKey) || { total: 0, date: new Date(), count: 0 };
+                entry.total += Number(p.netSalary);
+                entry.count += 1;
+            });
+
+            // Convert to array of expense records
+            salaryExpenses = Array.from(monthlyAggregation.entries()).map(([monthKey, data]) => {
+                const [year, month] = monthKey.split('-');
+                const monthName = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+                return {
+                    id: `salary-${monthKey}`,
+                    date: data.date,
+                    category: 'Salaries',
+                    description: `Salary payments from ${monthName} (${data.count} staff)`,
+                    amount: data.total,
+                    createdAt: data.date,
+                    updatedAt: data.date,
+                    source: 'payroll-aggregated',
+                    sourceId: monthKey,
+                };
+            });
+        }
+
+        // If category is 'Inventory' or 'all', fetch inventory expenses and aggregate by month
+        let inventoryExpenses: any[] = [];
+        if (!filters?.category || filters.category === 'all' || filters.category === 'Inventory') {
+            const inventoryWhere: any = {};
+
+            if (filters?.dateFrom || filters?.dateTo) {
+                inventoryWhere.date = {};
+                if (filters.dateFrom) {
+                    inventoryWhere.date.gte = new Date(filters.dateFrom);
+                }
+                if (filters.dateTo) {
+                    inventoryWhere.date.lte = new Date(filters.dateTo);
+                }
+            }
+
+            const inventoryItems = await this.prisma.inventoryExpense.findMany({
+                where: inventoryWhere,
+                include: {
+                    inventoryItem: true,
+                },
+                orderBy: { date: 'desc' },
+            });
+
+            // Aggregate by month
+            const monthlyAggregation = new Map<string, { total: number; date: Date; count: number }>();
+
+            inventoryItems.forEach((item) => {
+                const itemDate = item.date;
+                const monthKey = `${itemDate.getFullYear()}-${String(itemDate.getMonth() + 1).padStart(2, '0')}`;
+
+                if (!monthlyAggregation.has(monthKey)) {
+                    monthlyAggregation.set(monthKey, {
+                        total: 0,
+                        date: new Date(itemDate.getFullYear(), itemDate.getMonth(), 1),
+                        count: 0,
+                    });
+                }
+
+                const entry = monthlyAggregation.get(monthKey) || { total: 0, date: new Date(), count: 0 };
+                entry.total += Number(item.amount);
+                entry.count += 1;
+            });
+
+            // Convert to array of expense records
+            inventoryExpenses = Array.from(monthlyAggregation.entries()).map(([monthKey, data]) => {
+                const [year, month] = monthKey.split('-');
+                const monthName = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+                return {
+                    id: `inventory-${monthKey}`,
+                    date: data.date,
+                    category: 'Inventory',
+                    description: `Inventory expenses from ${monthName} (${data.count} items)`,
+                    amount: data.total,
+                    createdAt: data.date,
+                    updatedAt: data.date,
+                    source: 'inventory-aggregated',
+                    sourceId: monthKey,
+                };
+            });
+        }
+
+        // Combine and sort by date
+        const allExpenses = [...manualExpenses, ...salaryExpenses, ...inventoryExpenses].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+        );
+
+        return allExpenses;
+    }
+
+    async updateExpense(id: number, updateExpenseDto: UpdateExpenseDto) {
+        const data: any = { ...updateExpenseDto };
+        if (updateExpenseDto.date) {
+            data.date = new Date(updateExpenseDto.date);
+        }
+
+        return this.prisma.financeExpense.update({
+            where: { id },
+            data,
+        });
+    }
+
+    async deleteExpense(id: number) {
+        return this.prisma.financeExpense.delete({
+            where: { id },
+        });
+    }
+
+    // ==================== CLOSING ====================
+    async createClosing(createClosingDto: CreateClosingDto) {
+        return this.prisma.financeClosing.create({
+            data: {
+                ...createClosingDto,
+                date: new Date(createClosingDto.date),
+            },
+        });
+    }
+
+    async getClosings(filters?: { dateFrom?: string; dateTo?: string }) {
+        const where: any = {};
+
+        if (filters?.dateFrom || filters?.dateTo) {
+            where.createdAt = {};
+            if (filters.dateFrom) {
+                where.createdAt.gte = new Date(filters.dateFrom);
+            }
+            if (filters.dateTo) {
+                where.createdAt.lte = new Date(filters.dateTo);
+            }
+        }
+
+        return this.prisma.financeClosing.findMany({
+            where,
+            orderBy: { createdAt: 'desc' },
+        });
+    }
+
+    // ==================== DASHBOARD STATS ====================
+    async getDashboardStats(dateFrom?: string, dateTo?: string) {
+        const where: any = {};
+
+        if (dateFrom || dateTo) {
+            where.date = {};
+            if (dateFrom) {
+                where.date.gte = new Date(dateFrom);
+            }
+            if (dateTo) {
+                where.date.lte = new Date(dateTo);
+            }
+        }
+
+        // Fetch manual records
+        const [manualIncomes, manualExpenses] = await Promise.all([
+            this.prisma.financeIncome.findMany({ where }),
+            this.prisma.financeExpense.findMany({ where }),
+        ]);
+
+        // Fetch paid fee challans
+        const challanWhere: any = { status: 'PAID' };
+        if (dateFrom || dateTo) {
+            challanWhere.paidDate = {};
+            if (dateFrom) challanWhere.paidDate.gte = new Date(dateFrom);
+            if (dateTo) challanWhere.paidDate.lte = new Date(dateTo);
+        }
+        const paidChallans = await this.prisma.feeChallan.findMany({
+            where: challanWhere,
+            include: { student: true },
+        });
+
+        // Fetch paid payrolls
+        const payrollWhere: any = { status: 'PAID' };
+        if (dateFrom || dateTo) {
+            payrollWhere.paymentDate = {};
+            if (dateFrom) payrollWhere.paymentDate.gte = new Date(dateFrom);
+            if (dateTo) payrollWhere.paymentDate.lte = new Date(dateTo);
+        }
+        const paidPayrolls = await this.prisma.payroll.findMany({
+            where: payrollWhere,
+            include: { employee: true, teacher: true },
+        });
+
+        // Calculate totals
+        const manualIncome = manualIncomes.reduce((sum, item) => sum + item.amount, 0);
+        const feeIncome = paidChallans.reduce((sum, item) => sum + Number(item.paidAmount), 0);
+        const totalIncome = manualIncome + feeIncome;
+
+        const manualExpense = manualExpenses.reduce((sum, item) => sum + item.amount, 0);
+        const payrollExpense = paidPayrolls.reduce((sum, item) => sum + Number(item.netSalary), 0);
+        const totalExpense = manualExpense + payrollExpense;
+
+        const netBalance = totalIncome - totalExpense;
+
+        // Category breakdown for incomes
+        const incomeByCategory = manualIncomes.reduce(
+            (acc, item) => {
+                acc[item.category] = (acc[item.category] || 0) + item.amount;
+                return acc;
+            },
+            {} as Record<string, number>,
+        );
+        if (feeIncome > 0) {
+            incomeByCategory['Fee'] = feeIncome;
+        }
+
+        // Category breakdown for expenses
+        const expenseByCategory = manualExpenses.reduce(
+            (acc, item) => {
+                acc[item.category] = (acc[item.category] || 0) + item.amount;
+                return acc;
+            },
+            {} as Record<string, number>,
+        );
+        if (payrollExpense > 0) {
+            expenseByCategory['Payroll'] = payrollExpense;
+        }
+
+        // Combine all into arrays
+        const incomes = [
+            ...manualIncomes,
+            ...paidChallans.map((c) => ({
+                id: `fee-${c.id}`,
+                date: c.paidDate || c.createdAt,
+                category: 'Fee',
+                description: `Fee payment from ${c.student.fName} ${c.student.lName || ''}`,
+                amount: c.paidAmount,
+                createdAt: c.createdAt,
+                updatedAt: c.updatedAt,
+            })),
+        ];
+
+        const expenses = [
+            ...manualExpenses,
+            ...paidPayrolls.map((p) => ({
+                id: `payroll-${p.id}`,
+                date: p.paymentDate || p.createdAt,
+                category: 'Payroll',
+                description: `Salary - ${p.month}`,
+                amount: p.netSalary,
+                createdAt: p.createdAt,
+                updatedAt: p.updatedAt,
+            })),
+        ];
+
+        return {
+            totalIncome,
+            totalExpense,
+            netBalance,
+            incomeByCategory,
+            expenseByCategory,
+            incomes,
+            expenses,
+        };
+    }
+}

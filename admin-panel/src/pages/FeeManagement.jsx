@@ -8,36 +8,46 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { useData } from "@/contexts/DataContext";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { DollarSign, Plus, CheckCircle2, Edit, Trash2, Receipt, TrendingUp, Layers, Printer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import {
+  createFeeHead, getFeeHeads, updateFeeHead, deleteFeeHead,
+  createFeeStructure, getFeeStructures, updateFeeStructure, deleteFeeStructure,
+  getPrograms, getClasses,
+  createFeeChallan, getFeeChallans, updateFeeChallan, deleteFeeChallan, getStudentFeeHistory,
+  searchStudents, getStudentFeeSummary, getRevenueOverTime, getClassCollectionStats
+} from "../../config/apis";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 const FeeManagement = () => {
-  const {
-    students,
-    fees,
-    addFee,
-    updateFee,
-    deleteFee,
-    feeHeads,
-    addFeeHead,
-    updateFeeHead,
-    deleteFeeHead,
-    feeStructures,
-    addFeeStructure,
-    updateFeeStructure,
-    deleteFeeStructure
-  } = useData();
+
   const {
     toast
   } = useToast();
+
+  // Unified student search state
+  const [studentSearchOpen, setStudentSearchOpen] = useState(false);
+  const [studentSearchResults, setStudentSearchResults] = useState([]);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [studentFeeHistory, setStudentFeeHistory] = useState([]);
+  const [studentFeeSummary, setStudentFeeSummary] = useState(null);
+  const [challanSearch, setChallanSearch] = useState("");
+  const [challanFilter, setChallanFilter] = useState("all");
+
   const [challanOpen, setChallanOpen] = useState(false);
   const [feeHeadOpen, setFeeHeadOpen] = useState(false);
   const [structureOpen, setStructureOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
+  const [itemToPay, setItemToPay] = useState(null);
   const [editingChallan, setEditingChallan] = useState(null);
   const [editingFeeHead, setEditingFeeHead] = useState(null);
   const [editingStructure, setEditingStructure] = useState(null);
@@ -46,162 +56,332 @@ const FeeManagement = () => {
     amount: "",
     dueDate: "",
     discount: "",
-    remarks: ""
+    remarks: "",
+    installmentNumber: ""
   });
   const [feeHeadForm, setFeeHeadForm] = useState({
     name: "",
-    description: "",
     amount: "",
-    isDiscount: false
+    type: "monthly"
   });
   const [structureForm, setStructureForm] = useState({
-    program: "",
-    className: "",
+    programId: "",
+    classId: "",
     feeHeads: [],
-    installments: ""
+    installments: "1"
   });
-  const handleSubmitChallan = () => {
-    if (!challanForm.studentId || !challanForm.amount) {
-      toast({
-        title: "Please fill required fields",
-        variant: "destructive"
-      });
+
+
+  const queryClient = useQueryClient();
+
+  const { data: feeHeads = [] } = useQuery({
+    queryKey: ['feeHeads'],
+    queryFn: getFeeHeads
+  });
+
+  const { data: feeStructures = [] } = useQuery({
+    queryKey: ['feeStructures'],
+    queryFn: getFeeStructures
+  });
+
+  const { data: feeChallans = [] } = useQuery({
+    queryKey: ['feeChallans', challanSearch],
+    queryFn: () => getFeeChallans(null, challanSearch),
+    enabled: true
+  });
+
+  const { data: programs = [] } = useQuery({
+    queryKey: ['programs'],
+    queryFn: getPrograms
+  });
+
+  const { data: classes = [] } = useQuery({
+    queryKey: ['classes'],
+    queryFn: getClasses
+  });
+
+  const [revenuePeriod, setRevenuePeriod] = useState('month');
+
+  const { data: revenueData = [] } = useQuery({
+    queryKey: ['revenueOverTime', revenuePeriod],
+    queryFn: () => getRevenueOverTime({ period: revenuePeriod })
+  });
+
+  const { data: classCollectionData = [] } = useQuery({
+    queryKey: ['classCollectionStats'],
+    queryFn: getClassCollectionStats
+  });
+
+  const searchTimeoutRef = useRef(null);
+
+  const handleStudentSearch = (query, setResults) => {
+    if (!query) {
+      setResults([]);
       return;
     }
-    const amount = parseFloat(challanForm.amount);
-    const discount = parseFloat(challanForm.discount) || 0;
-    if (editingChallan) {
-      updateFee(editingChallan.id, {
-        studentId: challanForm.studentId,
-        amount,
-        dueDate: challanForm.dueDate,
-        discount,
-        remarks: challanForm.remarks
-      });
-      toast({
-        title: "Challan updated successfully"
-      });
-    } else {
-      addFee({
-        studentId: challanForm.studentId,
-        challanNumber: `CH-${Date.now()}`,
-        amount,
-        dueDate: challanForm.dueDate,
-        status: "pending",
-        fineAmount: 0,
-        discount,
-        paidAmount: 0,
-        remarks: challanForm.remarks
-      });
-      toast({
-        title: "Challan created successfully"
-      });
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
     }
-    setChallanOpen(false);
-    resetChallanForm();
+    // Set new timeout
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const results = await searchStudents(query);
+        setResults(results);
+      } catch (error) {
+        console.error(error);
+      }
+    }, 300); // 300ms debounce delay
+  };
+
+  // Helper to format amounts to 2 decimal places
+  const formatAmount = (amount) => {
+    return Number(amount || 0).toFixed(2);
+  };
+
+  // Mutations
+  const createChallanMutation = useMutation({
+    mutationFn: createFeeChallan,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['feeChallans']);
+      toast({ title: "Challan created successfully" });
+      setChallanOpen(false);
+      resetChallanForm();
+    },
+    onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
+
+  const updateChallanMutation = useMutation({
+    mutationFn: ({ id, data }) => updateFeeChallan(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['feeChallans']);
+      toast({ title: "Challan updated successfully" });
+      setChallanOpen(false);
+      resetChallanForm();
+    },
+    onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
+
+  const deleteChallanMutation = useMutation({
+    mutationFn: deleteFeeChallan,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['feeChallans']);
+      toast({ title: "Challan deleted" });
+      setDeleteDialogOpen(false);
+    },
+    onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
+
+  const createHeadMutation = useMutation({
+    mutationFn: createFeeHead,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['feeHeads']);
+      toast({ title: "Fee head created successfully" });
+      setFeeHeadOpen(false);
+      resetFeeHeadForm();
+    },
+    onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
+
+  const updateHeadMutation = useMutation({
+    mutationFn: ({ id, data }) => updateFeeHead(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['feeHeads']);
+      toast({ title: "Fee head updated successfully" });
+      setFeeHeadOpen(false);
+      resetFeeHeadForm();
+    },
+    onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
+
+  const deleteHeadMutation = useMutation({
+    mutationFn: deleteFeeHead,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['feeHeads']);
+      toast({ title: "Fee head deleted" });
+      setDeleteDialogOpen(false);
+    },
+    onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
+
+  const createStructureMutation = useMutation({
+    mutationFn: createFeeStructure,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['feeStructures']);
+      toast({ title: "Fee structure created successfully" });
+      setStructureOpen(false);
+      resetStructureForm();
+    },
+    onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
+
+  const updateStructureMutation = useMutation({
+    mutationFn: ({ id, data }) => updateFeeStructure(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['feeStructures']);
+      toast({ title: "Fee structure updated successfully" });
+      setStructureOpen(false);
+      resetStructureForm();
+    },
+    onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
+
+  const deleteStructureMutation = useMutation({
+    mutationFn: deleteFeeStructure,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['feeStructures']);
+      toast({ title: "Fee structure deleted" });
+      setDeleteDialogOpen(false);
+    },
+    onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
+
+  const handleSubmitChallan = () => {
+    if (!challanForm.studentId || !challanForm.amount) {
+      toast({ title: "Please fill required fields", variant: "destructive" });
+      return;
+    }
+
+    const totalPayable = parseFloat(challanForm.amount);
+    const fineAmount = Number(challanForm.fineAmount) || 0;
+    const discount = Number(challanForm.discount) || 0;
+
+    // Calculate base tuition amount: Total Payable - Fine + Discount
+    // If totalPayable is just the fine, baseAmount should be 0
+    const baseAmount = Math.max(0, totalPayable - fineAmount + discount);
+
+    // If base tuition is 0, installment number should be 0 (not applicable)
+    const installmentNumber = baseAmount > 0 ? (parseInt(challanForm.installmentNumber) || 1) : 0;
+
+    const payload = {
+      studentId: parseInt(challanForm.studentId),
+      amount: baseAmount, // Send base tuition amount only
+      dueDate: challanForm.dueDate,
+      discount: discount,
+      fineAmount: fineAmount,
+      remarks: challanForm.remarks,
+      installmentNumber: installmentNumber,
+      selectedHeads: challanForm.selectedHeads || []
+    };
+
+    if (editingChallan) {
+      updateChallanMutation.mutate({ id: editingChallan.id, data: payload });
+    } else {
+      createChallanMutation.mutate(payload);
+    }
   };
   const handleSubmitFeeHead = () => {
     if (!feeHeadForm.name || !feeHeadForm.amount) {
-      toast({
-        title: "Please fill required fields",
-        variant: "destructive"
-      });
+      toast({ title: "Please fill required fields", variant: "destructive" });
       return;
     }
+
+    const payload = {
+      name: feeHeadForm.name,
+      amount: parseFloat(feeHeadForm.amount),
+      description: feeHeadForm.description,
+      type: feeHeadForm.type,
+      isDiscount: feeHeadForm.isDiscount,
+      isTuition: feeHeadForm.isTuition,
+      isFine: feeHeadForm.isFine,
+      isLabFee: feeHeadForm.isLabFee,
+      isLibraryFee: feeHeadForm.isLibraryFee
+    };
+
     if (editingFeeHead) {
-      updateFeeHead(editingFeeHead.id, {
-        name: feeHeadForm.name,
-        description: feeHeadForm.description,
-        amount: parseFloat(feeHeadForm.amount),
-        isDiscount: feeHeadForm.isDiscount
-      });
-      toast({
-        title: "Fee head updated successfully"
-      });
+      updateHeadMutation.mutate({ id: editingFeeHead.id, data: payload });
     } else {
-      addFeeHead({
-        name: feeHeadForm.name,
-        description: feeHeadForm.description,
-        amount: parseFloat(feeHeadForm.amount),
-        isDiscount: feeHeadForm.isDiscount
-      });
-      toast({
-        title: "Fee head created successfully"
-      });
+      createHeadMutation.mutate(payload);
     }
-    setFeeHeadOpen(false);
-    resetFeeHeadForm();
   };
+
   const handleSubmitStructure = () => {
-    if (!structureForm.program || !structureForm.className || structureForm.feeHeads.length === 0) {
-      toast({
-        title: "Please fill required fields",
-        variant: "destructive"
-      });
+    if (!structureForm.programId || !structureForm.classId || !structureForm.totalAmount) {
+      toast({ title: "Please fill required fields", variant: "destructive" });
       return;
     }
-    const totalAmount = structureForm.feeHeads.reduce((sum, headId) => {
-      const head = feeHeads.find(h => h.id === headId);
-      return sum + (head?.amount || 0);
-    }, 0);
+
+    const payload = {
+      programId: parseInt(structureForm.programId),
+      classId: parseInt(structureForm.classId),
+      totalAmount: parseFloat(structureForm.totalAmount),
+      installments: parseInt(structureForm.installments) || 1
+    };
+
     if (editingStructure) {
-      updateFeeStructure(editingStructure.id, {
-        program: structureForm.program,
-        className: structureForm.className,
-        feeHeads: structureForm.feeHeads,
-        totalAmount,
-        installments: parseInt(structureForm.installments) || 1
-      });
-      toast({
-        title: "Fee structure updated successfully"
-      });
+      updateStructureMutation.mutate({ id: editingStructure.id, data: payload });
     } else {
-      addFeeStructure({
-        program: structureForm.program,
-        className: structureForm.className,
-        feeHeads: structureForm.feeHeads,
-        totalAmount,
-        installments: parseInt(structureForm.installments) || 1
-      });
-      toast({
-        title: "Fee structure created successfully"
-      });
+      createStructureMutation.mutate(payload);
     }
-    setStructureOpen(false);
-    resetStructureForm();
   };
-  const handlePayment = (feeId, amount) => {
-    const fee = fees.find(f => f.id === feeId);
-    if (!fee) return;
-    const payAmount = amount || fee.amount - fee.discount + fee.fineAmount;
-    updateFee(feeId, {
-      status: "paid",
-      paidDate: new Date().toISOString().split("T")[0],
-      paidAmount: payAmount
-    });
-    toast({
-      title: "Payment recorded successfully"
+
+  const handlePayment = (challan) => {
+    setItemToPay(challan);
+    setPaymentDialogOpen(true);
+  };
+
+  const confirmPayment = async () => {
+    if (!itemToPay) return;
+
+    // Calculate installments covered based on amount
+    let coveredInstallments = '';
+    if (itemToPay.feeStructure) {
+      const perInstallment = itemToPay.feeStructure.totalAmount / itemToPay.feeStructure.installments;
+
+      // Extract tuition portion only
+      // Since we now store base tuition in 'amount', we can use it directly
+      // But we should ensure we don't count it if it's 0
+      const tuitionPortion = itemToPay.amount;
+
+      // Only mark installments if tuition is being paid
+      if (tuitionPortion > 0) {
+        const installmentsCovered = Math.round(tuitionPortion / perInstallment);
+
+        if (installmentsCovered > 0) {
+          // Fetch fresh summary to get current paid installments
+          try {
+            const summary = await getStudentFeeSummary(itemToPay.studentId);
+            const nextInstallment = (summary?.summary?.paidInstallments || 0) + 1;
+            const lastInstallment = nextInstallment + installmentsCovered - 1;
+            coveredInstallments = installmentsCovered === 1 ?
+              `${nextInstallment}` :
+              `${nextInstallment}-${lastInstallment}`;
+          } catch (error) {
+            console.error('Error fetching fee summary:', error);
+            coveredInstallments = installmentsCovered === 1 ? '1' : `1-${installmentsCovered}`;
+          }
+        }
+      }
+      // If tuitionPortion <= 0, coveredInstallments remains empty (only additional charges paid)
+    }
+
+    updateChallanMutation.mutate({
+      id: itemToPay.id,
+      data: {
+        status: "PAID",
+        paidDate: new Date().toISOString().split("T")[0],
+        paidAmount: itemToPay.amount - itemToPay.discount + itemToPay.fineAmount,
+        coveredInstallments
+      }
+    }, {
+      onSuccess: () => {
+        toast({ title: "Payment recorded successfully" });
+        setPaymentDialogOpen(false);
+        setItemToPay(null);
+      }
     });
   };
+
   const confirmDelete = () => {
     if (!itemToDelete) return;
-    if (itemToDelete.type === "fee") {
-      deleteFee(itemToDelete.id);
-      toast({
-        title: "Challan deleted"
-      });
+
+    if (itemToDelete.type === "challan") {
+      deleteChallanMutation.mutate(itemToDelete.id);
     } else if (itemToDelete.type === "feeHead") {
-      deleteFeeHead(itemToDelete.id);
-      toast({
-        title: "Fee head deleted"
-      });
+      deleteHeadMutation.mutate(itemToDelete.id);
     } else if (itemToDelete.type === "structure") {
-      deleteFeeStructure(itemToDelete.id);
-      toast({
-        title: "Fee structure deleted"
-      });
+      deleteStructureMutation.mutate(itemToDelete.id);
     }
-    setDeleteDialogOpen(false);
     setItemToDelete(null);
   };
   const resetChallanForm = () => {
@@ -210,9 +390,13 @@ const FeeManagement = () => {
       amount: "",
       dueDate: "",
       discount: "",
-      remarks: ""
+      remarks: "",
+      installmentNumber: "",
+      selectedHeads: []
     });
     setEditingChallan(null);
+    setStudentFeeSummary(null);
+    setSelectedStudent(null);
   };
   const resetFeeHeadForm = () => {
     setFeeHeadForm({
@@ -225,24 +409,26 @@ const FeeManagement = () => {
   };
   const resetStructureForm = () => {
     setStructureForm({
-      program: "",
-      className: "",
-      feeHeads: [],
-      installments: ""
+      programId: "",
+      classId: "",
+      totalAmount: "",
+      installments: "1"
     });
     setEditingStructure(null);
   };
-  const printChallan = feeId => {
-    const fee = fees.find(f => f.id === feeId);
-    const student = students.find(s => s.id === fee?.studentId);
-    if (!fee || !student) return;
+
+  const printChallan = challanId => {
+    const challan = feeChallans.find(c => c.id === challanId);
+    if (!challan || !challan.student) return;
+
+    const student = challan.student;
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Fee Challan - ${fee.challanNumber}</title>
+          <title>Fee Challan - ${challan.challanNumber}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 40px; }
             .header { text-align: center; margin-bottom: 30px; }
@@ -255,18 +441,18 @@ const FeeManagement = () => {
         <body>
           <div class="header">
             <h1>FEE CHALLAN</h1>
-            <p>Challan No: ${fee.challanNumber}</p>
+            <p>Challan No: ${challan.challanNumber}</p>
           </div>
           <div class="challan-box">
-            <div class="row"><span class="label">Student Name:</span> <span>${student.name}</span></div>
+            <div class="row"><span class="label">Student Name:</span> <span>${student.fName} ${student.mName || ''} ${student.lName || ''}</span></div>
             <div class="row"><span class="label">Registration No:</span> <span>${student.rollNumber}</span></div>
-            <div class="row"><span class="label">Class:</span> <span>${student.class}</span></div>
-            <div class="row"><span class="label">Amount:</span> <span>PKR ${fee.amount.toLocaleString()}</span></div>
-            <div class="row"><span class="label">Discount:</span> <span>PKR ${fee.discount}</span></div>
-            <div class="row"><span class="label">Net Amount:</span> <span>PKR ${(fee.amount - fee.discount).toLocaleString()}</span></div>
-            <div class="row"><span class="label">Due Date:</span> <span>${fee.dueDate}</span></div>
-            <div class="row"><span class="label">Status:</span> <span>${fee.status.toUpperCase()}</span></div>
-            ${fee.remarks ? `<div class="row"><span class="label">Remarks:</span> <span>${fee.remarks}</span></div>` : ''}
+            <div class="row"><span class="label">Installment:</span> <span>#${challan.installmentNumber}</span></div>
+            <div class="row"><span class="label">Amount:</span> <span>PKR ${challan.amount.toLocaleString()}</span></div>
+            <div class="row"><span class="label">Discount:</span> <span>PKR ${challan.discount || 0}</span></div>
+            <div class="row"><span class="label">Net Amount:</span> <span>PKR ${(challan.amount - (challan.discount || 0)).toLocaleString()}</span></div>
+            <div class="row"><span class="label">Due Date:</span> <span>${new Date(challan.dueDate).toLocaleDateString()}</span></div>
+            <div class="row"><span class="label">Status:</span> <span>${challan.status}</span></div>
+            ${challan.remarks ? `<div class="row"><span class="label">Remarks:</span> <span>${challan.remarks}</span></div>` : ''}
           </div>
         </body>
       </html>
@@ -279,14 +465,15 @@ const FeeManagement = () => {
   const printFeeStructure = structureId => {
     const structure = feeStructures.find(s => s.id === structureId);
     if (!structure) return;
-    const heads = structure.feeHeads.map(headId => feeHeads.find(h => h.id === headId)).filter(Boolean);
+    const heads = structure.feeHeads.map(h => h.feeHead);
+
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Fee Structure - ${structure.program} ${structure.className}</title>
+          <title>Fee Structure - ${structure.program?.name} ${structure.class?.name}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 40px; }
             .header { text-align: center; margin-bottom: 30px; }
@@ -300,7 +487,7 @@ const FeeManagement = () => {
         <body>
           <div class="header">
             <h1>FEE STRUCTURE</h1>
-            <h2>${structure.program} - ${structure.className}</h2>
+            <h2>${structure.program?.name} - ${structure.class?.name}</h2>
           </div>
           <table>
             <thead>
@@ -340,161 +527,286 @@ const FeeManagement = () => {
       printWindow.print();
     };
   };
-  const totalReceived = fees.reduce((sum, f) => sum + f.paidAmount, 0);
-  const totalPending = fees.reduce((sum, f) => sum + (f.status !== "paid" ? f.amount - f.discount + f.fineAmount : 0), 0);
-  const totalDiscount = fees.reduce((sum, f) => sum + f.discount, 0);
+  const totalReceived = feeChallans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
+  const totalPending = feeChallans.reduce((sum, c) => sum + (c.status !== "PAID" ? c.amount - c.discount : 0), 0);
+  const totalDiscount = feeChallans.reduce((sum, c) => sum + (c.discount || 0), 0);
+
   return <DashboardLayout>
-      <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="flex items-center justify-between gap-4">
-          <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium flex-1">
-            <h2 className="text-2xl font-bold mb-2">Fee Management</h2>
-            <p className="text-primary-foreground/90">Comprehensive fee tracking and management system</p>
-          </div>
+    <div className="space-y-6 max-w-full overflow-x-hidden">
+      <div className="flex items-center justify-between gap-4">
+        <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium flex-1">
+          <h2 className="text-2xl font-bold mb-2">Fee Management</h2>
+          <p className="text-primary-foreground/90">Comprehensive fee tracking and management system</p>
         </div>
+      </div>
 
-        <Tabs defaultValue="challans" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto gap-1">
-            <TabsTrigger value="challans"><Receipt className="w-4 h-4 mr-2" />Challans</TabsTrigger>
-            <TabsTrigger value="feeheads"><Layers className="w-4 h-4 mr-2" />Fee Heads</TabsTrigger>
-            <TabsTrigger value="structures"><TrendingUp className="w-4 h-4 mr-2" />Fee Structures</TabsTrigger>
-            <TabsTrigger value="reports"><DollarSign className="w-4 h-4 mr-2" />Reports</TabsTrigger>
-          </TabsList>
+      <Tabs defaultValue="challans" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto gap-1">
+          <TabsTrigger value="challans"><Receipt className="w-4 h-4 mr-2" />Challans</TabsTrigger>
+          <TabsTrigger value="feeheads"><Layers className="w-4 h-4 mr-2" />Fee Heads</TabsTrigger>
+          <TabsTrigger value="structures"><TrendingUp className="w-4 h-4 mr-2" />Fee Structures</TabsTrigger>
+          <TabsTrigger value="reports"><DollarSign className="w-4 h-4 mr-2" />Reports</TabsTrigger>
+        </TabsList>
 
-          <TabsContent value="challans" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="shadow-soft">
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Total Received</p>
-                      <p className="text-2xl font-bold text-success">PKR {(totalReceived / 1000).toFixed(0)}K</p>
-                    </div>
-                    <DollarSign className="w-8 h-8 text-success" />
-                  </div>
-                </CardContent>
-              </Card>
-              <Card className="shadow-soft">
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Pending</p>
-                      <p className="text-2xl font-bold text-warning">PKR {(totalPending / 1000).toFixed(0)}K</p>
-                    </div>
-                    <DollarSign className="w-8 h-8 text-warning" />
-                  </div>
-                </CardContent>
-              </Card>
-              <Card className="shadow-soft">
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Total Discount</p>
-                      <p className="text-2xl font-bold text-primary">PKR {(totalDiscount / 1000).toFixed(0)}K</p>
-                    </div>
-                    <DollarSign className="w-8 h-8 text-primary" />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
+        <TabsContent value="challans" className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card className="shadow-soft">
-              <CardHeader>
+              <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
-                  <CardTitle>Fee Challans</CardTitle>
-                  <Button onClick={() => {
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total Received</p>
+                    <p className="text-2xl font-bold text-success">PKR {formatAmount(totalReceived)}</p>
+                  </div>
+                  <DollarSign className="w-8 h-8 text-success" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="shadow-soft">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Outstanding</p>
+                    <p className="text-2xl font-bold text-warning">PKR {formatAmount(totalPending)}</p>
+                  </div>
+                  <TrendingUp className="w-8 h-8 text-warning" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="shadow-soft">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total Discounts</p>
+                    <p className="text-2xl font-bold text-primary">PKR {formatAmount(totalDiscount)}</p>
+                  </div>
+                  <DollarSign className="w-8 h-8 text-primary" />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="shadow-soft">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Fee Challans</CardTitle>
+                <Button onClick={() => {
                   resetChallanForm();
                   setChallanOpen(true);
                 }} className="gap-2">
-                    <Plus className="w-4 h-4" />Create Challan
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
+                  <Plus className="w-4 h-4" />Create Challan
+                </Button>
+              </div>
+              <div className="mt-4 flex gap-4">
+                <Input
+                  placeholder="Search by challan number, student name, or roll number..."
+                  value={challanSearch}
+                  onChange={(e) => setChallanSearch(e.target.value)}
+                  className="max-w-md"
+                />
+                <Select value={challanFilter} onValueChange={setChallanFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Challans</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="overdue">Overdue</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Challan No</TableHead>
                       <TableHead>Student</TableHead>
+                      <TableHead>Installment</TableHead>
                       <TableHead>Amount</TableHead>
                       <TableHead>Discount</TableHead>
-                      <TableHead>Paid</TableHead>
+                      <TableHead>Paid Amount</TableHead>
                       <TableHead>Due Date</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {fees.map(fee => {
-                      const student = students.find(s => s.id === fee.studentId);
-                      return <TableRow key={fee.id}>
-                          <TableCell className="font-medium">{fee.challanNumber}</TableCell>
-                          <TableCell>{student?.name}</TableCell>
-                          <TableCell>PKR {fee.amount.toLocaleString()}</TableCell>
-                          <TableCell className="text-primary">-PKR {fee.discount}</TableCell>
-                          <TableCell className="text-success">PKR {fee.paidAmount}</TableCell>
-                          <TableCell>{fee.dueDate}</TableCell>
+                    {feeChallans
+                      .filter(challan => {
+                        if (challanFilter === "all") return true;
+                        if (challanFilter === "paid") return challan.status === "PAID";
+                        if (challanFilter === "pending") return challan.status === "PENDING";
+                        if (challanFilter === "overdue") {
+                          return challan.status === "PENDING" && new Date(challan.dueDate) < new Date();
+                        }
+                        return true;
+                      })
+                      .map(challan => {
+                        return <TableRow key={challan.id}>
+                          <TableCell className="font-medium">{challan.challanNumber}</TableCell>
                           <TableCell>
-                            <Badge variant={fee.status === "paid" ? "default" : fee.status === "overdue" ? "destructive" : "secondary"}>
-                              {fee.status}
+                            <div>{challan.student?.fName} {challan.student?.lName}</div>
+                            <div className="text-xs text-muted-foreground">{challan.student?.rollNumber}</div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {challan.coveredInstallments || (challan.installmentNumber === 0 ? "Additional Charges" : `#${challan.installmentNumber}`)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>PKR {formatAmount(challan.amount + (challan.fineAmount || 0) - (challan.discount || 0))}</TableCell>
+                          <TableCell className="text-primary">-PKR {formatAmount(challan.discount)}</TableCell>
+                          <TableCell className="text-success">PKR {formatAmount(challan.paidAmount)}</TableCell>
+                          <TableCell>{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
+                          <TableCell>
+                            <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : "secondary"}>
+                              {challan.status}
                             </Badge>
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button size="sm" variant="outline" onClick={() => printChallan(fee.id)}>
+                              <Button size="sm" variant="outline" onClick={() => printChallan(challan.id)}>
                                 <Printer className="w-4 h-4" />
                               </Button>
-                              {fee.status !== "paid" && <Button size="sm" variant="outline" onClick={() => handlePayment(fee.id)}>
-                                  <CheckCircle2 className="w-4 h-4" />
-                                </Button>}
-                              <Button size="sm" variant="outline" onClick={() => {
-                              setEditingChallan(fee);
-                              setChallanForm({
-                                studentId: fee.studentId,
-                                amount: fee.amount.toString(),
-                                dueDate: fee.dueDate,
-                                discount: fee.discount.toString(),
-                                remarks: fee.remarks || ""
-                              });
-                              setChallanOpen(true);
-                            }}>
+                              {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={() => handlePayment(challan)}>
+                                <CheckCircle2 className="w-4 h-4" />
+                              </Button>}
+                              {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={() => {
+                                setEditingChallan(challan);
+                                setChallanForm({
+                                  studentId: challan.studentId.toString(),
+                                  amount: challan.amount,
+                                  dueDate: new Date(challan.dueDate).toISOString().split('T')[0],
+                                  discount: challan.discount,
+                                  fineAmount: challan.fineAmount,
+                                  remarks: challan.remarks,
+                                  installmentNumber: challan.installmentNumber
+                                });
+                                setSelectedStudent(challan.student);
+                                setChallanOpen(true);
+                              }}>
                                 <Edit className="w-4 h-4" />
-                              </Button>
+                              </Button>}
                               <Button size="sm" variant="outline" onClick={() => {
-                              setItemToDelete({
-                                type: "fee",
-                                id: fee.id
-                              });
-                              setDeleteDialogOpen(true);
-                            }}>
+                                setItemToDelete({
+                                  type: "challan",
+                                  id: challan.id
+                                });
+                                setDeleteDialogOpen(true);
+                              }}>
                                 <Trash2 className="w-4 h-4" />
                               </Button>
                             </div>
                           </TableCell>
-                        </TableRow>;
-                    })}
+                        </TableRow>
+                      })}
                   </TableBody>
                 </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-          <TabsContent value="feeheads" className="space-y-6">
-            <Card className="shadow-soft">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Fee Heads</CardTitle>
-                  <Button onClick={() => {
+        <TabsContent value="student-history">
+          <div className="space-y-4">
+            <div className="flex items-center gap-4">
+              <Label>Search Student:</Label>
+              <Popover open={studentSearchOpen} onOpenChange={setStudentSearchOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" aria-expanded={studentSearchOpen} className="w-[300px] justify-between">
+                    {selectedStudent ? `${selectedStudent.rollNumber} (${selectedStudent.fName} ${selectedStudent.mName} ${selectedStudent.lName})` : "Select Student..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-0">
+                  <Command shouldFilter={false}>
+                    <CommandInput placeholder="Search student..." onValueChange={v => handleStudentSearch(v, setStudentSearchResults)} />
+                    <CommandList>
+                      <CommandEmpty>No student found.</CommandEmpty>
+                      <CommandGroup>
+                        {studentSearchResults.map(student => (
+                          <CommandItem
+                            key={student.id}
+                            value={student.id.toString()}
+                            onSelect={async () => {
+                              setSelectedStudent(student);
+                              setStudentSearchOpen(false);
+                              try {
+                                const history = await getStudentFeeHistory(student.id);
+                                setStudentFeeHistory(history);
+                              } catch (err) {
+                                console.error(err);
+                                toast({ title: "Failed to fetch history", variant: "destructive" });
+                              }
+                            }}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", selectedStudent?.id === student.id ? "opacity-100" : "opacity-0")} />
+                            {student.rollNumber} ({student.fName} {student.mName} {student.lName})
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {selectedStudent && (
+              <div className="border rounded-lg">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Challan No</TableHead>
+                      <TableHead>Installment</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Due Date</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Paid Date</TableHead>
+                      <TableHead>Paid Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {studentFeeHistory.map(challan => (
+                      <TableRow key={challan.id}>
+                        <TableCell>{challan.challanNumber}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">#{challan.installmentNumber}</Badge>
+                        </TableCell>
+                        <TableCell>PKR {formatAmount(challan.amount)}</TableCell>
+                        <TableCell>{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
+                        <TableCell>
+                          <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : "secondary"}>
+                            {challan.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{challan.paidDate ? new Date(challan.paidDate).toLocaleDateString() : '-'}</TableCell>
+                        <TableCell>{challan.paidAmount ? `PKR ${formatAmount(challan.paidAmount)}` : '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                    {studentFeeHistory.length === 0 && <TableRow><TableCell colSpan={7} className="text-center">No history found</TableCell></TableRow>}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="feeheads" className="space-y-6">
+          <Card className="shadow-soft">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Fee Heads</CardTitle>
+                <Button onClick={() => {
                   resetFeeHeadForm();
                   setFeeHeadOpen(true);
                 }} className="gap-2">
-                    <Plus className="w-4 h-4" />Add Fee Head
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
+                  <Plus className="w-4 h-4" />Add Fee Head
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -507,17 +819,17 @@ const FeeManagement = () => {
                   </TableHeader>
                   <TableBody>
                     {feeHeads.map(head => <TableRow key={head.id}>
-                        <TableCell className="font-medium">{head.name}</TableCell>
-                        <TableCell>{head.description}</TableCell>
-                        <TableCell>PKR {head.amount.toLocaleString()}</TableCell>
-                        <TableCell>
-                          <Badge variant={head.isDiscount ? "secondary" : "default"}>
-                            {head.isDiscount ? "Discount" : "Charge"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={() => {
+                      <TableCell className="font-medium">{head.name}</TableCell>
+                      <TableCell>{head.description}</TableCell>
+                      <TableCell>PKR {head.amount.toLocaleString()}</TableCell>
+                      <TableCell>
+                        <Badge variant={head.isDiscount ? "secondary" : "default"}>
+                          {head.isDiscount ? "Discount" : "Charge"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => {
                             setEditingFeeHead(head);
                             setFeeHeadForm({
                               name: head.name,
@@ -527,42 +839,42 @@ const FeeManagement = () => {
                             });
                             setFeeHeadOpen(true);
                           }}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => {
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => {
                             setItemToDelete({
                               type: "feeHead",
                               id: head.id
                             });
                             setDeleteDialogOpen(true);
                           }}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>)}
                   </TableBody>
                 </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-          <TabsContent value="structures" className="space-y-6">
-            <Card className="shadow-soft">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Fee Structures</CardTitle>
-                  <Button onClick={() => {
+        <TabsContent value="structures" className="space-y-6">
+          <Card className="shadow-soft">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Fee Structures</CardTitle>
+                <Button onClick={() => {
                   resetStructureForm();
                   setStructureOpen(true);
                 }} className="gap-2">
-                    <Plus className="w-4 h-4" />Add Structure
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
+                  <Plus className="w-4 h-4" />Add Structure
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -575,245 +887,556 @@ const FeeManagement = () => {
                   </TableHeader>
                   <TableBody>
                     {feeStructures.map(structure => <TableRow key={structure.id}>
-                        <TableCell><Badge>{structure.program}</Badge></TableCell>
-                        <TableCell>{structure.className}</TableCell>
-                        <TableCell className="font-semibold">PKR {structure.totalAmount.toLocaleString()}</TableCell>
-                        <TableCell>{structure.installments}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={() => printFeeStructure(structure.id)}>
-                              <Printer className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => {
+                      <TableCell><Badge>{structure.program?.name}</Badge></TableCell>
+                      <TableCell>{structure.class?.name}</TableCell>
+                      <TableCell className="font-semibold">PKR {structure.totalAmount.toLocaleString()}</TableCell>
+                      <TableCell>{structure.installments}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => printFeeStructure(structure.id)}>
+                            <Printer className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => {
                             setEditingStructure(structure);
                             setStructureForm({
-                              program: structure.program,
-                              className: structure.className,
-                              feeHeads: structure.feeHeads,
+                              programId: structure.programId.toString(),
+                              classId: structure.classId.toString(),
+                              totalAmount: structure.totalAmount.toString(),
                               installments: structure.installments.toString()
                             });
                             setStructureOpen(true);
                           }}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => {
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => {
                             setItemToDelete({
                               type: "structure",
                               id: structure.id
                             });
                             setDeleteDialogOpen(true);
                           }}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>)}
                   </TableBody>
                 </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="reports">
+          <div className="grid gap-6">
+            <Card>
+              <CardHeader><CardTitle>Fee Collection Summary</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex justify-between p-4 border rounded-lg">
+                    <span>Total Revenue</span>
+                    <span className="font-bold text-2xl">PKR {totalReceived.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between p-4 border rounded-lg">
+                    <span>Outstanding</span>
+                    <span className="font-bold text-2xl text-warning">PKR {totalPending.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between p-4 border rounded-lg">
+                    <span>Total Discounts Given</span>
+                    <span className="font-bold text-2xl text-primary">PKR {totalDiscount.toLocaleString()}</span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
 
-          <TabsContent value="reports">
-            <div className="grid gap-6">
-              <Card>
-                <CardHeader><CardTitle>Fee Collection Summary</CardTitle></CardHeader>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card className="col-span-1">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Revenue Over Time</CardTitle>
+                    <Select value={revenuePeriod} onValueChange={setRevenuePeriod}>
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="month">Monthly</SelectItem>
+                        <SelectItem value="year">Yearly</SelectItem>
+                        <SelectItem value="overall">Overall</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-between p-4 border rounded-lg">
-                      <span>Total Revenue</span>
-                      <span className="font-bold text-2xl">PKR {totalReceived.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between p-4 border rounded-lg">
-                      <span>Outstanding</span>
-                      <span className="font-bold text-2xl text-warning">PKR {totalPending.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between p-4 border rounded-lg">
-                      <span>Total Discounts Given</span>
-                      <span className="font-bold text-2xl text-primary">PKR {totalDiscount.toLocaleString()}</span>
-                    </div>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={revenueData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis />
+                        <Tooltip formatter={(value) => `PKR ${value.toLocaleString()}`} />
+                        <Legend />
+                        <Line type="monotone" dataKey="value" name="Revenue" stroke="#8884d8" activeDot={{ r: 8 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="col-span-1">
+                <CardHeader>
+                  <CardTitle>Collection vs Outstanding (Per Class)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={classCollectionData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis />
+                        <Tooltip formatter={(value) => `PKR ${value.toLocaleString()}`} />
+                        <Legend />
+                        <Bar dataKey="collected" name="Collected" fill="#4ade80" />
+                        <Bar dataKey="outstanding" name="Outstanding" fill="#facc15" />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 </CardContent>
               </Card>
             </div>
-          </TabsContent>
-        </Tabs>
+          </div>
+        </TabsContent>
+      </Tabs>
 
-        <Dialog open={challanOpen} onOpenChange={setChallanOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingChallan ? "Edit" : "Create"} Fee Challan</DialogTitle>
-            </DialogHeader>
+      <Dialog open={challanOpen} onOpenChange={(open) => {
+        setChallanOpen(open);
+        if (!open) {
+          // Clean up when dialog closes
+          resetChallanForm();
+          setSelectedStudent(null);
+          setStudentFeeSummary(null);
+        }
+      }}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingChallan ? "Edit" : "Create"} Fee Challan</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-6">
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Student</Label>
-                <Select value={challanForm.studentId} onValueChange={v => setChallanForm({
-                ...challanForm,
-                studentId: v
-              })}>
-                  <SelectTrigger><SelectValue placeholder="Select student" /></SelectTrigger>
-                  <SelectContent>
-                    {students.map(s => <SelectItem key={s.id} value={s.id}>{s.rollNumber} - {s.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <Popover open={studentSearchOpen} onOpenChange={setStudentSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" role="combobox" aria-expanded={studentSearchOpen} className="w-full justify-between">
+                      {selectedStudent ? `${selectedStudent.rollNumber} (${selectedStudent.fName} ${selectedStudent.mName} ${selectedStudent.lName})` : "Search Student..."}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[400px] p-0">
+                    <Command shouldFilter={false}>
+                      <CommandInput placeholder="Search by name or roll no..." onValueChange={v => handleStudentSearch(v, setStudentSearchResults)} />
+                      <CommandList>
+                        <CommandEmpty>No student found.</CommandEmpty>
+                        <CommandGroup>
+                          {studentSearchResults.map(student => (
+                            <CommandItem
+                              key={student.id}
+                              value={student.id.toString()}
+                              onSelect={async () => {
+                                setSelectedStudent(student);
+                                setChallanForm({ ...challanForm, studentId: student.id.toString() });
+                                setStudentSearchOpen(false);
+                                try {
+                                  const summary = await getStudentFeeSummary(student.id);
+                                  setStudentFeeSummary(summary);
+                                  // Auto-fill amount if available
+                                  if (summary) {
+                                    const perInstallment = summary.feeStructure ?
+                                      (summary.feeStructure.totalAmount / summary.feeStructure.installments) : 0;
+
+                                    // Set initial amount based on remaining tuition
+                                    const remainingTuition = summary.summary.totalAmount - (summary.summary.tuitionPaid || 0);
+                                    const initialAmount = remainingTuition <= 0 ? 0 : perInstallment;
+
+                                    setChallanForm(prev => ({
+                                      ...prev,
+                                      amount: initialAmount.toString()
+                                    }));
+                                  }
+                                } catch (err) {
+                                  console.error(err);
+                                }
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", selectedStudent?.id === student.id ? "opacity-100" : "opacity-0")} />
+                              <div className="flex flex-col">
+                                <span>{student.rollNumber} ({student.fName} {student.mName} {student.lName})</span>
+                                <span className="text-xs text-muted-foreground">{student.program?.name} {student.class?.name}</span>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Amount (PKR)</Label>
-                  <Input type="number" value={challanForm.amount} onChange={e => setChallanForm({
-                  ...challanForm,
-                  amount: e.target.value
-                })} />
+
+              {studentFeeSummary && (
+                <div className="bg-muted p-4 rounded-lg text-sm space-y-3 relative">
+                  {(studentFeeSummary.summary.totalAmount - (studentFeeSummary.summary.tuitionPaid || 0)) <= 0 && (
+                    <div className="absolute top-2 right-2 bg-success text-success-foreground px-2 py-1 rounded text-xs font-bold">
+                      FULLY PAID
+                    </div>
+                  )}
+                  <div className="font-semibold border-b pb-2">Fee Summary ({studentFeeSummary.feeStructure?.class?.name || 'Current Class'})</div>
+
+                  {/* Tuition Section */}
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold text-muted-foreground">Tuition Fees:</div>
+                    <div className="grid grid-cols-2 gap-2 pl-2">
+                      <div className="text-xs">Total: <span className="font-medium">PKR {studentFeeSummary.summary.totalAmount.toLocaleString()}</span></div>
+                      <div className="text-xs">Paid: <span className="font-medium text-success">PKR {(studentFeeSummary.summary.tuitionPaid || 0).toLocaleString()}</span></div>
+                      <div className="text-xs">Remaining: <span className="font-medium text-destructive">PKR {Math.max(0, studentFeeSummary.summary.totalAmount - (studentFeeSummary.summary.tuitionPaid || 0)).toLocaleString()}</span></div>
+                      <div className="text-xs">Installments: <span className="font-medium">{studentFeeSummary.summary.paidInstallments} / {studentFeeSummary.summary.totalInstallments}</span></div>
+                    </div>
+                  </div>
+
+                  {/* Additional Charges & Discounts Summary */}
+                  {((studentFeeSummary.summary.additionalChargesPaid && Object.keys(studentFeeSummary.summary.additionalChargesPaid).length > 0) || studentFeeSummary.summary.totalDiscount > 0) && (
+                    <div className="space-y-1 border-t pt-2">
+                      <div className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                        <span>⚠️ Already Paid This Session:</span>
+                      </div>
+                      <div className="pl-2 space-y-1 bg-blue-50 dark:bg-blue-950 p-2 rounded">
+                        {studentFeeSummary.summary.additionalChargesPaid && Object.keys(studentFeeSummary.summary.additionalChargesPaid).length > 0 && (
+                          <div className="space-y-0.5">
+                            <div className="text-xs font-medium text-blue-900 dark:text-blue-100">Additional Charges:</div>
+                            {Object.entries(studentFeeSummary.summary.additionalChargesPaid).map(([chargeName, amount]) => (
+                              <div key={chargeName} className="text-xs pl-2 text-blue-800 dark:text-blue-200">
+                                ✓ {chargeName}: <span className="font-medium">PKR {Number(amount).toLocaleString()}</span>
+                              </div>
+                            ))}
+                            <div className="text-xs text-blue-700 dark:text-blue-300 italic mt-1">
+                              Note: These charges have been paid. Avoid re-selecting them below.
+                            </div>
+                          </div>
+                        )}
+                        {studentFeeSummary.summary.totalDiscount > 0 && (
+                          <div className="text-xs border-t border-blue-200 dark:border-blue-800 pt-1">
+                            Total Discounts Applied: <span className="font-medium text-primary">PKR {studentFeeSummary.summary.totalDiscount.toLocaleString()}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* This Challan Breakdown */}
+                  <div className="pt-2 border-t space-y-1">
+                    <div className="text-xs font-semibold text-muted-foreground">This Challan:</div>
+                    <div className="grid grid-cols-2 gap-2 pl-2 text-xs">
+                      <div>
+                        Base Amount:
+                        <span className="font-medium text-foreground ml-1">
+                          PKR {studentFeeSummary.feeStructure ?
+                            (studentFeeSummary.feeStructure.totalAmount / studentFeeSummary.feeStructure.installments).toLocaleString() :
+                            Number(challanForm.amount).toLocaleString()}
+                        </span>
+                        {(studentFeeSummary.summary.totalAmount - (studentFeeSummary.summary.tuitionPaid || 0)) <= 0 && (
+                          <span className="ml-2 text-success font-bold">PAID</span>
+                        )}
+                      </div>
+                      <div>Additions: <span className="font-medium text-warning">PKR {Number(challanForm.fineAmount || 0).toLocaleString()}</span></div>
+                      <div>Discounts: <span className="font-medium text-primary">PKR {Number(challanForm.discount || 0).toLocaleString()}</span></div>
+                      <div className="font-bold text-foreground">
+                        Total Payable: PKR {Number(challanForm.amount || 0).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Discount (PKR)</Label>
-                  <Input type="number" value={challanForm.discount} onChange={e => setChallanForm({
-                  ...challanForm,
-                  discount: e.target.value
-                })} />
-                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Payable (PKR)</Label>
+                <Input
+                  type="number"
+                  value={challanForm.amount}
+                  onChange={e => setChallanForm({ ...challanForm, amount: e.target.value })}
+                  placeholder="Amount"
+                />
               </div>
+
               <div className="space-y-2">
                 <Label>Due Date</Label>
-                <Input type="date" value={challanForm.dueDate} onChange={e => setChallanForm({
-                ...challanForm,
-                dueDate: e.target.value
-              })} />
+                <Input
+                  type="date"
+                  value={challanForm.dueDate}
+                  onChange={e => setChallanForm({ ...challanForm, dueDate: e.target.value })}
+                />
               </div>
+            </div>
+
+            {/* Right Column */}
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Additional Charges & Discounts</Label>
+                <div className="border rounded-md p-4 space-y-2 max-h-[400px] overflow-y-auto">
+                  {feeHeads.filter(h => !h.isTuition).map(head => (
+                    <div key={head.id} className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id={`head-${head.id}`}
+                          className="w-4 h-4"
+                          checked={(challanForm.selectedHeads || []).includes(head.id)}
+                          onChange={e => {
+                            const currentHeads = challanForm.selectedHeads || [];
+                            let newHeads;
+                            if (e.target.checked) {
+                              newHeads = [...currentHeads, head.id];
+                            } else {
+                              newHeads = currentHeads.filter(id => id !== head.id);
+                            }
+
+                            // Recalculate totals
+                            const selectedHeadObjects = feeHeads.filter(h => newHeads.includes(h.id));
+                            const newFine = selectedHeadObjects
+                              .filter(h => !h.isDiscount && !h.isTuition)
+                              .reduce((sum, h) => sum + h.amount, 0);
+                            const newDiscount = selectedHeadObjects
+                              .filter(h => h.isDiscount)
+                              .reduce((sum, h) => sum + h.amount, 0);
+
+                            // Calculate delta from current values
+                            const oldFine = challanForm.fineAmount || 0;
+                            const oldDiscount = challanForm.discount || 0;
+                            const currentAmount = parseFloat(challanForm.amount) || 0;
+
+                            // Apply delta to current amount
+                            const deltaFine = newFine - oldFine;
+                            const deltaDiscount = newDiscount - oldDiscount;
+                            const newTotalAmount = currentAmount + deltaFine - deltaDiscount;
+
+                            setChallanForm({
+                              ...challanForm,
+                              selectedHeads: newHeads,
+                              fineAmount: newFine,
+                              discount: newDiscount,
+                              amount: newTotalAmount.toString()
+                            });
+                          }}
+                        />
+                        <Label htmlFor={`head-${head.id}`} className={head.isDiscount ? "text-primary" : ""}>
+                          {head.name} {head.isDiscount ? "(Discount)" : ""}
+                        </Label>
+                      </div>
+                      <span className="text-sm font-medium">PKR {head.amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label>Remarks</Label>
                 <Textarea value={challanForm.remarks} onChange={e => setChallanForm({
-                ...challanForm,
-                remarks: e.target.value
-              })} />
-              </div>
-              <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setChallanOpen(false)}>Cancel</Button>
-                <Button onClick={handleSubmitChallan}>{editingChallan ? "Update" : "Create"}</Button>
+                  ...challanForm,
+                  remarks: e.target.value
+                })} placeholder="Optional remarks..." rows={4} />
               </div>
             </div>
-          </DialogContent>
-        </Dialog>
+          </div>
+          <div className="flex gap-2 justify-end mt-4">
+            <Button variant="outline" onClick={() => {
+              setChallanOpen(false)
+              setSelectedStudent(null)
+            }}>Cancel</Button>
+            <Button onClick={handleSubmitChallan}>{editingChallan ? "Update" : "Create"}</Button>
+          </div>
+        </DialogContent>
+      </Dialog >
 
-        <Dialog open={feeHeadOpen} onOpenChange={setFeeHeadOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingFeeHead ? "Edit" : "Add"} Fee Head</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Name</Label>
-                <Input value={feeHeadForm.name} onChange={e => setFeeHeadForm({
+      <Dialog open={feeHeadOpen} onOpenChange={setFeeHeadOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingFeeHead ? "Edit" : "Add"} Fee Head</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={feeHeadForm.name} onChange={e => setFeeHeadForm({
                 ...feeHeadForm,
                 name: e.target.value
               })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Description</Label>
-                <Input value={feeHeadForm.description} onChange={e => setFeeHeadForm({
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Input value={feeHeadForm.description} onChange={e => setFeeHeadForm({
                 ...feeHeadForm,
                 description: e.target.value
               })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Amount (PKR)</Label>
-                <Input type="number" value={feeHeadForm.amount} onChange={e => setFeeHeadForm({
+            </div>
+            <div className="space-y-2">
+              <Label>Amount (PKR)</Label>
+              <Input type="number" value={feeHeadForm.amount} onChange={e => setFeeHeadForm({
                 ...feeHeadForm,
                 amount: e.target.value
               })} />
-              </div>
-              <div className="flex items-center space-x-2">
-                <input type="checkbox" id="isDiscount" checked={feeHeadForm.isDiscount} onChange={e => setFeeHeadForm({
-                ...feeHeadForm,
-                isDiscount: e.target.checked
-              })} className="w-4 h-4" />
-                <Label htmlFor="isDiscount">Is Discount</Label>
-              </div>
-              <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setFeeHeadOpen(false)}>Cancel</Button>
-                <Button onClick={handleSubmitFeeHead}>{editingFeeHead ? "Update" : "Add"}</Button>
-              </div>
             </div>
-          </DialogContent>
-        </Dialog>
+            <div className="flex items-center space-x-2">
+              <input type="checkbox" id="isDiscount" checked={feeHeadForm.isDiscount} onChange={e => setFeeHeadForm({
+                ...feeHeadForm,
+                isDiscount: e.target.checked,
+                isTuition: false,
+                isFine: false,
+                isLabFee: false,
+                isLibraryFee: false
+              })} className="w-4 h-4" />
+              <Label htmlFor="isDiscount">Discount</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input type="checkbox" id="isTuition" checked={feeHeadForm.isTuition} onChange={e => setFeeHeadForm({
+                ...feeHeadForm,
+                isTuition: e.target.checked,
+                isDiscount: false,
+                isFine: false,
+                isLabFee: false,
+                isLibraryFee: false
+              })} className="w-4 h-4" />
+              <Label htmlFor="isTuition">Tuition Fee</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input type="checkbox" id="isFine" checked={feeHeadForm.isFine} onChange={e => setFeeHeadForm({
+                ...feeHeadForm,
+                isFine: e.target.checked,
+                isDiscount: false,
+                isTuition: false,
+                isLabFee: false,
+                isLibraryFee: false
+              })} className="w-4 h-4" />
+              <Label htmlFor="isFine">Fine</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input type="checkbox" id="isLabFee" checked={feeHeadForm.isLabFee} onChange={e => setFeeHeadForm({
+                ...feeHeadForm,
+                isLabFee: e.target.checked,
+                isDiscount: false,
+                isTuition: false,
+                isFine: false,
+                isLibraryFee: false
+              })} className="w-4 h-4" />
+              <Label htmlFor="isLabFee">Lab Fee</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input type="checkbox" id="isLibraryFee" checked={feeHeadForm.isLibraryFee} onChange={e => setFeeHeadForm({
+                ...feeHeadForm,
+                isLibraryFee: e.target.checked,
+                isDiscount: false,
+                isTuition: false,
+                isFine: false,
+                isLabFee: false
+              })} className="w-4 h-4" />
+              <Label htmlFor="isLibraryFee">Library Fee</Label>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setFeeHeadOpen(false)}>Cancel</Button>
+              <Button onClick={handleSubmitFeeHead}>{editingFeeHead ? "Update" : "Add"}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-        <Dialog open={structureOpen} onOpenChange={setStructureOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingStructure ? "Edit" : "Add"} Fee Structure</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Program</Label>
-                  <Select value={structureForm.program} onValueChange={v => setStructureForm({
+      <Dialog open={structureOpen} onOpenChange={setStructureOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingStructure ? "Edit" : "Add"} Fee Structure</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Program</Label>
+                <Select value={structureForm.programId?.toString()} onValueChange={v => setStructureForm({
                   ...structureForm,
-                  program: v
+                  programId: v,
+                  classId: ""
                 })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="HSSC">HSSC</SelectItem>
-                      <SelectItem value="Diploma">Diploma</SelectItem>
-                      <SelectItem value="BS">BS</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Class</Label>
-                  <Input value={structureForm.className} onChange={e => setStructureForm({
-                  ...structureForm,
-                  className: e.target.value
-                })} />
-                </div>
+                  <SelectTrigger><SelectValue placeholder="Select Program" /></SelectTrigger>
+                  <SelectContent>
+                    {programs.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
-                <Label>Installments</Label>
-                <Input type="number" value={structureForm.installments} onChange={e => setStructureForm({
+                <Label>Class</Label>
+                <Select value={structureForm.classId?.toString()} onValueChange={v => setStructureForm({
+                  ...structureForm,
+                  classId: v
+                })}>
+                  <SelectTrigger><SelectValue placeholder="Select Class" /></SelectTrigger>
+                  <SelectContent>
+                    {classes
+                      .filter(c => !structureForm.programId || c.programId.toString() === structureForm.programId.toString())
+                      .map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)
+                    }
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Total Amount (PKR)</Label>
+              <Input
+                type="number"
+                value={structureForm.totalAmount || ''}
+                onChange={e => setStructureForm({
+                  ...structureForm,
+                  totalAmount: e.target.value
+                })}
+                placeholder="Enter total tuition amount"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Installments</Label>
+              <Input type="number" value={structureForm.installments} onChange={e => setStructureForm({
                 ...structureForm,
                 installments: e.target.value
               })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Fee Heads</Label>
-                {feeHeads.map(head => <div key={head.id} className="flex items-center space-x-2">
-                    <input type="checkbox" checked={structureForm.feeHeads.includes(head.id)} onChange={e => {
-                  if (e.target.checked) {
-                    setStructureForm({
-                      ...structureForm,
-                      feeHeads: [...structureForm.feeHeads, head.id]
-                    });
-                  } else {
-                    setStructureForm({
-                      ...structureForm,
-                      feeHeads: structureForm.feeHeads.filter(id => id !== head.id)
-                    });
-                  }
-                }} className="w-4 h-4" />
-                    <Label>{head.name} - PKR {head.amount}</Label>
-                  </div>)}
-              </div>
-              <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setStructureOpen(false)}>Cancel</Button>
-                <Button onClick={handleSubmitStructure}>{editingStructure ? "Update" : "Add"}</Button>
-              </div>
             </div>
-          </DialogContent>
-        </Dialog>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setStructureOpen(false)}>Cancel</Button>
+              <Button onClick={handleSubmitStructure}>{editingStructure ? "Update" : "Add"}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirm Delete</AlertDialogTitle>
-              <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    </DashboardLayout>;
+      <AlertDialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Payment</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to mark this challan as PAID?
+              <br />
+              Amount: PKR {itemToPay ? (itemToPay.amount - itemToPay.discount + itemToPay.fineAmount).toLocaleString() : 0}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmPayment}>Confirm Payment</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Delete</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div >
+  </DashboardLayout >;
 };
 export default FeeManagement;

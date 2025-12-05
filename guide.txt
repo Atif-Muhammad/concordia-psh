@@ -1,0 +1,64 @@
+Intermediate (All 2 Years)
+• FSC Pre Medical
+• ⁠FSC Pre Engineering
+• ⁠ICS (Computer Science)
+• ⁠General Science
+• ⁠Humanities
+
+Undergraduate
+1) BS Programs (4 Years)
+• BS Nursing
+• ⁠BS Radiology
+• ⁠BS Anesthesia
+• ⁠BS Dental
+• ⁠BS English
+• ⁠BS Zoology
+• ⁠BS Computer Science
+
+Others may added after affiliation
+
+2) Diploma Programs
+• Surgical
+• ⁠Dental
+• ⁠Anesthesia
+• ⁠Health
+• ⁠Cardiology
+• ⁠Pathology
+• ⁠IT
+• ⁠Pharmacy - B
+
+Others may added after affiliation
+
+3) Short Courses
+1) Computer Courses - Shared in picture
+2) Language Courses
+• English Language
+• ⁠German Language
+• ⁠French Language
+
+Others also maybe added
+
+4) Coaching Classes
+• 6th Class
+• ⁠7th Class
+• ⁠8th Class
+• ⁠9th Class
+• ⁠10th Class
+• ⁠FSC Pre Medical
+• ⁠FSC Pre Engineering
+• ⁠Biology
+• ⁠Chemistry
+• ⁠Physics
+• ⁠Maths
+
+Other also maybe added
+
+///////////////////////////////////////////////////////////
+
+1. admin /super admin
+    -> create, update, get and delete -- done
+    -> permission based access. -- done
+
+2. teacher crud -- done
+3. department crud -- done
+4. program crud -- done

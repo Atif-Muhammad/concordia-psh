@@ -1,0 +1,992 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+}
+
+model admin {
+  id       Int    @id @unique() @default(autoincrement())
+  name     String @db.VarChar(50)
+  email    String @unique() @db.VarChar(50)
+  password String
+
+  role        Role    @default(ADMIN)
+  permissions Json    @default("{}")
+  approvals   Leave[] @relation("leave_approver")
+
+  attendanceMarked         TeacherAttendance[]
+  employeeAttendanceMarked EmployeeAttendance[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ──────────────────────────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────────────────────────
+enum ProgramLevel {
+  INTERMEDIATE // FA/FSc
+  UNDERGRADUATE // BS, Diploma
+  COACHING // Short courses
+  DIPLOMA
+  SHORT_COURSE
+}
+
+// ──────────────────────────────────────────────────────────────
+// CORE MODELS
+// ──────────────────────────────────────────────────────────────
+model Department {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique @db.VarChar(100)
+  description String? @db.VarChar(300)
+
+  hodId Int?     @unique
+  hod   Teacher? @relation("DepartmentHead", fields: [hodId], references: [id])
+
+  teachers Teacher[] @relation("DepartmentTeacher")
+  students Student[] @relation("DepartmentStudents")
+  programs Program[] @relation("DepartmentPrograms")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Program {
+  id          Int          @id @default(autoincrement())
+  name        String       @db.VarChar(200)
+  description String?      @db.VarChar(300)
+  level       ProgramLevel
+  duration    String       @db.VarChar(50)
+  hasSections Boolean      @default(false) // Auto: true if duration >= 2 years
+
+  departmentId Int?
+  department   Department? @relation("DepartmentPrograms", fields: [departmentId], references: [id])
+
+  classes  Class[]   @relation("ProgramClasses")
+  students Student[] @relation("ProgramStudents")
+  inquiries Inquiry[]
+  exams Exam[]
+  feeStructures FeeStructure[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, departmentId])
+}
+
+model Class {
+  id         Int     @id @unique @default(autoincrement())
+  name       String  @db.VarChar(100) // e.g., "11th", "Semester 3", "Year 2", "Batch 2025"
+  year       Int? // 11, 12, 1, 2, 3, 4
+  semester   Int? // 1–8 (only for BS)
+  isSemester Boolean @default(false) // true if BS
+
+  programId Int
+  program   Program @relation("ProgramClasses", fields: [programId], references: [id])
+
+  timetable Timetable[] @relation("ClassTimetable")
+
+  sections               Section[]                    @relation("ClassSections")
+  subjects               Subject[]                    @relation("ClassSubjects")
+  teacherSectionMappings TeacherClassSectionMapping[] @relation("ClassTeacherSectionMappings")
+  students               Student[]                    @relation("ClassStudents")
+  attendance             Attendance[]
+  exams Exam[]
+  positions Position[]
+  feeStructures FeeStructure[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([programId, year, semester])
+}
+
+model Section {
+  id       Int     @id @default(autoincrement())
+  name     String  @db.VarChar(20) // A, B, Morning, Evening
+  capacity Int?
+  room     String?
+
+  classId Int
+  class   Class @relation("ClassSections", fields: [classId], references: [id])
+
+  students        Student[]                    @relation("SectionStudents")
+  timetables      Timetable[]                  @relation("SectionTimetables")
+  assignments     Assignment[]                 @relation("SectionAssignments")
+  teacherMappings TeacherClassSectionMapping[] @relation("SectionTeacherMappings")
+  attendance      Attendance[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([classId, name])
+}
+
+enum TeacherType {
+  PERMANENT
+  CONTRACT
+}
+
+enum TeacherStatus {
+  ACTIVE
+  TERMINATED
+  RETIRED
+}
+
+model Teacher {
+  id             Int     @id @unique @default(autoincrement())
+  name           String  @db.VarChar(50)
+  email          String  @unique @db.VarChar(100)
+  password       String  @db.VarChar(255)
+  phone          String? @db.VarChar(20)
+  specialization String? @db.VarChar(50)
+  highestDegree  String  @db.VarChar(50)
+  documents      Json?   @default("{}")
+
+  teacherType   TeacherType   @default(CONTRACT)
+  teacherStatus TeacherStatus @default(ACTIVE)
+
+  basicPay Decimal? @db.Decimal(10, 2)
+
+  departmentId Int?
+  department   Department? @relation("DepartmentTeacher", fields: [departmentId], references: [id])
+  headOf       Department? @relation("DepartmentHead")
+
+  subjects             TeacherSubjectMapping[]      @relation("TeacherSubjectMappings")
+  classSectionMappings TeacherClassSectionMapping[] @relation("TeacherClassSectionMappings")
+  timetables           Timetable[]                  @relation("TeacherTimetables")
+  assignments          Assignment[]                 @relation("TeacherAssignments")
+  classAttendance      Attendance[]
+  attendance           TeacherAttendance[]
+  payrolls             Payroll[]
+  leaves               StaffLeave[]
+  advanceSalaries      AdvanceSalary[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Subject {
+  id          Int     @id @default(autoincrement())
+  name        String  @db.VarChar(100)
+  code        String? @unique @db.VarChar(20)
+  creditHours Int?
+  description String? @db.VarChar(255)
+
+  classId     Int
+  classes     Class                   @relation("ClassSubjects", fields: [classId], references: [id])
+  timetables  Timetable[]             @relation("SubjectTimetables")
+  teachers    TeacherSubjectMapping[] @relation("SubjectTeacherMappings")
+  assignments Assignment[]            @relation("SubjectAssignments")
+  attendance  Attendance[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Student {
+  id                    Int       @id @unique @default(autoincrement())
+  photo_url             String?
+  photo_public_id       String?
+  fName                 String    @db.VarChar(100)
+  mName                 String?   @db.VarChar(100)
+  lName                 String?   @db.VarChar(100)
+  fatherOrguardian      String?   @db.VarChar(100)
+  rollNumber            String    @unique @db.VarChar(50)
+  parentOrGuardianEmail String?   @db.VarChar(50)
+  parentOrGuardianPhone String?   @db.VarChar(20)
+  gender                String?   @db.VarChar(10)
+  dob                   DateTime?
+  documents             Json      @default("{}")
+  passedOut             Boolean   @default(false)
+
+  departmentId Int?
+  department   Department? @relation("DepartmentStudents", fields: [departmentId], references: [id])
+
+  programId Int?
+  program   Program? @relation("ProgramStudents", fields: [programId], references: [id])
+
+  classId Int
+  class   Class @relation("ClassStudents", fields: [classId], references: [id])
+
+  sectionId Int?
+  section   Section? @relation("SectionStudents", fields: [sectionId], references: [id])
+
+  marks Marks[]
+  results Result[]
+  positions Position[]
+
+  leaves Leave[] @relation("leave_requester")
+
+  attendance Attendance[]
+
+  hostelRegistrations HostelRegistration[]
+  roomAllocations     RoomAllocation[]
+  challans            FeeChallan[]
+
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ──────────────────────────────────────────────────────────────
+// MAPPINGS
+// ──────────────────────────────────────────────────────────────
+model TeacherSubjectMapping {
+  id        Int @id @default(autoincrement())
+  teacherId Int
+  subjectId Int
+
+  teacher Teacher @relation("TeacherSubjectMappings", fields: [teacherId], references: [id])
+  subject Subject @relation("SubjectTeacherMappings", fields: [subjectId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teacherId, subjectId])
+}
+
+model TeacherClassSectionMapping {
+  id        Int  @id @unique @default(autoincrement())
+  teacherId Int
+  classId   Int
+  sectionId Int? // NULL = “all sections of the class”
+
+  teacher   Teacher  @relation("TeacherClassSectionMappings", fields: [teacherId], references: [id])
+  class     Class    @relation("ClassTeacherSectionMappings", fields: [classId], references: [id])
+  section   Section? @relation("SectionTeacherMappings", fields: [sectionId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teacherId, classId, sectionId])
+  @@index([classId, sectionId])
+}
+
+model Timetable {
+  id        Int     @id @default(autoincrement())
+  teacherId Int
+  subjectId Int
+  sectionId Int?
+  classId   Int
+  dayOfWeek String  @db.VarChar(10)
+  startTime String  @db.VarChar(5)
+  endTime   String  @db.VarChar(5)
+  room      String? @db.VarChar(50)
+
+  teacher Teacher  @relation("TeacherTimetables", fields: [teacherId], references: [id])
+  subject Subject  @relation("SubjectTimetables", fields: [subjectId], references: [id])
+  section Section? @relation("SectionTimetables", fields: [sectionId], references: [id])
+  class   Class    @relation("ClassTimetable", fields: [classId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sectionId, classId, dayOfWeek, startTime])
+}
+
+model Assignment {
+  id          Int       @id @default(autoincrement())
+  title       String    @db.VarChar(200)
+  description String?   @db.Text
+  dueDate     DateTime?
+
+  teacherId Int
+  subjectId Int
+  sectionId Int
+
+  teacher Teacher @relation("TeacherAssignments", fields: [teacherId], references: [id])
+  subject Subject @relation("SubjectAssignments", fields: [subjectId], references: [id])
+  section Section @relation("SectionAssignments", fields: [sectionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// student attendance and leave
+model Attendance {
+  id            Int              @id @default(autoincrement())
+  studentId     Int
+  classId       Int
+  sectionId     Int?
+  subjectId     Int
+  teacherId     Int?
+  date          DateTime         @db.Date
+  status        AttendanceStatus @default(PRESENT)
+  markedAt      DateTime         @default(now())
+  notes         String?          @db.Text
+  autoGenerated Boolean          @default(false)
+
+  student Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class   Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  section Section? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  subject Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  teacher Teacher? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  // --- Enforce uniqueness: one attendance per student per subject per day per class/section ---
+  @@unique([studentId, classId, sectionId, subjectId, date])
+  // --- Optional indexes for faster lookups ---
+  @@index([classId, sectionId, date])
+  @@index([teacherId, subjectId, date])
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LEAVE
+  HALF_DAY
+  HOLIDAY
+}
+
+model Leave {
+  id Int @id @unique @default(autoincrement())
+
+  studentId Int
+  reason    String @db.VarChar(500)
+
+  fromDate DateTime
+  toDate   DateTime
+
+  status LeaveStatus @default(PENDING)
+
+  approvedById Int?
+  approvedBy   admin?    @relation("leave_approver", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+
+  requester Student @relation("leave_requester", fields: [studentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+// teacher attendance and leave
+model TeacherAttendance {
+  id            Int              @id @default(autoincrement())
+  teacherId     Int
+  date          DateTime         @db.Date
+  status        AttendanceStatus @default(PRESENT)
+  markedBy      Int? // admin id
+  markedAt      DateTime         @default(now())
+  notes         String?          @db.Text
+  autoGenerated Boolean          @default(false)
+
+  admin   admin?  @relation(fields: [markedBy], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+
+  @@unique([teacherId, date])
+}
+
+model EmployeeAttendance {
+  id            Int              @id @default(autoincrement())
+  employeeId    Int
+  date          DateTime         @db.Date
+  status        AttendanceStatus @default(PRESENT)
+  markedBy      Int? // admin id
+  markedAt      DateTime         @default(now())
+  notes         String?          @db.Text
+  autoGenerated Boolean          @default(false)
+
+  admin    admin?   @relation(fields: [markedBy], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, date])
+}
+
+// Employees
+enum EmployeeDepartment {
+  ADMIN
+  FINANCE
+  SECURITY
+  TRANSPORT
+  CLASS_4
+  MAINTENANCE
+  IT_SUPPORT
+  LIBRARY
+  LAB
+  OTHER
+}
+
+enum EmploymentType {
+  PERMANENT
+  CONTRACT
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  TERMINATED
+  RETIRED
+}
+
+model Employee {
+  id             Int                @id @default(autoincrement())
+  name           String             @db.VarChar(100)
+  fatherName     String             @db.VarChar(100)
+  email          String?            @unique @db.VarChar(100)
+  phone          String             @db.VarChar(20)
+  cnic           String             @unique @db.VarChar(15)
+  address        String?            @db.VarChar(255)
+  designation    String             @db.VarChar(100)
+  empDepartment  EmployeeDepartment
+  employmentType EmploymentType     @default(PERMANENT)
+  status         EmployeeStatus     @default(ACTIVE)
+  basicPay       Decimal?           @db.Decimal(10, 2)
+  joinDate       DateTime?          @default(now())
+  leaveDate      DateTime?
+  documents      Json               @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([empDepartment])
+  @@index([status])
+  attendance      EmployeeAttendance[]
+  payrolls        Payroll[]
+  leaves          StaffLeave[]
+  advanceSalaries AdvanceSalary[]
+}
+
+
+// front office
+// inquiry
+enum InquiryStatus {
+  NEW
+  APPROVED
+  REJECTED
+  FOLLOW_UP
+}
+model Inquiry{
+  id Int @id @unique @default(autoincrement())
+  studentName        String
+  fatherName         String?     
+  fatherCnic         String?      
+  contactNumber      String
+  email              String?      
+  address            String?      
+  programInterest    Int?    
+  previousInstitute  String?      
+  remarks            String?      
+  status             InquiryStatus      @default(NEW) // new | approved | rejected | follow-up
+  
+  program Program? @relation(fields: [programInterest], references: [id])
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([programInterest])
+}
+
+// visitor
+model Visitor {
+  id Int @id @unique @default(autoincrement())
+
+  visitorName String @db.VarChar(100)
+  phone BigInt 
+  IDCard BigInt
+  date DateTime
+
+  persons Int
+
+  inTime DateTime
+  outTime DateTime?
+
+  purpose String
+  remarks String?
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([date])
+
+}
+
+// complaint type
+enum ComplaintType {
+  Parent 
+  Student
+  Staff
+}
+// complaint status
+enum ComplaintStatus {
+  Pending
+  In_Progress
+  Resolved
+  Rejected
+}
+
+// complaint
+model Complaint {
+  id Int @id @unique @default(autoincrement())
+
+  type ComplaintType @default(Student)
+
+  complainantName String @db.VarChar(50)
+  contact BigInt
+
+  subject String @db.VarChar(100)
+  description String @db.Text 
+
+  status ComplaintStatus @default(Pending)
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([type])
+}
+
+
+// contact category
+enum ContactCategory {
+  Emergency
+  Academic
+  Technical
+  Maintenance
+  Other
+}
+// contacts
+model Contact {
+  id Int @id @unique @default(autoincrement())
+
+  name String @db.VarChar(255)
+  phone BigInt
+  email String?
+
+  category ContactCategory @default(Other)
+
+  details String? @db.Text
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([category])
+}
+
+// examination
+model Exam {
+  id          Int   @id @default(autoincrement())
+  examName    String
+  programId   Int
+  classId     Int?
+  session     String
+  type        String
+  startDate   DateTime
+  endDate     DateTime
+  description String?
+  program     Program @relation(fields: [programId], references: [id])
+  class       Class?  @relation(fields: [classId], references: [id])
+  marks       Marks[]
+  results     Result[]
+  positions   Position[]
+}
+
+model Marks {
+  id             String  @id @default(uuid())
+  examId         Int
+  studentId      Int
+  subject        String
+  totalMarks     Int
+  obtainedMarks  Int
+  teacherRemarks String?
+
+  exam    Exam    @relation(fields: [examId], references: [id])
+  student Student @relation(fields: [studentId], references: [id])
+}
+
+model Result {
+  id            String  @id @default(uuid())
+  examId        Int
+  studentId     Int
+  totalMarks    Int
+  obtainedMarks Int
+  percentage    Float
+  gpa           Float
+  grade         String
+  position      Int?
+  remarks       String?
+
+  exam    Exam    @relation(fields: [examId], references: [id])
+  student Student @relation(fields: [studentId], references: [id])
+}
+
+model Position {
+  id            String  @id @default(uuid())
+  examId        Int
+  classId       Int
+  studentId     Int
+  position      Int
+  totalMarks    Int
+  obtainedMarks Int
+  percentage    Float
+  gpa           Float
+  grade         String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  exam    Exam    @relation(fields: [examId], references: [id])
+  class   Class   @relation(fields: [classId], references: [id])
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@unique([examId, classId, studentId])
+  @@index([examId, classId])
+}
+
+model ReportCardTemplate {
+  id          Int      @id @default(autoincrement())
+  name        String
+  htmlContent String   @db.Text
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HOSTEL MODULE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model HostelRegistration {
+  id               String   @id @default(uuid())
+  studentId        Int
+  student          Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  hostelName       String   @db.VarChar(100)
+  registrationDate DateTime
+  status           String   @db.VarChar(20) // "active" | "inactive"
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([studentId])
+}
+
+model Room {
+  id               String           @id @default(uuid())
+  roomNumber       String           @unique @db.VarChar(20)
+  roomType         String           @db.VarChar(20) // "single" | "double" | "triple"
+  capacity         Int
+  currentOccupancy Int              @default(0)
+  status           String           @db.VarChar(20) // "vacant" | "occupied" | "maintenance"
+  hostelName       String?          @db.VarChar(100)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  allocations      RoomAllocation[]
+}
+
+model RoomAllocation {
+  id             String   @id @default(uuid())
+  roomId         String
+  room           Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  studentId      Int
+  student        Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  allocationDate DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([roomId, studentId])
+  @@index([roomId])
+  @@index([studentId])
+}
+
+model HostelExpense {
+  id           String   @id @default(uuid())
+  expenseTitle String   @db.VarChar(200)
+  amount       Float
+  date         DateTime
+  remarks      String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([date])
+}
+
+model HostelInventory {
+  id              String   @id @default(uuid())
+  itemName        String   @db.VarChar(200)
+  category        String   @db.VarChar(50) // "furniture" | "electronics" | "bedding" | "other"
+  quantity        Int
+  condition       String   @db.VarChar(20) // "new" | "good" | "repair-needed"
+  allocatedToRoom String?  @db.VarChar(20)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SCHOOL INVENTORY MODULE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model SchoolInventory {
+  id                   String              @id @default(uuid())
+  itemName             String              @db.VarChar(200)
+  category             String              @db.VarChar(50) // "Lab Equipment", "Sports Equipment", etc.
+  quantity             Int
+  unitPrice            Float
+  totalValue           Float
+  purchaseDate         DateTime            @db.Date
+  supplier             String              @db.VarChar(200)
+  condition            String              @db.VarChar(20) // "New", "Good", "Fair", "Needs Repair", "Damaged"
+  location             String              @db.VarChar(200)
+  assignedTo           String?             @db.VarChar(50) // "Class", "Department", "Lab", "Unassigned"
+  assignedToName       String?             @db.VarChar(200)
+  assignedDate         DateTime?           @db.Date
+  maintenanceCost      Float?              @default(0)
+  lastMaintenanceDate  DateTime?           @db.Date
+  warrantyExpiry       DateTime?           @db.Date
+  description          String?             @db.Text
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  expenses             InventoryExpense[]
+
+  @@index([category])
+  @@index([assignedTo])
+  @@index([condition])
+}
+
+model InventoryExpense {
+  id                String           @id @default(uuid())
+  inventoryItemId   String
+  inventoryItem     SchoolInventory  @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  expenseType       String           @db.VarChar(50) // "Maintenance", "Repair", "Upgrade", "Replacement", "Other"
+  amount            Float
+  date              DateTime         @db.Date
+  description       String           @db.Text
+  vendor            String?          @db.VarChar(200)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([inventoryItemId])
+  @@index([date])
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PAYROLL SETTINGS MODULE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model PayrollSettings {
+  id              Int      @id @default(autoincrement())
+  absentDeduction Float    @default(0) // PKR amount deducted per absent day
+  leaveDeduction  Float    @default(0) // PKR amount deducted per leave day
+  leavesAllowed   Int      @default(0) // Number of leaves allowed per month/period
+  absentsAllowed  Int      @default(0) // Number of absents allowed per month/period
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FEE MANAGEMENT MODULE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model FeeHead {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(255)
+  amount      Float
+  isDiscount  Boolean  @default(false)
+  isTuition   Boolean  @default(false)
+  isFine      Boolean  @default(false)
+  isLabFee    Boolean  @default(false)
+  isLibraryFee Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  structures  FeeStructureHead[]
+}
+
+model FeeStructure {
+  id            Int      @id @default(autoincrement())
+  programId     Int
+  program       Program  @relation(fields: [programId], references: [id])
+  classId       Int
+  class         Class    @relation(fields: [classId], references: [id])
+  
+  totalAmount   Float
+  installments  Int      @default(1)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  feeHeads      FeeStructureHead[]
+  challans      FeeChallan[]
+  
+  @@unique([programId, classId])
+}
+
+model FeeStructureHead {
+  id             Int          @id @default(autoincrement())
+  feeStructureId Int
+  feeStructure   FeeStructure @relation(fields: [feeStructureId], references: [id], onDelete: Cascade)
+  feeHeadId      Int
+  feeHead        FeeHead      @relation(fields: [feeHeadId], references: [id])
+  
+  amount         Float        // Amount for this specific structure (if different from default)
+  
+  @@unique([feeStructureId, feeHeadId])
+}
+
+enum ChallanStatus {
+  PENDING
+  PAID
+  OVERDUE
+  PARTIAL
+}
+
+model FeeChallan {
+  id             Int           @id @default(autoincrement())
+  challanNumber  String        @unique @db.VarChar(50)
+  
+  studentId      Int
+  student        Student       @relation(fields: [studentId], references: [id])
+  
+  feeStructureId Int?
+  feeStructure   FeeStructure? @relation(fields: [feeStructureId], references: [id])
+  
+  amount         Float
+  paidAmount     Float         @default(0)
+  discount       Float         @default(0)
+  fineAmount     Float         @default(0)
+  
+  dueDate        DateTime      @db.Date
+  issueDate      DateTime      @default(now()) 
+  paidDate       DateTime?     @db.Date
+  
+  status         ChallanStatus @default(PENDING)
+  
+  installmentNumber Int        @default(1)
+  coveredInstallments String?  @db.VarChar(50) // Comma separated list of installment numbers
+  selectedHeads    String?      @db.Text // JSON array of selected fee head IDs
+  remarks        String?       @db.Text
+  
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([studentId])
+  @@index([status])
+}
+
+model Payroll {
+  id              Int      @id @default(autoincrement())
+  month           String   @db.VarChar(7) // YYYY-MM
+  
+  employeeId      Int?
+  employee        Employee? @relation(fields: [employeeId], references: [id])
+  
+  teacherId       Int?
+  teacher         Teacher?  @relation(fields: [teacherId], references: [id])
+  
+  basicSalary     Float    @default(0)
+  
+  // Deductions
+  securityDeduction Float @default(0)
+  advanceDeduction  Float @default(0)
+  absentDeduction   Float @default(0)
+  leaveDeduction   Float @default(0)
+  otherDeduction    Float @default(0)
+  totalDeductions   Float @default(0)
+  
+  // Allowances
+  extraAllowance    Float @default(0)
+  travelAllowance   Float @default(0)
+  otherAllowance    Float @default(0)
+  totalAllowances   Float @default(0)
+  
+  netSalary       Float    @default(0)
+  
+  status          String   @default("UNPAID") // PAID, UNPAID
+  paymentDate     DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([employeeId, month])
+  @@unique([teacherId, month])
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// STAFF LEAVE MODULE (Teachers & Employees)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+enum StaffLeaveType {
+  CASUAL
+  SICK
+  ANNUAL
+  MATERNITY
+  PATERNITY
+  UNPAID
+  OTHER
+}
+
+enum StaffLeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model StaffLeave {
+  id              Int      @id @default(autoincrement())
+  month           String   @db.VarChar(7) // YYYY-MM
+  
+  employeeId      Int?
+  employee        Employee? @relation(fields: [employeeId], references: [id])
+  
+  teacherId       Int?
+  teacher         Teacher?  @relation(fields: [teacherId], references: [id])
+  
+  // leaveType       StaffLeaveType @default(CASUAL)
+  startDate       DateTime  @db.Date
+  endDate         DateTime  @db.Date
+  days            Int       @default(0) // Number of days
+  reason          String    @db.Text
+  
+  status          StaffLeaveStatus @default(PENDING)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([employeeId, month])
+  @@index([teacherId, month])
+}
+
+model Holiday {
+  id           Int      @id @default(autoincrement())
+  date         DateTime
+  title        String
+  type         String   // e.g., "National", "Religious", "Gazetted"
+  repeatYearly Boolean  @default(false)
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AdvanceSalary {
+  id          Int      @id @default(autoincrement())
+  
+  employeeId  Int?
+  employee    Employee? @relation(fields: [employeeId], references: [id])
+  
+  teacherId   Int?
+  teacher     Teacher?  @relation(fields: [teacherId], references: [id])
+  
+  amount      Float
+  month       String   @db.VarChar(7) // YYYY-MM
+  remarks     String?  @db.Text
+  adjusted    Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([employeeId])
+  @@index([teacherId])
+  @@index([month])
+}

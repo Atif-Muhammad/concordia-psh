@@ -3,3 +3,35 @@ import { twMerge } from "tailwind-merge";
 export function cn(...inputs) {
   return twMerge(clsx(inputs));
 }
+
+
+export function hasModuleAccess(currentTab, userPermissions) {
+  if (!userPermissions || !Array.isArray(userPermissions.modules)) return false;
+
+  return userPermissions.modules.some(
+    (m) => m.toLowerCase() === currentTab.toLowerCase()
+  );
+}
+
+export const parseDurationToYears = (duration) => {
+  const match = duration.match(/(\d+)\s*(year|years|yr|y)/i);
+  if (match) return parseInt(match[1]);
+  return 0;
+};
+
+export const formatLocalDate = (date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+export const formatTime = (isoString) => {
+  if (!isoString) return "-";
+  const date = new Date(isoString);
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+};

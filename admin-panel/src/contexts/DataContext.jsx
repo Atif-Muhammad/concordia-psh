@@ -1,4 +1,5 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
+
 
 // Types
 
@@ -1390,10 +1391,8 @@ export const DataProvider = ({
   const [financeIncome, setFinanceIncome] = useState(initialFinanceIncome);
   const [financeExpenses, setFinanceExpenses] = useState(initialFinanceExpenses);
   const [financeClosings, setFinanceClosings] = useState(initialFinanceClosings);
-  const [schoolInventory, setSchoolInventory] = useState(initialSchoolInventory);
-  const [inventoryExpenses, setInventoryExpenses] = useState(initialInventoryExpenses);
+
   const [challanTemplates, setChallanTemplates] = useState(initialChallanTemplates);
-  const [marksheetTemplates, setMarksheetTemplates] = useState(initialMarksheetTemplates);
   const [idCardTemplates, setIdCardTemplates] = useState(initialIDCardTemplates);
   const addStudent = student => {
     const newStudent = {
@@ -1967,27 +1966,7 @@ export const DataProvider = ({
   } : c));
   const deleteFinanceClosing = id => setFinanceClosings(financeClosings.filter(c => c.id !== id));
 
-  // School Inventory CRUD
-  const addSchoolInventory = item => setSchoolInventory([...schoolInventory, {
-    ...item,
-    id: Date.now().toString()
-  }]);
-  const updateSchoolInventory = (id, data) => setSchoolInventory(schoolInventory.map(i => i.id === id ? {
-    ...i,
-    ...data
-  } : i));
-  const deleteSchoolInventory = id => setSchoolInventory(schoolInventory.filter(i => i.id !== id));
 
-  // Inventory Expense CRUD
-  const addInventoryExpense = expense => setInventoryExpenses([...inventoryExpenses, {
-    ...expense,
-    id: Date.now().toString()
-  }]);
-  const updateInventoryExpense = (id, data) => setInventoryExpenses(inventoryExpenses.map(e => e.id === id ? {
-    ...e,
-    ...data
-  } : e));
-  const deleteInventoryExpense = id => setInventoryExpenses(inventoryExpenses.filter(e => e.id !== id));
 
   // Challan Template CRUD
   const addChallanTemplate = template => setChallanTemplates([...challanTemplates, {
@@ -1999,17 +1978,6 @@ export const DataProvider = ({
     ...data
   } : t));
   const deleteChallanTemplate = id => setChallanTemplates(challanTemplates.filter(t => t.id !== id));
-
-  // Marksheet Template CRUD
-  const addMarksheetTemplate = template => setMarksheetTemplates([...marksheetTemplates, {
-    ...template,
-    id: Date.now().toString()
-  }]);
-  const updateMarksheetTemplate = (id, data) => setMarksheetTemplates(marksheetTemplates.map(t => t.id === id ? {
-    ...t,
-    ...data
-  } : t));
-  const deleteMarksheetTemplate = id => setMarksheetTemplates(marksheetTemplates.filter(t => t.id !== id));
 
   // ID Card Template CRUD
   const addIDCardTemplate = template => setIdCardTemplates([...idCardTemplates, {
@@ -2063,10 +2031,8 @@ export const DataProvider = ({
     financeIncome,
     financeExpenses,
     financeClosings,
-    schoolInventory,
-    inventoryExpenses,
+
     challanTemplates,
-    marksheetTemplates,
     idCardTemplates,
     addStudent,
     updateStudent,
@@ -2189,24 +2155,16 @@ export const DataProvider = ({
     addFinanceClosing,
     updateFinanceClosing,
     deleteFinanceClosing,
-    addSchoolInventory,
-    updateSchoolInventory,
-    deleteSchoolInventory,
-    addInventoryExpense,
-    updateInventoryExpense,
-    deleteInventoryExpense,
+
     addChallanTemplate,
     updateChallanTemplate,
     deleteChallanTemplate,
-    addMarksheetTemplate,
-    updateMarksheetTemplate,
-    deleteMarksheetTemplate,
     addIDCardTemplate,
     updateIDCardTemplate,
     deleteIDCardTemplate
   }}>
-      {children}
-    </DataContext.Provider>;
+    {children}
+  </DataContext.Provider>;
 };
 export const useData = () => {
   const context = useContext(DataContext);

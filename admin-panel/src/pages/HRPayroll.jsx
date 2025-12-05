@@ -1,5 +1,7 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import PayrollManagementDialog from "@/components/PayrollManagementDialog";
+import LeavesManagementDialog from "@/components/LeavesManagementDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,73 +10,141 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { useData } from "@/contexts/DataContext";
 import { useState } from "react";
-import { UserPlus, Edit, Trash2, DollarSign, Calendar, CheckCircle2, XCircle, TrendingUp, Users, IdCard } from "lucide-react";
+import { UserPlus, Edit, Trash2, DollarSign, Calendar as CalendarIcon, CheckCircle2, XCircle, TrendingUp, Users, IdCard, Settings, UserCheck, Clock } from "lucide-react";
+import { format } from "date-fns";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, getEmployeeAttendance, markEmployeeAttendance, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary } from "../../config/apis";
+import { Loader2 } from "lucide-react";
+
 const HRPayroll = () => {
-  const {
-    employees,
-    addEmployee,
-    updateEmployee,
-    deleteEmployee,
-    payrolls,
-    addPayroll,
-    updatePayroll,
-    deletePayroll,
-    advanceSalaries,
-    addAdvanceSalary,
-    deleteAdvanceSalary,
-    employeeAttendance,
-    addEmployeeAttendance,
-    leaveRequests,
-    addLeaveRequest,
-    updateLeaveRequest,
-    departments,
-    addDepartment,
-    updateDepartment,
-    deleteDepartment
-  } = useData();
   const {
     toast
   } = useToast();
   const [activeTab, setActiveTab] = useState("employees");
   const [employeeOpen, setEmployeeOpen] = useState(false);
   const [payrollOpen, setPayrollOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [deptOpen, setDeptOpen] = useState(false);
+  const [editingDepartment, setEditingDepartment] = useState(null);
   const [editingEmployee, setEditingEmployee] = useState(null);
-  const [selectedDepartment, setSelectedDepartment] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedDepartment, setSelectedDepartment] = useState("ALL");
   const [idCardOpen, setIdCardOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [editingAdvance, setEditingAdvance] = useState(null);
+
+  const [payrollMonth, setPayrollMonth] = useState(new Date().toISOString().slice(0, 7));
+const [payrollType, setPayrollType] = useState("employee");
+const [payrollData, setPayrollData] = useState([]);
+
+  // Attendance Queries
+  const { data: attendanceEmployees = [] } = useQuery({
+    queryKey: ["employees", selectedDepartment],
+    queryFn: () => getEmp(selectedDepartment === "ALL" ? "" : selectedDepartment),
+  });
+
+  const { data: employeeAttendance = [], isFetching: attendanceLoading } = useQuery({
+    queryKey: ["employeeAttendance", selectedDate],
+    queryFn: () => getEmployeeAttendance(selectedDate),
+  });
+
+  const queryClient = useQueryClient();
+
+  const markAttendanceMutation = useMutation({
+    mutationFn: ({ id, status, date }) => markEmployeeAttendance({ employeeId: id, status, date, markedBy: 1 }), // Assuming admin ID 1 for now
+    onSuccess: (savedRecord) => {
+      queryClient.setQueryData(["employeeAttendance", selectedDate], (oldData) => {
+        if (!oldData) return [savedRecord];
+
+        const existingIndex = oldData.findIndex(r => r.employeeId === savedRecord.employeeId);
+
+        if (existingIndex > -1) {
+          const newData = [...oldData];
+          newData[existingIndex] = savedRecord;
+          return newData;
+        } else {
+          return [...oldData, savedRecord];
+        }
+      });
+      toast({
+        title: "Attendance Marked",
+        description: "Employee attendance has been updated successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message,
+      });
+    },
+  });
+
+  const handleMarkAttendance = (id, status) => {
+    markAttendanceMutation.mutate({
+      id,
+      status,
+      date: format(selectedDate, "yyyy-MM-dd"),
+    });
+  };
+
+  const markAllPresent = () => {
+    attendanceEmployees.filter(e => e.status === "ACTIVE").forEach(emp => {
+      const record = employeeAttendance.find(a => a.employeeId === emp.id);
+      if (!record || record.status !== "PRESENT") {
+        handleMarkAttendance(emp.id, "PRESENT");
+      }
+    });
+  };
+
+
+  const empDepts = [
+    "ALL",
+    "ADMIN",
+    "FINANCE",
+    "SECURITY",
+    "TRANSPORT",
+    "CLASS_4",
+    "MAINTENANCE",
+    "IT_SUPPORT",
+    "LIBRARY",
+    "LAB",
+    "OTHER",
+  ];
+
   const [employeeFormData, setEmployeeFormData] = useState({
     name: "",
     fatherName: "",
     cnic: "",
     contactNumber: "",
     email: "",
+    address: "",
     designation: "",
-    department: "",
-    dateOfJoining: new Date().toISOString().split("T")[0],
-    salary: 0
+    empDepartment: "",
+    employmentType: "PERMANENT",
+    status: "ACTIVE",
+    basicPay: null,
+    joinDate: new Date().toISOString().split("T")[0],
+    leaveDate: "",
   });
-  const [payrollFormData, setPayrollFormData] = useState({
-    employeeId: "",
-    month: new Date().toISOString().slice(0, 7),
-    bonus: 0,
-    deductions: 0
-  });
+
   const [advanceFormData, setAdvanceFormData] = useState({
+    type: "employee",  // NEW: Add type selection
     employeeId: "",
+    teacherId: "",     // NEW: Add teacherId field
     month: new Date().toISOString().slice(0, 7),
     amount: 0,
     remarks: ""
   });
+
   const [leaveFormData, setLeaveFormData] = useState({
     employeeId: "",
     leaveType: "casual",
@@ -82,115 +152,316 @@ const HRPayroll = () => {
     endDate: new Date().toISOString().split("T")[0],
     reason: ""
   });
+
   const [deptFormData, setDeptFormData] = useState({
+    id: "",
     departmentName: "",
     headOfDepartment: "",
     description: ""
   });
-  const filteredEmployees = employees.filter(emp => {
-    const matchesDept = selectedDepartment === "all" || emp.department === selectedDepartment;
-    const matchesSearch = emp.name.toLowerCase().includes(searchQuery.toLowerCase()) || emp.designation.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesDept && matchesSearch && emp.status === "active";
+
+  const [holidayOpen, setHolidayOpen] = useState(false);
+  const [holidayFormData, setHolidayFormData] = useState({
+    title: "",
+    date: new Date(),
+    type: "National",
+    repeatYearly: false,
+    description: ""
   });
-  const handleAddEmployee = () => {
-    if (!employeeFormData.name || !employeeFormData.cnic || !employeeFormData.contactNumber) {
-      toast({
-        title: "Please fill required fields",
-        variant: "destructive"
+
+  // Holiday Queries
+  const { data: holidays = [] } = useQuery({
+    queryKey: ["holidays"],
+    queryFn: getHolidays,
+  });
+
+  const createHolidayMutation = useMutation({
+    mutationFn: createHoliday,
+    onSuccess: () => {
+      queryClient.invalidateQueries(["holidays"]);
+      toast({ title: "Holiday created successfully" });
+      setHolidayOpen(false);
+      setHolidayFormData({
+        title: "",
+        date: new Date(),
+        type: "National",
+        repeatYearly: false,
+        description: ""
       });
+    },
+    onError: (err) => toast({ title: err.message, variant: "destructive" })
+  });
+
+  const deleteHolidayMutation = useMutation({
+    mutationFn: deleteHoliday,
+    onSuccess: () => {
+      queryClient.invalidateQueries(["holidays"]);
+      toast({ title: "Holiday deleted successfully" });
+    },
+    onError: (err) => toast({ title: err.message, variant: "destructive" })
+  });
+
+  const handleCreateHoliday = (e) => {
+    e.preventDefault();
+    createHolidayMutation.mutate(holidayFormData);
+  };
+
+  // fetch employees
+  const { data: employees = [] } = useQuery({
+    queryKey: ["employees", selectedDepartment],
+    queryFn: () => getEmp(selectedDepartment === "ALL" ? "" : selectedDepartment),
+    enabled: !!selectedDepartment
+  });
+
+
+
+  // 🔹 Fetch departments
+  const { data: departments = [] } = useQuery({
+    queryKey: ["departments"],
+    queryFn: getDepartments,
+  });
+
+  const { data: teachers = [] } = useQuery({
+    queryKey: ["teachers"],
+    queryFn: getTeacherNames,
+  });
+  
+  // Fetch Payroll Settings
+  const { data: payrollSettings } = useQuery({
+    queryKey: ["payrollSettings"],
+    queryFn: getPayrollSettings,
+  });
+
+  // Update Payroll Settings
+  const updateSettingsMutation = useMutation({
+    mutationFn: updatePayrollSettings,
+    onSuccess: () => {
+      queryClient.invalidateQueries(["payrollSettings"]);
+      toast({ title: "Settings updated successfully" });
+      setSettingsOpen(false);
+    },
+    onError: (err) => toast({ title: err.message, variant: "destructive" })
+  });
+
+  const handleUpdateSettings = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {
+      absentDeduction: parseFloat(formData.get("absentDeduction")),
+      leaveDeduction: parseFloat(formData.get("leaveDeduction")),
+      leavesAllowed: parseInt(formData.get("leavesAllowed")),
+      absentsAllowed: parseInt(formData.get("absentsAllowed")),
+    };
+    updateSettingsMutation.mutate(data);
+  };
+
+  // 🔹 Add department
+  const addDeptMutation = useMutation({
+    mutationFn: createDepartment,
+    onSuccess: () => {
+      queryClient.invalidateQueries(["departments"]);
+      toast({ title: "Department added successfully" });
+      setDeptOpen(false);
+      setDeptFormData({
+        id: "",
+        departmentName: "",
+        headOfDepartment: "",
+        description: "",
+      });
+    },
+    onError: (err) => toast({ title: err.message })
+  });
+
+  // 🔹 Update department
+  const updateDeptMutation = useMutation({
+    mutationFn: updateDepartment,
+    onSuccess: () => {
+      queryClient.invalidateQueries(["departments"]);
+      toast({ title: "Department updated successfully" });
+      setDeptOpen(false);
+    },
+  });
+
+  // 🔹 Delete department
+  const deleteDeptMutation = useMutation({
+    mutationFn: deleteDepartment,
+    onSuccess: () => {
+      queryClient.invalidateQueries(["departments"]);
+      toast({ title: "Department deleted successfully" });
+    },
+  });
+
+  // add employees
+  const updateEmployee = useMutation({
+    mutationFn: ({ id, payload }) => updateEmp(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries(["employees"]);
+      toast({ title: "employee updated successfully" });
+      setEmployeeOpen(false)
+      setEmployeeFormData({
+        name: "",
+        fatherName: "",
+        cnic: "",
+        contactNumber: "",
+        email: "",
+        designation: "",
+        empDepartment: "",
+        employmentType: "PERMANENT",
+        status: "ACTIVE",
+        basicPay: 0,
+        joinDate: new Date().toISOString().split("T")[0],
+        leaveDate: ""
+      });
+    },
+    onError: (err) => toast({ title: err.message })
+  });
+
+  const addEmployee = useMutation({
+    mutationFn: createEmp,
+    onSuccess: () => {
+      queryClient.invalidateQueries(["employees"]);
+      toast({ title: "employee added successfully" });
+      setEmployeeOpen(false)
+      setEmployeeFormData({
+        name: "",
+        fatherName: "",
+        cnic: "",
+        contactNumber: "",
+        email: "",
+        designation: "",
+        empDepartment: "",
+        employmentType: "PERMANENT",
+        status: "ACTIVE",
+        basicPay: 0,
+        joinDate: new Date().toISOString().split("T")[0],
+        leaveDate: ""
+      });
+    },
+  });
+
+  const handleAddEmployee = () => {
+    const required = ["name", "cnic", "contactNumber"];
+    if (required.some(field => !employeeFormData[field])) {
+      toast({ title: "Please fill all required fields", variant: "destructive" });
       return;
     }
+
+    const payload = {
+      ...employeeFormData,
+      basicPay: Number(employeeFormData.basicPay),
+      joinDate: employeeFormData.joinDate || null,
+      leaveDate: employeeFormData.leaveDate || null,
+      status: editingEmployee?.status || "ACTIVE",
+    };
+
     if (editingEmployee) {
-      updateEmployee(editingEmployee.id, {
-        ...employeeFormData,
-        status: editingEmployee.status
-      });
-      toast({
-        title: "Employee updated successfully"
-      });
+      updateEmployee.mutate({ id: editingEmployee.id, payload });
+      toast({ title: "Employee updated successfully" });
     } else {
-      addEmployee({
-        ...employeeFormData,
-        status: "active"
-      });
-      toast({
-        title: "Employee added successfully"
-      });
+      addEmployee.mutate(payload);
     }
+
     setEmployeeOpen(false);
     setEditingEmployee(null);
+    // Reset form
     setEmployeeFormData({
-      name: "",
-      fatherName: "",
-      cnic: "",
-      contactNumber: "",
-      email: "",
-      designation: "",
-      department: "",
-      dateOfJoining: new Date().toISOString().split("T")[0],
-      salary: 0
+      name: "", fatherName: "", cnic: "", contactNumber: "", email: "", address: "",
+      designation: "", empDepartment: "", employmentType: "PERMANENT", status: "ACTIVE",
+      basicPay: 0, joinDate: new Date().toISOString().split("T")[0], leaveDate: ""
     });
   };
-  const handleGeneratePayroll = () => {
-    if (!payrollFormData.employeeId) {
-      toast({
-        title: "Please select an employee",
-        variant: "destructive"
+
+  // Advance Salary Queries
+  const { data: advanceSalaries = [] } = useQuery({
+    queryKey: ["advanceSalaries"],
+    queryFn: () => getAdvanceSalaries(),
+  });
+  
+  const createAdvanceMutation = useMutation({
+    mutationFn: createAdvanceSalary,
+    onSuccess: () => {
+      queryClient.invalidateQueries(["advanceSalaries"]);
+      toast({ title: "Advance salary created successfully" });
+      setAdvanceOpen(false);
+      setAdvanceFormData({
+        type: "employee",
+        employeeId: "",
+        teacherId: "",
+        month: new Date().toISOString().slice(0, 7),
+        amount: 0,
+        remarks: ""
       });
-      return;
-    }
-    const employee = employees.find(e => e.id === payrollFormData.employeeId);
-    if (!employee) return;
-    const advance = advanceSalaries.find(a => a.employeeId === payrollFormData.employeeId && a.month === payrollFormData.month && !a.adjusted);
-    const advanceAmount = advance?.amount || 0;
-    const netSalary = employee.salary + payrollFormData.bonus - payrollFormData.deductions - advanceAmount;
-    addPayroll({
-      employeeId: payrollFormData.employeeId,
-      month: payrollFormData.month,
-      basicSalary: employee.salary,
-      bonus: payrollFormData.bonus,
-      deductions: payrollFormData.deductions,
-      advanceSalary: advanceAmount,
-      netSalary,
-      status: "unpaid"
-    });
-    toast({
-      title: "Payroll generated successfully"
-    });
-    setPayrollOpen(false);
-    setPayrollFormData({
-      employeeId: "",
-      month: new Date().toISOString().slice(0, 7),
-      bonus: 0,
-      deductions: 0
-    });
-  };
+    },
+    onError: (err) => toast({ title: err.message, variant: "destructive" })
+  });
+
+  const updateAdvanceMutation = useMutation({
+    mutationFn: ({ id, payload }) => updateAdvanceSalary(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries(["advanceSalaries"]);
+      toast({ title: "Advance salary updated successfully" });
+      setAdvanceOpen(false);
+      setEditingAdvance(null);
+      setAdvanceFormData({
+        type: "employee",
+        employeeId: "",
+        teacherId: "",
+        month: new Date().toISOString().slice(0, 7),
+        amount: 0,
+        remarks: "",
+        adjusted: false
+      });
+    },
+    onError: (err) => toast({ title: err.message, variant: "destructive" })
+  });
+
+  const deleteAdvanceMutation = useMutation({
+    mutationFn: deleteAdvanceSalary,
+    onSuccess: () => {
+      queryClient.invalidateQueries(["advanceSalaries"]);
+      toast({ title: "Advance salary deleted successfully" });
+    },
+    onError: (err) => toast({ title: err.message, variant: "destructive" })
+  });
+
   const handleAddAdvance = () => {
-    if (!advanceFormData.employeeId || !advanceFormData.amount) {
+    const staffId = advanceFormData.type === "employee" ? advanceFormData.employeeId : advanceFormData.teacherId;
+    if (!staffId || !advanceFormData.amount) {
       toast({
         title: "Please fill required fields",
         variant: "destructive"
       });
       return;
     }
-    addAdvanceSalary({
-      employeeId: advanceFormData.employeeId,
+    const payload = {
+      employeeId: advanceFormData.type === "employee" ? Number(advanceFormData.employeeId) : null,
+      teacherId: advanceFormData.type === "teacher" ? Number(advanceFormData.teacherId) : null,
       month: advanceFormData.month,
-      amount: advanceFormData.amount,
+      amount: parseFloat(advanceFormData.amount),
       remarks: advanceFormData.remarks,
-      adjusted: false
-    });
-    toast({
-      title: "Advance salary recorded"
-    });
-    setAdvanceOpen(false);
-    setAdvanceFormData({
-      employeeId: "",
-      month: new Date().toISOString().slice(0, 7),
-      amount: 0,
-      remarks: ""
-    });
+      adjusted: advanceFormData.adjusted // Include adjusted status
+    };
+    if (editingAdvance) {
+      updateAdvanceMutation.mutate({ id: editingAdvance.id, payload });
+    } else {
+      createAdvanceMutation.mutate(payload);
+    }
   };
+  // 4. ADD handleEditAdvance (add this after handleAddAdvance)
+  const handleEditAdvance = (advance) => {
+    setEditingAdvance(advance);
+    setAdvanceFormData({
+      type: advance.employeeId ? "employee" : "teacher",
+      employeeId: advance.employeeId ? advance.employeeId.toString() : "",
+      teacherId: advance.teacherId ? advance.teacherId.toString() : "",
+      month: advance.month,
+      amount: advance.amount,
+      remarks: advance.remarks || "",
+      adjusted: advance.adjusted
+    });
+    setAdvanceOpen(true);
+  };
+
   const handleAddLeave = () => {
     if (!leaveFormData.employeeId || !leaveFormData.reason) {
       toast({
@@ -219,46 +490,31 @@ const HRPayroll = () => {
       reason: ""
     });
   };
+
   const handleAddDepartment = () => {
     if (!deptFormData.departmentName) {
       toast({
         title: "Please enter department name",
-        variant: "destructive"
+        variant: "destructive",
       });
       return;
     }
-    addDepartment(deptFormData);
-    toast({
-      title: "Department added successfully"
-    });
-    setDeptOpen(false);
-    setDeptFormData({
-      departmentName: "",
-      headOfDepartment: "",
-      description: ""
-    });
+    addDeptMutation.mutate(deptFormData);
   };
 
-  // Chart data
-  const deptEmployeeData = departments.map(dept => ({
-    name: dept.departmentName,
-    count: employees.filter(e => e.department === dept.departmentName && e.status === "active").length
-  }));
-  const salaryData = [{
-    range: "< 30k",
-    count: employees.filter(e => e.salary < 30000).length
-  }, {
-    range: "30k-50k",
-    count: employees.filter(e => e.salary >= 30000 && e.salary < 50000).length
-  }, {
-    range: "50k-80k",
-    count: employees.filter(e => e.salary >= 50000 && e.salary < 80000).length
-  }, {
-    range: "> 80k",
-    count: employees.filter(e => e.salary >= 80000).length
-  }];
-  const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', 'hsl(var(--accent))', 'hsl(var(--success))'];
-  return <DashboardLayout>
+  const handleUpdateDepartment = (depID) => {
+    if (!deptFormData.departmentName) {
+      toast({
+        title: "Please enter department name",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateDeptMutation.mutate({ depID, data: deptFormData });
+  };
+
+  return (
+    <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
         <div className="bg-gradient-to-r from-primary to-primary/80 rounded-2xl p-6 text-primary-foreground shadow-lg">
           <h2 className="text-2xl font-bold mb-2">HR & Payroll Management</h2>
@@ -275,7 +531,7 @@ const HRPayroll = () => {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{employees.filter(e => e.status === "active").length}</div>
+              <div className="text-2xl font-bold">{employees.filter(e => e.status === "ACTIVE").length}</div>
             </CardContent>
           </Card>
           <Card>
@@ -289,32 +545,146 @@ const HRPayroll = () => {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Pending Leaves</CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{leaveRequests.filter(l => l.status === "pending").length}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Monthly Payroll</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">PKR {employees.reduce((sum, e) => sum + (e.status === "active" ? e.salary : 0), 0).toLocaleString()}</div>
+              <div className="text-2xl font-bold">PKR {employees.reduce((sum, e) => sum + (e.status === "ACTIVE" ? Number(e.basicPay) : 0), 0)}</div>
             </CardContent>
           </Card>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 h-auto gap-1">
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 h-auto gap-1">
             <TabsTrigger value="employees">Employees</TabsTrigger>
+            <TabsTrigger value="attendance">Attendance</TabsTrigger>
+            <TabsTrigger value="leaves">Leaves</TabsTrigger>
             <TabsTrigger value="payroll">Payroll</TabsTrigger>
             <TabsTrigger value="advance">Advance Salary</TabsTrigger>
-            <TabsTrigger value="leaves">Leaves</TabsTrigger>
             <TabsTrigger value="departments">Departments</TabsTrigger>
+            <TabsTrigger value="holidays">Holidays</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="attendance" className="space-y-4">
+            <Card>
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <CardTitle className="flex items-center gap-2">
+                    <UserCheck className="w-5 h-5" />
+                    Attendance
+                  </CardTitle>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="flex items-center gap-2">
+                        <CalendarIcon className="w-4 h-4" />
+                        {format(selectedDate, "PPP")}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={selectedDate}
+                        onSelect={(d) => {
+                          if (d) setSelectedDate(d);
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Select Department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {empDepts.map((dept) => (
+                        <SelectItem key={dept} value={dept}>
+                          {dept}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={markAllPresent}>Mark All Present</Button>
+              </CardHeader>
+              <CardContent>
+                {attendanceLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Designation</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {attendanceEmployees.filter(e => e.status === "ACTIVE").map((employee) => {
+                        const record = employeeAttendance.find(a => a.employeeId === employee.id);
+                        return (
+                          <TableRow key={employee.id}>
+                            <TableCell>
+                              <div>
+                                <p className="font-medium">{employee.name}</p>
+                                <p className="text-xs text-muted-foreground">{employee.empDepartment}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell>{employee.designation}</TableCell>
+                            <TableCell>
+                              {record ? (
+                                <Badge
+                                  variant={
+                                    record.status === "PRESENT" ? "default" :
+                                      record.status === "ABSENT" ? "destructive" :
+                                        record.status === "LEAVE" ? "secondary" : "outline"
+                                  }
+                                >
+                                  {record.status}
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground text-sm">Not Marked</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-1">
+                                <Button
+                                  size="sm"
+                                  variant={record?.status === "PRESENT" ? "default" : "outline"}
+                                  onClick={() => handleMarkAttendance(employee.id, "PRESENT")}
+                                  title="Present"
+                                >
+                                  <CheckCircle2 className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant={record?.status === "ABSENT" ? "destructive" : "outline"}
+                                  onClick={() => handleMarkAttendance(employee.id, "ABSENT")}
+                                  title="Absent"
+                                >
+                                  <XCircle className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant={record?.status === "LEAVE" ? "secondary" : "outline"}
+                                  onClick={() => handleMarkAttendance(employee.id, "LEAVE")}
+                                  title="Leave"
+                                >
+                                  <Clock className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           <TabsContent value="employees" className="space-y-4">
             <Card>
@@ -327,110 +697,104 @@ const HRPayroll = () => {
                   </Button>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-4 mt-4">
-                  <div className="flex-1">
-                    <Input placeholder="Search employees..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-                  </div>
                   <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
                     <SelectTrigger className="w-full sm:w-[200px]">
                       <SelectValue placeholder="Filter by department" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Departments</SelectItem>
-                      {departments.map(dept => <SelectItem key={dept.id} value={dept.departmentName}>
-                          {dept.departmentName}
-                        </SelectItem>)}
+                      {empDepts.map(dept => (
+                        <SelectItem key={dept} value={dept}>
+                          {dept}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>CNIC</TableHead>
-                      <TableHead>Designation</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Salary</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredEmployees.map(employee => <TableRow key={employee.id}>
-                        <TableCell className="font-medium">{employee.name}</TableCell>
-                        <TableCell>{employee.cnic}</TableCell>
-                        <TableCell>{employee.designation}</TableCell>
-                        <TableCell>{employee.department}</TableCell>
-                        <TableCell>PKR {employee.salary.toLocaleString()}</TableCell>
-                        <TableCell>
-                          <Badge variant={employee.status === "active" ? "default" : "destructive"}>
-                            {employee.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={() => {
-                            setSelectedEmployee(employee);
-                            setIdCardOpen(true);
-                          }}>
-                              <IdCard className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => {
-                            setEditingEmployee(employee);
-                            setEmployeeFormData(employee);
-                            setEmployeeOpen(true);
-                          }}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => deleteEmployee(employee.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
-                  </TableBody>
-                </Table>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>CNIC</TableHead>
+                        <TableHead>Designation</TableHead>
+                        <TableHead>Department</TableHead>
+                        <TableHead>Basic Pay</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {employees?.map(employee => (
+                        <TableRow key={employee.id}>
+                          <TableCell className="font-medium">{employee.name}</TableCell>
+                          <TableCell>{employee.cnic}</TableCell>
+                          <TableCell>{employee.designation}</TableCell>
+                          <TableCell>{employee.empDepartment}</TableCell>
+                          <TableCell>PKR {employee.basicPay ? Number(employee.basicPay).toLocaleString() : '0'}</TableCell>
+                          <TableCell>
+                            <Badge variant={employee.status === "ACTIVE" ? "default" : "destructive"}>
+                              {employee.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" onClick={() => {
+                                setSelectedEmployee(employee);
+                                setIdCardOpen(true);
+                              }}>
+                                <IdCard className="h-4 w-4" />
+                              </Button>
+                              <Button size="sm" variant="outline"
+                                onClick={() => {
+                                  setEditingEmployee(employee);
+                                  setEmployeeFormData({
+                                    name: employee.name || "",
+                                    fatherName: employee.fatherName || "",
+                                    cnic: employee.cnic || "",
+                                    contactNumber: employee.phone || "",
+                                    email: employee.email || "",
+                                    address: employee.address || "",
+                                    designation: employee.designation || "",
+                                    empDepartment: employee.empDepartment || "",
+                                    employmentType: employee.employmentType || "PERMANENT",
+                                    status: employee.status || "ACTIVE",
+                                    basicPay: employee.basicPay,
+                                    joinDate: employee.joinDate ? new Date(employee.joinDate).toISOString().split("T")[0] : "",
+                                    leaveDate: employee.leaveDate ? new Date(employee.leaveDate).toISOString().split("T")[0] : "",
+                                  });
+                                  setEmployeeOpen(true);
+                                }}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button size="sm" variant="destructive" onClick={() => deleteEmployee(employee.id)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
 
-            {/* Charts */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Employees by Department</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={deptEmployeeData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <RechartsTooltip />
-                      <Bar dataKey="count" fill="hsl(var(--primary))" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Salary Distribution</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie data={salaryData} cx="50%" cy="50%" labelLine={false} label={entry => `${entry.name}: ${entry.count}`} outerRadius={80} fill="hsl(var(--primary))" dataKey="count">
-                        {salaryData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
-                      </Pie>
-                      <RechartsTooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            </div>
+          <TabsContent value="leaves" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle>Leaves Management</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <LeavesManagementDialog />
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="payroll" className="space-y-4">
@@ -438,55 +802,18 @@ const HRPayroll = () => {
               <CardHeader>
                 <div className="flex justify-between items-center">
                   <CardTitle>Payroll Management</CardTitle>
-                  <Button onClick={() => setPayrollOpen(true)}>
-                    <DollarSign className="mr-2 h-4 w-4" />
-                    Generate Payroll
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setSettingsOpen(true)}>
+                      <Settings className="mr-2 h-4 w-4" />
+                      Settings
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Month</TableHead>
-                      <TableHead>Basic Salary</TableHead>
-                      <TableHead>Bonus</TableHead>
-                      <TableHead>Deductions</TableHead>
-                      <TableHead>Advance</TableHead>
-                      <TableHead>Net Salary</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {payrolls.map(payroll => {
-                    const employee = employees.find(e => e.id === payroll.employeeId);
-                    return <TableRow key={payroll.id}>
-                          <TableCell>{employee?.name}</TableCell>
-                          <TableCell>{payroll.month}</TableCell>
-                          <TableCell>PKR {payroll.basicSalary.toLocaleString()}</TableCell>
-                          <TableCell>PKR {payroll.bonus.toLocaleString()}</TableCell>
-                          <TableCell>PKR {payroll.deductions.toLocaleString()}</TableCell>
-                          <TableCell>PKR {payroll.advanceSalary.toLocaleString()}</TableCell>
-                          <TableCell className="font-bold">PKR {payroll.netSalary.toLocaleString()}</TableCell>
-                          <TableCell>
-                            <Badge variant={payroll.status === "paid" ? "default" : "secondary"}>
-                              {payroll.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Button size="sm" variant={payroll.status === "paid" ? "outline" : "default"} onClick={() => updatePayroll(payroll.id, {
-                          ...payroll,
-                          status: payroll.status === "paid" ? "unpaid" : "paid"
-                        })}>
-                              {payroll.status === "paid" ? "Mark Unpaid" : "Mark Paid"}
-                            </Button>
-                          </TableCell>
-                        </TableRow>;
-                  })}
-                  </TableBody>
-                </Table>
+                <div className="overflow-x-auto">
+                  <PayrollManagementDialog open={true} onOpenChange={() => { }} />
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -503,103 +830,120 @@ const HRPayroll = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Month</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Remarks</TableHead>
-                      <TableHead>Adjusted</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {advanceSalaries.map(advance => {
-                    const employee = employees.find(e => e.id === advance.employeeId);
-                    return <TableRow key={advance.id}>
-                          <TableCell>{employee?.name}</TableCell>
-                          <TableCell>{advance.month}</TableCell>
-                          <TableCell>PKR {advance.amount.toLocaleString()}</TableCell>
-                          <TableCell>{advance.remarks}</TableCell>
-                          <TableCell>
-                            <Badge variant={advance.adjusted ? "default" : "secondary"}>
-                              {advance.adjusted ? "Yes" : "No"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Button size="sm" variant="destructive" onClick={() => deleteAdvanceSalary(advance.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>;
-                  })}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="leaves" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>Leave Management</CardTitle>
-                  <Button onClick={() => setLeaveOpen(true)}>
-                    <Calendar className="mr-2 h-4 w-4" />
-                    Apply Leave
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Start Date</TableHead>
-                      <TableHead>End Date</TableHead>
-                      <TableHead>Reason</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {leaveRequests.map(leave => {
-                    const employee = employees.find(e => e.id === leave.employeeId);
-                    return <TableRow key={leave.id}>
-                          <TableCell>{employee?.name}</TableCell>
-                          <TableCell className="capitalize">{leave.leaveType}</TableCell>
-                          <TableCell>{leave.startDate}</TableCell>
-                          <TableCell>{leave.endDate}</TableCell>
-                          <TableCell>{leave.reason}</TableCell>
-                          <TableCell>
-                            <Badge variant={leave.status === "approved" ? "default" : leave.status === "rejected" ? "destructive" : "secondary"}>
-                              {leave.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {leave.status === "pending" && <div className="flex gap-2">
-                                <Button size="sm" variant="default" onClick={() => updateLeaveRequest(leave.id, {
-                            ...leave,
-                            status: "approved",
-                            approvedBy: "Admin"
-                          })}>
-                                  <CheckCircle2 className="h-4 w-4" />
-                                </Button>
-                                <Button size="sm" variant="destructive" onClick={() => updateLeaveRequest(leave.id, {
-                            ...leave,
-                            status: "rejected",
-                            approvedBy: "Admin"
-                          })}>
-                                  <XCircle className="h-4 w-4" />
-                                </Button>
-                              </div>}
-                          </TableCell>
-                        </TableRow>;
-                  })}
-                  </TableBody>
-                </Table>
+                <Tabs defaultValue="employees" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="employees" onClick={() => setAdvanceFormData({ ...advanceFormData, type: "employee" })}>
+                      Non-Teaching Staff
+                    </TabsTrigger>
+                    <TabsTrigger value="teachers" onClick={() => setAdvanceFormData({ ...advanceFormData, type: "teacher" })}>
+                      Teachers
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="employees" className="mt-4">
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Employee</TableHead>
+                            <TableHead>Designation</TableHead>
+                            <TableHead>Month</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>Remarks</TableHead>
+                            <TableHead>Adjusted</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {advanceSalaries?.filter(adv => adv.employeeId).map(advance => (
+                            <TableRow key={advance.id}>
+                              <TableCell>{advance.employee?.name || "N/A"}</TableCell>
+                              <TableCell>{advance.employee?.designation || "N/A"}</TableCell>
+                              <TableCell>{advance.month}</TableCell>
+                              <TableCell>PKR {advance.amount?.toLocaleString()}</TableCell>
+                              <TableCell>{advance.remarks || "-"}</TableCell>
+                              <TableCell>
+                                {advance.adjusted ? (
+                                  <Badge variant="default">Yes</Badge>
+                                ) : (
+                                  <Badge variant="secondary">No</Badge>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex space-x-2">
+                                  <Button size="sm" variant="outline" onClick={() => handleEditAdvance(advance)}>
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="sm" variant="destructive" onClick={() => deleteAdvanceMutation.mutate(advance.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {advanceSalaries?.filter(adv => adv.employeeId).length === 0 && (
+                            <TableRow>
+                              <TableCell colSpan={7} className="text-center text-muted-foreground">
+                                No advance salaries for employees
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="teachers" className="mt-4">
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Teacher</TableHead>
+                            <TableHead>Specialization</TableHead>
+                            <TableHead>Month</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>Remarks</TableHead>
+                            <TableHead>Adjusted</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {advanceSalaries?.filter(adv => adv.teacherId).map(advance => (
+                            <TableRow key={advance.id}>
+                              <TableCell>{advance.teacher?.name || "N/A"}</TableCell>
+                              <TableCell>{advance.teacher?.specialization || "N/A"}</TableCell>
+                              <TableCell>{advance.month}</TableCell>
+                              <TableCell>PKR {advance.amount?.toLocaleString()}</TableCell>
+                              <TableCell>{advance.remarks || "-"}</TableCell>
+                              <TableCell>
+                                {advance.adjusted ? (
+                                  <Badge variant="default">Yes</Badge>
+                                ) : (
+                                  <Badge variant="secondary">No</Badge>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex space-x-2">
+                                  <Button size="sm" variant="outline" onClick={() => handleEditAdvance(advance)}>
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="sm" variant="destructive" onClick={() => deleteAdvanceMutation.mutate(advance.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {advanceSalaries?.filter(adv => adv.teacherId).length === 0 && (
+                            <TableRow>
+                              <TableCell colSpan={7} className="text-center text-muted-foreground">
+                                No advance salaries for teachers
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
           </TabsContent>
@@ -609,357 +953,719 @@ const HRPayroll = () => {
               <CardHeader>
                 <div className="flex justify-between items-center">
                   <CardTitle>Department Management</CardTitle>
-                  <Button onClick={() => setDeptOpen(true)}>
+                  <Button onClick={() => {
+                    setEditingDepartment(null);
+                    setDeptFormData({
+                      id: "",
+                      departmentName: "",
+                      headOfDepartment: "",
+                      description: ""
+                    });
+                    setDeptOpen(true);
+                  }}>
                     <UserPlus className="mr-2 h-4 w-4" />
                     Add Department
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Department Name</TableHead>
-                      <TableHead>Head of Department</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Employees</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {departments.map(dept => <TableRow key={dept.id}>
-                        <TableCell className="font-medium">{dept.departmentName}</TableCell>
-                        <TableCell>{dept.headOfDepartment}</TableCell>
-                        <TableCell>{dept.description}</TableCell>
-                        <TableCell>
-                          {employees.filter(e => e.department === dept.departmentName && e.status === "active").length}
-                        </TableCell>
-                        <TableCell>
-                          <Button size="sm" variant="destructive" onClick={() => deleteDepartment(dept.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>)}
-                  </TableBody>
-                </Table>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Department Name</TableHead>
+                        <TableHead>Head of Department</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {departments?.map(dept => {
+                        return (
+                          <TableRow key={dept.id}>
+                            <TableCell className="font-medium">{dept.name}</TableCell>
+                            <TableCell>{dept.hod?.name || "N/A"}</TableCell>
+                            <TableCell>{dept.description}</TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button size="sm" variant="outline"
+                                  onClick={() => {
+                                    setEditingDepartment(dept);
+                                    setDeptFormData({
+                                      id: dept.id,
+                                      departmentName: dept.name,
+                                      headOfDepartment: dept.hod?.id,
+                                      description: dept.description
+                                    });
+                                    setDeptOpen(true);
+                                  }}>
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button size="sm" variant="destructive"
+                                  onClick={() => deleteDeptMutation.mutate(dept.id)}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="holidays" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle>Holiday Calendar</CardTitle>
+                  <Button onClick={() => setHolidayOpen(true)}>
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    Add Holiday
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Title</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Repeat Yearly</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {holidays?.map(holiday => (
+                        <TableRow key={holiday.id}>
+                          <TableCell className="font-medium">{holiday.title}</TableCell>
+                          <TableCell>{format(new Date(holiday.date), "PPP")}</TableCell>
+                          <TableCell><Badge variant="outline">{holiday.type}</Badge></TableCell>
+                          <TableCell>{holiday.repeatYearly ? "Yes" : "No"}</TableCell>
+                          <TableCell>{holiday.description}</TableCell>
+                          <TableCell>
+                            <Button size="sm" variant="destructive"
+                              onClick={() => deleteHolidayMutation.mutate(holiday.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
 
-        {/* Dialogs */}
-        <Dialog open={employeeOpen} onOpenChange={setEmployeeOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>{editingEmployee ? "Edit Employee" : "Add Employee"}</DialogTitle>
-            </DialogHeader>
+      </div>
+
+      {/* Employee Dialog */}
+      <Dialog open={employeeOpen} onOpenChange={setEmployeeOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingEmployee ? "Edit Employee" : "Add New Employee"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Name */}
+            <div>
+              <Label>Name <span className="text-red-500">*</span></Label>
+              <Input
+                value={employeeFormData.name}
+                onChange={(e) => setEmployeeFormData({ ...employeeFormData, name: e.target.value })}
+                placeholder="John Doe"
+              />
+            </div>
+
+            {/* Father Name */}
+            <div>
+              <Label>Father Name</Label>
+              <Input
+                value={employeeFormData.fatherName}
+                onChange={(e) => setEmployeeFormData({ ...employeeFormData, fatherName: e.target.value })}
+                placeholder="Ahmed Khan"
+              />
+            </div>
+
+            {/* CNIC */}
+            <div>
+              <Label>CNIC <span className="text-red-500">*</span></Label>
+              <Input
+                value={employeeFormData.cnic}
+                onChange={(e) => setEmployeeFormData({ ...employeeFormData, cnic: e.target.value })}
+                placeholder="35202-1234567-1"
+              />
+            </div>
+
+            {/* Contact Number */}
+            <div>
+              <Label>Phone <span className="text-red-500">*</span></Label>
+              <Input
+                value={employeeFormData.contactNumber}
+                onChange={(e) => setEmployeeFormData({ ...employeeFormData, contactNumber: e.target.value })}
+                placeholder="0300-1234567"
+              />
+            </div>
+
+            {/* Email */}
+            <div>
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={employeeFormData.email}
+                onChange={(e) => setEmployeeFormData({ ...employeeFormData, email: e.target.value })}
+                placeholder="john@example.com"
+              />
+            </div>
+
+            {/* Address */}
+            <div>
+              <Label>Address</Label>
+              <Input
+                value={employeeFormData.address}
+                onChange={(e) => setEmployeeFormData({ ...employeeFormData, address: e.target.value })}
+                placeholder="123 Street, Lahore"
+              />
+            </div>
+
+            {/* Designation */}
+            <div>
+              <Label>Designation</Label>
+              <Input
+                value={employeeFormData.designation}
+                onChange={(e) => setEmployeeFormData({ ...employeeFormData, designation: e.target.value })}
+                placeholder="Manager"
+              />
+            </div>
+
+            {/* Department */}
+            <div>
+              <Label>Department</Label>
+              <Select
+                value={employeeFormData.empDepartment}
+                onValueChange={(value) => setEmployeeFormData({ ...employeeFormData, empDepartment: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  {[
+                    "ADMIN",
+                    "FINANCE",
+                    "SECURITY",
+                    "TRANSPORT",
+                    "CLASS_4",
+                    "MAINTENANCE",
+                    "IT_SUPPORT",
+                    "LIBRARY",
+                    "LAB",
+                    "OTHER",
+                  ].map((dept) => (
+                    <SelectItem key={dept} value={dept}>
+                      {dept.replace("_", " ")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Employment Type */}
+            <div>
+              <Label>Employment Type</Label>
+              <Select
+                value={employeeFormData.employmentType}
+                onValueChange={(value) => setEmployeeFormData({ ...employeeFormData, employmentType: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PERMANENT">Permanent</SelectItem>
+                  <SelectItem value="CONTRACT">Contract</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Status */}
+            <div>
+              <Label>Status</Label>
+              <Select
+                value={employeeFormData.status}
+                onValueChange={(value) => setEmployeeFormData({ ...employeeFormData, status: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="TERMINATED">Terminated</SelectItem>
+                  <SelectItem value="RETIRED">Retired</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Basic Pay */}
+            <div>
+              <Label>Basic Pay (PKR)</Label>
+              <Input
+                type="number"
+                value={employeeFormData.basicPay}
+                onChange={(e) => setEmployeeFormData({ ...employeeFormData, basicPay: parseFloat(e.target.value) })}
+                placeholder="30000"
+              />
+            </div>
+
+
+
+            {/* Join Date */}
+            <div>
+              <Label>Join Date</Label>
+              <Input
+                type="date"
+                value={employeeFormData.joinDate}
+                onChange={(e) => setEmployeeFormData({ ...employeeFormData, joinDate: e.target.value })}
+              />
+            </div>
+
+            {/* Leave Date (Only if status is TERMINATED/RETIRED) */}
+            {(employeeFormData.status === "TERMINATED" || employeeFormData.status === "RETIRED") && (
+              <div>
+                <Label>Leave Date</Label>
+                <Input
+                  type="date"
+                  value={employeeFormData.leaveDate}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, leaveDate: e.target.value })}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3 mt-6">
+            <Button variant="outline" onClick={() => setEmployeeOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddEmployee}>
+              {editingEmployee ? "Update Employee" : "Add Employee"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payroll Settings Dialog */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Payroll Settings</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUpdateSettings} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Name *</Label>
-                <Input value={employeeFormData.name} onChange={e => setEmployeeFormData({
-                ...employeeFormData,
-                name: e.target.value
-              })} />
+              <div className="space-y-2">
+                <Label>Absent Deduction (PKR)</Label>
+                <Input
+                  name="absentDeduction"
+                  type="number"
+                  defaultValue={payrollSettings?.absentDeduction || 0}
+                  required
+                />
               </div>
-              <div>
-                <Label>Father Name</Label>
-                <Input value={employeeFormData.fatherName} onChange={e => setEmployeeFormData({
-                ...employeeFormData,
-                fatherName: e.target.value
-              })} />
+              <div className="space-y-2">
+                <Label>Leave Deduction (PKR)</Label>
+                <Input
+                  name="leaveDeduction"
+                  type="number"
+                  defaultValue={payrollSettings?.leaveDeduction || 0}
+                  required
+                />
               </div>
-              <div>
-                <Label>CNIC *</Label>
-                <Input value={employeeFormData.cnic} onChange={e => setEmployeeFormData({
-                ...employeeFormData,
-                cnic: e.target.value
-              })} />
+              <div className="space-y-2">
+                <Label>Allowed Leaves (Per Month)</Label>
+                <Input
+                  name="leavesAllowed"
+                  type="number"
+                  defaultValue={payrollSettings?.leavesAllowed || 0}
+                  required
+                />
               </div>
-              <div>
-                <Label>Contact Number *</Label>
-                <Input value={employeeFormData.contactNumber} onChange={e => setEmployeeFormData({
-                ...employeeFormData,
-                contactNumber: e.target.value
-              })} />
-              </div>
-              <div>
-                <Label>Email</Label>
-                <Input type="email" value={employeeFormData.email} onChange={e => setEmployeeFormData({
-                ...employeeFormData,
-                email: e.target.value
-              })} />
-              </div>
-              <div>
-                <Label>Designation</Label>
-                <Input value={employeeFormData.designation} onChange={e => setEmployeeFormData({
-                ...employeeFormData,
-                designation: e.target.value
-              })} />
-              </div>
-              <div>
-                <Label>Department</Label>
-                <Select value={employeeFormData.department} onValueChange={value => setEmployeeFormData({
-                ...employeeFormData,
-                department: value
-              })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departments.map(dept => <SelectItem key={dept.id} value={dept.departmentName}>
-                        {dept.departmentName}
-                      </SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Date of Joining</Label>
-                <Input type="date" value={employeeFormData.dateOfJoining} onChange={e => setEmployeeFormData({
-                ...employeeFormData,
-                dateOfJoining: e.target.value
-              })} />
-              </div>
-              <div>
-                <Label>Salary</Label>
-                <Input type="number" value={employeeFormData.salary} onChange={e => setEmployeeFormData({
-                ...employeeFormData,
-                salary: parseFloat(e.target.value) || 0
-              })} />
+              <div className="space-y-2">
+                <Label>Allowed Absents (Per Month)</Label>
+                <Input
+                  name="absentsAllowed"
+                  type="number"
+                  defaultValue={payrollSettings?.absentsAllowed || 0}
+                  required
+                />
               </div>
             </div>
-            <Button onClick={handleAddEmployee}>Save Employee</Button>
-          </DialogContent>
-        </Dialog>
+            <Button type="submit" className="w-full" disabled={updateSettingsMutation.isPending}>
+              {updateSettingsMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Save Settings"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-        <Dialog open={payrollOpen} onOpenChange={setPayrollOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Generate Payroll</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label>Select Employee</Label>
-                <Select value={payrollFormData.employeeId} onValueChange={value => setPayrollFormData({
-                ...payrollFormData,
-                employeeId: value
-              })}>
+      <Dialog open={advanceOpen} onOpenChange={setAdvanceOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingAdvance ? "Edit Advance Salary" : "Add Advance Salary"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Staff Type</Label>
+              <Select
+                value={advanceFormData.type}
+                onValueChange={value => setAdvanceFormData({
+                  ...advanceFormData,
+                  type: value,
+                  employeeId: "",
+                  teacherId: ""
+                })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="employee">Non-Teaching Staff</SelectItem>
+                  <SelectItem value="teacher">Teacher</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Select {advanceFormData.type === "employee" ? "Employee" : "Teacher"}</Label>
+              {advanceFormData.type === "employee" ? (
+                <Select
+                  value={advanceFormData.employeeId}
+                  onValueChange={value => setAdvanceFormData({
+                    ...advanceFormData,
+                    employeeId: value
+                  })}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select employee" />
                   </SelectTrigger>
                   <SelectContent>
-                    {employees.filter(e => e.status === "active").map(emp => <SelectItem key={emp.id} value={emp.id}>
+                    {employees?.filter(e => e.status === "ACTIVE").map(emp => (
+                      <SelectItem key={emp.id} value={emp.id.toString()}>
                         {emp.name} - {emp.designation}
-                      </SelectItem>)}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div>
-                <Label>Month</Label>
-                <Input type="month" value={payrollFormData.month} onChange={e => setPayrollFormData({
-                ...payrollFormData,
-                month: e.target.value
-              })} />
-              </div>
-              <div>
-                <Label>Bonus</Label>
-                <Input type="number" value={payrollFormData.bonus} onChange={e => setPayrollFormData({
-                ...payrollFormData,
-                bonus: parseFloat(e.target.value) || 0
-              })} />
-              </div>
-              <div>
-                <Label>Deductions</Label>
-                <Input type="number" value={payrollFormData.deductions} onChange={e => setPayrollFormData({
-                ...payrollFormData,
-                deductions: parseFloat(e.target.value) || 0
-              })} />
-              </div>
-            </div>
-            <Button onClick={handleGeneratePayroll}>Generate Payroll</Button>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={advanceOpen} onOpenChange={setAdvanceOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Advance Salary</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label>Select Employee</Label>
-                <Select value={advanceFormData.employeeId} onValueChange={value => setAdvanceFormData({
-                ...advanceFormData,
-                employeeId: value
-              })}>
+              ) : (
+                <Select
+                  value={advanceFormData.teacherId}
+                  onValueChange={value => setAdvanceFormData({
+                    ...advanceFormData,
+                    teacherId: value
+                  })}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select employee" />
+                    <SelectValue placeholder="Select teacher" />
                   </SelectTrigger>
                   <SelectContent>
-                    {employees.filter(e => e.status === "active").map(emp => <SelectItem key={emp.id} value={emp.id}>
-                        {emp.name}
-                      </SelectItem>)}
+                    {teachers?.map(teacher => (
+                      <SelectItem key={teacher.id} value={teacher.id.toString()}>
+                        {teacher.name} - {teacher.specialization || "N/A"}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div>
-                <Label>Month</Label>
-                <Input type="month" value={advanceFormData.month} onChange={e => setAdvanceFormData({
-                ...advanceFormData,
-                month: e.target.value
-              })} />
-              </div>
-              <div>
-                <Label>Amount</Label>
-                <Input type="number" value={advanceFormData.amount} onChange={e => setAdvanceFormData({
-                ...advanceFormData,
-                amount: parseFloat(e.target.value) || 0
-              })} />
-              </div>
-              <div>
-                <Label>Remarks</Label>
-                <Textarea value={advanceFormData.remarks} onChange={e => setAdvanceFormData({
-                ...advanceFormData,
-                remarks: e.target.value
-              })} />
-              </div>
+              )}
             </div>
-            <Button onClick={handleAddAdvance}>Add Advance</Button>
-          </DialogContent>
-        </Dialog>
+            <div>
+              <Label>Month</Label>
+              <Input
+                type="month"
+                value={advanceFormData.month}
+                onChange={e => setAdvanceFormData({
+                  ...advanceFormData,
+                  month: e.target.value
+                })}
+              />
+            </div>
+            <div>
+              <Label>Amount</Label>
+              <Input
+                type="number"
+                value={advanceFormData.amount}
+                onChange={e => setAdvanceFormData({
+                  ...advanceFormData,
+                  amount: parseFloat(e.target.value) || 0
+                })}
+              />
+            </div>
+            <div>
+              <Label>Remarks</Label>
+              <Textarea
+                value={advanceFormData.remarks}
+                onChange={e => setAdvanceFormData({
+                  ...advanceFormData,
+                  remarks: e.target.value
+                })}
+              />
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id="adjusted"
+              className="h-4 w-4 rounded border-gray-300"
+              checked={advanceFormData.adjusted || false}
+              onChange={e => setAdvanceFormData({
+                ...advanceFormData,
+                adjusted: e.target.checked
+              })}
+            />
+            <Label htmlFor="adjusted">Mark as Adjusted (Deducted)</Label>
+          </div>
+          <Button onClick={handleAddAdvance}>
+            {editingAdvance ? "Update Advance" : "Add Advance"}
+          </Button>
+        </DialogContent>
+      </Dialog>
 
-        <Dialog open={leaveOpen} onOpenChange={setLeaveOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Apply for Leave</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label>Select Employee</Label>
-                <Select value={leaveFormData.employeeId} onValueChange={value => setLeaveFormData({
+
+      <Dialog open={leaveOpen} onOpenChange={setLeaveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Apply for Leave</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Select Employee</Label>
+              <Select value={leaveFormData.employeeId} onValueChange={value => setLeaveFormData({
                 ...leaveFormData,
                 employeeId: value
               })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select employee" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {employees.filter(e => e.status === "active").map(emp => <SelectItem key={emp.id} value={emp.id}>
-                        {emp.name}
-                      </SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Leave Type</Label>
-                <Select value={leaveFormData.leaveType} onValueChange={value => setLeaveFormData({
+                <SelectTrigger>
+                  <SelectValue placeholder="Select employee" />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.filter(e => e.status === "active").map(emp => (
+                    <SelectItem key={emp.id} value={emp.id}>
+                      {emp.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Leave Type</Label>
+              <Select value={leaveFormData.leaveType} onValueChange={value => setLeaveFormData({
                 ...leaveFormData,
                 leaveType: value
               })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="casual">Casual Leave</SelectItem>
-                    <SelectItem value="sick">Sick Leave</SelectItem>
-                    <SelectItem value="annual">Annual Leave</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Start Date</Label>
-                <Input type="date" value={leaveFormData.startDate} onChange={e => setLeaveFormData({
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="casual">Casual Leave</SelectItem>
+                  <SelectItem value="sick">Sick Leave</SelectItem>
+                  <SelectItem value="annual">Annual Leave</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Start Date</Label>
+              <Input type="date" value={leaveFormData.startDate} onChange={e => setLeaveFormData({
                 ...leaveFormData,
                 startDate: e.target.value
               })} />
-              </div>
-              <div>
-                <Label>End Date</Label>
-                <Input type="date" value={leaveFormData.endDate} onChange={e => setLeaveFormData({
+            </div>
+            <div>
+              <Label>End Date</Label>
+              <Input type="date" value={leaveFormData.endDate} onChange={e => setLeaveFormData({
                 ...leaveFormData,
                 endDate: e.target.value
               })} />
-              </div>
-              <div>
-                <Label>Reason</Label>
-                <Textarea value={leaveFormData.reason} onChange={e => setLeaveFormData({
+            </div>
+            <div>
+              <Label>Reason</Label>
+              <Textarea value={leaveFormData.reason} onChange={e => setLeaveFormData({
                 ...leaveFormData,
                 reason: e.target.value
               })} />
-              </div>
             </div>
-            <Button onClick={handleAddLeave}>Submit Leave Request</Button>
-          </DialogContent>
-        </Dialog>
+          </div>
+          <Button onClick={handleAddLeave}>Submit Leave Request</Button>
+        </DialogContent>
+      </Dialog>
 
-        <Dialog open={deptOpen} onOpenChange={setDeptOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Department</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label>Department Name *</Label>
-                <Input value={deptFormData.departmentName} onChange={e => setDeptFormData({
-                ...deptFormData,
-                departmentName: e.target.value
-              })} />
-              </div>
-              <div>
-                <Label>Head of Department</Label>
-                <Input value={deptFormData.headOfDepartment} onChange={e => setDeptFormData({
-                ...deptFormData,
-                headOfDepartment: e.target.value
-              })} />
-              </div>
-              <div>
-                <Label>Description</Label>
-                <Textarea value={deptFormData.description} onChange={e => setDeptFormData({
-                ...deptFormData,
-                description: e.target.value
-              })} />
-              </div>
+      <Dialog open={holidayOpen} onOpenChange={setHolidayOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Holiday</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreateHoliday} className="space-y-4">
+            <div>
+              <Label>Title *</Label>
+              <Input
+                required
+                value={holidayFormData.title}
+                onChange={e => setHolidayFormData({ ...holidayFormData, title: e.target.value })}
+                placeholder="e.g., Independence Day"
+              />
             </div>
-            <Button onClick={handleAddDepartment}>Add Department</Button>
-          </DialogContent>
-        </Dialog>
+            <div>
+              <Label>Date *</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {holidayFormData.date ? format(holidayFormData.date, "PPP") : <span>Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={holidayFormData.date}
+                    onSelect={date => date && setHolidayFormData({ ...holidayFormData, date })}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div>
+              <Label>Type</Label>
+              <Select
+                value={holidayFormData.type}
+                onValueChange={value => setHolidayFormData({ ...holidayFormData, type: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="National">National</SelectItem>
+                  <SelectItem value="Religious">Religious</SelectItem>
+                  <SelectItem value="Public">Public</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="repeatYearly"
+                className="h-4 w-4 rounded border-gray-300"
+                checked={holidayFormData.repeatYearly}
+                onChange={e => setHolidayFormData({ ...holidayFormData, repeatYearly: e.target.checked })}
+              />
+              <Label htmlFor="repeatYearly">Repeat Yearly</Label>
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Textarea
+                value={holidayFormData.description}
+                onChange={e => setHolidayFormData({ ...holidayFormData, description: e.target.value })}
+              />
+            </div>
+            <Button type="submit" className="w-full">Create Holiday</Button>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-        {/* Employee ID Card Dialog */}
-        <Dialog open={idCardOpen} onOpenChange={setIdCardOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Employee ID Card</DialogTitle>
-            </DialogHeader>
-            {selectedEmployee && <div id="employee-id-card-print" className="border-2 border-primary rounded-xl p-6 bg-gradient-primary text-primary-foreground">
-                <div className="text-center space-y-4">
-                  <Avatar className="w-24 h-24 mx-auto border-4 border-background">
-                    <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedEmployee.name}`} alt={selectedEmployee.name} />
-                    <AvatarFallback className="text-3xl">{selectedEmployee.name.charAt(0)}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <h3 className="text-xl font-bold">Concordia College</h3>
-                    <p className="text-sm opacity-90">Employee ID Card</p>
+      <Dialog open={deptOpen} onOpenChange={setDeptOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingDepartment ? "Update Department" : "Add Department"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Department Name *</Label>
+              <Input
+                value={deptFormData.departmentName}
+                onChange={e =>
+                  setDeptFormData({
+                    ...deptFormData,
+                    departmentName: e.target.value,
+                  })
+                }
+              />
+            </div>
+            <div>
+              <Label>Head of Department</Label>
+              <select
+                className="w-full border rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={deptFormData.headOfDepartment || ""}
+                onChange={e =>
+                  setDeptFormData({
+                    ...deptFormData,
+                    headOfDepartment: e.target.value,
+                  })
+                }
+              >
+                <option value="">Select HOD</option>
+                {teachers.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} - {t.specialization || "N/A"}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Textarea
+                value={deptFormData.description}
+                onChange={e =>
+                  setDeptFormData({
+                    ...deptFormData,
+                    description: e.target.value,
+                  })
+                }
+              />
+            </div>
+          </div>
+          <Button onClick={editingDepartment ? () => handleUpdateDepartment(deptFormData.id) : handleAddDepartment}>
+            {editingDepartment ? "Update Department" : "Add Department"}
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Employee ID Card Dialog */}
+      <Dialog open={idCardOpen} onOpenChange={setIdCardOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Employee ID Card</DialogTitle>
+          </DialogHeader>
+          {selectedEmployee && (
+            <div id="employee-id-card-print" className="border-2 border-primary rounded-xl p-6 bg-gradient-primary text-primary-foreground">
+              <div className="text-center space-y-4">
+                <Avatar className="w-24 h-24 mx-auto border-4 border-background">
+                  <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedEmployee.name}`} alt={selectedEmployee.name} />
+                  <AvatarFallback className="text-3xl">{selectedEmployee.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <h3 className="text-xl font-bold">Concordia College</h3>
+                  <p className="text-sm opacity-90">Employee ID Card</p>
+                </div>
+                <div className="bg-background/10 rounded-lg p-4 space-y-2 text-left">
+                  <div className="flex justify-between">
+                    <span className="opacity-90">Name:</span>
+                    <span className="font-semibold">{selectedEmployee.name}</span>
                   </div>
-                  <div className="bg-background/10 rounded-lg p-4 space-y-2 text-left">
-                    <div className="flex justify-between">
-                      <span className="opacity-90">Name:</span>
-                      <span className="font-semibold">{selectedEmployee.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="opacity-90">CNIC:</span>
-                      <span className="font-semibold">{selectedEmployee.cnic}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="opacity-90">Designation:</span>
-                      <span className="font-semibold">{selectedEmployee.designation}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="opacity-90">Department:</span>
-                      <span className="font-semibold">{selectedEmployee.department}</span>
-                    </div>
+                  <div className="flex justify-between">
+                    <span className="opacity-90">CNIC:</span>
+                    <span className="font-semibold">{selectedEmployee.cnic}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="opacity-90">Designation:</span>
+                    <span className="font-semibold">{selectedEmployee.designation}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="opacity-90">Department:</span>
+                    <span className="font-semibold">{selectedEmployee.empDepartment}</span>
                   </div>
                 </div>
-              </div>}
-            <Button onClick={() => {
+              </div>
+            </div>
+          )}
+          <Button onClick={() => {
             const printContent = document.getElementById('employee-id-card-print');
             if (printContent) {
               const printWindow = window.open('', '', 'width=800,height=600');
@@ -1000,9 +1706,10 @@ const HRPayroll = () => {
               }
             }
           }}>Print ID Card</Button>
-          </DialogContent>
-        </Dialog>
-      </div>
-    </DashboardLayout>;
+        </DialogContent>
+      </Dialog>
+    </DashboardLayout>
+  );
 };
+
 export default HRPayroll;

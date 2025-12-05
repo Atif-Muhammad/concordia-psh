@@ -1,38 +1,83 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BookOpen, Award, FileText, PlusCircle, Edit, Trash2, Trophy, Printer } from "lucide-react";
-import { useData } from "@/contexts/DataContext";
+import {
+  BookOpen,
+  Award,
+  FileText,
+  PlusCircle,
+  Edit,
+  Trash2,
+  Trophy,
+  Printer,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { StudentResultsTab } from "./StudentResultsTab";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  createExam as createExamApi,
+  updateExam,
+  delExam,
+  getExams,
+  getProgramNames,
+  createMarks,
+  updateMarks,
+  delMarks,
+  getMarks,
+  createResult,
+  updateResult,
+  delResult,
+  getResults,
+  getStudents,
+  getSubjects, // ← Add this in your apis.js
+  generateResults,
+  getPositions,
+  generatePositions,
+  delPosition,
+  getStudentResult,
+  getDefaultReportCardTemplate,
+} from "../../config/apis";
+
 const Examination = () => {
-  const {
-    exams,
-    marks,
-    results,
-    students,
-    programs,
-    classes,
-    addExam,
-    updateExam,
-    deleteExam,
-    addMarks,
-    updateMarks,
-    deleteMarks,
-    addResult,
-    updateResult,
-    deleteResult
-  } = useData();
-  const {
-    toast
-  } = useToast();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
   const [examDialog, setExamDialog] = useState(false);
   const [marksDialog, setMarksDialog] = useState(false);
   const [resultDialog, setResultDialog] = useState(false);
@@ -41,26 +86,118 @@ const Examination = () => {
   const [editingMarks, setEditingMarks] = useState(null);
   const [editingResult, setEditingResult] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+
   const [examForm, setExamForm] = useState({
     examName: "",
     program: "",
-    className: "",
+    classId: "",
     session: "",
     startDate: "",
     endDate: "",
     type: "",
-    description: ""
+    description: "",
   });
-  const [resultFilterProgram, setResultFilterProgram] = useState("all");
-  const [resultFilterClass, setResultFilterClass] = useState("all");
+
+  const [resultFilterProgram, setResultFilterProgram] = useState("");
+  const [resultFilterClass, setResultFilterClass] = useState("");
+  const [resultFilterSection, setResultFilterSection] = useState("");
+  const [marksFilterProgram, setMarksFilterProgram] = useState("");
+  const [marksFilterClass, setMarksFilterClass] = useState("");
+  const [marksFilterExam, setMarksFilterExam] = useState("");
+  const [marksFilterSection, setMarksFilterSection] = useState("");
+  const [positionsFilterProgram, setPositionsFilterProgram] = useState("");
+  const [positionsFilterExam, setPositionsFilterExam] = useState("");
+  const [positionsFilterClass, setPositionsFilterClass] = useState("");
+  const [positionsFilterSection, setPositionsFilterSection] = useState("");
+
+  // Student Results filters
+  const [studentResultProgram, setStudentResultProgram] = useState("");
+  const [studentResultClass, setStudentResultClass] = useState("");
+  const [studentResultSection, setStudentResultSection] = useState("");
+  const [studentResultStudent, setStudentResultStudent] = useState("");
+  const [studentResultExam, setStudentResultExam] = useState("");
+  const [studentResultData, setStudentResultData] = useState(null);
+
+  // Cascading filter resets
+  useEffect(() => {
+    setMarksFilterClass("");
+    setMarksFilterExam("");
+    setMarksFilterSection("");
+  }, [marksFilterProgram]);
+
+  useEffect(() => {
+    setMarksFilterExam("");
+    setMarksFilterSection("");
+  }, [marksFilterClass]);
+
+  useEffect(() => {
+    setMarksFilterSection("");
+  }, [marksFilterExam]);
+
+  useEffect(() => {
+    setResultFilterClass("");
+    setResultFilterSection("");
+  }, [resultFilterProgram]);
+
+  useEffect(() => {
+    setResultFilterSection("");
+  }, [resultFilterClass]);
+
+  useEffect(() => {
+    setPositionsFilterClass("");
+    setPositionsFilterExam("");
+    setPositionsFilterSection("");
+  }, [positionsFilterProgram]);
+
+  useEffect(() => {
+    setPositionsFilterExam("");
+    setPositionsFilterSection("");
+  }, [positionsFilterClass]);
+
+  useEffect(() => {
+    setPositionsFilterSection("");
+  }, [positionsFilterExam]);
+
+  // Student Results cascading resets
+  useEffect(() => {
+    setStudentResultClass("");
+    setStudentResultSection("");
+    setStudentResultStudent("");
+    setStudentResultExam("");
+    setStudentResultData(null);
+  }, [studentResultProgram]);
+
+  useEffect(() => {
+    setStudentResultSection("");
+    setStudentResultStudent("");
+    setStudentResultExam("");
+    setStudentResultData(null);
+  }, [studentResultClass]);
+
+  useEffect(() => {
+    setStudentResultStudent("");
+    setStudentResultExam("");
+    setStudentResultData(null);
+  }, [studentResultSection]);
+
+  useEffect(() => {
+    setStudentResultExam("");
+    setStudentResultData(null);
+  }, [studentResultStudent]);
+
+  useEffect(() => {
+    setStudentResultData(null);
+  }, [studentResultExam]);
+
   const [marksForm, setMarksForm] = useState({
     examId: "",
     studentId: "",
     subject: "",
     totalMarks: "",
     obtainedMarks: "",
-    teacherRemarks: ""
+    teacherRemarks: "",
   });
+
   const [resultForm, setResultForm] = useState({
     studentId: "",
     examId: "",
@@ -70,168 +207,313 @@ const Examination = () => {
     gpa: "",
     grade: "",
     position: "",
-    remarks: ""
+    remarks: "",
   });
-  const calculateGrade = percentage => {
-    if (percentage >= 90) return {
-      grade: "A+",
-      gpa: 4.0
-    };
-    if (percentage >= 80) return {
-      grade: "A",
-      gpa: 3.7
-    };
-    if (percentage >= 70) return {
-      grade: "B+",
-      gpa: 3.3
-    };
-    if (percentage >= 60) return {
-      grade: "B",
-      gpa: 3.0
-    };
-    if (percentage >= 50) return {
-      grade: "C",
-      gpa: 2.5
-    };
-    return {
-      grade: "F",
-      gpa: 0.0
-    };
+
+  // === REACT QUERY DATA FETCHING ===
+  const { data: programs = [] } = useQuery({ queryKey: ["programs"], queryFn: getProgramNames });
+  const { data: exams = [] } = useQuery({ queryKey: ["exams"], queryFn: getExams });
+  const { data: students = [] } = useQuery({ queryKey: ["students"], queryFn: getStudents });
+  const { data: subjects = [] } = useQuery({ queryKey: ["subjects"], queryFn: getSubjects });
+  const { data: marks = [] } = useQuery({
+    queryKey: ["marks", marksFilterExam, marksFilterSection],
+    queryFn: () => getMarks(
+      marksFilterExam && marksFilterExam !== "*" ? marksFilterExam : undefined,
+      marksFilterSection && marksFilterSection !== "*" ? marksFilterSection : undefined
+    ),
+    enabled: !!(marksFilterExam && marksFilterExam !== "*") || !!(marksFilterSection && marksFilterSection !== "*") // Only fetch when at least one filter is selected
+  });
+  const { data: results = [] } = useQuery({
+    queryKey: ["results", resultFilterProgram],
+    queryFn: getResults,
+    enabled: !!(resultFilterProgram && resultFilterProgram !== "*") // Only fetch when program is selected
+  });
+
+  const { data: positions = [] } = useQuery({
+    queryKey: ["positions", positionsFilterExam, positionsFilterClass],
+    queryFn: () => getPositions(
+      positionsFilterExam && positionsFilterExam !== "*" ? positionsFilterExam : undefined,
+      positionsFilterClass && positionsFilterClass !== "*" ? positionsFilterClass : undefined
+    ),
+    enabled: !!(positionsFilterExam && positionsFilterExam !== "*")
+  });
+
+  const getFullName = (student) => {
+    return `${student.fName} ${student.mName || ""} ${student.lName}`.trim();
   };
+
+  // Classes from selected program
+  const selectedProgram = programs.find((p) => p.id === Number(examForm.program));
+  const availableClasses = selectedProgram?.classes || [];
+  // === MUTATIONS ===
+  const createExam = useMutation({
+    mutationFn: createExamApi,
+    onSuccess: () => {
+      toast({ title: "Exam created successfully" });
+      queryClient.invalidateQueries({ queryKey: ["exams"] });
+      setExamForm({
+        examName: "", program: "", classId: "", session: "",
+        startDate: "", endDate: "", type: "", description: "",
+      });
+      setExamDialog(false);
+      setEditingExam(null);
+    },
+    onError: (err) => toast({ title: err.message || "Failed to create exam", variant: "destructive" }),
+  });
+
+  const updateExamMutation = useMutation({
+    mutationFn: ({ id, payload }) => updateExam(id, payload),
+    onSuccess: () => {
+      toast({ title: "Exam updated" });
+      queryClient.invalidateQueries({ queryKey: ["exams"] });
+      setExamDialog(false);
+      setEditingExam(null);
+    },
+    onError: (err) => toast({ title: err.message || "Failed to update exam", variant: "destructive" }),
+  });
+
+  const deleteExamMutation = useMutation({
+    mutationFn: delExam,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exams"] }),
+  });
+
+  const { mutate: createMarksMutation } = useMutation({
+    mutationFn: createMarks,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["marks"] })
+      toast({ title: "Successfully assigned marks" })
+      setMarksDialog(false);
+      setEditingMarks(null);
+      setMarksForm({
+        examId: "",
+        studentId: "",
+        subject: "",
+        totalMarks: "",
+        obtainedMarks: "",
+        teacherRemarks: "",
+      });
+    },
+    onError: (err) => toast({ title: err.message || "Failed to create exam marks", variant: "destructive" }),
+  });
+
+  const { mutate: updateMarksMutation } = useMutation({
+    mutationFn: ({ id, payload }) => updateMarks(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["marks"] })
+      toast({ title: "Successfully updated marks" })
+      setMarksDialog(false);
+      setEditingMarks(null);
+      setMarksForm({
+        examId: "",
+        studentId: "",
+        subject: "",
+        totalMarks: "",
+        obtainedMarks: "",
+        teacherRemarks: "",
+      });
+    },
+    onError: (err) => toast({ title: err.message || "Failed to update exam marks", variant: "destructive" }),
+  });
+
+  const deleteMarksMutation = useMutation({
+    mutationFn: delMarks,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["marks"] }),
+    onError: (err) => toast({ title: err.message || "Failed to create exam marks", variant: "destructive" }),
+  });
+
+  const createResultMutation = useMutation({
+    mutationFn: createResult,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["results"] }),
+  });
+
+  const updateResultMutation = useMutation({
+    mutationFn: ({ id, payload }) => updateResult(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["results"] });
+      toast({ title: "Result updated successfully" });
+    },
+    onError: (err) => toast({ title: err.message || "Failed to update result", variant: "destructive" }),
+  });
+
+  const deleteResultMutation = useMutation({
+    mutationFn: delResult,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["results"] }),
+  });
+
+  const generateResultsMutation = useMutation({
+    mutationFn: ({ examId, classId }) => generateResults(examId, classId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["results"] });
+      toast({
+        title: "Results generated successfully",
+        description: `Generated ${data?.length || 0} results`
+      });
+      setResultDialog(false);
+    },
+    onError: (err) => {
+      console.error('Generate results error:', err);
+      toast({
+        title: "Failed to generate results",
+        description: err.message || "An error occurred",
+        variant: "destructive"
+      });
+    },
+  });
+
+  const generatePositionsMutation = useMutation({
+    mutationFn: ({ examId, classId }) => generatePositions(examId, classId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["positions"] });
+      toast({
+        title: "Positions generated successfully",
+        description: `Generated ${data?.length || 0} positions`
+      });
+    },
+    onError: (err) => {
+      console.error('Generate positions error:', err);
+      toast({
+        title: "Failed to generate positions",
+        description: err.message || "An error occurred",
+        variant: "destructive"
+      });
+    },
+  });
+
+  const deletePositionMutation = useMutation({
+    mutationFn: delPosition,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["positions"] });
+      toast({ title: "Position deleted" });
+    },
+  });
+
+  const studentResultMutation = useMutation({
+    mutationFn: () => getStudentResult(studentResultStudent, studentResultExam),
+    onSuccess: (data) => {
+      setStudentResultData(data);
+      toast({ title: "Result fetched successfully" });
+    },
+    onError: (error) => {
+      toast({ title: error.message || "Failed to fetch result", variant: "destructive" });
+    },
+  });
+
+  const calculateGrade = (percentage) => {
+    if (percentage >= 90) return { grade: "A+", gpa: 4.0 };
+    if (percentage >= 80) return { grade: "A", gpa: 3.7 };
+    if (percentage >= 70) return { grade: "B+", gpa: 3.3 };
+    if (percentage >= 60) return { grade: "B", gpa: 3.0 };
+    if (percentage >= 50) return { grade: "C", gpa: 2.5 };
+    return { grade: "F", gpa: 0.0 };
+  };
+
   const handleExamSubmit = () => {
-    if (editingExam) {
-      updateExam(editingExam.id, examForm);
-      toast({
-        title: "Exam updated successfully"
-      });
-    } else {
-      addExam(examForm);
-      toast({
-        title: "Exam created successfully"
-      });
+    if (!examForm.examName || !examForm.program || !examForm.classId || !examForm.session) {
+      toast({ title: "Please fill all required fields", variant: "destructive" });
+      return;
     }
-    setExamDialog(false);
-    setEditingExam(null);
-    setExamForm({
-      examName: "",
-      program: "",
-      className: "",
-      session: "",
-      startDate: "",
-      endDate: "",
-      type: "",
-      description: ""
-    });
-  };
-  const printResults = examId => {
-    const exam = exams.find(e => e.id === examId);
-    if (!exam) return;
-    let filteredResults = results.filter(r => r.examId === examId);
-    if (resultFilterProgram !== "all") {
-      filteredResults = filteredResults.filter(r => {
-        const student = students.find(s => s.id === r.studentId);
-        return student?.program === resultFilterProgram;
-      });
-    }
-    if (resultFilterClass !== "all") {
-      filteredResults = filteredResults.filter(r => {
-        const student = students.find(s => s.id === r.studentId);
-        return student?.class === resultFilterClass;
-      });
-    }
-    filteredResults.sort((a, b) => b.percentage - a.percentage);
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Exam Results - ${exam.examName}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 40px; }
-            .header { text-align: center; margin-bottom: 30px; }
-            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-            th, td { border: 1px solid #000; padding: 8px; text-align: left; }
-            th { background-color: #f0f0f0; }
-            @media print { body { padding: 20px; } }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>EXAMINATION RESULTS</h1>
-            <h2>${exam.examName}</h2>
-            <p>Program: ${exam.program} | Session: ${exam.session}</p>
-            ${resultFilterProgram !== "all" ? `<p>Filtered Program: ${resultFilterProgram}</p>` : ''}
-            ${resultFilterClass !== "all" ? `<p>Filtered Class: ${resultFilterClass}</p>` : ''}
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Position</th>
-                <th>Student Name</th>
-                <th>Reg. No</th>
-                <th>Class</th>
-                <th>Total Marks</th>
-                <th>Obtained</th>
-                <th>Percentage</th>
-                <th>Grade</th>
-                <th>GPA</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${filteredResults.map((result, idx) => {
-      const student = students.find(s => s.id === result.studentId);
-      return `
-                  <tr>
-                    <td>${idx + 1}</td>
-                    <td>${student?.name || 'Unknown'}</td>
-                    <td>${student?.rollNumber || 'N/A'}</td>
-                    <td>${student?.class || 'N/A'}</td>
-                    <td>${result.totalMarks}</td>
-                    <td>${result.obtainedMarks}</td>
-                    <td>${result.percentage.toFixed(2)}%</td>
-                    <td>${result.grade}</td>
-                    <td>${result.gpa.toFixed(2)}</td>
-                  </tr>
-                `;
-    }).join('')}
-            </tbody>
-          </table>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.onload = function () {
-      printWindow.print();
+
+    const payload = {
+      examName: examForm.examName,
+      programId: Number(examForm.program),
+      classId: Number(examForm.classId),
+      session: examForm.session,
+      startDate: examForm.startDate || null,
+      endDate: examForm.endDate || null,
+      type: examForm.type || "Final",
+      description: examForm.description,
     };
+
+    if (editingExam) {
+      updateExamMutation.mutate({ id: editingExam.id, payload });
+    } else {
+      createExam.mutate(payload);
+    }
+  };
+
+  const openEditExam = (exam) => {
+    setEditingExam(exam);
+    setExamForm({
+      examName: exam.examName,
+      program: exam.programId?.toString() || "",
+      classId: exam.classId?.toString() || "",
+      session: exam.session,
+      startDate: exam.startDate?.split("T")[0] || "",
+      endDate: exam.endDate?.split("T")[0] || "",
+      type: exam.type || "",
+      description: exam.description || "",
+    });
+    setExamDialog(true);
+  };
+
+  const handleDelete = () => {
+    if (!deleteTarget) return;
+    if (deleteTarget.type === "exam") deleteExamMutation.mutate(deleteTarget.id);
+    if (deleteTarget.type === "marks") deleteMarksMutation.mutate(deleteTarget.id);
+    if (deleteTarget.type === "result") deleteResultMutation.mutate(deleteTarget.id);
+    toast({ title: `${deleteTarget.type} deleted` });
+    setDeleteDialog(false);
+    setDeleteTarget(null);
+  };
+
+  const printResults = (examId) => {
+    const exam = exams.find((e) => e.id === examId);
+    if (!exam) return;
+    const filtered = results
+      .filter((r) => r.examId === examId)
+      .sort((a, b) => b.percentage - a.percentage);
+
+    const printWin = window.open("", "_blank");
+    printWin?.document.write(`
+      <!DOCTYPE html><html><head><title>${exam.examName}</title>
+      <style>body{font-family:Arial;padding:40px;text-align:center}
+      table{width:100%;border-collapse:collapse;margin:20px 0}
+      th,td{border:1px solid #000;padding:10px}</style></head>
+      <body><h1>${exam.examName} - Results</h1><h2>Session: ${exam.session}</h2>
+      <table><tr><th>Pos</th><th>Name</th><th>Roll No</th><th>Total</th><th>Obtained</th><th>%</th><th>Grade</th></tr>
+      ${filtered.map((r, i) => {
+      const s = r.student;
+      return `<tr><td>${i + 1}</td><td>${s?.name || "N/A"}</td><td>${s?.rollNumber || "N/A"}</td>
+                <td>${r.totalMarks}</td><td>${r.obtainedMarks}</td><td>${r.percentage.toFixed(2)}%</td><td>${r.grade}</td></tr>`;
+    }).join("")}
+      </table></body></html>
+    `);
+    printWin?.document.close();
+    printWin?.print();
   };
   const handleMarksSubmit = () => {
     const marksData = {
-      ...marksForm,
+      examId: Number(marksForm.examId),
+      studentId: Number(marksForm.studentId),
+      subject: marksForm.subject,
       totalMarks: Number(marksForm.totalMarks),
-      obtainedMarks: Number(marksForm.obtainedMarks)
+      obtainedMarks: Number(marksForm.obtainedMarks),
+      teacherRemarks: marksForm.teacherRemarks,
     };
+
     if (editingMarks) {
-      updateMarks(editingMarks.id, marksData);
-      toast({
-        title: "Marks updated successfully"
-      });
+      updateMarksMutation({ id: editingMarks.id, payload: marksData });
     } else {
-      addMarks(marksData);
-      toast({
-        title: "Marks added successfully"
-      });
+      // Check for duplicate marks in frontend
+      const isDuplicate = marks.some(
+        (mark) =>
+          mark.examId === marksData.examId &&
+          mark.studentId === marksData.studentId &&
+          mark.subject === marksData.subject
+      );
+
+      if (isDuplicate) {
+        toast({
+          title: "Duplicate Entry",
+          description: "Marks already exist for this student in this subject for this exam.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      createMarksMutation(marksData);
     }
-    setMarksDialog(false);
-    setEditingMarks(null);
-    setMarksForm({
-      examId: "",
-      studentId: "",
-      subject: "",
-      totalMarks: "",
-      obtainedMarks: "",
-      teacherRemarks: ""
-    });
+
   };
   const handleResultSubmit = () => {
     const percentage = Number(resultForm.percentage);
@@ -243,17 +525,14 @@ const Examination = () => {
       percentage,
       gpa: gradeData.gpa,
       grade: gradeData.grade,
-      position: Number(resultForm.position)
+      position: Number(resultForm.position),
     };
     if (editingResult) {
-      updateResult(editingResult.id, resultData);
-      toast({
-        title: "Result updated successfully"
-      });
+      updateResultMutation.mutate({ id: editingResult.id, payload: resultData });
     } else {
-      addResult(resultData);
+      createResultMutation.mutate(resultData);
       toast({
-        title: "Result generated successfully"
+        title: "Result generated successfully",
       });
     }
     setResultDialog(false);
@@ -267,36 +546,11 @@ const Examination = () => {
       gpa: "",
       grade: "",
       position: "",
-      remarks: ""
+      remarks: "",
     });
   };
-  const handleDelete = () => {
-    if (!deleteTarget) return;
-    if (deleteTarget.type === "exam") {
-      deleteExam(deleteTarget.id);
-      toast({
-        title: "Exam deleted successfully"
-      });
-    } else if (deleteTarget.type === "marks") {
-      deleteMarks(deleteTarget.id);
-      toast({
-        title: "Marks deleted successfully"
-      });
-    } else if (deleteTarget.type === "result") {
-      deleteResult(deleteTarget.id);
-      toast({
-        title: "Result deleted successfully"
-      });
-    }
-    setDeleteDialog(false);
-    setDeleteTarget(null);
-  };
-  const openEditExam = exam => {
-    setEditingExam(exam);
-    setExamForm(exam);
-    setExamDialog(true);
-  };
-  const openEditMarks = marksData => {
+
+  const openEditMarks = (marksData) => {
     setEditingMarks(marksData);
     setMarksForm({
       examId: marksData.examId,
@@ -304,11 +558,11 @@ const Examination = () => {
       subject: marksData.subject,
       totalMarks: marksData.totalMarks.toString(),
       obtainedMarks: marksData.obtainedMarks.toString(),
-      teacherRemarks: marksData.teacherRemarks || ""
+      teacherRemarks: marksData.teacherRemarks || "",
     });
     setMarksDialog(true);
   };
-  const openEditResult = result => {
+  const openEditResult = (result) => {
     setEditingResult(result);
     setResultForm({
       studentId: result.studentId,
@@ -319,33 +573,153 @@ const Examination = () => {
       gpa: result.gpa.toString(),
       grade: result.grade,
       position: result.position.toString(),
-      remarks: result.remarks || ""
+      remarks: result.remarks || "",
     });
     setResultDialog(true);
   };
 
-  // Get positions/rankings - class-wise
-  const getPositions = () => {
-    const examResults = results.reduce((acc, result) => {
-      if (!acc[result.examId]) acc[result.examId] = [];
-      acc[result.examId].push(result);
+  const printPositions = () => {
+    if (positions.length === 0) {
+      toast({ title: "No positions to print", variant: "destructive" });
+      return;
+    }
+
+    const groupedPositions = positions.reduce((acc, pos) => {
+      const examKey = `${pos.exam.examName} - ${pos.exam.session}`;
+      const classKey = pos.class.name;
+
+      if (!acc[examKey]) acc[examKey] = {};
+      if (!acc[examKey][classKey]) acc[examKey][classKey] = [];
+      acc[examKey][classKey].push(pos);
+
       return acc;
     }, {});
-    return Object.entries(examResults).map(([examId, examResults]) => {
-      const exam = exams.find(e => e.id === examId);
-      const allToppers = examResults.map(r => ({
-        ...r,
-        student: students.find(s => s.id === r.studentId)
-      }));
-      return {
-        examId,
-        examName: exam?.examName || "Unknown",
-        toppers: allToppers
-      };
-    });
+
+    const printWin = window.open("", "_blank");
+    printWin?.document.write(`
+      <!DOCTYPE html><html><head><title>Student Rankings</title>
+      <style>body{font-family:Arial;padding:40px;text-align:center}
+      table{width:100%;border-collapse:collapse;margin:20px 0}
+      th,td{border:1px solid #000;padding:10px}
+      h1,h2,h3{margin:10px 0}
+      .page-break{page-break-after:always}
+      </style></head>
+      <body>
+      <h1>Student Rankings</h1>
+      ${Object.entries(groupedPositions).map(([examName, classes]) => `
+        <div class="exam-section">
+          <h2>${examName}</h2>
+          ${Object.entries(classes).map(([className, classPositions]) => `
+            <h3>Class: ${className}</h3>
+            <table>
+              <tr><th>Pos</th><th>Name</th><th>Roll No</th><th>Total</th><th>Obtained</th><th>%</th><th>Grade</th></tr>
+              ${classPositions.map((pos) => `
+                <tr>
+                  <td>${pos.position} ${pos.position === 1 ? '🥇' : pos.position === 2 ? '🥈' : pos.position === 3 ? '🥉' : ''}</td>
+                  <td>${getFullName(pos.student)}</td>
+                  <td>${pos.student.rollNumber}</td>
+                  <td>${pos.totalMarks}</td>
+                  <td>${pos.obtainedMarks}</td>
+                  <td>${pos.percentage.toFixed(2)}%</td>
+                  <td>${pos.grade}</td>
+                </tr>
+              `).join("")}
+            </table>
+          `).join("")}
+          <div class="page-break"></div>
+        </div>
+      `).join("")}
+      </body></html>
+    `);
+    printWin?.document.close();
+    printWin?.print();
   };
-  const positions = getPositions();
-  return <DashboardLayout>
+
+  const printStudentResult = async () => {
+    if (!studentResultData) {
+      toast({ title: "No result to print", variant: "destructive" });
+      return;
+    }
+
+    const { student, exam, marks, result, position } = studentResultData;
+
+    try {
+      // Fetch the default template
+      const template = await getDefaultReportCardTemplate();
+
+      if (!template) {
+        toast({
+          title: "No default template found",
+          description: "Please set a default report card template in Configuration",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Prepare subject data for the template
+      const subjectsData = marks.map(mark => ({
+        name: mark.subject,
+        totalMarks: mark.totalMarks,
+        obtainedMarks: mark.obtainedMarks,
+        percentage: ((mark.obtainedMarks / mark.totalMarks) * 100).toFixed(2),
+        grade: calculateGrade((mark.obtainedMarks / mark.totalMarks) * 100).grade,
+      }));
+
+      // Check if program year <= 2 to conditionally hide GPA
+      const programYear = exam.program?.year || exam.class?.year || 3; // Default to 3 if not found
+      const showGPA = programYear > 2;
+
+      // Start with the template
+      let filledTemplate = template.htmlContent;
+
+      // Handle {{#each subjects}} loop FIRST before global replacements
+      const eachRegex = /{{#each subjects}}([\s\S]*?){{\/each}}/g;
+      filledTemplate = filledTemplate.replace(eachRegex, (match, templateRow) => {
+        return subjectsData.map(subject => {
+          return templateRow
+            .replace(/{{name}}/g, subject.name)
+            .replace(/{{totalMarks}}/g, subject.totalMarks)
+            .replace(/{{obtainedMarks}}/g, subject.obtainedMarks)
+            .replace(/{{percentage}}/g, subject.percentage)
+            .replace(/{{grade}}/g, subject.grade);
+        }).join('');
+      });
+
+      // Now replace simple placeholders globally
+      filledTemplate = filledTemplate
+        .replace(/{{instituteName}}/g, 'Concordia College')
+        .replace(/{{instituteAddress}}/g, 'Lahore, Pakistan')
+        .replace(/{{examName}}/g, exam.examName)
+        .replace(/{{session}}/g, exam.session)
+        .replace(/{{studentName}}/g, getFullName(student))
+        .replace(/{{rollNumber}}/g, student.rollNumber)
+        .replace(/{{fatherName}}/g, student.fatherName || 'N/A')
+        .replace(/{{class}}/g, exam.class.name)
+        .replace(/{{totalMarks}}/g, result.totalMarks)
+        .replace(/{{obtainedMarks}}/g, result.obtainedMarks)
+        .replace(/{{percentage}}/g, result.percentage.toFixed(2))
+        .replace(/{{grade}}/g, result.grade)
+        .replace(/{{gpa}}/g, showGPA ? result.gpa.toFixed(2) : '')
+        .replace(/{{position}}/g, position || 'N/A')
+        .replace(/{{remarks}}/g, result.remarks || '');
+
+      // Open print window
+      const printWin = window.open("", "_blank");
+      printWin?.document.write(filledTemplate);
+      printWin?.document.close();
+      printWin?.print();
+    } catch (error) {
+      console.error('Print error:', error);
+      toast({
+        title: "Failed to print result card",
+        description: error.message || "An error occurred",
+        variant: "destructive"
+      });
+    }
+  };
+
+  return (
+    <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
         <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium">
           <h2 className="text-2xl font-bold mb-2">Examination Management</h2>
@@ -361,7 +735,7 @@ const Examination = () => {
             <TabsTrigger value="results">Results</TabsTrigger>
             <TabsTrigger value="positions">Positions</TabsTrigger>
           </TabsList>
-
+          {/* exams */}
           <TabsContent value="exams">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -371,251 +745,424 @@ const Examination = () => {
                 </CardTitle>
                 <Dialog open={examDialog} onOpenChange={setExamDialog}>
                   <DialogTrigger asChild>
-                    <Button onClick={() => {
-                    setEditingExam(null);
-                    setExamForm({
-                      examName: "",
-                      program: "",
-                      className: "",
-                      session: "",
-                      startDate: "",
-                      endDate: "",
-                      type: "",
-                      description: ""
-                    });
-                  }}>
+                    <Button
+                      onClick={() => {
+                        setEditingExam(null);
+                        setExamForm({
+                          examName: "",
+                          program: "",
+                          className: "",
+                          session: "",
+                          startDate: "",
+                          endDate: "",
+                          type: "",
+                          description: "",
+                        });
+                      }}
+                    >
                       <PlusCircle className="w-4 h-4 mr-2" />
                       Create Exam
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>{editingExam ? "Edit Exam" : "Create New Exam"}</DialogTitle>
+                      <DialogTitle>
+                        {editingExam ? "Edit Exam" : "Create New Exam"}
+                      </DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4">
-                      <div>
-                        <Label>Exam Name</Label>
-                        <Input value={examForm.examName} onChange={e => setExamForm({
-                        ...examForm,
-                        examName: e.target.value
-                      })} />
+                    <div className="w-full max-w-5xl mx-auto">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <Label>Exam Name</Label>
+                          <Input
+                            value={examForm.examName}
+                            onChange={(e) =>
+                              setExamForm({ ...examForm, examName: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Program *</Label>
+                          <Select
+                            value={examForm.program}
+                            onValueChange={(value) => {
+                              setExamForm({ ...examForm, program: value, classId: "" });
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select program" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {programs?.map((program) => (
+                                <SelectItem key={program?.id} value={program?.id.toString()}>
+                                  {program?.name} — {program?.department?.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Class *</Label>
+                          <Select
+                            value={examForm.classId}
+                            onValueChange={(value) =>
+                              setExamForm({ ...examForm, classId: value })
+                            }
+                            disabled={!examForm.program}
+                          >
+                            <SelectTrigger>
+                              <SelectValue
+                                placeholder={
+                                  examForm.program ? "Select class" : "First select a program"
+                                }
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableClasses.map((cls) => (
+                                <SelectItem key={cls.id} value={cls.id.toString()}>
+                                  {cls.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Session</Label>
+                          <Input
+                            value={examForm.session}
+                            onChange={(e) =>
+                              setExamForm({ ...examForm, session: e.target.value })
+                            }
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Type</Label>
+                          <Select
+                            value={examForm.type}
+                            onValueChange={(value) =>
+                              setExamForm({ ...examForm, type: value })
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Midterm">Midterm</SelectItem>
+                              <SelectItem value="Final">Final</SelectItem>
+                              <SelectItem value="Quiz">Quiz</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Start Date</Label>
+                          <Input
+                            type="date"
+                            value={examForm.startDate}
+                            onChange={(e) =>
+                              setExamForm({ ...examForm, startDate: e.target.value })
+                            }
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>End Date</Label>
+                          <Input
+                            type="date"
+                            value={examForm.endDate}
+                            onChange={(e) =>
+                              setExamForm({ ...examForm, endDate: e.target.value })
+                            }
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Description</Label>
+                          <Input
+                            value={examForm.description}
+                            onChange={(e) =>
+                              setExamForm({ ...examForm, description: e.target.value })
+                            }
+                          />
+                        </div>
+
+                        {/* Full grid width button */}
+                        <div className="col-span-1 sm:col-span-2 lg:col-span-3">
+                          <Button onClick={handleExamSubmit} className="w-full">
+                            {editingExam ? "Update" : "Create"} Exam
+                          </Button>
+                        </div>
                       </div>
-                      <div>
-                        <Label>Program</Label>
-                        <Select value={examForm.program} onValueChange={value => setExamForm({
-                        ...examForm,
-                        program: value,
-                        className: ""
-                      })}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select program" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {programs.map(p => <SelectItem key={p.id} value={p.id}>{p.id}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Class</Label>
-                        <Select value={examForm.className} onValueChange={value => setExamForm({
-                        ...examForm,
-                        className: value
-                      })} disabled={!examForm.program}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select class" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {classes.filter(c => c.programId === examForm.program).map(c => <SelectItem key={c.id} value={c.id}>{c.id}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Session</Label>
-                        <Input value={examForm.session} onChange={e => setExamForm({
-                        ...examForm,
-                        session: e.target.value
-                      })} />
-                      </div>
-                      <div>
-                        <Label>Type</Label>
-                        <Select value={examForm.type} onValueChange={value => setExamForm({
-                        ...examForm,
-                        type: value
-                      })}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Midterm">Midterm</SelectItem>
-                            <SelectItem value="Final">Final</SelectItem>
-                            <SelectItem value="Quiz">Quiz</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Start Date</Label>
-                        <Input type="date" value={examForm.startDate} onChange={e => setExamForm({
-                        ...examForm,
-                        startDate: e.target.value
-                      })} />
-                      </div>
-                      <div>
-                        <Label>End Date</Label>
-                        <Input type="date" value={examForm.endDate} onChange={e => setExamForm({
-                        ...examForm,
-                        endDate: e.target.value
-                      })} />
-                      </div>
-                      <div>
-                        <Label>Description</Label>
-                        <Input value={examForm.description} onChange={e => setExamForm({
-                        ...examForm,
-                        description: e.target.value
-                      })} />
-                      </div>
-                      <Button onClick={handleExamSubmit} className="w-full">{editingExam ? "Update" : "Create"} Exam</Button>
                     </div>
                   </DialogContent>
                 </Dialog>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Exam Name</TableHead>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Class</TableHead>
-                      <TableHead>Session</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Start Date</TableHead>
-                      <TableHead>End Date</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {exams.map(exam => <TableRow key={exam.id}>
-                        <TableCell>{exam.examName}</TableCell>
-                        <TableCell>{exam.program}</TableCell>
-                        <TableCell>All</TableCell>
-                        <TableCell>{exam.session}</TableCell>
-                        <TableCell>{exam.type}</TableCell>
-                        <TableCell>{exam.startDate}</TableCell>
-                        <TableCell>{exam.endDate}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={() => openEditExam(exam)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button variant="destructive" size="sm" onClick={() => {
-                            setDeleteTarget({
-                              type: "exam",
-                              id: exam.id
-                            });
-                            setDeleteDialog(true);
-                          }}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
-                  </TableBody>
-                </Table>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Exam Name</TableHead>
+                        <TableHead>Program</TableHead>
+                        <TableHead>Class</TableHead>
+                        <TableHead>Session</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Start Date</TableHead>
+                        <TableHead>End Date</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {exams?.map((exam) => (
+                        <TableRow key={exam.id}>
+                          <TableCell>{exam.examName}</TableCell>
+                          <TableCell>{exam.program.name}</TableCell>
+                          <TableCell>{exam.class.name}</TableCell>
+                          <TableCell>{exam.session}</TableCell>
+                          <TableCell>{exam.type}</TableCell>
+                          <TableCell>{exam.startDate.split("T")[0]}</TableCell>
+                          <TableCell>{exam.endDate.split("T")[0]}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openEditExam(exam)}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => {
+                                  setDeleteTarget({
+                                    type: "exam",
+                                    id: exam.id,
+                                  });
+                                  setDeleteDialog(true);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
-
+          {/* marks */}
           <TabsContent value="marks">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="w-5 h-5" />
-                  Marks Entry
-                </CardTitle>
-                <Dialog open={marksDialog} onOpenChange={setMarksDialog}>
-                  <DialogTrigger asChild>
-                    <Button onClick={() => {
-                    setEditingMarks(null);
-                    setMarksForm({
-                      examId: "",
-                      studentId: "",
-                      subject: "",
-                      totalMarks: "",
-                      obtainedMarks: "",
-                      teacherRemarks: ""
-                    });
-                  }}>
-                      <PlusCircle className="w-4 h-4 mr-2" />
-                      Add Marks
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>{editingMarks ? "Edit Marks" : "Add Marks"}</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div>
-                        <Label>Exam</Label>
-                        <Select value={marksForm.examId} onValueChange={value => setMarksForm({
-                        ...marksForm,
-                        examId: value
-                      })}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select exam" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {exams.map(exam => <SelectItem key={exam.id} value={exam.id}>{exam.examName}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+              <CardHeader>
+                <div className="flex flex-row items-center justify-between mb-4">
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5" />
+                    Marks Entry
+                  </CardTitle>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="flex-1">
+                    <Label>Filter by Program</Label>
+                    <Select
+                      value={marksFilterProgram}
+                      onValueChange={setMarksFilterProgram}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Program" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="*">All Programs</SelectItem>
+                        {programs?.map((program) => (
+                          <SelectItem key={program.id} value={program.id.toString()}>
+                            {program.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex-1">
+                    <Label>Filter by Class</Label>
+                    <Select
+                      value={marksFilterClass}
+                      onValueChange={setMarksFilterClass}
+                      disabled={!marksFilterProgram || marksFilterProgram === "*"}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={marksFilterProgram && marksFilterProgram !== "*" ? "Select Class" : "Select program first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="*">All Classes</SelectItem>
+                        {(() => {
+                          const selectedProgram = programs?.find(p => p.id === Number(marksFilterProgram));
+                          if (!selectedProgram?.classes) return null;
+                          return selectedProgram.classes.map((cls) => (
+                            <SelectItem key={cls.id} value={cls.id.toString()}>
+                              {cls.name}
+                            </SelectItem>
+                          ));
+                        })()}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex-1">
+                    <Label>Filter by Section</Label>
+                    <Select
+                      value={marksFilterSection}
+                      onValueChange={setMarksFilterSection}
+                      disabled={!marksFilterClass || marksFilterClass === "*"}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={marksFilterClass && marksFilterClass !== "*" ? "All Sections" : "Select class first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="*">All Sections</SelectItem>
+                        {(() => {
+                          const selectedClass = programs
+                            ?.flatMap(p => p.classes)
+                            ?.find(c => c?.id === Number(marksFilterClass));
+                          return selectedClass?.sections?.map((section) => (
+                            <SelectItem key={section.id} value={section.id.toString()}>
+                              {section.name}
+                            </SelectItem>
+                          )) || null;
+                        })()}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex-1">
+                    <Label>Filter by Exam</Label>
+                    <Select
+                      value={marksFilterExam}
+                      onValueChange={setMarksFilterExam}
+                      disabled={!marksFilterClass || marksFilterClass === "*"}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={marksFilterClass && marksFilterClass !== "*" ? "Select Exam" : "Select class first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="*">All Exams</SelectItem>
+                        {(() => {
+                          return exams
+                            ?.filter(exam => exam.classId === Number(marksFilterClass))
+                            .map((exam) => (
+                              <SelectItem key={exam.id} value={exam.id.toString()}>
+                                {exam.examName} - {exam.session}
+                              </SelectItem>
+                            ));
+                        })()}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Dialog open={marksDialog} onOpenChange={setMarksDialog}>
+                    <DialogTrigger asChild>
+                      <Button onClick={() => {
+                        setEditingMarks(null);
+                        setMarksForm({ examId: "", studentId: "", subject: "", totalMarks: "", obtainedMarks: "", teacherRemarks: "" });
+                      }}>
+                        <PlusCircle className="w-4 h-4 mr-2" />
+                        Add Marks
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle>{editingMarks ? "Edit Marks" : "Add Marks"}</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        {/* Exam Select */}
+                        <div>
+                          <Label>Exam</Label>
+                          <Select value={marksForm.examId} onValueChange={(v) => setMarksForm({ ...marksForm, examId: v, studentId: "", subject: "" })}>
+                            <SelectTrigger><SelectValue placeholder="Select exam" /></SelectTrigger>
+                            <SelectContent>
+                              {exams.map((exam) => (
+                                <SelectItem key={exam.id} value={exam.id.toString()}>{exam.examName}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Student Select */}
+                        <div>
+                          <Label>Student</Label>
+                          <Select
+                            value={marksForm.studentId}
+                            onValueChange={(v) => setMarksForm({ ...marksForm, studentId: v, subject: "" })}
+                            disabled={!marksForm.examId}
+                          >
+                            <SelectTrigger><SelectValue placeholder={marksForm.examId ? "Select student" : "First select exam"} /></SelectTrigger>
+                            <SelectContent>
+                              {(() => {
+                                const exam = exams.find(e => e.id === Number(marksForm.examId));
+                                if (!exam) return <SelectItem disabled>No exam selected</SelectItem>;
+                                const studentsInClass = students.filter(s => s.classId === exam.classId);
+                                return studentsInClass.length > 0 ? (
+                                  studentsInClass.map((s) => (
+                                    <SelectItem key={s.id} value={s.id.toString()}>
+                                      {getFullName(s)} ({s.rollNumber})
+                                    </SelectItem>
+                                  ))
+                                ) : (
+                                  <SelectItem disabled>No students in this class</SelectItem>
+                                );
+                              })()}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Subject Select - Only from Student's Class */}
+                        <div>
+                          <Label>Subject</Label>
+                          <Select
+                            value={marksForm.subject}
+                            onValueChange={(v) => setMarksForm({ ...marksForm, subject: v })}
+                            disabled={!marksForm.studentId}
+                          >
+                            <SelectTrigger><SelectValue placeholder={marksForm.studentId ? "Select subject" : "First select student"} /></SelectTrigger>
+                            <SelectContent>
+                              {(() => {
+                                const student = students.find(s => s.id === Number(marksForm.studentId));
+                                if (!student) return <SelectItem disabled>No student selected</SelectItem>;
+
+                                const classSubjects = subjects.filter(sub => sub.classId === student.classId);
+                                return classSubjects.length > 0 ? (
+                                  classSubjects.map((sub) => (
+                                    <SelectItem key={sub.id} value={sub.name}>
+                                      {sub.name}
+                                    </SelectItem>
+                                  ))
+                                ) : (
+                                  <SelectItem disabled>No subjects for this class</SelectItem>
+                                );
+                              })()}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div><Label>Total Marks</Label><Input type="number" value={marksForm.totalMarks} onChange={(e) => setMarksForm({ ...marksForm, totalMarks: e.target.value })} /></div>
+                          <div><Label>Obtained Marks</Label><Input type="number" value={marksForm.obtainedMarks} onChange={(e) => setMarksForm({ ...marksForm, obtainedMarks: e.target.value })} /></div>
+                        </div>
+
+                        <div><Label>Teacher Remarks (Optional)</Label><Input value={marksForm.teacherRemarks} onChange={(e) => setMarksForm({ ...marksForm, teacherRemarks: e.target.value })} /></div>
+
+                        <Button onClick={handleMarksSubmit} className="w-full">
+                          {editingMarks ? "Update" : "Add"} Marks
+                        </Button>
                       </div>
-                      <div>
-                        <Label>Student</Label>
-                        <Select value={marksForm.studentId} onValueChange={value => setMarksForm({
-                        ...marksForm,
-                        studentId: value
-                      })}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select student" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {students.map(student => <SelectItem key={student.id} value={student.id}>{student.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Subject</Label>
-                        <Input value={marksForm.subject} onChange={e => setMarksForm({
-                        ...marksForm,
-                        subject: e.target.value
-                      })} />
-                      </div>
-                      <div>
-                        <Label>Total Marks</Label>
-                        <Input type="number" value={marksForm.totalMarks} onChange={e => setMarksForm({
-                        ...marksForm,
-                        totalMarks: e.target.value
-                      })} />
-                      </div>
-                      <div>
-                        <Label>Obtained Marks</Label>
-                        <Input type="number" value={marksForm.obtainedMarks} onChange={e => setMarksForm({
-                        ...marksForm,
-                        obtainedMarks: e.target.value
-                      })} />
-                      </div>
-                      <div>
-                        <Label>Teacher Remarks</Label>
-                        <Input value={marksForm.teacherRemarks} onChange={e => setMarksForm({
-                        ...marksForm,
-                        teacherRemarks: e.target.value
-                      })} />
-                      </div>
-                      <Button onClick={handleMarksSubmit} className="w-full">{editingMarks ? "Update" : "Add"} Marks</Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </CardHeader>
+
               <CardContent>
                 <Table>
                   <TableHeader>
@@ -623,201 +1170,491 @@ const Examination = () => {
                       <TableHead>Exam</TableHead>
                       <TableHead>Student</TableHead>
                       <TableHead>Subject</TableHead>
-                      <TableHead>Total Marks</TableHead>
+                      <TableHead>Total</TableHead>
                       <TableHead>Obtained</TableHead>
-                      <TableHead>Percentage</TableHead>
+                      <TableHead>%</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {marks.map(mark => {
-                    const exam = exams.find(e => e.id === mark.examId);
-                    const student = students.find(s => s.id === mark.studentId);
-                    const percentage = (mark.obtainedMarks / mark.totalMarks * 100).toFixed(2);
-                    return <TableRow key={mark.id}>
-                          <TableCell>{exam?.examName}</TableCell>
-                          <TableCell>{student?.name}</TableCell>
+                    {marks.length > 0 ? marks?.map((mark) => {
+                      console.log(mark)
+                      console.log(exams)
+                      const exam = exams.find(e => e.id === mark.examId);
+                      const student = students.find(s => s.id === mark.studentId);
+                      const percentage = mark.totalMarks > 0 ? ((mark.obtainedMarks / mark.totalMarks) * 100).toFixed(1) : 0;
+
+                      return (
+                        <TableRow key={mark.id}>
+                          <TableCell>{exam?.examName || "N/A"}</TableCell>
+                          <TableCell>{student ? getFullName(student) : "Unknown"}</TableCell>
                           <TableCell>{mark.subject}</TableCell>
                           <TableCell>{mark.totalMarks}</TableCell>
                           <TableCell>{mark.obtainedMarks}</TableCell>
                           <TableCell>{percentage}%</TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button variant="outline" size="sm" onClick={() => openEditMarks(mark)}>
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button variant="destructive" size="sm" onClick={() => {
-                            setDeleteTarget({
-                              type: "marks",
-                              id: mark.id
-                            });
-                            setDeleteDialog(true);
-                          }}>
+                              <Button variant="outline" size="sm" onClick={() => openEditMarks(mark)}><Edit className="w-4 h-4" /></Button>
+                              <Button variant="destructive" size="sm" onClick={() => { setDeleteTarget({ type: "marks", id: mark.id }); setDeleteDialog(true); }}>
                                 <Trash2 className="w-4 h-4" />
                               </Button>
                             </div>
                           </TableCell>
-                        </TableRow>;
-                  })}
+                        </TableRow>
+                      );
+                    }) : (<TableRow><TableCell colSpan={7} className="text-center">No marks to show</TableCell></TableRow>)}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
           </TabsContent>
-
           <TabsContent value="results">
+            {/* Nested Tabs for Results */}
+            <Tabs defaultValue="class-results" className="space-y-6">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="class-results">Examination Results</TabsTrigger>
+                <TabsTrigger value="student-results">Student Results</TabsTrigger>
+              </TabsList>
+
+              {/* Class/Section Results Tab */}
+              <TabsContent value="class-results">
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between mb-4">
+                      <CardTitle className="flex items-center gap-2">
+                        <Award className="w-5 h-5" />
+                        Examination Results by Class
+                      </CardTitle>
+                      <Dialog open={resultDialog} onOpenChange={setResultDialog}>
+                        <DialogTrigger asChild>
+                          <Button>
+                            <PlusCircle className="w-4 h-4 mr-2" />
+                            Generate Results
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Generate Results</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <div>
+                              <Label>Select Exam *</Label>
+                              <Select value={resultForm.examId} onValueChange={(value) => setResultForm({ ...resultForm, examId: value })}>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select exam" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {exams?.map((exam) => (
+                                    <SelectItem key={exam.id} value={exam.id.toString()}>
+                                      {exam.examName} - {exam.session}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label>Select Class (Optional)</Label>
+                              <Select value={resultForm.classId || ""} onValueChange={(value) => setResultForm({ ...resultForm, classId: value })}>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="All classes" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="*">All Classes</SelectItem>
+                                  {(() => {
+                                    const selectedExam = exams.find(e => e.id === Number(resultForm.examId));
+                                    if (selectedExam?.class) {
+                                      return (
+                                        <SelectItem value={selectedExam.class.id.toString()}>
+                                          {selectedExam.class.name}
+                                        </SelectItem>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <Button
+                              onClick={() => {
+                                if (!resultForm.examId) {
+                                  toast({ title: "Please select an exam", variant: "destructive" });
+                                  return;
+                                }
+                                generateResultsMutation.mutate({
+                                  examId: resultForm.examId,
+                                  classId: resultForm.classId || undefined
+                                });
+                              }}
+                              className="w-full"
+                              disabled={generateResultsMutation.isPending}
+                            >
+                              {generateResultsMutation.isPending ? "Generating..." : "Generate Results"}
+                            </Button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                    <div className="flex gap-4 mt-4">
+                      <div className="flex-1">
+                        <Label>Filter by Program</Label>
+                        <Select
+                          value={resultFilterProgram}
+                          onValueChange={setResultFilterProgram}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="*">All Programs</SelectItem>
+                            {programs?.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name} {p.department?.name ? `— ${p.department.name}` : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex-1">
+                        <Label>Filter by Class</Label>
+                        <Select
+                          value={resultFilterClass}
+                          onValueChange={setResultFilterClass}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="*">All Classes</SelectItem>
+                            {programs
+                              ?.find(p => p.id === Number(resultFilterProgram)) // Agar specific program select hai
+                              ?.classes
+                              ?.map((cls) => (
+                                <SelectItem key={cls.id} value={cls.id.toString()}>
+                                  {cls.name}
+                                </SelectItem>
+                              ))}
+                            {/* Show all classes when program filter is * (All Programs) */}
+                            {resultFilterProgram === "*" &&
+                              programs?.flatMap(p => p.classes || []).map((cls) => (
+                                <SelectItem key={cls.id} value={cls.id.toString()}>
+                                  {cls.name}
+                                </SelectItem>
+                              ))
+                            }
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {!resultFilterProgram || resultFilterProgram === "" ? (
+                      <div className="text-center py-16">
+                        <p className="text-4xl mb-4">📊</p>
+                        <p className="text-lg font-medium text-muted-foreground">Select a Program to View Results</p>
+                        <p className="text-sm text-muted-foreground mt-2">Choose a program from the filter above to see examination results</p>
+                      </div>
+                    ) : results.length === 0 ? (
+                      <div className="text-center py-16">
+                        <p className="text-4xl mb-4">📭</p>
+                        <p className="text-lg font-medium text-muted-foreground">No Results Found</p>
+                        <p className="text-sm text-muted-foreground mt-2">Generate results for this program to see them here</p>
+                      </div>
+                    ) : (
+                      <>
+                        {exams?.map((exam) => {
+                          let examResults = results.filter((r) => r.examId === exam.id);
+
+                          // Filter by program
+                          if (resultFilterProgram && resultFilterProgram !== "*") {
+                            examResults = examResults.filter((r) => {
+                              return r.student?.programId === Number(resultFilterProgram);
+                            });
+                          }
+
+                          // Filter by class
+                          if (resultFilterClass && resultFilterClass !== "*") {
+                            examResults = examResults.filter((r) => {
+                              return r.student?.classId === Number(resultFilterClass);
+                            });
+                          }
+                          if (examResults.length === 0) return null;
+                          return (
+                            <Card key={exam.id} className="mb-4">
+                              <CardHeader>
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <CardTitle>{exam.examName}</CardTitle>
+                                    <p className="text-sm text-muted-foreground">
+                                      {exam.program?.name} | {exam.session}
+                                    </p>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        generateResultsMutation.mutate({
+                                          examId: exam.id.toString(),
+                                          classId: exam.classId ? exam.classId.toString() : undefined
+                                        });
+                                      }}
+                                      disabled={generateResultsMutation.isPending}
+                                      className="gap-2"
+                                    >
+                                      <Award className="w-4 h-4" />
+                                      {generateResultsMutation.isPending ? "Regenerating..." : "Regenerate Results"}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => printResults(exam.id)}
+                                      className="gap-2"
+                                    >
+                                      <Printer className="w-4 h-4" />
+                                      Print Results
+                                    </Button>
+                                  </div>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead>Position</TableHead>
+                                      <TableHead>Student</TableHead>
+                                      <TableHead>Reg. No</TableHead>
+                                      <TableHead>Class</TableHead>
+                                      <TableHead>Total Marks</TableHead>
+                                      <TableHead>Obtained</TableHead>
+                                      <TableHead>Percentage</TableHead>
+                                      <TableHead>Grade</TableHead>
+                                      <TableHead>GPA</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {examResults
+                                      .sort((a, b) => b.percentage - a.percentage)
+                                      .map((result, idx) => {
+                                        const student = result.student;
+                                        return (
+                                          <TableRow key={result.id}>
+                                            <TableCell className="font-bold">
+                                              {idx + 1}
+                                            </TableCell>
+                                            <TableCell>{student ? getFullName(student) : 'N/A'}</TableCell>
+                                            <TableCell>{student?.rollNumber}</TableCell>
+                                            <TableCell>{student?.class?.name}</TableCell>
+                                            <TableCell>{result.totalMarks}</TableCell>
+                                            <TableCell>
+                                              {result.obtainedMarks}
+                                            </TableCell>
+                                            <TableCell>
+                                              {result.percentage.toFixed(2)}%
+                                            </TableCell>
+                                            <TableCell>{result.grade}</TableCell>
+                                            <TableCell>
+                                              {result.gpa.toFixed(2)}
+                                            </TableCell>
+                                          </TableRow>
+                                        );
+                                      })}
+                                  </TableBody>
+                                </Table>
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Student Results Tab */}
+              <TabsContent value="student-results">
+                <StudentResultsTab
+                  programs={programs}
+                  students={students}
+                  exams={exams}
+                  studentResultProgram={studentResultProgram}
+                  setStudentResultProgram={setStudentResultProgram}
+                  studentResultClass={studentResultClass}
+                  setStudentResultClass={setStudentResultClass}
+                  studentResultSection={studentResultSection}
+                  setStudentResultSection={setStudentResultSection}
+                  studentResultStudent={studentResultStudent}
+                  setStudentResultStudent={setStudentResultStudent}
+                  studentResultExam={studentResultExam}
+                  setStudentResultExam={setStudentResultExam}
+                  studentResultData={studentResultData}
+                  studentResultMutation={studentResultMutation}
+                  printStudentResult={printStudentResult}
+                  getFullName={getFullName}
+                />
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
+          {/* positions */}
+          <TabsContent value="positions">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Award className="w-5 h-5" />
-                  Examination Results
-                </CardTitle>
-                <div className="flex gap-4 mt-4">
+                <div className="flex items-center justify-between mb-4">
+                  <CardTitle className="flex items-center gap-2">
+                    <Trophy className="w-5 h-5" />
+                    Student Rankings & Positions
+                  </CardTitle>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => {
+                        if (!positionsFilterExam || positionsFilterExam === "") {
+                          toast({ title: "Please select an exam", variant: "destructive" });
+                          return;
+                        }
+                        generatePositionsMutation.mutate({
+                          examId: positionsFilterExam,
+                          classId: positionsFilterClass && positionsFilterClass !== "*" ? positionsFilterClass : undefined
+                        });
+                      }}
+                      disabled={generatePositionsMutation.isPending}
+                    >
+                      <Trophy className="w-4 h-4 mr-2" />
+                      {generatePositionsMutation.isPending ? "Generating..." : "Generate Positions"}
+                    </Button>
+                    <Button
+                      onClick={printPositions}
+                      variant="outline"
+                      className="gap-2"
+                    >
+                      <Printer className="w-4 h-4" />
+                      Print Positions
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex gap-4">
                   <div className="flex-1">
-                    <Label>Filter by Program</Label>
-                    <Select value={resultFilterProgram} onValueChange={setResultFilterProgram}>
+                    <Label>Filter by Exam *</Label>
+                    <Select value={positionsFilterExam} onValueChange={setPositionsFilterExam}>
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder="Select exam" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Programs</SelectItem>
-                        {programs.map(p => <SelectItem key={p.id} value={p.id}>{p.id}</SelectItem>)}
+                        <SelectItem value="*">All Exams</SelectItem>
+                        {exams?.map((exam) => (
+                          <SelectItem key={exam.id} value={exam.id.toString()}>
+                            {exam.examName} - {exam.session}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="flex-1">
                     <Label>Filter by Class</Label>
-                    <Select value={resultFilterClass} onValueChange={setResultFilterClass}>
+                    <Select
+                      value={positionsFilterClass}
+                      onValueChange={setPositionsFilterClass}
+                      disabled={!positionsFilterExam || positionsFilterExam === ""}
+                    >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder="All classes" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Classes</SelectItem>
-                        {classes.filter(c => resultFilterProgram === "all" || c.programId === resultFilterProgram).map(c => <SelectItem key={c.id} value={c.id}>{c.id}</SelectItem>)}
+                        <SelectItem value="*">All Classes</SelectItem>
+                        {(() => {
+                          const selectedExam = exams?.find(e => e.id === Number(positionsFilterExam));
+                          if (selectedExam?.class) {
+                            return (
+                              <SelectItem value={selectedExam.class.id.toString()}>
+                                {selectedExam.class.name}
+                              </SelectItem>
+                            );
+                          }
+                          return null;
+                        })()}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
-                {exams.map(exam => {
-                let examResults = results.filter(r => r.examId === exam.id);
-                if (resultFilterProgram !== "all") {
-                  examResults = examResults.filter(r => {
-                    const student = students.find(s => s.id === r.studentId);
-                    return student?.program === resultFilterProgram;
-                  });
-                }
-                if (resultFilterClass !== "all") {
-                  examResults = examResults.filter(r => {
-                    const student = students.find(s => s.id === r.studentId);
-                    return student?.class === resultFilterClass;
-                  });
-                }
-                if (examResults.length === 0) return null;
-                return <Card key={exam.id} className="mb-4">
-                      <CardHeader>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <CardTitle>{exam.examName}</CardTitle>
-                            <p className="text-sm text-muted-foreground">{exam.program} | {exam.session}</p>
-                          </div>
-                          <Button size="sm" onClick={() => printResults(exam.id)} className="gap-2">
-                            <Printer className="w-4 h-4" />
-                            Print Results
-                          </Button>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Position</TableHead>
-                              <TableHead>Student</TableHead>
-                              <TableHead>Reg. No</TableHead>
-                              <TableHead>Class</TableHead>
-                              <TableHead>Total Marks</TableHead>
-                              <TableHead>Obtained</TableHead>
-                              <TableHead>Percentage</TableHead>
-                              <TableHead>Grade</TableHead>
-                              <TableHead>GPA</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {examResults.sort((a, b) => b.percentage - a.percentage).map((result, idx) => {
-                          const student = students.find(s => s.id === result.studentId);
-                          return <TableRow key={result.id}>
-                                  <TableCell className="font-bold">{idx + 1}</TableCell>
-                                  <TableCell>{student?.name}</TableCell>
-                                  <TableCell>{student?.rollNumber}</TableCell>
-                                  <TableCell>{student?.class}</TableCell>
-                                  <TableCell>{result.totalMarks}</TableCell>
-                                  <TableCell>{result.obtainedMarks}</TableCell>
-                                  <TableCell>{result.percentage.toFixed(2)}%</TableCell>
-                                  <TableCell>{result.grade}</TableCell>
-                                  <TableCell>{result.gpa.toFixed(2)}</TableCell>
-                                </TableRow>;
-                        })}
-                          </TableBody>
-                        </Table>
-                      </CardContent>
-                    </Card>;
-              })}
-              </CardContent>
-            </Card>
-          </TabsContent>
+                {!positionsFilterExam || positionsFilterExam === "" ? (
+                  <div className="text-center py-16">
+                    <p className="text-4xl mb-4">🏆</p>
+                    <p className="text-lg font-medium text-muted-foreground">Select an Exam to View Rankings</p>
+                    <p className="text-sm text-muted-foreground mt-2">Choose an exam from the filter above to see student positions</p>
+                  </div>
+                ) : positions.length === 0 ? (
+                  <div className="text-center py-16">
+                    <p className="text-4xl mb-4">📊</p>
+                    <p className="text-lg font-medium text-muted-foreground">No Positions Found</p>
+                    <p className="text-sm text-muted-foreground mt-2">Click "Generate Positions" to calculate rankings from results</p>
+                  </div>
+                ) : (
+                  <>
+                    {(() => {
+                      // Group positions by exam and class
+                      const groupedPositions = positions.reduce((acc, pos) => {
+                        const examKey = `${pos.exam.examName} - ${pos.exam.session}`;
+                        const classKey = pos.class.name;
 
-          <TabsContent value="positions">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Trophy className="w-5 h-5" />
-                  Position Holdings
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {positions.map(examPos => {
-                // Group positions by class
-                const classwisePositions = examPos.toppers.reduce((acc, topper) => {
-                  const className = topper.student?.class || 'Unknown';
-                  if (!acc[className]) acc[className] = [];
-                  acc[className].push(topper);
-                  return acc;
-                }, {});
-                return <div key={examPos.examId} className="mb-8">
-                      <h3 className="text-lg font-semibold mb-4">{examPos.examName}</h3>
-                      {Object.entries(classwisePositions).map(([className, classToppers]) => {
-                    const sorted = classToppers.sort((a, b) => b.percentage - a.percentage);
-                    return <div key={className} className="mb-6">
-                            <h4 className="text-md font-medium mb-2 text-muted-foreground">Class: {className}</h4>
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Rank</TableHead>
-                                  <TableHead>Student Name</TableHead>
-                                  <TableHead>Roll Number</TableHead>
-                                  <TableHead>Total Marks</TableHead>
-                                  <TableHead>Percentage</TableHead>
-                                  <TableHead>GPA</TableHead>
-                                  <TableHead>Grade</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {sorted.map((topper, idx) => <TableRow key={topper.id}>
-                                    <TableCell className="font-bold">{idx + 1}</TableCell>
-                                    <TableCell>{topper.student?.name}</TableCell>
-                                    <TableCell>{topper.student?.rollNumber}</TableCell>
-                                    <TableCell>{topper.obtainedMarks}/{topper.totalMarks}</TableCell>
-                                    <TableCell>{topper.percentage}%</TableCell>
-                                    <TableCell>{topper.gpa}</TableCell>
-                                    <TableCell>{topper.grade}</TableCell>
-                                  </TableRow>)}
-                              </TableBody>
-                            </Table>
-                          </div>;
-                  })}
-                    </div>;
-              })}
+                        if (!acc[examKey]) acc[examKey] = {};
+                        if (!acc[examKey][classKey]) acc[examKey][classKey] = [];
+                        acc[examKey][classKey].push(pos);
+
+                        return acc;
+                      }, {});
+
+                      return Object.entries(groupedPositions).map(([examName, classes]) => (
+                        <div key={examName} className="mb-6">
+                          <h3 className="text-lg font-semibold mb-4">{examName}</h3>
+                          {Object.entries(classes).map(([className, classPositions]) => {
+                            const sortedPositions = classPositions.sort((a, b) => a.position - b.position);
+                            return (
+                              <Card key={className} className="mb-4">
+                                <CardHeader>
+                                  <CardTitle className="text-md">Class: {className}</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead className="w-16">Position</TableHead>
+                                        <TableHead>Student Name</TableHead>
+                                        <TableHead>Roll No</TableHead>
+                                        <TableHead className="text-right">Total</TableHead>
+                                        <TableHead className="text-right">Obtained</TableHead>
+                                        <TableHead className="text-right">%</TableHead>
+                                        <TableHead>Grade</TableHead>
+                                        <TableHead className="text-right">GPA</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {sortedPositions.map((pos) => {
+                                        const student = students.find(s => s.id === pos.studentId);
+                                        return (
+                                          <TableRow key={pos.id}>
+                                            <TableCell className="font-bold">
+                                              {pos.position === 1 ? "🥇" : pos.position === 2 ? "🥈" : pos.position === 3 ? "🥉" : pos.position}
+                                            </TableCell>
+                                            <TableCell>{student ? getFullName(student) : 'N/A'}</TableCell>
+                                            <TableCell>{student?.rollNumber}</TableCell>
+                                            <TableCell className="text-right">{pos.totalMarks}</TableCell>
+                                            <TableCell className="text-right">{pos.obtainedMarks}</TableCell>
+                                            <TableCell className="text-right">{pos.percentage.toFixed(2)}%</TableCell>
+                                            <TableCell>{pos.grade}</TableCell>
+                                            <TableCell className="text-right">{pos.gpa.toFixed(2)}</TableCell>
+                                          </TableRow>
+                                        );
+                                      })}
+                                    </TableBody>
+                                  </Table>
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
+                        </div>
+                      ));
+                    })()}
+                  </>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -828,16 +1665,20 @@ const Examination = () => {
             <AlertDialogHeader>
               <AlertDialogTitle>Are you sure?</AlertDialogTitle>
               <AlertDialogDescription>
-                This action cannot be undone. This will permanently delete the {deleteTarget?.type}.
+                This action cannot be undone. This will permanently delete the{" "}
+                {deleteTarget?.type}.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+              <AlertDialogAction onClick={handleDelete}>
+                Delete
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
       </div>
-    </DashboardLayout>;
+    </DashboardLayout>
+  );
 };
 export default Examination;

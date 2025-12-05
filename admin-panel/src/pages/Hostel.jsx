@@ -9,38 +9,78 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useData } from "@/contexts/DataContext";
-import { useState } from "react";
-import { Home, Bed, UtensilsCrossed, DollarSign, Edit, Trash2, UserPlus, Package } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  getHostelRegistrations,
+  createHostelRegistration,
+  updateHostelRegistration,
+  deleteHostelRegistration,
+  getRooms,
+  createRoom,
+  updateRoom as updateRoomApi,
+  deleteRoom as deleteRoomApi,
+  allocateRoom,
+  deallocateStudent,
+  getHostelExpenses,
+  createHostelExpense,
+  updateHostelExpense,
+  deleteHostelExpense,
+  getInventoryItems,
+  createInventoryItem,
+  updateInventoryItem,
+  deleteInventoryItem,
+  searchStudents
+} from "../../config/apis";
+import { Home, Bed, UtensilsCrossed, DollarSign, Edit, Trash2, UserPlus, Package, Search, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
 const Hostel = () => {
   const {
     students,
-    hostelRegistrations,
-    addHostelRegistration,
-    updateHostelRegistration,
-    deleteHostelRegistration,
-    rooms,
-    addRoom,
-    updateRoom,
-    deleteRoom,
     messAllocations,
     addMessAllocation,
     updateMessAllocation,
     deleteMessAllocation,
-    hostelExpenses,
-    addHostelExpense,
-    updateHostelExpense,
-    deleteHostelExpense,
-    inventoryItems,
-    addInventoryItem,
-    updateInventoryItem,
-    deleteInventoryItem
   } = useData();
-  const {
-    toast
-  } = useToast();
+
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Queries
+  const { data: hostelRegistrations = [] } = useQuery({
+    queryKey: ['hostelRegistrations'],
+    queryFn: getHostelRegistrations
+  });
+
+  const { data: rooms = [] } = useQuery({
+    queryKey: ['rooms'],
+    queryFn: getRooms
+  });
+
+  const { data: hostelExpenses = [] } = useQuery({
+    queryKey: ['hostelExpenses'],
+    queryFn: getHostelExpenses
+  });
+
+  const { data: inventoryItems = [] } = useQuery({
+    queryKey: ['inventoryItems'],
+    queryFn: getInventoryItems
+  });
+
+  // UI State
   const [activeTab, setActiveTab] = useState("registration");
   const [regOpen, setRegOpen] = useState(false);
   const [roomOpen, setRoomOpen] = useState(false);
@@ -50,10 +90,20 @@ const Hostel = () => {
   const [filterProgram, setFilterProgram] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [editMode, setEditMode] = useState({});
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteItem, setDeleteItem] = useState(null);
+
+  // Student search state
+  const [studentSearch, setStudentSearch] = useState("");
+  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
   const [regFormData, setRegFormData] = useState({
     studentId: "",
-    hostelName: "Main Hostel",
-    registrationDate: new Date().toISOString().split("T")[0]
+    registrationDate: new Date().toISOString().split("T")[0],
+    roomId: ""
   });
   const [roomFormData, setRoomFormData] = useState({
     roomNumber: "",
@@ -79,96 +129,216 @@ const Hostel = () => {
     condition: "New",
     allocatedToRoom: ""
   });
+
+  // Search students using API with debouncing
+  useEffect(() => {
+    const searchDebounce = setTimeout(async () => {
+      if (studentSearch && studentSearch.length >= 2) {
+        setSearchLoading(true);
+        try {
+          const results = await searchStudents(studentSearch);
+          setSearchResults(results.slice(0, 10)); // Limit to 10 results
+        } catch (error) {
+          console.error('Student search failed:', error);
+          setSearchResults([]);
+        }
+        setSearchLoading(false);
+      } else {
+        setSearchResults([]);
+      }
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(searchDebounce);
+  }, [studentSearch]);
+
   const filteredRegistrations = hostelRegistrations.filter(reg => {
-    const student = students.find(s => s.id === reg.studentId);
-    if (!student) return false;
-    const matchesProgram = filterProgram === "all" || student.program === filterProgram;
-    const matchesSearch = student.name.toLowerCase().includes(searchQuery.toLowerCase());
+    if (!reg.student) return false;
+    const studentName = `${reg.student.fName} ${reg.student.lName || ''}`.toLowerCase();
+    const rollNumber = reg.student.rollNumber?.toLowerCase() || '';
+    const programName = reg.student.program?.name || '';
+    const matchesProgram = filterProgram === "all" || programName === filterProgram;
+    const matchesSearch = studentName.includes(searchQuery.toLowerCase()) || rollNumber.includes(searchQuery.toLowerCase());
     return matchesProgram && matchesSearch;
   });
-  const handleAddRegistration = () => {
+
+  const handleStudentSelect = (student) => {
+    const isRegistered = hostelRegistrations.some(reg => reg.studentId === student.id);
+    if (isRegistered) {
+      toast({ title: "Student is already registered", variant: "destructive" });
+      return;
+    }
+    setSelectedStudent(student);
+    setStudentSearch(`${student.fName} ${student.lName || ''} (${student.rollNumber})`);
+    setRegFormData({ ...regFormData, studentId: student.id });
+    setShowStudentDropdown(false);
+    setSearchResults([]);
+  };
+
+  const clearStudentSelection = () => {
+    setSelectedStudent(null);
+    setStudentSearch("");
+    setRegFormData({ ...regFormData, studentId: "" });
+    setSearchResults([]);
+  };
+
+  const handleAddRegistration = async () => {
     if (!regFormData.studentId) {
-      toast({
-        title: "Please select a student",
-        variant: "destructive"
-      });
+      toast({ title: "Please select a student", variant: "destructive" });
       return;
     }
-    const student = students.find(s => s.id === regFormData.studentId);
-    if (!student) return;
-    if (editMode.reg) {
-      updateHostelRegistration(editMode.reg, {
-        hostelName: regFormData.hostelName,
-        registrationDate: regFormData.registrationDate
-      });
-      toast({
-        title: "Registration updated"
-      });
-    } else {
-      addHostelRegistration({
-        studentId: regFormData.studentId,
-        studentName: student.name,
-        classProgram: `${student.class} ${student.program}`,
-        hostelName: regFormData.hostelName,
-        registrationDate: regFormData.registrationDate,
-        status: "active"
-      });
-      toast({
-        title: "Student registered for hostel"
-      });
+    if (!regFormData.roomId) {
+      toast({ title: "Please select a room", variant: "destructive" });
+      return;
     }
-    setRegOpen(false);
-    setEditMode({});
-    setRegFormData({
-      studentId: "",
-      hostelName: "Main Hostel",
-      registrationDate: new Date().toISOString().split("T")[0]
-    });
+
+    try {
+      if (editMode.reg) {
+        // Update registration details
+        await updateHostelRegistration(editMode.reg, {
+          registrationDate: regFormData.registrationDate,
+          studentId: Number(regFormData.studentId)
+        });
+
+        // Handle Room Change Logic
+        const currentRoom = rooms.find(r =>
+          r.allocations?.some(alloc => alloc.studentId === Number(regFormData.studentId))
+        );
+
+        // If room has changed or wasn't assigned
+        if (currentRoom && currentRoom.id !== Number(regFormData.roomId)) {
+          // 1. Deallocate from old room
+          const oldAllocation = currentRoom.allocations.find(alloc => alloc.studentId === Number(regFormData.studentId));
+          if (oldAllocation) {
+            await deallocateStudent(oldAllocation.id);
+          }
+
+          // 2. Allocate to new room
+          await allocateRoom({
+            roomId: Number(regFormData.roomId),
+            studentId: Number(regFormData.studentId),
+            allocationDate: regFormData.registrationDate
+          });
+        } else if (!currentRoom) {
+          // If no room was assigned previously, just allocate
+          await allocateRoom({
+            roomId: Number(regFormData.roomId),
+            studentId: Number(regFormData.studentId),
+            allocationDate: regFormData.registrationDate
+          });
+        }
+
+        toast({ title: "Registration updated" });
+      } else {
+        // Create registration
+        await createHostelRegistration({
+          studentId: regFormData.studentId,
+          hostelName: "Main Hostel", // Default value
+          registrationDate: regFormData.registrationDate,
+          status: "active",
+        });
+
+        console.log(regFormData)
+        // Allocate room
+        await allocateRoom({
+          roomId: regFormData.roomId,
+          studentId: Number(regFormData.studentId),
+          allocationDate: regFormData.registrationDate
+        });
+
+        toast({ title: "Student registered and room allocated" });
+      }
+
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['hostelRegistrations'] });
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+
+      setRegOpen(false);
+      setEditMode({});
+      clearStudentSelection();
+      setRegFormData({ studentId: "", registrationDate: new Date().toISOString().split("T")[0], roomId: "" });
+    } catch (error) {
+      toast({ title: "Error", description: error.message || "Failed to save registration", variant: "destructive" });
+    }
   };
-  const handleAddRoom = () => {
+
+  const confirmDelete = (type, item) => {
+    setDeleteItem({ type, item });
+    setDeleteConfirmOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (!deleteItem) return;
+    const { type, item } = deleteItem;
+
+    try {
+      if (type === 'reg') {
+        const studentRoom = rooms.find(r =>
+          r.allocations?.some(alloc => alloc.studentId === item.studentId)
+        );
+        if (studentRoom) {
+          const allocation = studentRoom.allocations.find(alloc => alloc.studentId === item.studentId);
+          if (allocation) await deallocateStudent(allocation.id);
+        }
+        await deleteHostelRegistration(item.id);
+        queryClient.invalidateQueries({ queryKey: ['hostelRegistrations'] });
+        queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      } else if (type === 'room') {
+        await deleteRoomApi(item.id);
+        queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      } else if (type === 'mess') {
+        await deleteMessAllocation(item.id);
+        // Mess allocations are currently from context, might need to update that too or invalidate if moved to query
+      } else if (type === 'expense') {
+        await deleteHostelExpense(item.id);
+        queryClient.invalidateQueries({ queryKey: ['hostelExpenses'] });
+      } else if (type === 'inventory') {
+        await deleteInventoryItem(item.id);
+        queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
+      }
+      toast({ title: "Deleted successfully" });
+    } catch (error) {
+      console.error(error);
+      toast({ title: "Error", description: "Failed to delete item", variant: "destructive" });
+    }
+    setDeleteConfirmOpen(false);
+    setDeleteItem(null);
+  };
+
+  const handleAddRoom = async () => {
     if (!roomFormData.roomNumber) {
-      toast({
-        title: "Please enter room number",
-        variant: "destructive"
-      });
+      toast({ title: "Please enter room number", variant: "destructive" });
       return;
     }
-    if (editMode.room) {
-      updateRoom(editMode.room, {
-        roomNumber: roomFormData.roomNumber,
-        roomType: roomFormData.roomType.toLowerCase(),
-        capacity: roomFormData.capacity
-      });
-      toast({
-        title: "Room updated successfully"
-      });
-    } else {
-      addRoom({
-        roomNumber: roomFormData.roomNumber,
-        roomType: roomFormData.roomType.toLowerCase(),
-        capacity: roomFormData.capacity,
-        allocatedTo: [],
-        allocationDate: "",
-        status: "vacant"
-      });
-      toast({
-        title: "Room added successfully"
-      });
+    try {
+      if (editMode.room) {
+        await updateRoomApi(editMode.room, {
+          roomNumber: roomFormData.roomNumber,
+          roomType: roomFormData.roomType.toLowerCase(),
+          capacity: Number(roomFormData.capacity)
+        });
+        toast({ title: "Room updated successfully" });
+      } else {
+        await createRoom({
+          roomNumber: roomFormData.roomNumber,
+          roomType: roomFormData.roomType.toLowerCase(),
+          capacity: Number(roomFormData.capacity),
+          hostelName: "Main Hostel",
+          status: "vacant"
+        });
+        toast({ title: "Room added successfully" });
+      }
+      queryClient.invalidateQueries({ queryKey: ['rooms'] });
+      setRoomOpen(false);
+      setEditMode({});
+      setRoomFormData({ roomNumber: "", roomType: "Double", capacity: 2 });
+    } catch (error) {
+      toast({ title: "Error", description: error.message || "Failed to save room", variant: "destructive" });
     }
-    setRoomOpen(false);
-    setEditMode({});
-    setRoomFormData({
-      roomNumber: "",
-      roomType: "Double",
-      capacity: 2
-    });
   };
+
   const handleAddMess = () => {
     if (!messFormData.studentId && !editMode.mess) {
-      toast({
-        title: "Please select a student",
-        variant: "destructive"
-      });
+      toast({ title: "Please select a student", variant: "destructive" });
       return;
     }
     if (editMode.mess) {
@@ -177,9 +347,7 @@ const Hostel = () => {
         monthlyCost: messFormData.monthlyCost,
         remarks: messFormData.remarks
       });
-      toast({
-        title: "Mess allocation updated"
-      });
+      toast({ title: "Mess allocation updated" });
     } else {
       addMessAllocation({
         studentId: messFormData.studentId,
@@ -188,93 +356,96 @@ const Hostel = () => {
         monthlyCost: messFormData.monthlyCost,
         remarks: messFormData.remarks
       });
-      toast({
-        title: "Mess allocation added"
-      });
+      toast({ title: "Mess allocation added" });
     }
     setMessOpen(false);
     setEditMode({});
-    setMessFormData({
-      studentId: "",
-      messPlan: "Standard",
-      monthlyCost: 3000,
-      remarks: ""
-    });
+    setMessFormData({ studentId: "", messPlan: "Standard", monthlyCost: 3000, remarks: "" });
   };
-  const handleAddExpense = () => {
+
+  const handleAddExpense = async () => {
     if (!expenseFormData.expenseTitle || !expenseFormData.amount) {
-      toast({
-        title: "Please fill required fields",
-        variant: "destructive"
-      });
+      toast({ title: "Please fill required fields", variant: "destructive" });
       return;
     }
-    if (editMode.expense) {
-      updateHostelExpense(editMode.expense, expenseFormData);
-      toast({
-        title: "Expense updated"
-      });
-    } else {
-      addHostelExpense(expenseFormData);
-      toast({
-        title: "Expense added"
-      });
+    try {
+      if (editMode.expense) {
+        await updateHostelExpense(editMode.expense, expenseFormData);
+        toast({ title: "Expense updated" });
+      } else {
+        await createHostelExpense(expenseFormData);
+        toast({ title: "Expense added" });
+      }
+      queryClient.invalidateQueries({ queryKey: ['hostelExpenses'] });
+      setExpenseOpen(false);
+      setEditMode({});
+      setExpenseFormData({ expenseTitle: "", amount: 0, date: new Date().toISOString().split("T")[0], remarks: "" });
+    } catch (error) {
+      toast({ title: "Error", description: error.message || "Failed to save expense", variant: "destructive" });
     }
-    setExpenseOpen(false);
-    setEditMode({});
-    setExpenseFormData({
-      expenseTitle: "",
-      amount: 0,
-      date: new Date().toISOString().split("T")[0],
-      remarks: ""
-    });
   };
-  const handleAddInventory = () => {
+
+  const handleAddInventory = async () => {
     if (!inventoryFormData.itemName) {
-      toast({
-        title: "Please enter item name",
-        variant: "destructive"
-      });
+      toast({ title: "Please enter item name", variant: "destructive" });
       return;
     }
-    if (editMode.inventory) {
-      updateInventoryItem(editMode.inventory, {
-        ...inventoryFormData,
-        category: inventoryFormData.category.toLowerCase(),
-        condition: inventoryFormData.condition === "New" ? "new" : inventoryFormData.condition === "Good" ? "good" : "repair-needed"
-      });
-      toast({
-        title: "Inventory item updated"
-      });
-    } else {
-      addInventoryItem({
-        ...inventoryFormData,
-        category: inventoryFormData.category.toLowerCase(),
-        condition: inventoryFormData.condition === "New" ? "new" : inventoryFormData.condition === "Good" ? "good" : "repair-needed"
-      });
-      toast({
-        title: "Inventory item added"
-      });
+    try {
+      if (editMode.inventory) {
+        await updateInventoryItem(editMode.inventory, {
+          ...inventoryFormData,
+          category: inventoryFormData.category.toLowerCase(),
+          quantity: Number(inventoryFormData.quantity)
+        });
+        toast({ title: "Inventory item updated" });
+      } else {
+        await createInventoryItem({
+          ...inventoryFormData,
+          category: inventoryFormData.category.toLowerCase(),
+          quantity: Number(inventoryFormData.quantity),
+          condition: inventoryFormData.condition.toLowerCase(),
+          allocatedToRoom: inventoryFormData.allocatedToRoom || undefined
+        });
+        toast({ title: "Inventory item added" });
+      }
+      queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
+      setInventoryOpen(false);
+      setEditMode({});
+      setInventoryFormData({ itemName: "", category: "Furniture", quantity: 1, condition: "New", allocatedToRoom: "" });
+    } catch (error) {
+      toast({ title: "Error", description: error.message || "Failed to save inventory", variant: "destructive" });
     }
-    setInventoryOpen(false);
-    setEditMode({});
-    setInventoryFormData({
-      itemName: "",
-      category: "Furniture",
-      quantity: 1,
-      condition: "New",
-      allocatedToRoom: ""
-    });
+  };
+
+  // Get room for a student
+  const getStudentRoom = (studentId) => {
+    const room = rooms.find(r =>
+      r.allocations?.some(alloc => alloc.studentId === studentId)
+    );
+    return room;
   };
 
   // Chart data
   const roomOccupancyData = [{
     name: "Occupied",
-    value: rooms.filter(r => r.status === "occupied").length
+    value: rooms.reduce((acc, room) => acc + (room.currentOccupancy || 0), 0)
   }, {
     name: "Vacant",
-    value: rooms.filter(r => r.status === "vacant").length
+    value: rooms.reduce((acc, room) => acc + (room.capacity - (room.currentOccupancy || 0)), 0)
   }];
+
+  // Expenses Over Time Data
+  const expensesOverTimeData = useMemo(() => {
+    const data = {};
+    hostelExpenses.forEach(expense => {
+      const date = new Date(expense.date);
+      const monthYear = `${date.toLocaleString('default', { month: 'short' })} ${date.getFullYear()}`;
+      if (!data[monthYear]) data[monthYear] = 0;
+      data[monthYear] += expense.amount;
+    });
+    return Object.entries(data).map(([name, amount]) => ({ name, amount }));
+  }, [hostelExpenses]);
+
   const messPlansData = [{
     name: "Basic",
     count: messAllocations.filter(m => m.messPlan === "basic").length
@@ -286,7 +457,9 @@ const Hostel = () => {
     count: messAllocations.filter(m => m.messPlan === "premium").length
   }];
   const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', 'hsl(var(--accent))', 'hsl(var(--success))'];
-  return <DashboardLayout>
+
+  return (
+    <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
         <div className="bg-gradient-to-r from-primary to-primary/80 rounded-2xl p-6 text-primary-foreground shadow-lg">
           <h2 className="text-2xl font-bold mb-2">Hostel Management</h2>
@@ -296,7 +469,7 @@ const Hostel = () => {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Total Registrations</CardTitle>
@@ -315,7 +488,7 @@ const Hostel = () => {
               <div className="text-2xl font-bold">{rooms.filter(r => r.status === "vacant").length} / {rooms.length}</div>
             </CardContent>
           </Card>
-          <Card>
+          {/* <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Mess Allocations</CardTitle>
               <UtensilsCrossed className="h-4 w-4 text-muted-foreground" />
@@ -323,7 +496,7 @@ const Hostel = () => {
             <CardContent>
               <div className="text-2xl font-bold">{messAllocations.filter(m => m.mealStatus === "active").length}</div>
             </CardContent>
-          </Card>
+          </Card> */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Total Inventory</CardTitle>
@@ -336,10 +509,10 @@ const Hostel = () => {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 h-auto gap-1">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 h-auto gap-1">
             <TabsTrigger value="registration">Registration</TabsTrigger>
             <TabsTrigger value="rooms">Rooms</TabsTrigger>
-            <TabsTrigger value="mess">Mess</TabsTrigger>
+            {/* <TabsTrigger value="mess">Mess</TabsTrigger> */}
             <TabsTrigger value="expenses">Expenses</TabsTrigger>
             <TabsTrigger value="inventory">Inventory</TabsTrigger>
           </TabsList>
@@ -349,14 +522,17 @@ const Hostel = () => {
               <CardHeader>
                 <div className="flex justify-between items-center">
                   <CardTitle>Hostel Registration</CardTitle>
-                  <Button onClick={() => setRegOpen(true)}>
+                  <Button onClick={() => {
+                    setRegOpen(true);
+                    clearStudentSelection();
+                  }}>
                     <UserPlus className="mr-2 h-4 w-4" />
                     Register Student
                   </Button>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-4 mt-4">
                   <Input placeholder="Search students..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="flex-1" />
-                  <Select value={filterProgram} onValueChange={setFilterProgram}>
+                  {/* <Select value={filterProgram} onValueChange={setFilterProgram}>
                     <SelectTrigger className="w-full sm:w-[200px]">
                       <SelectValue placeholder="Filter by program" />
                     </SelectTrigger>
@@ -366,61 +542,70 @@ const Hostel = () => {
                       <SelectItem value="Diploma">Diploma</SelectItem>
                       <SelectItem value="BS">BS</SelectItem>
                     </SelectContent>
-                  </Select>
+                  </Select> */}
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Student Name</TableHead>
-                      <TableHead>Class/Program</TableHead>
-                      <TableHead>Hostel</TableHead>
-                      <TableHead>Registration Date</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredRegistrations.map(reg => <TableRow key={reg.id}>
-                        <TableCell className="font-medium">{reg.studentName}</TableCell>
-                        <TableCell>{reg.classProgram}</TableCell>
-                        <TableCell>{reg.hostelName}</TableCell>
-                        <TableCell>{reg.registrationDate}</TableCell>
-                        <TableCell>
-                          <Badge variant={reg.status === "active" ? "default" : "secondary"}>
-                            {reg.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="ghost" onClick={() => {
-                            setEditMode({
-                              reg: reg.id
-                            });
-                            setRegFormData({
-                              studentId: reg.studentId,
-                              hostelName: reg.hostelName,
-                              registrationDate: reg.registrationDate
-                            });
-                            setRegOpen(true);
-                          }}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => {
-                            deleteHostelRegistration(reg.id);
-                            toast({
-                              title: "Registration removed"
-                            });
-                          }}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
-                  </TableBody>
-                </Table>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Student Name</TableHead>
+                        <TableHead>Roll Number</TableHead>
+                        <TableHead>Program</TableHead>
+                        <TableHead>Room</TableHead>
+                        <TableHead>Registration Date</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredRegistrations.map(reg => {
+                        const studentRoom = getStudentRoom(reg.studentId);
+                        return <TableRow key={reg.id}>
+                          <TableCell className="font-medium">{reg.student?.fName} {reg.student?.lName}</TableCell>
+                          <TableCell>{reg.student?.rollNumber}</TableCell>
+                          <TableCell>{reg.student?.program?.name}</TableCell>
+                          <TableCell>
+                            {studentRoom ? (
+                              <span className="text-sm">
+                                Room {studentRoom.roomNumber}
+                                <span className="text-muted-foreground ml-1">
+                                  ({studentRoom.currentOccupancy}/{studentRoom.capacity})
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">Not assigned</span>
+                            )}
+                          </TableCell>
+                          <TableCell>{reg.registrationDate}</TableCell>
+                          <TableCell>
+                            <Badge variant={reg.status === "active" ? "default" : "secondary"}>
+                              {reg.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="ghost" onClick={() => {
+                                setEditMode({ reg: reg.id });
+                                setRegFormData({
+                                  studentId: reg.studentId,
+                                  registrationDate: reg.registrationDate,
+                                  roomId: studentRoom?.id ? String(studentRoom.id) : ""
+                                });
+                                setRegOpen(true);
+                              }}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button size="sm" variant="destructive" onClick={() => confirmDelete('reg', reg)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>;
+                      })}
+                    </TableBody>
+                  </Table>
                 </div>
               </CardContent>
             </Card>
@@ -428,7 +613,7 @@ const Hostel = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Room Occupancy</CardTitle>
+                  <CardTitle>Room Occupancy (Seats)</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={300}>
@@ -444,16 +629,16 @@ const Hostel = () => {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Mess Plans Distribution</CardTitle>
+                  <CardTitle>Expenses Over Time</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={messPlansData}>
+                    <BarChart data={expensesOverTimeData}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="name" />
                       <YAxis />
                       <RechartsTooltip />
-                      <Bar dataKey="count" fill="hsl(var(--primary))" />
+                      <Bar dataKey="amount" fill="hsl(var(--primary))" />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -479,53 +664,48 @@ const Hostel = () => {
                       <TableHead>Room Number</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Capacity</TableHead>
+                      <TableHead>Occupancy</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {rooms.map(room => <TableRow key={room.id}>
-                        <TableCell className="font-medium">{room.roomNumber}</TableCell>
-                        <TableCell>{room.roomType}</TableCell>
-                        <TableCell>{room.capacity}</TableCell>
-                        <TableCell>
-                          <Badge variant={room.status === "vacant" ? "default" : "secondary"}>
-                            {room.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="ghost" onClick={() => {
-                          setEditMode({
-                            room: room.id
-                          });
-                          setRoomFormData({
-                            roomNumber: room.roomNumber,
-                            roomType: room.roomType.charAt(0).toUpperCase() + room.roomType.slice(1),
-                            capacity: room.capacity
-                          });
-                          setRoomOpen(true);
-                        }}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => {
-                          deleteRoom(room.id);
-                          toast({
-                            title: "Room deleted"
-                          });
-                        }}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
+                      <TableCell className="font-medium">{room.roomNumber}</TableCell>
+                      <TableCell>{room.roomType}</TableCell>
+                      <TableCell>{room.capacity}</TableCell>
+                      <TableCell>{room.currentOccupancy} / {room.capacity}</TableCell>
+                      <TableCell>
+                        <Badge variant={room.status === "vacant" ? "success" : room.status === "occupied" ? "destructive" : "secondary"}>
+                          {room.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => {
+                            setEditMode({ room: room.id });
+                            setRoomFormData({
+                              roomNumber: room.roomNumber,
+                              roomType: room.roomType.charAt(0).toUpperCase() + room.roomType.slice(1),
+                              capacity: room.capacity
+                            });
+                            setRoomOpen(true);
+                          }}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => confirmDelete('room', room)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>)}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
           </TabsContent>
 
-          <TabsContent value="mess" className="space-y-4">
+          {/* <TabsContent value="mess" className="space-y-4">
             <Card>
               <CardHeader>
                 <div className="flex justify-between items-center">
@@ -550,50 +730,43 @@ const Hostel = () => {
                   </TableHeader>
                   <TableBody>
                     {messAllocations.map(mess => {
-                    const student = students.find(s => s.id === mess.studentId);
-                    return <TableRow key={mess.id}>
-                          <TableCell>{student?.name}</TableCell>
-                          <TableCell>{mess.messPlan}</TableCell>
-                          <TableCell>PKR {mess.monthlyCost.toLocaleString()}</TableCell>
-                          <TableCell>
-                            <Badge variant={mess.mealStatus === "active" ? "default" : "secondary"}>
-                              {mess.mealStatus}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{mess.remarks}</TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button size="sm" variant="ghost" onClick={() => {
-                            setEditMode({
-                              mess: mess.id
-                            });
-                            setMessFormData({
-                              studentId: mess.studentId,
-                              messPlan: mess.messPlan.charAt(0).toUpperCase() + mess.messPlan.slice(1),
-                              monthlyCost: mess.monthlyCost,
-                              remarks: mess.remarks
-                            });
-                            setMessOpen(true);
-                          }}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button size="sm" variant="destructive" onClick={() => {
-                            deleteMessAllocation(mess.id);
-                            toast({
-                              title: "Allocation removed"
-                            });
-                          }}>
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>;
-                  })}
+                      const student = students.find(s => s.id === mess.studentId);
+                      return <TableRow key={mess.id}>
+                        <TableCell>{student?.name}</TableCell>
+                        <TableCell className="capitalize">{mess.messPlan}</TableCell>
+                        <TableCell>PKR {mess.monthlyCost.toLocaleString()}</TableCell>
+                        <TableCell>
+                          <Badge variant={mess.mealStatus === "active" ? "default" : "secondary"}>
+                            {mess.mealStatus}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{mess.remarks}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="ghost" onClick={() => {
+                              setEditMode({ mess: mess.id });
+                              setMessFormData({
+                                studentId: mess.studentId,
+                                messPlan: mess.messPlan.charAt(0).toUpperCase() + mess.messPlan.slice(1),
+                                monthlyCost: mess.monthlyCost,
+                                remarks: mess.remarks
+                              });
+                              setMessOpen(true);
+                            }}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => confirmDelete('mess', mess)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>;
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
-          </TabsContent>
+          </TabsContent> */}
 
           <TabsContent value="expenses" className="space-y-4">
             <Card>
@@ -619,37 +792,30 @@ const Hostel = () => {
                   </TableHeader>
                   <TableBody>
                     {hostelExpenses.map(expense => <TableRow key={expense.id}>
-                        <TableCell className="font-medium">{expense.expenseTitle}</TableCell>
-                        <TableCell>PKR {expense.amount.toLocaleString()}</TableCell>
-                        <TableCell>{expense.date}</TableCell>
-                        <TableCell>{expense.remarks}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="ghost" onClick={() => {
-                          setEditMode({
-                            expense: expense.id
-                          });
-                          setExpenseFormData({
-                            expenseTitle: expense.expenseTitle,
-                            amount: expense.amount,
-                            date: expense.date,
-                            remarks: expense.remarks
-                          });
-                          setExpenseOpen(true);
-                        }}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => {
-                          deleteHostelExpense(expense.id);
-                          toast({
-                            title: "Expense deleted"
-                          });
-                        }}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
+                      <TableCell className="font-medium">{expense.expenseTitle}</TableCell>
+                      <TableCell>PKR {expense.amount.toLocaleString()}</TableCell>
+                      <TableCell>{expense.date}</TableCell>
+                      <TableCell>{expense.remarks}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => {
+                            setEditMode({ expense: expense.id });
+                            setExpenseFormData({
+                              expenseTitle: expense.expenseTitle,
+                              amount: expense.amount,
+                              date: expense.date,
+                              remarks: expense.remarks
+                            });
+                            setExpenseOpen(true);
+                          }}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => confirmDelete('expense', expense)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>)}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -681,43 +847,36 @@ const Hostel = () => {
                   </TableHeader>
                   <TableBody>
                     {inventoryItems.map(item => <TableRow key={item.id}>
-                        <TableCell className="font-medium">{item.itemName}</TableCell>
-                        <TableCell>{item.category}</TableCell>
-                        <TableCell>{item.quantity}</TableCell>
-                        <TableCell>
-                          <Badge variant={item.condition === "new" ? "default" : "secondary"}>
-                            {item.condition}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{item.allocatedToRoom || "Not Allocated"}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="ghost" onClick={() => {
-                          setEditMode({
-                            inventory: item.id
-                          });
-                          setInventoryFormData({
-                            itemName: item.itemName,
-                            category: item.category.charAt(0).toUpperCase() + item.category.slice(1),
-                            quantity: item.quantity,
-                            condition: item.condition === "new" ? "New" : item.condition === "good" ? "Good" : "Repair Needed",
-                            allocatedToRoom: item.allocatedToRoom
-                          });
-                          setInventoryOpen(true);
-                        }}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => {
-                          deleteInventoryItem(item.id);
-                          toast({
-                            title: "Item deleted"
-                          });
-                        }}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>)}
+                      <TableCell className="font-medium">{item.itemName}</TableCell>
+                      <TableCell className="capitalize">{item.category}</TableCell>
+                      <TableCell>{item.quantity}</TableCell>
+                      <TableCell>
+                        <Badge variant={item.condition === "new" ? "default" : "secondary"}>
+                          {item.condition}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{item.allocatedToRoom || "Not Allocated"}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => {
+                            setEditMode({ inventory: item.id });
+                            setInventoryFormData({
+                              itemName: item.itemName,
+                              category: item.category.charAt(0).toUpperCase() + item.category.slice(1),
+                              quantity: item.quantity,
+                              condition: item.condition === "new" ? "New" : item.condition === "good" ? "Good" : "Repair Needed",
+                              allocatedToRoom: item.allocatedToRoom
+                            });
+                            setInventoryOpen(true);
+                          }}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => confirmDelete('inventory', item)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>)}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -725,55 +884,122 @@ const Hostel = () => {
           </TabsContent>
         </Tabs>
 
-        {/* Dialogs */}
+        {/* Registration Dialog */}
         <Dialog open={regOpen} onOpenChange={open => {
-        setRegOpen(open);
-        if (!open) setEditMode({});
-      }}>
-          <DialogContent>
+          setRegOpen(open);
+          if (!open) {
+            setEditMode({});
+            clearStudentSelection();
+          }
+        }}>
+          <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>{editMode.reg ? "Edit" : "Register Student for"} Hostel Registration</DialogTitle>
+              <DialogTitle>{editMode.reg ? "Edit" : "Register Student for"} Hostel</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              {/* Student Search */}
+              <div className="relative">
+                <Label>Search Student (by name or roll number)</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Type to search..."
+                    value={studentSearch}
+                    onChange={e => {
+                      setStudentSearch(e.target.value);
+                      setShowStudentDropdown(true);
+                    }}
+                    onFocus={() => setShowStudentDropdown(true)}
+                    className="pl-9 pr-9"
+                  />
+                  {studentSearch && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                      onClick={clearStudentSelection}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+
+                {/* Student Dropdown */}
+                {showStudentDropdown && searchResults.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-60 overflow-auto">
+                    {searchLoading && (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">Searching...</div>
+                    )}
+                    {!searchLoading && searchResults.map(student => {
+                      const isRegistered = hostelRegistrations.some(reg => reg.studentId === student.id);
+                      return (
+                        <div
+                          key={student.id}
+                          className={`px-3 py-2 border-b last:border-b-0 ${isRegistered ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent cursor-pointer'}`}
+                          onClick={() => !isRegistered && handleStudentSelect(student)}
+                        >
+                          <div className="font-medium flex justify-between">
+                            <span>{student.fName} {student.lName}</span>
+                            {isRegistered && <span className="text-xs text-red-500 font-normal">Already Registered</span>}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            Roll: {student.rollNumber} • {student.program?.name}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {showStudentDropdown && !searchLoading && studentSearch.length >= 2 && searchResults.length === 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md px-3 py-2 text-sm text-muted-foreground">
+                    No students found
+                  </div>
+                )}
+              </div>
+
+              {/* Room Selection */}
               <div>
-                <Label>Select Student</Label>
-                <Select value={regFormData.studentId} onValueChange={value => setRegFormData({
-                ...regFormData,
-                studentId: value
-              })} disabled={!!editMode.reg}>
+                <Label>Assign Room</Label>
+                <Select
+                  value={regFormData.roomId}
+                  onValueChange={value => setRegFormData({ ...regFormData, roomId: value })}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select student" />
+                    <SelectValue placeholder="Select a room" />
                   </SelectTrigger>
                   <SelectContent>
-                    {students.filter(s => s.status === "active").map(student => <SelectItem key={student.id} value={student.id}>
-                        {student.name} - {student.class} {student.program}
-                      </SelectItem>)}
+                    {rooms.map(room => {
+                      const isFull = room.currentOccupancy >= room.capacity;
+                      const isCurrentRoom = room.allocations?.some(a => a.studentId === Number(regFormData.studentId));
+                      const isDisabled = isFull && !isCurrentRoom;
+
+                      return (
+                        <SelectItem key={room.id} value={String(room.id)} disabled={isDisabled}>
+                          Room {room.roomNumber} ({room.roomType}) - {isFull ? "Full" : `${room.capacity - room.currentOccupancy} Available`}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label>Hostel Name</Label>
-                <Input value={regFormData.hostelName} onChange={e => setRegFormData({
-                ...regFormData,
-                hostelName: e.target.value
-              })} />
-              </div>
+
+              {/* Registration Date */}
               <div>
                 <Label>Registration Date</Label>
-                <Input type="date" value={regFormData.registrationDate} onChange={e => setRegFormData({
-                ...regFormData,
-                registrationDate: e.target.value
-              })} />
+                <Input type="date" value={regFormData.registrationDate} onChange={e => setRegFormData({ ...regFormData, registrationDate: e.target.value })} />
               </div>
             </div>
-            <Button onClick={handleAddRegistration}>{editMode.reg ? "Update" : "Register"}</Button>
+            <Button onClick={handleAddRegistration} disabled={!selectedStudent && !regFormData.studentId}>
+              {editMode.reg ? "Update" : "Register"}
+            </Button>
           </DialogContent>
         </Dialog>
 
+        {/* Room Dialog */}
         <Dialog open={roomOpen} onOpenChange={open => {
-        setRoomOpen(open);
-        if (!open) setEditMode({});
-      }}>
+          setRoomOpen(open);
+          if (!open) setEditMode({});
+        }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editMode.room ? "Edit" : "Add"} Room</DialogTitle>
@@ -781,43 +1007,36 @@ const Hostel = () => {
             <div className="space-y-4">
               <div>
                 <Label>Room Number</Label>
-                <Input value={roomFormData.roomNumber} onChange={e => setRoomFormData({
-                ...roomFormData,
-                roomNumber: e.target.value
-              })} />
+                <Input value={roomFormData.roomNumber} onChange={e => setRoomFormData({ ...roomFormData, roomNumber: e.target.value })} />
               </div>
               <div>
                 <Label>Room Type</Label>
-                <Select value={roomFormData.roomType} onValueChange={value => setRoomFormData({
-                ...roomFormData,
-                roomType: value
-              })}>
+                <Select value={roomFormData.roomType} onValueChange={value => setRoomFormData({ ...roomFormData, roomType: value })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Single">Single</SelectItem>
-                    <SelectItem value="Double">Double</SelectItem>
-                    <SelectItem value="Shared">Shared</SelectItem>
+                    <SelectItem value="Single">Single (1 person)</SelectItem>
+                    <SelectItem value="Double">Double (2 person)</SelectItem>
+                    <SelectItem value="Triple">Triple (3 person)</SelectItem>
+                    <SelectItem value="Shared">Shared (4+ person)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <Label>Capacity</Label>
-                <Input type="number" value={roomFormData.capacity} onChange={e => setRoomFormData({
-                ...roomFormData,
-                capacity: parseInt(e.target.value) || 1
-              })} />
+                <Input type="number" min="1" value={roomFormData.capacity} onChange={e => setRoomFormData({ ...roomFormData, capacity: parseInt(e.target.value) || 1 })} />
               </div>
             </div>
             <Button onClick={handleAddRoom}>{editMode.room ? "Update" : "Add"} Room</Button>
           </DialogContent>
         </Dialog>
 
-        <Dialog open={messOpen} onOpenChange={open => {
-        setMessOpen(open);
-        if (!open) setEditMode({});
-      }}>
+        {/* Mess Dialog */}
+        {/* <Dialog open={messOpen} onOpenChange={open => {
+          setMessOpen(open);
+          if (!open) setEditMode({});
+        }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editMode.mess ? "Edit" : "Add"} Mess Allocation</DialogTitle>
@@ -825,26 +1044,20 @@ const Hostel = () => {
             <div className="space-y-4">
               <div>
                 <Label>Select Student</Label>
-                <Select value={messFormData.studentId} onValueChange={value => setMessFormData({
-                ...messFormData,
-                studentId: value
-              })} disabled={!!editMode.mess}>
+                <Select value={messFormData.studentId} onValueChange={value => setMessFormData({ ...messFormData, studentId: value })} disabled={!!editMode.mess}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select student" />
                   </SelectTrigger>
                   <SelectContent>
                     {students.filter(s => s.status === "active").map(student => <SelectItem key={student.id} value={student.id}>
-                        {student.name}
-                      </SelectItem>)}
+                      {student.name}
+                    </SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <Label>Mess Plan</Label>
-                <Select value={messFormData.messPlan} onValueChange={value => setMessFormData({
-                ...messFormData,
-                messPlan: value
-              })}>
+                <Select value={messFormData.messPlan} onValueChange={value => setMessFormData({ ...messFormData, messPlan: value })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -857,27 +1070,22 @@ const Hostel = () => {
               </div>
               <div>
                 <Label>Monthly Cost</Label>
-                <Input type="number" value={messFormData.monthlyCost} onChange={e => setMessFormData({
-                ...messFormData,
-                monthlyCost: parseFloat(e.target.value) || 0
-              })} />
+                <Input type="number" value={messFormData.monthlyCost} onChange={e => setMessFormData({ ...messFormData, monthlyCost: parseFloat(e.target.value) || 0 })} />
               </div>
               <div>
                 <Label>Remarks</Label>
-                <Textarea value={messFormData.remarks} onChange={e => setMessFormData({
-                ...messFormData,
-                remarks: e.target.value
-              })} />
+                <Textarea value={messFormData.remarks} onChange={e => setMessFormData({ ...messFormData, remarks: e.target.value })} />
               </div>
             </div>
             <Button onClick={handleAddMess}>{editMode.mess ? "Update" : "Add"} Allocation</Button>
           </DialogContent>
-        </Dialog>
+        </Dialog> */}
 
+        {/* Expense Dialog */}
         <Dialog open={expenseOpen} onOpenChange={open => {
-        setExpenseOpen(open);
-        if (!open) setEditMode({});
-      }}>
+          setExpenseOpen(open);
+          if (!open) setEditMode({});
+        }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editMode.expense ? "Edit" : "Add"} Hostel Expense</DialogTitle>
@@ -885,41 +1093,30 @@ const Hostel = () => {
             <div className="space-y-4">
               <div>
                 <Label>Expense Title</Label>
-                <Input value={expenseFormData.expenseTitle} onChange={e => setExpenseFormData({
-                ...expenseFormData,
-                expenseTitle: e.target.value
-              })} />
+                <Input value={expenseFormData.expenseTitle} onChange={e => setExpenseFormData({ ...expenseFormData, expenseTitle: e.target.value })} />
               </div>
               <div>
                 <Label>Amount</Label>
-                <Input type="number" value={expenseFormData.amount} onChange={e => setExpenseFormData({
-                ...expenseFormData,
-                amount: parseFloat(e.target.value) || 0
-              })} />
+                <Input type="number" value={expenseFormData.amount} onChange={e => setExpenseFormData({ ...expenseFormData, amount: parseFloat(e.target.value) || 0 })} />
               </div>
               <div>
                 <Label>Date</Label>
-                <Input type="date" value={expenseFormData.date} onChange={e => setExpenseFormData({
-                ...expenseFormData,
-                date: e.target.value
-              })} />
+                <Input type="date" value={expenseFormData.date} onChange={e => setExpenseFormData({ ...expenseFormData, date: e.target.value })} />
               </div>
               <div>
                 <Label>Remarks</Label>
-                <Textarea value={expenseFormData.remarks} onChange={e => setExpenseFormData({
-                ...expenseFormData,
-                remarks: e.target.value
-              })} />
+                <Textarea value={expenseFormData.remarks} onChange={e => setExpenseFormData({ ...expenseFormData, remarks: e.target.value })} />
               </div>
             </div>
             <Button onClick={handleAddExpense}>{editMode.expense ? "Update" : "Add"} Expense</Button>
           </DialogContent>
         </Dialog>
 
+        {/* Inventory Dialog */}
         <Dialog open={inventoryOpen} onOpenChange={open => {
-        setInventoryOpen(open);
-        if (!open) setEditMode({});
-      }}>
+          setInventoryOpen(open);
+          if (!open) setEditMode({});
+        }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editMode.inventory ? "Edit" : "Add"} Inventory Item</DialogTitle>
@@ -927,17 +1124,11 @@ const Hostel = () => {
             <div className="space-y-4">
               <div>
                 <Label>Item Name</Label>
-                <Input value={inventoryFormData.itemName} onChange={e => setInventoryFormData({
-                ...inventoryFormData,
-                itemName: e.target.value
-              })} />
+                <Input value={inventoryFormData.itemName} onChange={e => setInventoryFormData({ ...inventoryFormData, itemName: e.target.value })} />
               </div>
               <div>
                 <Label>Category</Label>
-                <Select value={inventoryFormData.category} onValueChange={value => setInventoryFormData({
-                ...inventoryFormData,
-                category: value
-              })}>
+                <Select value={inventoryFormData.category} onValueChange={value => setInventoryFormData({ ...inventoryFormData, category: value })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -950,17 +1141,11 @@ const Hostel = () => {
               </div>
               <div>
                 <Label>Quantity</Label>
-                <Input type="number" value={inventoryFormData.quantity} onChange={e => setInventoryFormData({
-                ...inventoryFormData,
-                quantity: parseInt(e.target.value) || 1
-              })} />
+                <Input type="number" value={inventoryFormData.quantity} onChange={e => setInventoryFormData({ ...inventoryFormData, quantity: parseInt(e.target.value) || 1 })} />
               </div>
               <div>
                 <Label>Condition</Label>
-                <Select value={inventoryFormData.condition} onValueChange={value => setInventoryFormData({
-                ...inventoryFormData,
-                condition: value
-              })}>
+                <Select value={inventoryFormData.condition} onValueChange={value => setInventoryFormData({ ...inventoryFormData, condition: value })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -973,16 +1158,45 @@ const Hostel = () => {
               </div>
               <div>
                 <Label>Allocated To Room (optional)</Label>
-                <Input value={inventoryFormData.allocatedToRoom} onChange={e => setInventoryFormData({
-                ...inventoryFormData,
-                allocatedToRoom: e.target.value
-              })} />
+                <Select
+                  value={inventoryFormData.allocatedToRoom || "none"}
+                  onValueChange={value => setInventoryFormData({ ...inventoryFormData, allocatedToRoom: value === "none" ? "" : value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select room" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Not Allocated</SelectItem>
+                    {rooms.map(room => (
+                      <SelectItem key={room.id} value={room.roomNumber}>
+                        Room {room.roomNumber}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <Button onClick={handleAddInventory}>{editMode.inventory ? "Update" : "Add"} Item</Button>
           </DialogContent>
         </Dialog>
       </div>
-    </DashboardLayout>;
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the selected item.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteItem(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={executeDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </DashboardLayout>
+  );
 };
+
 export default Hostel;
