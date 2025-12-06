@@ -3,36 +3,50 @@ import { ConfigurationService } from './configuration.service';
 import { CreateReportCardTemplateDto } from './dtos/create-report-card-template.dto';
 import { UpdateReportCardTemplateDto } from './dtos/update-report-card-template.dto';
 
-@Controller('configuration/report-card-templates')
+@Controller('configuration')
 export class ConfigurationController {
-  constructor(private readonly configService: ConfigurationService) {}
+  constructor(private readonly configService: ConfigurationService) { }
 
-  @Post()
+  // ==================== INSTITUTE SETTINGS ====================
+
+  @Get('institute-settings')
+  getInstituteSettings() {
+    return this.configService.getInstituteSettings();
+  }
+
+  @Patch('institute-settings')
+  updateInstituteSettings(@Body() updateDto: any) {
+    return this.configService.updateInstituteSettings(updateDto);
+  }
+
+  // ==================== REPORT CARD TEMPLATES ====================
+
+  @Post('report-card-templates')
   create(@Body() createDto: CreateReportCardTemplateDto) {
     return this.configService.createReportCardTemplate(createDto);
   }
 
-  @Get('default')
+  @Get('report-card-templates/default')
   getDefaultTemplate() {
     return this.configService.findDefaultReportCardTemplate();
   }
 
-  @Get()
+  @Get('report-card-templates')
   findAll() {
     return this.configService.findAllReportCardTemplates();
   }
 
-  @Get(':id')
+  @Get('report-card-templates/:id')
   findOne(@Param('id') id: string) {
     return this.configService.findOneReportCardTemplate(Number(id));
   }
 
-  @Patch(':id')
+  @Patch('report-card-templates/:id')
   update(@Param('id') id: string, @Body() updateDto: UpdateReportCardTemplateDto) {
     return this.configService.updateReportCardTemplate(Number(id), updateDto);
   }
 
-  @Delete(':id')
+  @Delete('report-card-templates/:id')
   remove(@Param('id') id: string) {
     return this.configService.removeReportCardTemplate(Number(id));
   }

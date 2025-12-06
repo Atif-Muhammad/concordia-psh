@@ -990,3 +990,70 @@ model AdvanceSalary {
   @@index([teacherId])
   @@index([month])
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FINANCE MODULE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model FinanceIncome {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @db.Date
+  category    String   @db.VarChar(100)
+  description String   @db.Text
+  amount      Float
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([date])
+  @@index([category])
+}
+
+model FinanceExpense {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @db.Date
+  category    String   @db.VarChar(100)
+  description String   @db.Text
+  amount      Float
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([date])
+  @@index([category])
+}
+
+model FinanceClosing {
+  id           Int      @id @default(autoincrement())
+  date         DateTime @db.Date
+  type         String   @db.VarChar(50)
+  totalIncome  Float
+  totalExpense Float
+  netBalance   Float
+  remarks      String?  @db.Text
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  @@index([date])
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CONFIGURATION MODULE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model InstituteSettings {
+  id            Int      @id @default(autoincrement())
+  instituteName String   @db.VarChar(200)
+  email         String?  @db.VarChar(100)
+  phone         String?  @db.VarChar(20)
+  address       String?  @db.Text
+  facebook      String?  @db.VarChar(255)
+  instagram     String?  @db.VarChar(255)
+  logo          String?  @db.VarChar(500)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+

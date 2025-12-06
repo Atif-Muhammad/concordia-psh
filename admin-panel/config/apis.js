@@ -2510,85 +2510,6 @@ export const generateResultReport = async (studentId) => {
   }
 };
 
-// Report Card Templates
-export const getReportCardTemplates = async () => {
-  try {
-    const { data } = await axios.get(
-      `${base_url}/configuration/report-card-templates`,
-      {
-        withCredentials: true,
-      }
-    );
-    return data;
-  } catch (error) {
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.message ||
-      "Something went wrong";
-    throw { message, status: error.response?.status || 500 };
-  }
-};
-
-export const createReportCardTemplate = async (templateData) => {
-  try {
-    const { data } = await axios.post(
-      `${base_url}/configuration/report-card-templates`,
-      templateData,
-      {
-        withCredentials: true,
-      }
-    );
-    return data;
-  } catch (error) {
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.message ||
-      "Something went wrong";
-    throw { message, status: error.response?.status || 500 };
-  }
-};
-
-export const updateReportCardTemplate = async (id, templateData) => {
-  try {
-    const { data } = await axios.patch(
-      `${base_url}/configuration/report-card-templates/${id}`,
-      templateData,
-      {
-        withCredentials: true,
-      }
-    );
-    return data;
-  } catch (error) {
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.message ||
-      "Something went wrong";
-    throw { message, status: error.response?.status || 500 };
-  }
-};
-
-export const deleteReportCardTemplate = async (id) => {
-  try {
-    const { data } = await axios.delete(
-      `${base_url}/configuration/report-card-templates/${id}`,
-      {
-        withCredentials: true,
-      }
-    );
-    return data;
-  } catch (error) {
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.message ||
-      "Something went wrong";
-    throw { message, status: error.response?.status || 500 };
-  }
-};
-
 export const getDefaultReportCardTemplate = async () => {
   try {
     const { data } = await axios.get(
@@ -3416,6 +3337,82 @@ export const createFinanceClosing = async (data) => {
   }
 };
 
+// ========== CONFIGURATION ==========
+// Institute Settings
+export const getInstituteSettings = async () => {
+  try {
+    const response = await axios.get(`${base_url}/configuration/institute-settings`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateInstituteSettings = async (data) => {
+  try {
+    const response = await axios.patch(`${base_url}/configuration/institute-settings`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// Report Card Templates
+export const getReportCardTemplates = async () => {
+  try {
+    const response = await axios.get(`${base_url}/configuration/report-card-templates`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const createReportCardTemplate = async (data) => {
+  try {
+    const response = await axios.post(`${base_url}/configuration/report-card-templates`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateReportCardTemplate = async (id, data) => {
+  try {
+    const response = await axios.patch(`${base_url}/configuration/report-card-templates/${id}`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteReportCardTemplate = async (id) => {
+  try {
+    const response = await axios.delete(`${base_url}/configuration/report-card-templates/${id}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// Finance Closing - Update and Delete
 export const updateFinanceClosing = async ({ id, data }) => {
   try {
     const response = await axios.patch(`${base_url}/finance/closing/${id}`, data, {
@@ -3439,4 +3436,3 @@ export const deleteFinanceClosing = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-

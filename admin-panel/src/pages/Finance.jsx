@@ -79,6 +79,10 @@ const Finance = () => {
   // Closing filter
   const [closingFilterMonth, setClosingFilterMonth] = useState("");
 
+  // Reports filter - month string or empty for overall
+  const [reportsFilterMonth, setReportsFilterMonth] = useState(""); // Empty = overall, or month string like "2024-12"
+
+
   // Helper to convert month to date range
   const getMonthDateRange = (month) => {
     if (!month) return { dateFrom: '', dateTo: '' };
@@ -149,6 +153,28 @@ const Finance = () => {
       return getFinanceClosings({ dateFrom: range.dateFrom, dateTo: range.dateTo });
     },
     enabled: !!closingFilterMonth // Only fetch when a month is selected
+  });
+
+  // Queries for Reports tab - separate data fetch
+  const reportsMonthRange = reportsFilterMonth ? getMonthDateRange(reportsFilterMonth) : {};
+  const { data: reportsIncomeData = [] } = useQuery({
+    queryKey: ['reportsIncome', reportsFilterMonth],
+    queryFn: () => {
+      if (!reportsFilterMonth) {
+        return getFinanceIncomes({}); // No date filter = all time
+      }
+      return getFinanceIncomes({ dateFrom: reportsMonthRange.dateFrom, dateTo: reportsMonthRange.dateTo });
+    }
+  });
+
+  const { data: reportsExpenseData = [] } = useQuery({
+    queryKey: ['reportsExpense', reportsFilterMonth],
+    queryFn: () => {
+      if (!reportsFilterMonth) {
+        return getFinanceExpenses({}); // No date filter = all time
+      }
+      return getFinanceExpenses({ dateFrom: reportsMonthRange.dateFrom, dateTo: reportsMonthRange.dateTo });
+    }
   });
 
   // Mutations
@@ -416,6 +442,28 @@ const Finance = () => {
     { name: "Maintenance", amount: dashboardExpenseData.filter(e => e.category === "Maintenance").reduce((sum, e) => sum + Number(e.amount), 0) },
     { name: "Supplies", amount: dashboardExpenseData.filter(e => e.category === "Supplies").reduce((sum, e) => sum + Number(e.amount), 0) },
     { name: "Other", amount: dashboardExpenseData.filter(e => e.category === "Other").reduce((sum, e) => sum + Number(e.amount), 0) }
+  ];
+
+  // Reports tab calculations (separate from dashboard)
+  const reportsTotalIncome = useMemo(() => reportsIncomeData.reduce((sum, item) => sum + Number(item.amount), 0), [reportsIncomeData]);
+  const reportsTotalExpense = useMemo(() => reportsExpenseData.reduce((sum, item) => sum + Number(item.amount), 0), [reportsExpenseData]);
+  const reportsNetBalance = reportsTotalIncome - reportsTotalExpense;
+
+  const reportsCategoryIncomeData = [
+    { name: "Fee", amount: reportsIncomeData.filter(i => i.category === "Fee").reduce((sum, i) => sum + Number(i.amount), 0) },
+    { name: "Donation", amount: reportsIncomeData.filter(i => i.category === "Donation").reduce((sum, i) => sum + Number(i.amount), 0) },
+    { name: "Funding", amount: reportsIncomeData.filter(i => i.category === "Funding").reduce((sum, i) => sum + Number(i.amount), 0) },
+    { name: "Revenue", amount: reportsIncomeData.filter(i => i.category === "Revenue").reduce((sum, i) => sum + Number(i.amount), 0) },
+    { name: "Investments", amount: reportsIncomeData.filter(i => i.category === "Investments").reduce((sum, i) => sum + Number(i.amount), 0) }
+  ];
+
+  const reportsCategoryExpenseData = [
+    { name: "Inventory", amount: reportsExpenseData.filter(e => e.category === "Inventory").reduce((sum, e) => sum + Number(e.amount), 0) },
+    { name: "Utility Bills", amount: reportsExpenseData.filter(e => e.category === "Utility Bills").reduce((sum, e) => sum + Number(e.amount), 0) },
+    { name: "Salaries", amount: reportsExpenseData.filter(e => e.category === "Salaries").reduce((sum, e) => sum + Number(e.amount), 0) },
+    { name: "Maintenance", amount: reportsExpenseData.filter(e => e.category === "Maintenance").reduce((sum, e) => sum + Number(e.amount), 0) },
+    { name: "Supplies", amount: reportsExpenseData.filter(e => e.category === "Supplies").reduce((sum, e) => sum + Number(e.amount), 0) },
+    { name: "Other", amount: reportsExpenseData.filter(e => e.category === "Other").reduce((sum, e) => sum + Number(e.amount), 0) }
   ];
 
   return <DashboardLayout>
@@ -774,21 +822,45 @@ const Finance = () => {
         <TabsContent value="reports" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Financial Reports</CardTitle>
+              <div className="flex justify-between items-center">
+                <CardTitle>Financial Reports</CardTitle>
+                <div className="flex gap-2 items-center">
+                  <Label className="whitespace-nowrap">Month</Label>
+                  <Input
+                    type="month"
+                    value={reportsFilterMonth}
+                    onChange={(e) => setReportsFilterMonth(e.target.value)}
+                    className="w-[200px]"
+                    placeholder="Select month (leave empty for overall)"
+                  />
+                  {reportsFilterMonth && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setReportsFilterMonth("")}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                  <Badge variant="secondary" className="ml-2">
+                    {reportsFilterMonth ? `Month: ${reportsFilterMonth}` : "Overall (All Time)"}
+                  </Badge>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="border rounded-lg p-4">
                   <h3 className="font-semibold text-lg mb-4">Income Summary</h3>
                   <div className="space-y-2">
-                    {categoryIncomeData.map(cat => <div key={cat.name} className="flex justify-between">
+                    {reportsCategoryIncomeData.map(cat => <div key={cat.name} className="flex justify-between">
                       <span>{cat.name}:</span>
                       <span className="font-bold">PKR {cat.amount.toLocaleString()}</span>
                     </div>)}
                     <div className="border-t pt-2 mt-2">
                       <div className="flex justify-between font-bold text-lg">
                         <span>Total Income:</span>
-                        <span className="text-success">PKR {totalIncome.toLocaleString()}</span>
+                        <span className="text-success">PKR {reportsTotalIncome.toLocaleString()}</span>
                       </div>
                     </div>
                   </div>
@@ -797,14 +869,14 @@ const Finance = () => {
                 <div className="border rounded-lg p-4">
                   <h3 className="font-semibold text-lg mb-4">Expense Summary</h3>
                   <div className="space-y-2">
-                    {categoryExpenseData.map(cat => <div key={cat.name} className="flex justify-between">
+                    {reportsCategoryExpenseData.map(cat => <div key={cat.name} className="flex justify-between">
                       <span>{cat.name}:</span>
                       <span className="font-bold">PKR {cat.amount.toLocaleString()}</span>
                     </div>)}
                     <div className="border-t pt-2 mt-2">
                       <div className="flex justify-between font-bold text-lg">
                         <span>Total Expense:</span>
-                        <span className="text-destructive">PKR {totalExpense.toLocaleString()}</span>
+                        <span className="text-destructive">PKR {reportsTotalExpense.toLocaleString()}</span>
                       </div>
                     </div>
                   </div>
@@ -814,8 +886,8 @@ const Finance = () => {
               <div className="border rounded-lg p-6 bg-muted">
                 <div className="flex justify-between items-center">
                   <h3 className="font-semibold text-xl">Net Balance</h3>
-                  <span className={`font-bold text-2xl ${netBalance >= 0 ? "text-success" : "text-destructive"}`}>
-                    PKR {netBalance.toLocaleString()}
+                  <span className={`font-bold text-2xl ${reportsNetBalance >= 0 ? "text-success" : "text-destructive"}`}>
+                    PKR {reportsNetBalance.toLocaleString()}
                   </span>
                 </div>
               </div>

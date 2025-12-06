@@ -53,6 +53,8 @@ import {
   createReportCardTemplate,
   updateReportCardTemplate,
   deleteReportCardTemplate,
+  getInstituteSettings,
+  updateInstituteSettings,
 } from "../../config/apis";
 import {
   AlertDialog,
@@ -118,7 +120,6 @@ const Configuration = () => {
   const [passwordDialog, setPasswordDialog] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
     adminId: "",
-    currentPassword: "",
     newPassword: "",
     confirmPassword: "",
   });
@@ -216,11 +217,46 @@ const Configuration = () => {
     loadTemplates();
   }, []);
 
-  const handleConfigUpdate = () => {
-    updateConfig(configForm);
-    toast({
-      title: "Configuration updated successfully",
-    });
+  // Fetch Institute Settings on component mount
+  useEffect(() => {
+    const loadInstituteSettings = async () => {
+      try {
+        const settings = await getInstituteSettings();
+        setConfigForm({
+          instituteName: settings.instituteName || '',
+          email: settings.email || '',
+          phone: settings.phone || '',
+          address: settings.address || '',
+          facebook: settings.facebook || '',
+          instagram: settings.instagram || '',
+          logo: settings.logo || '',
+        });
+      } catch (error) {
+        console.error("Failed to fetch institute settings:", error);
+        toast({
+          title: "Error",
+          description: error.message || "Failed to fetch institute settings",
+          variant: "destructive",
+        });
+      }
+    };
+    loadInstituteSettings();
+  }, []);
+
+  const handleConfigUpdate = async () => {
+    try {
+      await updateInstituteSettings(configForm);
+      toast({
+        title: "Configuration updated successfully",
+      });
+    } catch (error) {
+      console.error("Failed to update institute settings:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update configuration",
+        variant: "destructive",
+      });
+    }
   };
   const handleBranchSubmit = () => {
     if (editing) {
@@ -449,10 +485,8 @@ const Configuration = () => {
 
     try {
       // Update password via API
-      // Note: Backend should validate current password
       const updateData = {
         password: passwordForm.newPassword,
-        currentPassword: passwordForm.currentPassword,
       };
       await updateAdminAPI(passwordForm.adminId, updateData);
 
@@ -468,7 +502,6 @@ const Configuration = () => {
       setPasswordDialog(false);
       setPasswordForm({
         adminId: "",
-        currentPassword: "",
         newPassword: "",
         confirmPassword: "",
       });
@@ -483,7 +516,6 @@ const Configuration = () => {
   const openPasswordDialog = (adminId) => {
     setPasswordForm({
       adminId,
-      currentPassword: "",
       newPassword: "",
       confirmPassword: "",
     });
@@ -500,10 +532,10 @@ const Configuration = () => {
         </div>
 
         <Tabs defaultValue="institute" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 h-auto gap-1">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 h-auto gap-1">
             <TabsTrigger value="institute">Institute</TabsTrigger>
             {/* <TabsTrigger value="branches">Branches</TabsTrigger> */}
-            <TabsTrigger value="roles">Roles</TabsTrigger>
+            {/* <TabsTrigger value="roles">Roles</TabsTrigger> */}
             <TabsTrigger value="admins">Admins</TabsTrigger>
             <TabsTrigger value="templates">Templates</TabsTrigger>
           </TabsList>
@@ -800,7 +832,7 @@ const Configuration = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Role</TableHead>
+                      {/* <TableHead>Role</TableHead> */}
                       <TableHead>Permissions</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -932,7 +964,7 @@ const Configuration = () => {
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
+                      {/* <TableHead>Role</TableHead> */}
                       <TableHead>Access Rights</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -1639,18 +1671,6 @@ const Configuration = () => {
             </DialogHeader>
             <div className="space-y-4">
               <div>
-                <Label>Current Password</Label>
-                <PasswordInput
-                  value={passwordForm.currentPassword}
-                  onChange={(e) =>
-                    setPasswordForm({
-                      ...passwordForm,
-                      currentPassword: e.target.value,
-                    })
-                  }
-                />
-              </div>
-              <div>
                 <Label>New Password</Label>
                 <PasswordInput
                   value={passwordForm.newPassword}
@@ -1660,6 +1680,7 @@ const Configuration = () => {
                       newPassword: e.target.value,
                     })
                   }
+                  placeholder="Enter new password (min 6 characters)"
                 />
               </div>
               <div>
@@ -1672,6 +1693,7 @@ const Configuration = () => {
                       confirmPassword: e.target.value,
                     })
                   }
+                  placeholder="Re-type new password"
                 />
               </div>
             </div>

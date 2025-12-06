@@ -93,6 +93,19 @@ export class FinanceController {
         return this.financeService.getClosings({ dateFrom, dateTo });
     }
 
+    @Patch('closing/:id')
+    updateClosing(
+        @Param('id', ParseIntPipe) id: number,
+        @Body() updateDto: any,
+    ) {
+        return this.financeService.updateClosing(id, updateDto);
+    }
+
+    @Delete('closing/:id')
+    deleteClosing(@Param('id', ParseIntPipe) id: number) {
+        return this.financeService.deleteClosing(id);
+    }
+
     // ==================== DASHBOARD STATS ====================
     @Get('dashboard-stats')
     getDashboardStats(

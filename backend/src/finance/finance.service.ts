@@ -37,14 +37,11 @@ export class FinanceService {
             where.category = filters.category;
         }
 
-        // Fetch manual income records only if category is not exclusively 'Fee'
-        let manualIncomes: any[] = [];
-        if (filters?.category !== 'Fee') {
-            manualIncomes = await this.prisma.financeIncome.findMany({
-                where,
-                orderBy: { date: 'desc' },
-            });
-        }
+        // Fetch manual income records
+        const manualIncomes = await this.prisma.financeIncome.findMany({
+            where,
+            orderBy: { date: 'desc' },
+        });
 
         // If category is 'Fee' or 'all', fetch paid fee challans and aggregate by month
         let feeChallans: any[] = [];
@@ -159,22 +156,19 @@ export class FinanceService {
             }
         }
 
-        if (filters?.category && filters?.category !== 'all' && filters?.category !== 'Salaries' && filters?.category !== 'Inventory') {
+        if (filters?.category && filters.category !== 'all' && filters.category !== 'Payroll') {
             where.category = filters.category;
         }
 
-        // Fetch manual expense records only if category is not exclusively 'Salaries' or 'Inventory'
-        let manualExpenses: any[] = [];
-        if (filters?.category !== 'Salaries' && filters?.category !== 'Inventory') {
-            manualExpenses = await this.prisma.financeExpense.findMany({
-                where,
-                orderBy: { date: 'desc' },
-            });
-        }
+        // Fetch manual expense records
+        const manualExpenses = await this.prisma.financeExpense.findMany({
+            where,
+            orderBy: { date: 'desc' },
+        });
 
-        // If category is 'Salaries' or 'all', fetch paid payrolls and aggregate by month
-        let salaryExpenses: any[] = [];
-        if (!filters?.category || filters.category === 'all' || filters.category === 'Salaries') {
+        // If category is 'Payroll' or 'all', fetch paid payrolls
+        let payrolls: any[] = [];
+        if (!filters?.category || filters.category === 'all' || filters.category === 'Payroll') {
             const payrollWhere: any = {
                 status: 'PAID',
             };
@@ -198,109 +192,28 @@ export class FinanceService {
                 orderBy: { paymentDate: 'desc' },
             });
 
-            // Aggregate by month
-            const monthlyAggregation = new Map<string, { total: number; date: Date; count: number }>();
-
-            paidPayrolls.forEach((p) => {
-                const paymentDate = p.paymentDate || p.createdAt;
-                const monthKey = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
-
-                if (!monthlyAggregation.has(monthKey)) {
-                    monthlyAggregation.set(monthKey, {
-                        total: 0,
-                        date: new Date(paymentDate.getFullYear(), paymentDate.getMonth(), 1),
-                        count: 0,
-                    });
-                }
-
-                const entry = monthlyAggregation.get(monthKey) || { total: 0, date: new Date(), count: 0 };
-                entry.total += Number(p.netSalary);
-                entry.count += 1;
-            });
-
-            // Convert to array of expense records
-            salaryExpenses = Array.from(monthlyAggregation.entries()).map(([monthKey, data]) => {
-                const [year, month] = monthKey.split('-');
-                const monthName = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+            payrolls = paidPayrolls.map((p) => {
+                const staffName = p.employee
+                    ? p.employee.name
+                    : p.teacher?.name || 'Unknown';
+                const staffType = p.employee ? 'Employee' : 'Teacher';
 
                 return {
-                    id: `salary-${monthKey}`,
-                    date: data.date,
-                    category: 'Salaries',
-                    description: `Salary payments from ${monthName} (${data.count} staff)`,
-                    amount: data.total,
-                    createdAt: data.date,
-                    updatedAt: data.date,
-                    source: 'payroll-aggregated',
-                    sourceId: monthKey,
-                };
-            });
-        }
-
-        // If category is 'Inventory' or 'all', fetch inventory expenses and aggregate by month
-        let inventoryExpenses: any[] = [];
-        if (!filters?.category || filters.category === 'all' || filters.category === 'Inventory') {
-            const inventoryWhere: any = {};
-
-            if (filters?.dateFrom || filters?.dateTo) {
-                inventoryWhere.date = {};
-                if (filters.dateFrom) {
-                    inventoryWhere.date.gte = new Date(filters.dateFrom);
-                }
-                if (filters.dateTo) {
-                    inventoryWhere.date.lte = new Date(filters.dateTo);
-                }
-            }
-
-            const inventoryItems = await this.prisma.inventoryExpense.findMany({
-                where: inventoryWhere,
-                include: {
-                    inventoryItem: true,
-                },
-                orderBy: { date: 'desc' },
-            });
-
-            // Aggregate by month
-            const monthlyAggregation = new Map<string, { total: number; date: Date; count: number }>();
-
-            inventoryItems.forEach((item) => {
-                const itemDate = item.date;
-                const monthKey = `${itemDate.getFullYear()}-${String(itemDate.getMonth() + 1).padStart(2, '0')}`;
-
-                if (!monthlyAggregation.has(monthKey)) {
-                    monthlyAggregation.set(monthKey, {
-                        total: 0,
-                        date: new Date(itemDate.getFullYear(), itemDate.getMonth(), 1),
-                        count: 0,
-                    });
-                }
-
-                const entry = monthlyAggregation.get(monthKey) || { total: 0, date: new Date(), count: 0 };
-                entry.total += Number(item.amount);
-                entry.count += 1;
-            });
-
-            // Convert to array of expense records
-            inventoryExpenses = Array.from(monthlyAggregation.entries()).map(([monthKey, data]) => {
-                const [year, month] = monthKey.split('-');
-                const monthName = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
-
-                return {
-                    id: `inventory-${monthKey}`,
-                    date: data.date,
-                    category: 'Inventory',
-                    description: `Inventory expenses from ${monthName} (${data.count} items)`,
-                    amount: data.total,
-                    createdAt: data.date,
-                    updatedAt: data.date,
-                    source: 'inventory-aggregated',
-                    sourceId: monthKey,
+                    id: `payroll-${p.id}`,
+                    date: p.paymentDate || p.createdAt,
+                    category: 'Payroll',
+                    description: `Salary payment for ${staffName} (${staffType}) - ${p.month}`,
+                    amount: p.netSalary,
+                    createdAt: p.createdAt,
+                    updatedAt: p.updatedAt,
+                    source: 'payroll',
+                    sourceId: p.id,
                 };
             });
         }
 
         // Combine and sort by date
-        const allExpenses = [...manualExpenses, ...salaryExpenses, ...inventoryExpenses].sort(
+        const allExpenses = [...manualExpenses, ...payrolls].sort(
             (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
         );
 
@@ -339,18 +252,34 @@ export class FinanceService {
         const where: any = {};
 
         if (filters?.dateFrom || filters?.dateTo) {
-            where.createdAt = {};
+            where.date = {};
             if (filters.dateFrom) {
-                where.createdAt.gte = new Date(filters.dateFrom);
+                where.date.gte = new Date(filters.dateFrom);
             }
             if (filters.dateTo) {
-                where.createdAt.lte = new Date(filters.dateTo);
+                where.date.lte = new Date(filters.dateTo);
             }
         }
 
         return this.prisma.financeClosing.findMany({
             where,
-            orderBy: { createdAt: 'desc' },
+            orderBy: { date: 'desc' },
+        });
+    }
+
+    async updateClosing(id: number, data: any) {
+        return this.prisma.financeClosing.update({
+            where: { id },
+            data: {
+                ...data,
+                updatedAt: new Date(),
+            },
+        });
+    }
+
+    async deleteClosing(id: number) {
+        return this.prisma.financeClosing.delete({
+            where: { id },
         });
     }
 
