@@ -187,6 +187,13 @@ export class StudentService {
     return deletedStudent;
   }
 
+
+  async getStudentByNumber(rollNumber: string){
+    return await this.prismaService.student.findFirst({
+      where: {rollNumber}
+    })
+  }
+
   async promote(id: number) {
     const student = await this.prismaService.student.findUnique({
       where: { id },

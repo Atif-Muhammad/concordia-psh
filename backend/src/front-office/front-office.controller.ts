@@ -27,7 +27,7 @@ export class FrontOfficeController {
         return await this.frontOfficeService.createInquiry(payload);
     }
     @Patch('update/inquiry')
-    async updateInquiry(@Query('id') id: string, @Body() payload: InquiryDto) {
+    async updateInquiry(@Query('id') id: string, @Body() payload: Partial<InquiryDto>) {
         return await this.frontOfficeService.updateInquiry(Number(id), payload);
     }
     @Delete('delete/inquiry')

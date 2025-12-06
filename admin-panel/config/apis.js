@@ -3436,3 +3436,17 @@ export const deleteFinanceClosing = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
+
+
+
+export const getDashboardStats = async () => {
+  try {
+    const response = await axios.get(`${base_url}/dashboard/stats`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};

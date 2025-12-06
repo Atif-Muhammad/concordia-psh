@@ -51,10 +51,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useState } from "react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
-import { CalendarIcon, Clock } from "lucide-react"
 import { format } from "date-fns"
-
-
 import {
   UserPlus,
   Users,
@@ -64,6 +61,10 @@ import {
   Trash2,
   Eye,
   Plus,
+  Check,
+  X,
+  CalendarIcon,
+  Badge as BadgeIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -84,7 +85,12 @@ import {
   getContacts,
   createContact as createContactApi,
   updateContact as UpdateContactApi,
-  delContact
+  delContact,
+  createStudent,
+  getClasseNames,
+  getSectionNames,
+  getClasses,
+  getSections,
 } from "../../config/apis";
 import { formatTime } from "../lib/utils";
 
@@ -118,6 +124,16 @@ const FrontOffice = () => {
     open: false,
     type: "",
     data: null,
+  });
+  const [acceptInquiryDialog, setAcceptInquiryDialog] = useState(false);
+  const [selectedInquiryForAccept, setSelectedInquiryForAccept] = useState(null);
+  const [studentFormData, setStudentFormData] = useState({
+    rollNumber: "",
+    classId: "",
+    sectionId: "",
+    gender: "",
+    dob: "",
+    documents: "{}",
   });
 
   // === FORM STATES ===
@@ -163,8 +179,16 @@ const FrontOffice = () => {
     details: "",
   });
 
-  const [categoryFilter, setCategoryFilter] = useState("All");
 
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const { data: classes } = useQuery({
+    queryKey: ["classes"],
+    queryFn: getClasses, // Changed from getClasseNames to get full objects
+  });
+  const { data: sections } = useQuery({
+    queryKey: ["sections"],
+    queryFn: getSections, // Changed from getSectionNames to get full objects
+  });
 
   // === FETCH DATA ===
   const { data: programs } = useQuery({
@@ -219,6 +243,32 @@ const FrontOffice = () => {
     },
     onError: (err) =>
       toast({ title: err.message || "Failed to delete inquiry", variant: "destructive" }),
+  });
+  const rejectInquiryMutation = useMutation({
+    mutationFn: ({ id, currentStatus }) =>
+      updateInquiry(id, { status: currentStatus === "REJECTED" ? "NEW" : "REJECTED" }),
+    onSuccess: (_, variables) => {
+      const action = variables.currentStatus === "REJECTED" ? "reverted to NEW" : "rejected";
+      toast({ title: `Inquiry ${action} successfully` });
+      queryClient.invalidateQueries(["inquiries"]);
+    },
+    onError: (err) =>
+      toast({ title: err.message || "Failed to update inquiry", variant: "destructive" }),
+  });
+  //Accept Inquiry (Create Student + Update Inquiry)
+  const acceptInquiryMutation = useMutation({
+    mutationFn: async ({ studentData, inquiryId }) => {
+      const student = await createStudent(studentData);
+      await updateInquiry(inquiryId, { status: "APPROVED" });
+      return student;
+    },
+    onSuccess: () => {
+      toast({ title: "Student created and inquiry approved successfully" });
+      queryClient.invalidateQueries(["inquiries"]);
+      closeAcceptInquiryDialog();
+    },
+    onError: (err) =>
+      toast({ title: err.message || "Failed to create student", variant: "destructive" }),
   });
 
   // Visitor
@@ -431,6 +481,83 @@ const FrontOffice = () => {
     setInquiryDialog(true);
   };
 
+  const handleRejectInquiry = (inquiry) => {
+    rejectInquiryMutation.mutate({
+      id: inquiry.id,
+      currentStatus: inquiry.status,
+    });
+  };
+  // Handle Accept Inquiry - Open Dialog
+  const handleAcceptInquiry = (inquiry) => {
+    setSelectedInquiryForAccept(inquiry);
+
+    setStudentFormData({
+      rollNumber: "",
+      classId: "",
+      sectionId: "",
+      gender: "",
+      dob: "",
+      documents: JSON.stringify({
+        fatherCnic: inquiry.fatherCnic || "",
+        address: inquiry.address || "",
+        previousInstitute: inquiry.previousInstitute || "",
+      }),
+    });
+    setAcceptInquiryDialog(true);
+  };
+  // Confirm Accept - Create Student
+  const handleConfirmAccept = () => {
+    if (!selectedInquiryForAccept) return;
+    // Validate required fields
+    if (!studentFormData.rollNumber || !studentFormData.classId ||
+      !studentFormData.gender || !studentFormData.dob) {
+      toast({
+        title: "Please fill all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
+    // Split student name
+    const nameParts = selectedInquiryForAccept.studentName.trim().split(/\s+/);
+    const fName = nameParts[0] || selectedInquiryForAccept.studentName;
+    const mName = nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : (nameParts.length === 2 ? "" : "");
+    const lName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+
+    const studentData = {
+      fName,
+      mName: mName || undefined,
+      lName: lName || undefined,
+      fatherOrguardian: selectedInquiryForAccept.fatherName || "N/A",
+      rollNumber: studentFormData.rollNumber,
+      parentOrGuardianEmail: selectedInquiryForAccept.email || undefined,
+      parentOrGuardianPhone: selectedInquiryForAccept.contactNumber,
+      gender: studentFormData.gender,
+      dob: studentFormData.dob,
+      classId: String(studentFormData.classId), // Convert to string
+      programId: String(selectedInquiryForAccept.programInterest || selectedInquiryForAccept.program?.id), // Convert to string
+      sectionId: studentFormData.sectionId ? String(studentFormData.sectionId) : undefined, // Convert to string
+      documents: studentFormData.documents,
+    };
+
+    acceptInquiryMutation.mutate({
+      studentData,
+      inquiryId: selectedInquiryForAccept.id,
+    });
+  };
+  // Close Accept Inquiry Dialog
+  const closeAcceptInquiryDialog = () => {
+    setAcceptInquiryDialog(false);
+    setSelectedInquiryForAccept(null);
+    setStudentFormData({
+      rollNumber: "",
+      classId: "",
+      sectionId: "",
+      gender: "",
+      dob: "",
+      documents: "{}",
+    });
+  };
+
   const handleVisitorSubmit = () => {
     if (!visitorForm.visitorName || !visitorForm.phoneNumber || !visitorForm.ID) {
       toast({ title: "Please fill required fields", variant: "destructive" });
@@ -554,10 +681,10 @@ const FrontOffice = () => {
     }
   };
   const handlePrintTable = () => {
-  const content = document.getElementById("printableContacts").innerHTML;
+    const content = document.getElementById("printableContacts").innerHTML;
 
-  const printWindow = window.open("", "_blank");
-  printWindow.document.write(`
+    const printWindow = window.open("", "_blank");
+    printWindow.document.write(`
     <html>
       <head>
         <title>Contacts</title>
@@ -582,9 +709,9 @@ const FrontOffice = () => {
     </html>
   `);
 
-  printWindow.document.close();
-  printWindow.print();
-};
+    printWindow.document.close();
+    printWindow.print();
+  };
 
 
 
@@ -764,6 +891,7 @@ const FrontOffice = () => {
                         <TableHead>Father Name</TableHead>
                         <TableHead>Contact</TableHead>
                         <TableHead>Program</TableHead>
+                        <TableHead>Status</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -776,7 +904,34 @@ const FrontOffice = () => {
                           <TableCell>{inquiry.contactNumber}</TableCell>
                           <TableCell>{inquiry.program?.name}</TableCell>
                           <TableCell>
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(inquiry.status)}`}>
+                              {inquiry.status || "NEW"}
+                            </span>
+                          </TableCell>
+                          <TableCell>
                             <div className="flex gap-2">
+                              {(inquiry.status === "NEW" || inquiry.status === "REJECTED" || !inquiry.status) && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                    onClick={() => handleAcceptInquiry(inquiry)}
+                                    title="Accept Inquiry"
+                                  >
+                                    <Check className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                    onClick={() => handleRejectInquiry(inquiry)}
+                                    title={inquiry.status === "REJECTED" ? "Revert to NEW" : "Reject Inquiry"}
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                </>
+                              )}
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -810,6 +965,7 @@ const FrontOffice = () => {
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
+
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1313,45 +1469,45 @@ const FrontOffice = () => {
               </CardHeader>
               <CardContent>
                 <div id="printableContacts">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead className="no-print">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredContacts?.map(contact => <TableRow key={contact.id}>
-                      <TableCell className="font-medium">{contact.name}</TableCell>
-                      <TableCell>
-                        <span className="px-2 py-1 rounded-full text-xs bg-primary/10 text-primary">
-                          {contact.category}
-                        </span>
-                      </TableCell>
-                      <TableCell>{contact.phone ? contact.phone : "-"}</TableCell>
-                      <TableCell>{contact.email ? contact.email : "-"}</TableCell>
-                      <TableCell>{contact.details ? contact.details : "-"}</TableCell>
-                      <TableCell className="no-print">
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="ghost" onClick={() => handleEditContact(contact)}>
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
-                            open: true,
-                            type: "contact",
-                            id: contact.id
-                          })}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>)}
-                  </TableBody>
-                </Table>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Phone</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead className="no-print">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredContacts?.map(contact => <TableRow key={contact.id}>
+                        <TableCell className="font-medium">{contact.name}</TableCell>
+                        <TableCell>
+                          <span className="px-2 py-1 rounded-full text-xs bg-primary/10 text-primary">
+                            {contact.category}
+                          </span>
+                        </TableCell>
+                        <TableCell>{contact.phone ? contact.phone : "-"}</TableCell>
+                        <TableCell>{contact.email ? contact.email : "-"}</TableCell>
+                        <TableCell>{contact.details ? contact.details : "-"}</TableCell>
+                        <TableCell className="no-print">
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="ghost" onClick={() => handleEditContact(contact)}>
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
+                              open: true,
+                              type: "contact",
+                              id: contact.id
+                            })}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>)}
+                    </TableBody>
+                  </Table>
                 </div>
               </CardContent>
             </Card>
@@ -1408,6 +1564,115 @@ const FrontOffice = () => {
                 ))}
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Accept Inquiry Dialog */}
+        <Dialog open={acceptInquiryDialog} onOpenChange={setAcceptInquiryDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Accept Inquiry - Create Student</DialogTitle>
+            </DialogHeader>
+            {selectedInquiryForAccept && (
+              <div className="space-y-4">
+                <div className="bg-muted p-4 rounded-lg space-y-2">
+                  <h3 className="font-semibold">Available Information from Inquiry:</h3>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div><span className="font-medium">Name:</span> {selectedInquiryForAccept.studentName}</div>
+                    <div><span className="font-medium">Father:</span> {selectedInquiryForAccept.fatherName || "N/A"}</div>
+                    <div><span className="font-medium">Contact:</span> {selectedInquiryForAccept.contactNumber}</div>
+                    <div><span class Name="font-medium">Email:</span> {selectedInquiryForAccept.email || "N/A"}</div>
+                    <div><span className="font-medium">Program:</span> {selectedInquiryForAccept.program?.name || "N/A"}</div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-destructive">Required Fields (Please Fill):</h3>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Roll Number *</Label>
+                      <Input
+                        value={studentFormData.rollNumber}
+                        onChange={(e) => setStudentFormData({ ...studentFormData, rollNumber: e.target.value })}
+                        placeholder="e.g., PSH/25-XXX"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Class *</Label>
+                      <Select
+                        value={studentFormData.classId}
+                        onValueChange={(v) => setStudentFormData({ ...studentFormData, classId: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select class" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {classes
+                            ?.filter((cls) => cls.programId === (selectedInquiryForAccept?.programInterest || selectedInquiryForAccept?.program?.id))
+                            .map((cls) => (
+                              <SelectItem key={cls.id} value={cls.id}>
+                                {cls.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Section (Optional)</Label>
+                      <Select
+                        value={studentFormData.sectionId}
+                        onValueChange={(v) => setStudentFormData({ ...studentFormData, sectionId: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select section" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sections
+                            ?.filter((sec) => sec.classId === studentFormData.classId)
+                            .map((sec) => (
+                              <SelectItem key={sec.id} value={sec.id}>
+                                {sec.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Gender *</Label>
+                      <Select
+                        value={studentFormData.gender}
+                        onValueChange={(v) => setStudentFormData({ ...studentFormData, gender: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select gender" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Male">Male</SelectItem>
+                          <SelectItem value="Female">Female</SelectItem>
+                          <SelectItem value="Other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2 col-span-2">
+                      <Label>Date of Birth *</Label>
+                      <Input
+                        type="date"
+                        value={studentFormData.dob}
+                        onChange={(e) => setStudentFormData({ ...studentFormData, dob: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={closeAcceptInquiryDialog}>
+                Cancel
+              </Button>
+              <Button onClick={handleConfirmAccept} disabled={acceptInquiryMutation.isLoading}>
+                {acceptInquiryMutation.isLoading ? "Creating..." : "Create Student"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 

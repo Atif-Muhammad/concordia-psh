@@ -32,12 +32,10 @@ export class FrontOfficeService {
             },
         });
     }
-    async updateInquiry(id: number, payload: InquiryDto) {
+    async updateInquiry(id: number, payload: Partial<InquiryDto>) {
         return await this.prismaService.inquiry.update({
             where: { id },
             data: {
-                ...payload,
-                programInterest: Number(payload.programInterest),
                 status: payload.status as unknown as InquiryStatus,
             },
         });
