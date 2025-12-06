@@ -45,6 +45,34 @@ export class FrontOfficeService {
             where: { id },
         });
     }
+    async rollbackInquiry(id: number) {
+        // Find inquiry with student relation
+        const inquiry = await this.prismaService.inquiry.findUnique({
+            where: { id },
+            include: { student: true },
+        });
+
+        if (!inquiry) {
+            throw new Error('Inquiry not found');
+        }
+
+        if (inquiry.status !== 'APPROVED') {
+            throw new Error('Only approved inquiries can be rolled back');
+        }
+
+        // Delete the student if exists (this will also clear the inquiryId due to cascading)
+        if (inquiry.student) {
+            await this.prismaService.student.delete({
+                where: { id: inquiry.student.id },
+            });
+        }
+
+        // Update inquiry status back to NEW
+        return await this.prismaService.inquiry.update({
+            where: { id },
+            data: { status: 'NEW' as InquiryStatus },
+        });
+    }
 
     // visitors
 

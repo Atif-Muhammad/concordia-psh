@@ -65,6 +65,7 @@ import {
   X,
   CalendarIcon,
   Badge as BadgeIcon,
+  Undo2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -91,6 +92,7 @@ import {
   getSectionNames,
   getClasses,
   getSections,
+  rollbackInquiry,
 } from "../../config/apis";
 import { formatTime } from "../lib/utils";
 
@@ -127,6 +129,8 @@ const FrontOffice = () => {
   });
   const [acceptInquiryDialog, setAcceptInquiryDialog] = useState(false);
   const [selectedInquiryForAccept, setSelectedInquiryForAccept] = useState(null);
+  const [rollbackDialog, setRollbackDialog] = useState(false);
+  const [selectedInquiryForRollback, setSelectedInquiryForRollback] = useState(null);
   const [studentFormData, setStudentFormData] = useState({
     rollNumber: "",
     classId: "",
@@ -258,7 +262,9 @@ const FrontOffice = () => {
   //Accept Inquiry (Create Student + Update Inquiry)
   const acceptInquiryMutation = useMutation({
     mutationFn: async ({ studentData, inquiryId }) => {
-      const student = await createStudent(studentData);
+      // Include inquiryId in studentData
+      const studentWithInquiry = { ...studentData, inquiryId: String(inquiryId) };
+      const student = await createStudent(studentWithInquiry);
       await updateInquiry(inquiryId, { status: "APPROVED" });
       return student;
     },
@@ -269,6 +275,23 @@ const FrontOffice = () => {
     },
     onError: (err) =>
       toast({ title: err.message || "Failed to create student", variant: "destructive" }),
+  });
+
+  // Rollback Inquiry
+  const rollbackInquiryMutation = useMutation({
+    mutationFn: (inquiryId) => rollbackInquiry(inquiryId),
+    onSuccess: () => {
+      toast({ title: "Inquiry rolled back successfully" });
+      queryClient.invalidateQueries(["inquiries"]);
+      setRollbackDialog(false);
+      setSelectedInquiryForRollback(null);
+    },
+    onError: (error) => {
+      toast({
+        title: error.message || "Failed to rollback inquiry",
+        variant: "destructive",
+      });
+    },
   });
 
   // Visitor
@@ -556,6 +579,18 @@ const FrontOffice = () => {
       dob: "",
       documents: "{}",
     });
+  };
+
+  // Rollback Handlers
+  const handleRollbackInquiry = (inquiry) => {
+    setSelectedInquiryForRollback(inquiry);
+    setRollbackDialog(true);
+  };
+
+  const confirmRollback = () => {
+    if (selectedInquiryForRollback) {
+      rollbackInquiryMutation.mutate(selectedInquiryForRollback.id);
+    }
   };
 
   const handleVisitorSubmit = () => {
@@ -931,6 +966,17 @@ const FrontOffice = () => {
                                     <X className="w-4 h-4" />
                                   </Button>
                                 </>
+                              )}
+                              {inquiry.status === "APPROVED" && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                  onClick={() => handleRollbackInquiry(inquiry)}
+                                  title="Rollback (Delete Student & Revert to NEW)"
+                                >
+                                  <Undo2 className="w-4 h-4" />
+                                </Button>
                               )}
                               <Button
                                 size="sm"
@@ -1675,6 +1721,37 @@ const FrontOffice = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Rollback Confirmation Dialog */}
+        <AlertDialog open={rollbackDialog} onOpenChange={setRollbackDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Rollback Approved Inquiry?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action will:
+                <ul className="list-disc pl-5 mt-2 space-y-1">
+                  <li>Permanently delete the student created from this inquiry.</li>
+                  <li>Revert the inquiry status to "NEW".</li>
+                </ul>
+                <p className="mt-3 text-red-600 font-semibold">
+                  This action cannot be undone!
+                </p>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={rollbackInquiryMutation.isPending}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-red-600 hover:bg-red-700"
+                onClick={confirmRollback}
+                disabled={rollbackInquiryMutation.isPending}
+              >
+                {rollbackInquiryMutation.isPending ? "Rolling back..." : "Yes, Rollback"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
       </div>
     </DashboardLayout>

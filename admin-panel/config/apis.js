@@ -1611,6 +1611,26 @@ export const updateInquiry = async (id, payload) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
+
+export const rollbackInquiry = async (id) => {
+  try {
+    const { data } = await axios.patch(
+      `${base_url}/front-office/rollback/inquiry?id=${id}`,
+      {},
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
 export const delInquiry = async (id) => {
   try {
     const { data } = await axios.delete(

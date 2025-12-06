@@ -8,7 +8,7 @@ import { StudentDto } from './dtos/student.dto';
 
 @Injectable()
 export class StudentService {
-  constructor(private prismaService: PrismaService) {}
+  constructor(private prismaService: PrismaService) { }
 
   async findOne(id: number) {
     return await this.prismaService.student.findFirst({
@@ -49,7 +49,7 @@ export class StudentService {
       orderBy: { createdAt: 'desc' },
       include: {
         program: { select: { name: true, id: true } },
-        class: {select: {id: true, name: true}}
+        class: { select: { id: true, name: true } }
       },
     });
   }
@@ -67,6 +67,7 @@ export class StudentService {
         classId: Number(payload.classId),
         programId: Number(payload.programId),
         sectionId: Number(payload.sectionId),
+        inquiryId: payload.inquiryId ? Number(payload.inquiryId) : null,
       },
     });
   }
@@ -109,8 +110,8 @@ export class StudentService {
           // Cleared if:
           // - Paid all installments (count >= total installments)
           // - OR Paid full amount (amount >= total amount)
-          const isCleared = 
-            paidInstallments >= currentFeeStructure.installments || 
+          const isCleared =
+            paidInstallments >= currentFeeStructure.installments ||
             totalPaid >= currentFeeStructure.totalAmount;
 
           if (!isCleared) {
@@ -188,9 +189,9 @@ export class StudentService {
   }
 
 
-  async getStudentByNumber(rollNumber: string){
+  async getStudentByNumber(rollNumber: string) {
     return await this.prismaService.student.findFirst({
-      where: {rollNumber}
+      where: { rollNumber }
     })
   }
 
@@ -326,7 +327,7 @@ export class StudentService {
     }
 
     const students = await this.prismaService.student.findMany({
-      where: {...where, passedOut: false},
+      where: { ...where, passedOut: false },
       select: {
         id: true,
         rollNumber: true,
@@ -363,7 +364,7 @@ export class StudentService {
     const student = await this.prismaService.student.findUnique({
       where: { id: studentId },
     });
-    
+
     if (!student) throw new NotFoundException('Student not found');
 
     return await this.prismaService.attendance.findMany({
@@ -382,7 +383,7 @@ export class StudentService {
     const student = await this.prismaService.student.findUnique({
       where: { id: studentId },
     });
-    
+
     if (!student) throw new NotFoundException('Student not found');
 
     return await this.prismaService.result.findMany({
@@ -456,7 +457,7 @@ export class StudentService {
     const absentDays = attendanceRecords.filter(r => r.status === 'ABSENT').length;
     const leaveDays = attendanceRecords.filter(r => r.status === 'LEAVE').length;
     const halfDays = attendanceRecords.filter(r => r.status === 'HALF_DAY').length;
-    
+
     return {
       student: {
         id: student.id,

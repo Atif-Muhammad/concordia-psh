@@ -232,6 +232,8 @@ model Student {
   roomAllocations     RoomAllocation[]
   challans            FeeChallan[]
 
+  inquiryId Int?     @unique // Link to the inquiry this student was created from
+  inquiry   Inquiry? @relation(fields: [inquiryId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -482,6 +484,7 @@ model Inquiry{
   status             InquiryStatus      @default(NEW) // new | approved | rejected | follow-up
   
   program Program? @relation(fields: [programInterest], references: [id])
+  student Student? // One-to-one relation to student created from this inquiry
 
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
