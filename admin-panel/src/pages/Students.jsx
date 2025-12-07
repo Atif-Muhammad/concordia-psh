@@ -57,7 +57,8 @@ import {
   demoteStudents,
   passoutStudents,
   getPassedOutStudents,
-  getStudentFeeHistory
+  getStudentFeeHistory,
+  getStudentAttendance
 } from "../../config/apis";
 import {
   UserPlus,
@@ -189,6 +190,13 @@ const Students = () => {
   const { data: studentFees = [], isLoading: feesLoading } = useQuery({
     queryKey: ["studentFees", viewStudent?.id],
     queryFn: () => getStudentFeeHistory(viewStudent.id),
+    enabled: !!viewStudent?.id,
+  });
+
+  // Fetch student attendance when viewing a student
+  const { data: studentAttendance = [], isLoading: attendanceLoading } = useQuery({
+    queryKey: ["studentAttendance", viewStudent?.id],
+    queryFn: () => getStudentAttendance(viewStudent.id),
     enabled: !!viewStudent?.id,
   });
 
@@ -1254,37 +1262,185 @@ const Students = () => {
                   )}
                 </TabsContent>
 
-                <TabsContent value="attendance">
-                  <div className="space-y-4">
-                    <Card>
-                      <CardContent className="pt-6">
-                        <p className="text-sm text-muted-foreground">Attendance Rate</p>
-                        <p className="text-2xl font-bold text-primary">{getStudentStats(viewStudent.id).attendanceRate}%</p>
-                      </CardContent>
-                    </Card>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Class</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {mockAttendance.filter(a => a.studentId === viewStudent.id).map(att => (
-                          <TableRow key={att.id}>
-                            <TableCell>{att.date}</TableCell>
-                            <TableCell>
-                              <Badge variant={att.status === "present" ? "default" : "destructive"}>
-                                {att.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{att.class}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                <TabsContent value="attendance" className="flex-1 overflow-y-auto">
+                  {attendanceLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <p className="text-muted-foreground">Loading attendance records...</p>
+                    </div>
+                  ) : studentAttendance.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <p className="text-lg text-muted-foreground mb-2">No attendance records found</p>
+                      <p className="text-sm text-muted-foreground">This student has no attendance records in the system yet.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-3">Overall Attendance</h4>
+                        <div className="grid grid-cols-3 gap-4">
+                          <Card>
+                            <CardContent className="pt-6">
+                              <p className="text-sm text-muted-foreground">Attendance Rate</p>
+                              <p className="text-2xl font-bold text-primary">{(() => {
+                                const total = studentAttendance.length;
+                                const present = studentAttendance.filter(a => a.status === "PRESENT").length;
+                                return total > 0 ? Math.round((present / total) * 100) : 0;
+                              })()}%</p>
+                            </CardContent>
+                          </Card>
+                          <Card>
+                            <CardContent className="pt-6">
+                              <p className="text-sm text-muted-foreground">Total Present</p>
+                              <p className="text-2xl font-bold text-green-600">
+                                {studentAttendance.filter(a => a.status === "PRESENT").length}
+                              </p>
+                            </CardContent>
+                          </Card>
+                          <Card>
+                            <CardContent className="pt-6">
+                              <p className="text-sm text-muted-foreground">Total Absent</p>
+                              <p className="text-2xl font-bold text-red-600">
+                                {studentAttendance.filter(a => a.status === "ABSENT").length}
+                              </p>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </div>
+
+                      {/* Session History */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-3">Session History</h4>
+                        <div className="space-y-4">
+                          {/* Group attendance by session/class */}
+                          {(() => {
+                            // Group by class
+                            const sessions = studentAttendance
+                              .reduce((acc, att) => {
+                                const key = att.class?.name || "Unknown Class";
+                                if (!acc[key]) {
+                                  acc[key] = [];
+                                }
+                                acc[key].push(att);
+                                return acc;
+                              }, {});
+
+                            return Object.entries(sessions).map(([className, records]) => {
+                              const presentCount = records.filter(r => r.status === "PRESENT").length;
+                              const totalDays = records.length;
+                              const percentage = totalDays > 0 ? Math.round((presentCount / totalDays) * 100) : 0;
+                              const absentCount = records.filter(r => r.status === "ABSENT").length;
+                              const leaveCount = records.filter(r => r.status === "LEAVE").length;
+                              const lateCount = records.filter(r => r.status === "LATE").length;
+
+                              return (
+                                <Card key={className}>
+                                  <CardHeader className="pb-3">
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <CardTitle className="text-base">{className}</CardTitle>
+                                        <p className="text-sm text-muted-foreground mt-1">
+                                          {records.length > 0 && (
+                                            <>
+                                              {new Date(records[records.length - 1].date).toLocaleDateString()} - {new Date(records[0].date).toLocaleDateString()}
+                                            </>
+                                          )}
+                                        </p>
+                                      </div>
+                                      <Badge
+                                        variant={percentage >= 75 ? "default" : percentage >= 60 ? "secondary" : "destructive"}
+                                        className="text-lg px-4 py-2"
+                                      >
+                                        {percentage}%
+                                      </Badge>
+                                    </div>
+                                  </CardHeader>
+                                  <CardContent>
+                                    <div className="space-y-4">
+                                      {/* Progress Bar */}
+                                      <div className="space-y-2">
+                                        <div className="flex justify-between text-sm">
+                                          <span className="text-muted-foreground">Attendance Progress</span>
+                                          <span className="font-medium">{presentCount} / {totalDays} days</span>
+                                        </div>
+                                        <div className="w-full bg-muted rounded-full h-3">
+                                          <div
+                                            className={`h-3 rounded-full transition-all ${percentage >= 75
+                                              ? "bg-green-500"
+                                              : percentage >= 60
+                                                ? "bg-yellow-500"
+                                                : "bg-red-500"
+                                              }`}
+                                            style={{ width: `${percentage}%` }}
+                                          />
+                                        </div>
+                                      </div>
+
+                                      {/* Statistics Grid */}
+                                      <div className="grid grid-cols-4 gap-3 pt-2">
+                                        <div className="text-center p-3 bg-green-50 rounded-lg">
+                                          <p className="text-2xl font-bold text-green-600">{presentCount}</p>
+                                          <p className="text-xs text-muted-foreground mt-1">Present</p>
+                                        </div>
+                                        <div className="text-center p-3 bg-red-50 rounded-lg">
+                                          <p className="text-2xl font-bold text-red-600">{absentCount}</p>
+                                          <p className="text-xs text-muted-foreground mt-1">Absent</p>
+                                        </div>
+                                        <div className="text-center p-3 bg-yellow-50 rounded-lg">
+                                          <p className="text-2xl font-bold text-yellow-600">{lateCount}</p>
+                                          <p className="text-xs text-muted-foreground mt-1">Late</p>
+                                        </div>
+                                        <div className="text-center p-3 bg-blue-50 rounded-lg">
+                                          <p className="text-2xl font-bold text-blue-600">{leaveCount}</p>
+                                          <p className="text-xs text-muted-foreground mt-1">Leave</p>
+                                        </div>
+                                      </div>
+
+                                      {/* Monthly Breakdown */}
+                                      <details className="mt-4">
+                                        <summary className="cursor-pointer text-sm font-medium text-primary hover:underline">
+                                          View Monthly Breakdown
+                                        </summary>
+                                        <div className="mt-3 space-y-2">
+                                          {(() => {
+                                            // Group by month
+                                            const months = records.reduce((acc, r) => {
+                                              const month = new Date(r.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+                                              if (!acc[month]) {
+                                                acc[month] = [];
+                                              }
+                                              acc[month].push(r);
+                                              return acc;
+                                            }, {});
+
+                                            return Object.entries(months).map(([month, monthRecords]) => {
+                                              const monthPresent = monthRecords.filter(r => r.status === "PRESENT").length;
+                                              const monthTotal = monthRecords.length;
+                                              const monthPercentage = Math.round((monthPresent / monthTotal) * 100);
+
+                                              return (
+                                                <div key={month} className="flex items-center justify-between text-sm p-2 bg-muted/50 rounded">
+                                                  <span className="font-medium">{month}</span>
+                                                  <div className="flex items-center gap-3">
+                                                    <span className="text-muted-foreground">{monthPresent}/{monthTotal}</span>
+                                                    <Badge variant={monthPercentage >= 75 ? "default" : "secondary"}>
+                                                      {monthPercentage}%
+                                                    </Badge>
+                                                  </div>
+                                                </div>
+                                              );
+                                            });
+                                          })()}
+                                        </div>
+                                      </details>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              );
+                            });
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="results">

@@ -1873,6 +1873,7 @@ export const getStudentFeeHistory = async (studentId) => {
   }
 };
 
+
 export const getStudentFeeSummary = async (studentId) => {
   try {
     const response = await axios.get(`${base_url}/fee-management/student/summary?studentId=${studentId}`, {
