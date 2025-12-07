@@ -34,6 +34,10 @@ export class FrontOfficeController {
     async deleteInquiry(@Query('id') id: string) {
         return await this.frontOfficeService.deleteInquiry(Number(id));
     }
+    @Patch('rollback/inquiry')
+    async rollbackInquiry(@Query('id') id: string) {
+        return await this.frontOfficeService.rollbackInquiry(Number(id));
+    }
 
     // visitors
     @Post('create/visitor')

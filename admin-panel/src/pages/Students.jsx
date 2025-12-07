@@ -226,6 +226,7 @@ const Students = () => {
       formB: false,
       pictures: false,
       dmcMatric: false,
+      dmcIntermediate: false,
       fatherCnic: false,
       migration: false,
       affidavit: false,
@@ -269,6 +270,7 @@ const Students = () => {
         formB: false,
         pictures: false,
         dmcMatric: false,
+        dmcIntermediate: false,
         fatherCnic: false,
         migration: false,
         affidavit: false,
@@ -299,6 +301,7 @@ const Students = () => {
         formB: false,
         pictures: false,
         dmcMatric: false,
+        dmcIntermediate: false,
         fatherCnic: false,
         migration: false,
         affidavit: false,
@@ -1000,6 +1003,7 @@ const Students = () => {
                   { key: "formB", label: "Form B / Domicile" },
                   { key: "pictures", label: "4 Passport Size Pictures" },
                   { key: "dmcMatric", label: "DMC Matric" },
+                  { key: "dmcIntermediate", label: "DMC Intermediate" },
                   { key: "fatherCnic", label: "Father CNIC" },
                   { key: "migration", label: "Migration (if from other board)" },
                   { key: "affidavit", label: "Affidavit" },
@@ -1032,7 +1036,7 @@ const Students = () => {
 
         {/* View / Profile Dialog */}
         <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-6xl h-[90vh] overflow-y-auto flex flex-col">
             <DialogHeader>
               <DialogTitle>Student Profile</DialogTitle>
               <DialogDescription>Complete student information and statistics</DialogDescription>
@@ -1078,6 +1082,7 @@ const Students = () => {
                         { key: "formB", label: "Form B / Domicile" },
                         { key: "pictures", label: "4 Passport Size Pictures" },
                         { key: "dmcMatric", label: "DMC Matric" },
+                        { key: "dmcIntermediate", label: "DMC Intermediate" },
                         { key: "fatherCnic", label: "Father CNIC" },
                         { key: "migration", label: "Migration" },
                         { key: "affidavit", label: "Affidavit" },
@@ -1198,7 +1203,7 @@ const Students = () => {
                             </Card>
                             <Card>
                               <CardContent className="pt-6">
-                                <p className="text-sm text-muted-foreground">Pending</p>
+                                <p className="text-sm text-muted-foreground">Pending Installments</p>
                                 <p className="text-xl font-bold text-orange-600">{feesData.selectedSessionData.stats.pendingInstallments}</p>
                               </CardContent>
                             </Card>

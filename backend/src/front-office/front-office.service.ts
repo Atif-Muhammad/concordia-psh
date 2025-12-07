@@ -45,6 +45,36 @@ export class FrontOfficeService {
             where: { id },
         });
     }
+    async rollbackInquiry(id: number) {
+        // Find the inquiry first to ensure it exists
+        const inquiry = await this.prismaService.inquiry.findUnique({
+            where: { id },
+        });
+
+        if (!inquiry) {
+            throw new Error('Inquiry not found');
+        }
+
+        // Try to find and delete the student created from this inquiry
+        // Note: Students should have inquiryId field for this to work
+        const student = await this.prismaService.student.findFirst({
+            where: { inquiryId: id },
+        });
+
+        if (student) {
+            await this.prismaService.student.delete({
+                where: { id: student.id },
+            });
+        }
+
+        // Revert inquiry status to NEW
+        return await this.prismaService.inquiry.update({
+            where: { id },
+            data: {
+                status: 'NEW' as any,
+            },
+        });
+    }
 
     // visitors
 
