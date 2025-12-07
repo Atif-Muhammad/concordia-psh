@@ -937,8 +937,8 @@ const Students = () => {
                     <div className="flex-1">
                       <h3 className="text-2xl font-bold mb-2">{viewStudent.fName} {viewStudent.mName} {viewStudent.lName}</h3>
                       <div className="flex items-center gap-4">
-                        <p className="uppercase text-gray-500 tracking-wide">Father / Guardian:</p>
-                        <p className="font-medium text-gray-50">{viewStudent.fatherOrguardian || "N/A"}</p>
+                        <p className="uppercase text-gray-500 tracking-wide text-sm">Father / Guardian:</p>
+                        <p className="font-medium text-sm ">{viewStudent.fatherOrguardian}</p>
                       </div>
                       <p className="text-muted-foreground">{viewStudent.rollNumber}</p>
                     </div>

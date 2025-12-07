@@ -183,7 +183,10 @@ const FrontOffice = () => {
     details: "",
   });
 
-
+  const [visitorMonthFilter, setVisitorMonthFilter] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [categoryFilter, setCategoryFilter] = useState("All");
   const { data: classes } = useQuery({
     queryKey: ["classes"],
@@ -206,8 +209,8 @@ const FrontOffice = () => {
   });
 
   const { data: visitors = [], isLoading: visitorsLoading } = useQuery({
-    queryKey: ["visitors"],
-    queryFn: getVisitors,
+    queryKey: ["visitors", visitorMonthFilter],
+    queryFn: () => getVisitors(visitorMonthFilter || undefined),
     onError: (err) =>
       toast({
         title: err.message || "Failed to load visitors",
@@ -1031,153 +1034,162 @@ const FrontOffice = () => {
                   <Users className="w-5 h-5" />
                   Visitor Log
                 </CardTitle>
-                <Dialog open={visitorDialog} onOpenChange={setVisitorDialog}>
-                  <DialogTrigger asChild>
-                    <Button onClick={closeVisitorDialog}>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Visitor
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>{editingVisitor ? "Edit" : "New"} Visitor Entry</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Visitor Name *</Label>
-                          <Input
-                            value={visitorForm.visitorName}
-                            onChange={(e) =>
-                              setVisitorForm({ ...visitorForm, visitorName: e.target.value })
-                            }
-                            placeholder="Enter visitor name"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Phone *</Label>
-                          <Input
-                            value={visitorForm.phoneNumber}
-                            onChange={(e) =>
-                              setVisitorForm({ ...visitorForm, phoneNumber: e.target.value })
-                            }
-                            placeholder="0300-1234567"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>ID Card *</Label>
-                          <Input
-                            value={visitorForm.ID}
-                            onChange={(e) =>
-                              setVisitorForm({ ...visitorForm, ID: e.target.value })
-                            }
-                            placeholder="12345-1234567-1"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Visit Date</Label>
-                          <Popover open={dateOpen} onOpenChange={setDateOpen}>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                className="w-full justify-start text-left font-normal"
-                              >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {visitorForm.visitDate
-                                  ? format(new Date(visitorForm.visitDate), "PPP")
-                                  : "Pick a date"}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar
-                                mode="single"
-                                selected={
-                                  visitorForm.visitDate ? new Date(visitorForm.visitDate) : undefined
+                <div className="flex items-center gap-3">
+                  <Input
+                    type="month"
+                    value={visitorMonthFilter}
+                    onChange={(e) => setVisitorMonthFilter(e.target.value)}
+                    className="w-[180px]"
+                    placeholder="Filter by month"
+                  />
+                  <Dialog open={visitorDialog} onOpenChange={setVisitorDialog}>
+                    <DialogTrigger asChild>
+                      <Button onClick={closeVisitorDialog}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Visitor
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>{editingVisitor ? "Edit" : "New"} Visitor Entry</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Visitor Name *</Label>
+                            <Input
+                              value={visitorForm.visitorName}
+                              onChange={(e) =>
+                                setVisitorForm({ ...visitorForm, visitorName: e.target.value })
+                              }
+                              placeholder="Enter visitor name"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Phone *</Label>
+                            <Input
+                              value={visitorForm.phoneNumber}
+                              onChange={(e) =>
+                                setVisitorForm({ ...visitorForm, phoneNumber: e.target.value })
+                              }
+                              placeholder="0300-1234567"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>ID Card *</Label>
+                            <Input
+                              value={visitorForm.ID}
+                              onChange={(e) =>
+                                setVisitorForm({ ...visitorForm, ID: e.target.value })
+                              }
+                              placeholder="12345-1234567-1"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Visit Date</Label>
+                            <Popover open={dateOpen} onOpenChange={setDateOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  className="w-full justify-start text-left font-normal"
+                                >
+                                  <CalendarIcon className="mr-2 h-4 w-4" />
+                                  {visitorForm.visitDate
+                                    ? format(new Date(visitorForm.visitDate), "PPP")
+                                    : "Pick a date"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  mode="single"
+                                  selected={
+                                    visitorForm.visitDate ? new Date(visitorForm.visitDate) : undefined
+                                  }
+                                  onSelect={(date) => {
+                                    setVisitorForm({
+                                      ...visitorForm,
+                                      visitDate: date ? date.toLocaleDateString("en-CA") : "",
+                                    });
+                                    setDateOpen(false);
+                                  }}
+                                  initialFocus
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+
+                          {/* In Time */}
+                          <div className="space-y-2">
+                            <Label>In Time</Label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="time"
+                                value={visitorForm.inTime}
+                                onChange={(e) =>
+                                  setVisitorForm({ ...visitorForm, inTime: e.target.value })
                                 }
-                                onSelect={(date) => {
-                                  setVisitorForm({
-                                    ...visitorForm,
-                                    visitDate: date ? date.toLocaleDateString("en-CA") : "",
-                                  });
-                                  setDateOpen(false);
-                                }}
-                                initialFocus
                               />
-                            </PopoverContent>
-                          </Popover>
-                        </div>
+                            </div>
+                          </div>
 
-                        {/* In Time */}
-                        <div className="space-y-2">
-                          <Label>In Time</Label>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="time"
-                              value={visitorForm.inTime}
-                              onChange={(e) =>
-                                setVisitorForm({ ...visitorForm, inTime: e.target.value })
-                              }
-                            />
+                          {/* Out Time */}
+                          <div className="space-y-2">
+                            <Label>Out Time</Label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="time"
+                                value={visitorForm.outTime}
+                                onChange={(e) =>
+                                  setVisitorForm({ ...visitorForm, outTime: e.target.value })
+                                }
+                              />
+                            </div>
                           </div>
                         </div>
-
-                        {/* Out Time */}
                         <div className="space-y-2">
-                          <Label>Out Time</Label>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="time"
-                              value={visitorForm.outTime}
-                              onChange={(e) =>
-                                setVisitorForm({ ...visitorForm, outTime: e.target.value })
-                              }
-                            />
-                          </div>
+                          <Label>Persons</Label>
+
+                          <Input
+                            value={visitorForm.persons}
+                            onChange={(e) =>
+                              setVisitorForm({ ...visitorForm, persons: e.target.value })
+                            }
+                            placeholder="Number of visitors"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Purpose</Label>
+                          <Input
+                            value={visitorForm.purpose}
+                            onChange={(e) =>
+                              setVisitorForm({ ...visitorForm, purpose: e.target.value })
+                            }
+                            placeholder="Purpose of visit"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Remarks</Label>
+                          <Textarea
+                            value={visitorForm.remarks}
+                            onChange={(e) =>
+                              setVisitorForm({ ...visitorForm, remarks: e.target.value })
+                            }
+                            placeholder="Additional notes"
+                            rows={2}
+                          />
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Persons</Label>
-
-                        <Input
-                          value={visitorForm.persons}
-                          onChange={(e) =>
-                            setVisitorForm({ ...visitorForm, persons: e.target.value })
-                          }
-                          placeholder="Number of visitors"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Purpose</Label>
-                        <Input
-                          value={visitorForm.purpose}
-                          onChange={(e) =>
-                            setVisitorForm({ ...visitorForm, purpose: e.target.value })
-                          }
-                          placeholder="Purpose of visit"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Remarks</Label>
-                        <Textarea
-                          value={visitorForm.remarks}
-                          onChange={(e) =>
-                            setVisitorForm({ ...visitorForm, remarks: e.target.value })
-                          }
-                          placeholder="Additional notes"
-                          rows={2}
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={closeVisitorDialog}>
-                        Cancel
-                      </Button>
-                      <Button onClick={handleVisitorSubmit}>
-                        {editingVisitor ? "Update" : "Record"} Visit
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={closeVisitorDialog}>
+                          Cancel
+                        </Button>
+                        <Button onClick={handleVisitorSubmit}>
+                          {editingVisitor ? "Update" : "Record"} Visit
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </CardHeader>
               <CardContent>
                 {visitorsLoading ? (

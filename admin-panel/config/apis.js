@@ -1902,10 +1902,13 @@ export const delVisitor = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getVisitors = async () => {
+export const getVisitors = async (month) => {
   try {
+    const url = month 
+      ? `${base_url}/front-office/get/visitors?month=${month}`
+      : `${base_url}/front-office/get/visitors`;
     const { data } = await axios.get(
-      `${base_url}/front-office/get/visitors`,
+      url,
       {
         withCredentials: true,
       }

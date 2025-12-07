@@ -34,10 +34,6 @@ export class FrontOfficeController {
     async deleteInquiry(@Query('id') id: string) {
         return await this.frontOfficeService.deleteInquiry(Number(id));
     }
-    @Patch('rollback/inquiry')
-    async rollbackInquiry(@Query('id') id: string) {
-        return await this.frontOfficeService.rollbackInquiry(Number(id));
-    }
 
     // visitors
     @Post('create/visitor')
@@ -45,8 +41,8 @@ export class FrontOfficeController {
         return await this.frontOfficeService.createVisitor(payload);
     }
     @Get('get/visitors')
-    async getVisitors() {
-        return await this.frontOfficeService.getVisitors();
+    async getVisitors(@Query('month') month?: string) {
+        return await this.frontOfficeService.getVisitors(month);
     }
     @Patch('update/visitor')
     async updateVisitor(@Query('id') id: string, @Body() payload: VisitorDto) {

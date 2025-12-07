@@ -35,8 +35,9 @@ export class StudentDto {
   sectionId?: string
   @IsNotEmpty({ message: "Provided Documents must be selected" })
   documents: string
-  @IsOptional()
-  inquiryId?: string // Link to the inquiry this student was created from
+
+
+
 }
 
 

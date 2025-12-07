@@ -67,7 +67,6 @@ export class StudentService {
         classId: Number(payload.classId),
         programId: Number(payload.programId),
         sectionId: Number(payload.sectionId),
-        inquiryId: payload.inquiryId ? Number(payload.inquiryId) : null,
       },
     });
   }

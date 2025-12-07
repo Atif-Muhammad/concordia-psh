@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateExamDto, UpdateExamDto } from './dtos/exam.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateMarksDto, UpdateMarksDto } from './dtos/marks.dto';
@@ -154,7 +154,7 @@ export class ExaminationService {
         });
 
         if (marks.length === 0) {
-            throw new Error('No marks found for this student in this exam');
+            throw new NotFoundException('No marks found for this student in this exam');
         }
 
         // Fetch exam with program and class details
