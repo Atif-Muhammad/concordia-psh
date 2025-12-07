@@ -75,6 +75,7 @@ model Program {
   inquiries Inquiry[]
   exams Exam[]
   feeStructures FeeStructure[]
+  challanSnapshots FeeChallan[] @relation("ChallanStudentProgram")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -102,6 +103,7 @@ model Class {
   exams Exam[]
   positions Position[]
   feeStructures FeeStructure[]
+  challanSnapshots FeeChallan[] @relation("ChallanStudentClass")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -867,11 +869,20 @@ model FeeChallan {
   selectedHeads    String?      @db.Text // JSON array of selected fee head IDs
   remarks        String?       @db.Text
   
+  // Session Tracking: Snapshot of student's class/program at challan creation
+  // This ensures challans are properly classified by session even after student promotion
+  studentClassId   Int?
+  studentProgramId Int?
+  studentClass     Class?   @relation(name: "ChallanStudentClass", fields: [studentClassId], references: [id])
+  studentProgram   Program? @relation(name: "ChallanStudentProgram", fields: [studentProgramId], references: [id])
+  
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
   @@index([studentId])
   @@index([status])
+  @@index([studentClassId])
+  @@index([studentProgramId])
 }
 
 model Payroll {

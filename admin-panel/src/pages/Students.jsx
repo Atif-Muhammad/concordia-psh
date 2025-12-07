@@ -57,6 +57,7 @@ import {
   demoteStudents,
   passoutStudents,
   getPassedOutStudents,
+  getStudentFeeHistory
 } from "../../config/apis";
 import {
   UserPlus,
@@ -182,6 +183,14 @@ const Students = () => {
   const [passedOutFilterProgram, setPassedOutFilterProgram] = useState("all");
   const [passedOutFilterClass, setPassedOutFilterClass] = useState("all");
   const [passedOutFilterSection, setPassedOutFilterSection] = useState("all");
+  const [selectedFeeSession, setSelectedFeeSession] = useState("current");
+
+  // Fetch student fee history when viewing a student
+  const { data: studentFees = [], isLoading: feesLoading } = useQuery({
+    queryKey: ["studentFees", viewStudent?.id],
+    queryFn: () => getStudentFeeHistory(viewStudent.id),
+    enabled: !!viewStudent?.id,
+  });
 
   const {
     data: passedOutStudents = [],
@@ -435,6 +444,115 @@ const Students = () => {
       dueFees: totalFees - paidFees
     };
   };
+
+  const processFeesData = () => {
+    if (!viewStudent || !studentFees || studentFees.length === 0) {
+      return {
+        sessions: [],
+        overall: { totalFees: 0, totalPaid: 0, totalDues: 0 },
+        currentSessionData: null,
+        selectedSessionData: null
+      };
+    }
+    // Group challans by session
+    const sessionMap = new Map();
+    let totalAllSessions = 0;
+    let paidAllSessions = 0;
+    let duesAllSessions = 0;
+    studentFees.forEach(challan => {
+      // Determine session key (priority: feeStructure > snapshot > unclassified)
+      let sessionKey;
+      if (challan.feeStructureId && challan.feeStructure) {
+        sessionKey = `structure-${challan.feeStructureId}`;
+      } else if (challan.studentClassId && challan.studentProgramId) {
+        sessionKey = `snapshot-${challan.studentProgramId}-${challan.studentClassId}`;
+      } else {
+        sessionKey = 'unclassified';
+      }
+      if (!sessionMap.has(sessionKey)) {
+        // Determine if this is the current session
+        const isCurrentSession =
+          challan.feeStructure?.classId === viewStudent.classId &&
+          challan.feeStructure?.programId === viewStudent.programId;
+        sessionMap.set(sessionKey, {
+          sessionKey,
+          feeStructureId: challan.feeStructureId,
+          feeStructure: challan.feeStructure,
+          program: challan.feeStructure?.program || challan.studentProgram,
+          class: challan.feeStructure?.class || challan.studentClass,
+          challans: [],
+          isCurrentSession
+        });
+      }
+      sessionMap.get(sessionKey).challans.push(challan);
+      // Calculate overall stats
+      totalAllSessions += challan.amount || 0;
+      paidAllSessions += challan.paidAmount || 0;
+      if (challan.status !== 'PAID') {
+        duesAllSessions += (challan.amount - challan.paidAmount) || 0;
+      }
+    });
+    // Process each session's statistics
+    const sessions = Array.from(sessionMap.values()).map(session => {
+      const sessionFee = session.feeStructure?.totalAmount || 0;
+      const paidThisSession = session.challans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
+      const remainingDues = session.challans
+        .filter(c => c.status !== 'PAID')
+        .reduce((sum, c) => sum + ((c.amount - c.paidAmount) || 0), 0);
+      // Calculate paid installments from coveredInstallments
+      let paidInstallments = 0;
+      session.challans.filter(c => c.status === 'PAID').forEach(c => {
+        if (c.coveredInstallments) {
+          const parts = c.coveredInstallments.split('-');
+          if (parts.length === 2) {
+            paidInstallments = Math.max(paidInstallments, parseInt(parts[1]));
+          } else {
+            paidInstallments = Math.max(paidInstallments, parseInt(parts[0]));
+          }
+        } else if (c.installmentNumber) {
+          paidInstallments = Math.max(paidInstallments, c.installmentNumber);
+        }
+      });
+      const totalInstallments = session.feeStructure?.installments || session.challans.length;
+      // Session label
+      const sessionLabel = session.class && session.program
+        ? `${session.class.name} - ${session.program.name}`
+        : 'Unclassified';
+      return {
+        ...session,
+        sessionLabel,
+        stats: {
+          sessionFee,
+          paidThisSession,
+          remainingDues,
+          paidInstallments,
+          totalInstallments,
+          pendingInstallments: totalInstallments - paidInstallments
+        }
+      };
+    });
+    // Sort: current first, then others
+    sessions.sort((a, b) => {
+      if (a.isCurrentSession) return -1;
+      if (b.isCurrentSession) return 1;
+      return 0;
+    });
+    const currentSessionData = sessions.find(s => s.isCurrentSession) || null;
+    const selectedSessionData = selectedFeeSession === "current"
+      ? currentSessionData
+      : sessions.find(s => s.sessionKey === selectedFeeSession) || currentSessionData;
+    return {
+      sessions,
+      overall: {
+        totalFees: totalAllSessions,
+        totalPaid: paidAllSessions,
+        totalDues: duesAllSessions
+      },
+      currentSessionData,
+      selectedSessionData
+    };
+  };
+  const feesData = processFeesData();
 
   const handlePromoteStudents = () => {
     if (selectedForPromotion.length === 0) {
@@ -983,48 +1101,152 @@ const Students = () => {
                 </TabsContent>
 
                 <TabsContent value="fees">
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-3 gap-4">
-                      <Card>
-                        <CardContent className="pt-6">
-                          <p className="text-sm text-muted-foreground">Total Fees</p>
-                          <p className="text-xl font-bold">PKR {getStudentStats(viewStudent.id).totalFees.toLocaleString()}</p>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardContent className="pt-6">
-                          <p className="text-sm text-muted-foreground">Paid</p>
-                          <p className="text-xl font-bold text-success">PKR {getStudentStats(viewStudent.id).paidFees.toLocaleString()}</p>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardContent className="pt-6">
-                          <p className="text-sm text-muted-foreground">Due</p>
-                          <p className="text-xl font-bold text-destructive">PKR {getStudentStats(viewStudent.id).dueFees.toLocaleString()}</p>
-                        </CardContent>
-                      </Card>
+                  {studentFees.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <p className="text-lg text-muted-foreground mb-2">No fee records found</p>
+                      <p className="text-sm text-muted-foreground">This student has no fee challans in the system yet.</p>
                     </div>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Challan No</TableHead>
-                          <TableHead>Amount</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Due Date</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {mockFees.filter(f => f.studentId === viewStudent.id).map(fee => (
-                          <TableRow key={fee.id}>
-                            <TableCell>{fee.challanNumber}</TableCell>
-                            <TableCell>PKR {fee.amount.toLocaleString()}</TableCell>
-                            <TableCell><Badge variant={fee.status === "paid" ? "default" : "destructive"}>{fee.status}</Badge></TableCell>
-                            <TableCell>{fee.dueDate}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {/* Overall Summary */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-3">Overall Summary (All-Time)</h4>
+                        <div className="grid grid-cols-3 gap-4">
+                          <Card>
+                            <CardContent className="pt-6">
+                              <p className="text-sm text-muted-foreground">Total Fees</p>
+                              <p className="text-xl font-bold">PKR {feesData.overall.totalFees.toLocaleString()}</p>
+                            </CardContent>
+                          </Card>
+                          <Card>
+                            <CardContent className="pt-6">
+                              <p className="text-sm text-muted-foreground">Total Paid</p>
+                              <p className="text-xl font-bold text-green-600">PKR {feesData.overall.totalPaid.toLocaleString()}</p>
+                            </CardContent>
+                          </Card>
+                          <Card>
+                            <CardContent className="pt-6">
+                              <p className="text-sm text-muted-foreground">Total Outstanding</p>
+                              <p className="text-xl font-bold text-red-600">PKR {feesData.overall.totalDues.toLocaleString()}</p>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </div>
+                      {/* Session Filter */}
+                      <div>
+                        <Label>Select Session/Class</Label>
+                        <Select value={selectedFeeSession} onValueChange={setSelectedFeeSession}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue>
+                              {selectedFeeSession === "current"
+                                ? "Current Session"
+                                : feesData.sessions.find(s => s.sessionKey === selectedFeeSession)?.sessionLabel || "Select session"
+                              }
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="current">Current Session</SelectItem>
+                            {feesData.sessions.filter(s => !s.isCurrentSession).map(session => (
+                              <SelectItem key={session.sessionKey} value={session.sessionKey}>
+                                {session.sessionLabel}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {/* Current Session Warning */}
+                      {selectedFeeSession === "current" && !feesData.currentSessionData && feesData.sessions.length > 0 && (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                          <p className="text-sm text-yellow-800">
+                            <strong>No fee structure for current session.</strong> Student is in{" "}
+                            <strong>{viewStudent.class?.name} - {viewStudent.program?.name}</strong> but no fees assigned yet.
+                          </p>
+                        </div>
+                      )}
+                      {/* Session-Specific Stats */}
+                      {feesData.selectedSessionData && (
+                        <div>
+                          <h4 className="text-sm font-semibold text-muted-foreground mb-3">
+                            {feesData.selectedSessionData.isCurrentSession ? "Current Session Stats" : feesData.selectedSessionData.sessionLabel}
+                          </h4>
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            <Card>
+                              <CardContent className="pt-6">
+                                <p className="text-sm text-muted-foreground">Session Fee</p>
+                                <p className="text-xl font-bold">PKR {feesData.selectedSessionData.stats.sessionFee.toLocaleString()}</p>
+                              </CardContent>
+                            </Card>
+                            <Card>
+                              <CardContent className="pt-6">
+                                <p className="text-sm text-muted-foreground">Paid</p>
+                                <p className="text-xl font-bold text-green-600">PKR {feesData.selectedSessionData.stats.paidThisSession.toLocaleString()}</p>
+                              </CardContent>
+                            </Card>
+                            <Card>
+                              <CardContent className="pt-6">
+                                <p className="text-sm text-muted-foreground">Remaining</p>
+                                <p className="text-xl font-bold text-red-600">PKR {feesData.selectedSessionData.stats.remainingDues.toLocaleString()}</p>
+                              </CardContent>
+                            </Card>
+                            <Card>
+                              <CardContent className="pt-6">
+                                <p className="text-sm text-muted-foreground">Paid Installments</p>
+                                <p className="text-xl font-bold text-blue-600">
+                                  {feesData.selectedSessionData.stats.paidInstallments} / {feesData.selectedSessionData.stats.totalInstallments}
+                                </p>
+                              </CardContent>
+                            </Card>
+                            <Card>
+                              <CardContent className="pt-6">
+                                <p className="text-sm text-muted-foreground">Pending</p>
+                                <p className="text-xl font-bold text-orange-600">{feesData.selectedSessionData.stats.pendingInstallments}</p>
+                              </CardContent>
+                            </Card>
+                          </div>
+                          {/* Challans Table */}
+                          <div className="mt-4">
+                            <h4 className="text-sm font-semibold mb-3">Fee Challans</h4>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Challan No</TableHead>
+                                  <TableHead>Amount</TableHead>
+                                  <TableHead>Paid</TableHead>
+                                  <TableHead>Status</TableHead>
+                                  <TableHead>Installments</TableHead>
+                                  <TableHead>Due Date</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {feesData.selectedSessionData.challans.length === 0 ? (
+                                  <TableRow>
+                                    <TableCell colSpan={6} className="text-center py-4 text-muted-foreground">
+                                      No challans for this session
+                                    </TableCell>
+                                  </TableRow>
+                                ) : (
+                                  feesData.selectedSessionData.challans.map(fee => (
+                                    <TableRow key={fee.id}>
+                                      <TableCell className="font-medium">{fee.challanNumber || fee.id}</TableCell>
+                                      <TableCell>PKR {fee.amount?.toLocaleString() || 0}</TableCell>
+                                      <TableCell className="text-green-600">PKR {fee.paidAmount?.toLocaleString() || 0}</TableCell>
+                                      <TableCell>
+                                        <Badge variant={fee.status === "PAID" ? "default" : "destructive"}>
+                                          {fee.status}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell>{fee.coveredInstallments || fee.installmentNumber || "-"}</TableCell>
+                                      <TableCell>{fee.dueDate ? new Date(fee.dueDate).toLocaleDateString() : "-"}</TableCell>
+                                    </TableRow>
+                                  ))
+                                )}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="attendance">

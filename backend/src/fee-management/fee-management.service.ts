@@ -215,11 +215,16 @@ export class FeeManagementService {
         installmentNumber,
         fineAmount: payload.fineAmount || 0,
         challanNumber: `CH-${Date.now()}-${Math.floor(Math.random() * 10)}`,
-        status: 'PENDING'
+        status: 'PENDING',
+        // Session Tracking: Snapshot student's current class/program
+        studentClassId: student.classId,
+        studentProgramId: student.programId
       },
       include: {
         student: true,
-        feeStructure: true
+        feeStructure: true,
+        studentClass: true,
+        studentProgram: true
       }
     });
   }
@@ -295,7 +300,14 @@ export class FeeManagementService {
     return await this.prisma.feeChallan.findMany({
       where: { studentId },
       include: {
-        feeStructure: true
+        feeStructure: {
+          include: {
+            program: true,
+            class: true
+          }
+        },
+        studentClass: true,    // Session snapshot
+        studentProgram: true   // Session snapshot
       },
       orderBy: {
         createdAt: 'desc'
