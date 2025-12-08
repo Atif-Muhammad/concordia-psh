@@ -35,21 +35,10 @@ export class StudentDto {
   sectionId?: string
   @IsNotEmpty({ message: "Provided Documents must be selected" })
   documents: string
+   @IsOptional()
+  inquiryId?: string
 
 
 
 }
-
-
-
-// {
-//   fieldname: 'photo',
-//   originalname: 'batman.jpg',
-//   encoding: '7bit',
-//   mimetype: 'image/jpeg',
-//   buffer: <Buffer ff d8 ff e0 00 10 4a 46 49 46 00 01 01 00 00 01 00 01 00 00 ff ed 00 7c 50 68 6f 74 6f 73 68 6f 70 20 33 2e 30 00 38 42 49 4d 04 04
-// 00 00 00 00 00 60 ... 223027 more bytes>,
-//   size: 223077
-// }
-
 

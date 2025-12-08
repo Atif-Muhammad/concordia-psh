@@ -221,6 +221,9 @@ model Student {
 
   sectionId Int?
   section   Section? @relation("SectionStudents", fields: [sectionId], references: [id])
+  
+  inquiryId Int?     @unique // Link to the inquiry this student was created from
+  inquiry   Inquiry? @relation(fields: [inquiryId], references: [id])
 
   marks Marks[]
   results Result[]
@@ -484,6 +487,7 @@ model Inquiry{
   status             InquiryStatus      @default(NEW) // new | approved | rejected | follow-up
   
   program Program? @relation(fields: [programInterest], references: [id])
+  student Student?
 
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
