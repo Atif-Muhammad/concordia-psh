@@ -67,7 +67,7 @@ export class StudentService {
         classId: Number(payload.classId),
         programId: Number(payload.programId),
         sectionId: Number(payload.sectionId),
-        inquiryId: payload.inquiryId ? Number(payload.inquiryId): null
+        inquiryId: payload.inquiryId ? Number(payload.inquiryId) : null
       },
     });
   }
@@ -379,6 +379,7 @@ export class StudentService {
   }
 
   // Get exam results for a specific student
+  // Get exam results for a specific student
   async getStudentResults(studentId: number) {
     const student = await this.prismaService.student.findUnique({
       where: { id: studentId },
@@ -396,12 +397,14 @@ export class StudentService {
             type: true,
             startDate: true,
             program: { select: { name: true } },
+            class: { select: { name: true } },
           },
         },
       },
       orderBy: { exam: { startDate: 'desc' } },
     });
   }
+
 
   // Generate attendance report with statistics
   async generateAttendanceReport(studentId: number) {
@@ -516,6 +519,7 @@ export class StudentService {
     const averagePercentage = totalExams > 0 ? totalPercentage / totalExams : 0;
     const averageGPA = totalExams > 0 ? totalGPA / totalExams : 0;
 
+    console.log(student)
     return {
       student: {
         id: student.id,

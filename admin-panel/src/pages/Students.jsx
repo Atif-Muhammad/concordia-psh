@@ -58,7 +58,8 @@ import {
   passoutStudents,
   getPassedOutStudents,
   getStudentFeeHistory,
-  getStudentAttendance
+  getStudentAttendance,
+  getStudentResults
 } from "../../config/apis";
 import {
   UserPlus,
@@ -197,6 +198,13 @@ const Students = () => {
   const { data: studentAttendance = [], isLoading: attendanceLoading } = useQuery({
     queryKey: ["studentAttendance", viewStudent?.id],
     queryFn: () => getStudentAttendance(viewStudent.id),
+    enabled: !!viewStudent?.id,
+  });
+
+  // Fetch student results when viewing a student
+  const { data: studentResults = [], isLoading: resultsLoading } = useQuery({
+    queryKey: ["studentResults", viewStudent?.id],
+    queryFn: () => getStudentResults(viewStudent.id),
     enabled: !!viewStudent?.id,
   });
 
@@ -1443,39 +1451,115 @@ const Students = () => {
                   )}
                 </TabsContent>
 
-                <TabsContent value="results">
-                  <div className="space-y-4">
-                    <Card>
-                      <CardContent className="pt-6">
-                        <p className="text-sm text-muted-foreground">Average Marks</p>
-                        <p className="text-2xl font-bold text-primary">{getStudentStats(viewStudent.id).avgMarks}%</p>
-                      </CardContent>
-                    </Card>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Exam</TableHead>
-                          <TableHead>Obtained</TableHead>
-                          <TableHead>Total</TableHead>
-                          <TableHead>Percentage</TableHead>
-                          <TableHead>GPA</TableHead>
-                          <TableHead>Grade</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {mockResults.filter(r => r.studentId === viewStudent.id).map(result => (
-                          <TableRow key={result.id}>
-                            <TableCell>{result.examName}</TableCell>
-                            <TableCell>{result.obtainedMarks}</TableCell>
-                            <TableCell>{result.totalMarks}</TableCell>
-                            <TableCell>{result.percentage}%</TableCell>
-                            <TableCell>{result.gpa}</TableCell>
-                            <TableCell><Badge>{result.grade}</Badge></TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                <TabsContent value="results" className="flex-1 overflow-y-auto">
+                  {resultsLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <p className="text-muted-foreground">Loading exam results...</p>
+                    </div>
+                  ) : studentResults.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <p className="text-lg text-muted-foreground mb-2">No exam results found</p>
+                      <p className="text-sm text-muted-foreground">This student has not taken any exams yet.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {/* Session History */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-3">Examination History</h4>
+                        <div className="space-y-4">
+                          {(() => {
+                            // Group by session and class
+                            const sessions = studentResults.reduce((acc, result) => {
+                              const sessionName = result.exam?.session || "Unknown Session";
+                              const className = result.exam?.class?.name || "Unknown Class";
+                              const key = `${sessionName} • ${className}`;
+                              if (!acc[key]) acc[key] = [];
+                              acc[key].push(result);
+                              return acc;
+                            }, {});
+
+                            // Sort sessions (assuming session strings are sortable or just by order of appearance if API sorts)
+                            // The API sorts by exam startDate desc, so usually current session comes first.
+
+                            return Object.entries(sessions).map(([sessionKey, results]) => {
+                              // Calculate Session Stats
+                              const totalExams = results.length;
+                              const totalPercentage = results.reduce((sum, r) => sum + (r.percentage || 0), 0);
+                              const avgPercentage = totalExams > 0 ? Math.round(totalPercentage / totalExams) : 0;
+                              const passedExams = results.filter(r => (r.percentage || 0) >= 40).length; // Assuming 40% pass
+                              const failedExams = totalExams - passedExams;
+
+                              return (
+                                <Card key={sessionKey}>
+                                  <CardHeader className="pb-3">
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <CardTitle className="text-base">{sessionKey}</CardTitle>
+                                        <p className="text-sm text-muted-foreground mt-1">
+                                          {results.length} Exam{results.length !== 1 ? 's' : ''} Taken
+                                        </p>
+                                      </div>
+                                      <Badge
+                                        variant={avgPercentage >= 70 ? "default" : avgPercentage >= 50 ? "secondary" : "destructive"}
+                                        className="text-lg px-4 py-2"
+                                      >
+                                        {avgPercentage}% Avg
+                                      </Badge>
+                                    </div>
+                                  </CardHeader>
+                                  <CardContent>
+                                    <div className="space-y-4">
+                                      {/* Progress Bar for Session */}
+                                      <div className="space-y-2">
+                                        <div className="flex justify-between text-sm">
+                                          <span className="text-muted-foreground">Session Performance</span>
+                                          <span className="font-medium">{passedExams} Passed / {failedExams} Failed</span>
+                                        </div>
+                                        <div className="w-full bg-muted rounded-full h-3">
+                                          <div
+                                            className={`h-3 rounded-full transition-all ${avgPercentage >= 70 ? "bg-green-500" : avgPercentage >= 50 ? "bg-yellow-500" : "bg-red-500"
+                                              }`}
+                                            style={{ width: `${Math.min(avgPercentage, 100)}%` }}
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <Table>
+                                        <TableHeader>
+                                          <TableRow>
+                                            <TableHead>Exam</TableHead>
+                                            <TableHead>Obtained</TableHead>
+                                            <TableHead>Total</TableHead>
+                                            <TableHead>Percent</TableHead>
+                                            <TableHead>Grade</TableHead>
+                                          </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                          {results.map(result => (
+                                            <TableRow key={result.id}>
+                                              <TableCell className="font-medium">{result.exam?.examName}</TableCell>
+                                              <TableCell>{result.obtainedMarks}</TableCell>
+                                              <TableCell>{result.totalMarks}</TableCell>
+                                              <TableCell>
+                                                <Badge variant={result.percentage >= 50 ? "outline" : "destructive"}>
+                                                  {result.percentage}%
+                                                </Badge>
+                                              </TableCell>
+                                              <TableCell>{result.grade}</TableCell>
+                                            </TableRow>
+                                          ))}
+                                        </TableBody>
+                                      </Table>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              );
+                            });
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </TabsContent>
               </Tabs>
             )}
