@@ -8,7 +8,7 @@ import { StudentDto } from './dtos/student.dto';
 
 @Injectable()
 export class StudentService {
-  constructor(private prismaService: PrismaService) { }
+  constructor(private prismaService: PrismaService) {}
 
   async findOne(id: number) {
     return await this.prismaService.student.findFirst({
@@ -19,43 +19,87 @@ export class StudentService {
       },
     });
   }
-  async search(searchFor: string) {
+  
+  async search(query: string, passedOut: boolean = false) {
     return await this.prismaService.student.findMany({
       where: {
+        passedOut: passedOut,
         OR: [
-          { fName: { contains: searchFor } },
-          { mName: { contains: searchFor } },
-          { lName: { contains: searchFor } },
-          { rollNumber: { contains: searchFor } },
-          { fatherOrguardian: { contains: searchFor } },
+          { fName: { contains: query} },
+          { mName: { contains: query } },
+          { lName: { contains: query} },
+          { rollNumber: { contains: query } },
         ],
-        passedOut: false,
       },
-      select: {
-        id: true,
-        fName: true,
-        mName: true,
-        lName: true,
-        rollNumber: true,
-        fatherOrguardian: true,
-        program: { select: { name: true } },
-        class: { select: { name: true } },
-      },
-    });
-  }
-  async getAllStudents() {
-    return await this.prismaService.student.findMany({
-      where: { passedOut: false },
       orderBy: { createdAt: 'desc' },
       include: {
         program: { select: { name: true, id: true } },
-        class: { select: { id: true, name: true } }
+        class: { select: { id: true, name: true } },
+        section: { select: { id: true, name: true } },
       },
     });
   }
-  async getPassedOutStudents() {
+
+  async getAllStudents(filters?: {
+    programId?: number | null;
+    classId?: number | null;
+    sectionId?: number | null;
+  }) {
+
+    const where: any = { passedOut: false };
+
+    // Using optional chaining and nullish checks
+    if (filters?.programId != null && filters.programId > 0) {
+      where.programId = filters.programId;
+    }
+
+    if (filters?.classId != null && filters.classId > 0) {
+      where.classId = filters.classId;
+    }
+
+    if (filters?.sectionId != null && filters.sectionId > 0) {
+      where.sectionId = filters.sectionId;
+    }
+
     return await this.prismaService.student.findMany({
-      where: { passedOut: true },
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        program: { select: { name: true, id: true } },
+        class: { select: { id: true, name: true } },
+        section: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  async getPassedOutStudents(filters?: {
+    programId?: number | null;
+    classId?: number | null;
+    sectionId?: number | null;
+  }) {
+    const where: any = { passedOut: true };
+
+    // Add filters only if they have valid values
+    if (filters?.programId != null && filters.programId > 0) {
+      where.programId = filters.programId;
+    }
+
+    if (filters?.classId != null && filters.classId > 0) {
+      where.classId = filters.classId;
+    }
+
+    if (filters?.sectionId != null && filters.sectionId > 0) {
+      where.sectionId = filters.sectionId;
+    }
+
+    return await this.prismaService.student.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        program: { select: { name: true, id: true } },
+        class: { select: { id: true, name: true } },
+        section: { select: { id: true, name: true } },
+      },
     });
   }
 
@@ -67,7 +111,7 @@ export class StudentService {
         classId: Number(payload.classId),
         programId: Number(payload.programId),
         sectionId: Number(payload.sectionId),
-        inquiryId: payload.inquiryId ? Number(payload.inquiryId) : null
+        inquiryId: payload.inquiryId ? Number(payload.inquiryId) : null,
       },
     });
   }
@@ -84,14 +128,15 @@ export class StudentService {
     if (payload.classId && Number(payload.classId) !== student.classId) {
       // 1. Find current fee structure
       if (student.programId && student.classId) {
-        const currentFeeStructure = await this.prismaService.feeStructure.findUnique({
-          where: {
-            programId_classId: {
-              programId: student.programId,
-              classId: student.classId
-            }
-          }
-        });
+        const currentFeeStructure =
+          await this.prismaService.feeStructure.findUnique({
+            where: {
+              programId_classId: {
+                programId: student.programId,
+                classId: student.classId,
+              },
+            },
+          });
 
         if (currentFeeStructure) {
           // 2. Calculate paid amount and installments for current session
@@ -99,11 +144,14 @@ export class StudentService {
             where: {
               studentId: student.id,
               feeStructureId: currentFeeStructure.id,
-              status: 'PAID'
-            }
+              status: 'PAID',
+            },
           });
 
-          const totalPaid = paidChallans.reduce((sum, c) => sum + c.paidAmount, 0);
+          const totalPaid = paidChallans.reduce(
+            (sum, c) => sum + c.paidAmount,
+            0,
+          );
           const paidInstallments = paidChallans.length;
 
           // 3. Check clearance
@@ -115,11 +163,13 @@ export class StudentService {
             totalPaid >= currentFeeStructure.totalAmount;
 
           if (!isCleared) {
-            const currentClass = await this.prismaService.class.findUnique({ where: { id: student.classId } });
+            const currentClass = await this.prismaService.class.findUnique({
+              where: { id: student.classId },
+            });
             throw new BadRequestException(
               `Cannot promote student. Outstanding fees for current class (${currentClass?.name || 'Unknown Class'}). ` +
-              `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
-              `Amount: ${totalPaid}/${currentFeeStructure.totalAmount}`
+                `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
+                `Amount: ${totalPaid}/${currentFeeStructure.totalAmount}`,
             );
           }
         }
@@ -188,11 +238,10 @@ export class StudentService {
     return deletedStudent;
   }
 
-
   async getStudentByNumber(rollNumber: string) {
     return await this.prismaService.student.findFirst({
-      where: { rollNumber }
-    })
+      where: { rollNumber },
+    });
   }
 
   async promote(id: number) {
@@ -405,7 +454,6 @@ export class StudentService {
     });
   }
 
-
   // Generate attendance report with statistics
   async generateAttendanceReport(studentId: number) {
     const student = await this.prismaService.student.findUnique({
@@ -451,15 +499,26 @@ export class StudentService {
     // Calculate percentages
     const subjectStats = Object.values(bySubject).map((stat: any) => ({
       ...stat,
-      percentage: stat.total > 0 ? ((stat.present + stat.halfDay * 0.5) / stat.total) * 100 : 0,
+      percentage:
+        stat.total > 0
+          ? ((stat.present + stat.halfDay * 0.5) / stat.total) * 100
+          : 0,
     }));
 
     // Overall statistics
     const totalDays = attendanceRecords.length;
-    const presentDays = attendanceRecords.filter(r => r.status === 'PRESENT').length;
-    const absentDays = attendanceRecords.filter(r => r.status === 'ABSENT').length;
-    const leaveDays = attendanceRecords.filter(r => r.status === 'LEAVE').length;
-    const halfDays = attendanceRecords.filter(r => r.status === 'HALF_DAY').length;
+    const presentDays = attendanceRecords.filter(
+      (r) => r.status === 'PRESENT',
+    ).length;
+    const absentDays = attendanceRecords.filter(
+      (r) => r.status === 'ABSENT',
+    ).length;
+    const leaveDays = attendanceRecords.filter(
+      (r) => r.status === 'LEAVE',
+    ).length;
+    const halfDays = attendanceRecords.filter(
+      (r) => r.status === 'HALF_DAY',
+    ).length;
 
     return {
       student: {
@@ -476,7 +535,10 @@ export class StudentService {
         absentDays,
         leaveDays,
         halfDays,
-        percentage: totalDays > 0 ? ((presentDays + halfDays * 0.5) / totalDays) * 100 : 0,
+        percentage:
+          totalDays > 0
+            ? ((presentDays + halfDays * 0.5) / totalDays) * 100
+            : 0,
       },
       bySubject: subjectStats,
       records: attendanceRecords,
@@ -519,7 +581,7 @@ export class StudentService {
     const averagePercentage = totalExams > 0 ? totalPercentage / totalExams : 0;
     const averageGPA = totalExams > 0 ? totalGPA / totalExams : 0;
 
-    console.log(student)
+    console.log(student);
     return {
       student: {
         id: student.id,

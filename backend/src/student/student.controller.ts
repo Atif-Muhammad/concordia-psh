@@ -26,13 +26,43 @@ export class StudentController {
   ) {}
 
   @Get('get/all/passout')
-  async getPassoutStudents() {
-    return await this.studentService.getPassedOutStudents();
+  async getPassoutStudents(
+    @Query('programId') programId?: string,
+    @Query('classId') classId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('searchQuery') searchQuery?: string,
+  ) {
+    if (!programId && !classId && !sectionId && !searchQuery) return [];
+
+    if (searchQuery && searchQuery.trim() !== '') {
+      return await this.studentService.search(searchQuery, true); 
+    }
+
+    return await this.studentService.getPassedOutStudents({
+      programId: (programId && Number(programId)) || null,
+      classId: (classId && Number(classId)) || null,
+      sectionId: (sectionId && Number(sectionId)) || null,
+    });
   }
   @Get('get/all')
-  async getStudents() {
-    return await this.studentService.getAllStudents();
+  async getStudents(
+    @Query('programId') programId?: string,
+    @Query('classId') classId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('searchQuery') searchQuery?: string,
+  ) {
+    if (!programId && !classId && !sectionId) return [];
+
+    if (searchQuery && searchQuery.trim() !== '') {
+      return await this.studentService.search(searchQuery, false);
+    }
+    return await this.studentService.getAllStudents({
+      programId: (programId && Number(programId)) || null,
+      classId: (classId && Number(classId)) || null,
+      sectionId: (sectionId && Number(sectionId)) || null,
+    });
   }
+
   @Get('search')
   async searchStudent(@Query('searchFor') searchFor: string) {
     return await this.studentService.search(searchFor);
@@ -45,11 +75,15 @@ export class StudentController {
     @Body() payload: StudentDto,
   ) {
     // check if the roll number is already taken
-    const takenRoll = await this.studentService.getStudentByNumber(payload.rollNumber)
-    if(takenRoll) throw new ConflictException("Student Roll Number is already taken -- try assigning another")
+    const takenRoll = await this.studentService.getStudentByNumber(
+      payload.rollNumber,
+    );
+    if (takenRoll)
+      throw new ConflictException(
+        'Student Roll Number is already taken -- try assigning another',
+      );
     let url: string | null = null;
     let public_id: string | null = null;
-
 
     if (file) {
       // upload photo

@@ -33,6 +33,8 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -46,7 +48,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   getStudents,
   createStudent,
@@ -59,7 +61,8 @@ import {
   getPassedOutStudents,
   getStudentFeeHistory,
   getStudentAttendance,
-  getStudentResults
+  getStudentResults,
+  searchStudents
 } from "../../config/apis";
 import {
   UserPlus,
@@ -74,7 +77,11 @@ import {
   IdCard,
   Upload,
   X,
+  Search,
+  Check,
+  ChevronsUpDown,
 } from "lucide-react";
+import { cn } from "../lib/utils";
 
 // Mock data for fees, attendance, results (replace with real APIs later)
 const mockFees = [
@@ -95,24 +102,81 @@ const Students = () => {
   const queryClient = useQueryClient();
 
   // ──────────────────────────────────────────────────────────────
+  // UI State
+  // ──────────────────────────────────────────────────────────────
+  const [open, setOpen] = useState(false);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [promoteOpen, setPromoteOpen] = useState(false);
+  const [meritOpen, setMeritOpen] = useState(false);
+  const [idCardOpen, setIdCardOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState(null);
+  const [editingStudent, setEditingStudent] = useState(null);
+  const [viewStudent, setViewStudent] = useState(null);
+  const [selectedForPromotion, setSelectedForPromotion] = useState([]);
+  const [promotionAction, setPromotionAction] = useState("promote");
+  const [showPassedOut, setShowPassedOut] = useState(false);
+  const [selectedFeeSession, setSelectedFeeSession] = useState("current");
+  const [selectedStudent, setSelectedStudent] = useState({})
+
+  // Filters
+  const [searchQuery, setSearchQuery] = useState("");
+  const [studentSearchOpen, setStudentSearchOpen] = useState(false);
+  const [filterProgram, setFilterProgram] = useState(null);
+  const [filterClass, setFilterClass] = useState(null);
+  const [filterSection, setFilterSection] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
+
+  const searchTimeoutRef = useRef(null);
+
+
+  // ──────────────────────────────────────────────────────────────
   // API Queries
   // ──────────────────────────────────────────────────────────────
-  const {
-    data: students = [],
-    isLoading: loadingStudents,
-  } = useQuery({
-    queryKey: ["students"],
-    queryFn: getStudents,
-  });
-
   const { data: programData = [] } = useQuery({
     queryKey: ["programs-with-classes"],
     queryFn: getProgramNames,
   });
 
+
+  const {
+  data: passedOutStudents = [],
+  isLoading: loadingPassedOut,
+  refetch: refetchPassedOut,
+} = useQuery({
+  queryKey: ["passedOutStudents", filterProgram, filterClass, filterSection, searchQuery],
+  queryFn: () => {
+    // Don't fetch if no filters are selected (except search)
+    if (!filterProgram && !filterClass && !filterSection && !searchQuery) {
+      return Promise.resolve([]);
+    }
+    // You need to update getPassedOutStudents to accept searchQuery parameter
+    return getPassedOutStudents(filterProgram, filterClass, filterSection, searchQuery);
+  },
+  enabled: showPassedOut,
+});
+
+
+  const {
+    data: students = [],
+    isLoading: loadingStudents,
+    refetch: refetchStudents,
+  } = useQuery({
+    queryKey: ["students", filterProgram, filterClass, filterSection, searchQuery],
+    queryFn: () => {
+      // Don't fetch if no filters are selected (except search)
+      if (!filterProgram && !filterClass && !filterSection && !searchQuery) {
+        return Promise.resolve([]);
+      }
+      return getStudents(filterProgram, filterClass, filterSection, searchQuery);
+    },
+    enabled: true,
+  });;
+
   // ──────────────────────────────────────────────────────────────
   // Mutations
   // ──────────────────────────────────────────────────────────────
+
   const createMut = useMutation({
     mutationFn: createStudent,
     onSuccess: () => {
@@ -167,25 +231,7 @@ const Students = () => {
       }),
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // UI State
-  // ──────────────────────────────────────────────────────────────
-  const [open, setOpen] = useState(false);
-  const [viewOpen, setViewOpen] = useState(false);
-  const [promoteOpen, setPromoteOpen] = useState(false);
-  const [meritOpen, setMeritOpen] = useState(false);
-  const [idCardOpen, setIdCardOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [studentToDelete, setStudentToDelete] = useState(null);
-  const [editingStudent, setEditingStudent] = useState(null);
-  const [viewStudent, setViewStudent] = useState(null);
-  const [selectedForPromotion, setSelectedForPromotion] = useState([]);
-  const [promotionAction, setPromotionAction] = useState("promote");
-  const [showPassedOut, setShowPassedOut] = useState(false);
-  const [passedOutFilterProgram, setPassedOutFilterProgram] = useState("all");
-  const [passedOutFilterClass, setPassedOutFilterClass] = useState("all");
-  const [passedOutFilterSection, setPassedOutFilterSection] = useState("all");
-  const [selectedFeeSession, setSelectedFeeSession] = useState("current");
+
 
   // Fetch student fee history when viewing a student
   const { data: studentFees = [], isLoading: feesLoading } = useQuery({
@@ -208,21 +254,32 @@ const Students = () => {
     enabled: !!viewStudent?.id,
   });
 
-  const {
-    data: passedOutStudents = [],
-    isLoading: loadingPassedOut,
-  } = useQuery({
-    queryKey: ["passedOutStudents"],
-    queryFn: getPassedOutStudents,
-    enabled: showPassedOut,
-  });
-  // Filters
-  const [filterProgram, setFilterProgram] = useState("all");
-  const [filterClass, setFilterClass] = useState("all");
-  const [filterSection, setFilterSection] = useState("all");
-  const [listFilterProgram, setListFilterProgram] = useState("all");
-  const [listFilterClass, setListFilterClass] = useState("all");
-  const [listFilterSection, setListFilterSection] = useState("all");
+
+  const handleStudentSearch = (v) => {
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    // Set new timeout
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        setSearchQuery(v);
+        // If search is not empty, we should fetch students
+        if (v.trim() !== "") {
+          refetchStudents();
+        } else {
+          // If search is cleared, we should only refetch if we have filters
+          if (filterProgram || filterClass || filterSection) {
+            refetchStudents();
+          }
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }, 300); // 300ms debounce delay
+  };
+
 
   // Form
   const [formData, setFormData] = useState({
@@ -611,10 +668,22 @@ const Students = () => {
     win?.document.write(html);
   };
 
+
+
+  // Clear filters
+  const clearFilters = () => {
+    setFilterProgram(null);
+    setFilterClass(null);
+    setFilterSection(null);
+    setShowFilters(false);
+  };
+
+
+  const currentStudents = showPassedOut ? passedOutStudents : students;
+
   // ──────────────────────────────────────────────────────────────
   // Render
   // ──────────────────────────────────────────────────────────────
-  if (loadingStudents) return <div className="p-8">Loading students...</div>;
 
   return (
     <DashboardLayout>
@@ -624,7 +693,7 @@ const Students = () => {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h2 className="text-2xl font-bold mb-2">Student Management</h2>
-              <p>Total Students: {students.length}</p>
+              <p>Total Students: {students?.length || 0}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -637,9 +706,9 @@ const Students = () => {
                 {showPassedOut ? "All Students" : "Passed Out"}
               </Button>
 
-              <Button size="sm" onClick={() => setMeritOpen(true)} variant="outline" className="gap-2">
+              {/* <Button size="sm" onClick={() => setMeritOpen(true)} variant="outline" className="gap-2">
                 <Award className="w-4 h-4" /> Merit List
-              </Button>
+              </Button> */}
               <Button size="sm" onClick={() => setPromoteOpen(true)} variant="outline" className="gap-2">
                 <TrendingUp className="w-4 h-4" /> Promote
               </Button>
@@ -656,40 +725,27 @@ const Students = () => {
             </div>
           </div>
         </div>
-
-
-
-        {/* Main Table */}
-        <Card className="shadow-soft">
-          <CardHeader>
-            <CardTitle>
-              {showPassedOut ? "Passed Out Students" : "All Students"}
-              {loadingPassedOut && " (Loading...)"}
-            </CardTitle>
+        {/* filters */}
+        <Card className="shadow-soft w-full">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Filter Students</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-
-            {/* Filters — show for both views */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-muted rounded-lg">
+          <CardContent className="grid grid-row-2 grid-cols-1 gap-2 w-full">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 w-full ">
               <div>
                 <Label>Program</Label>
                 <Select
-                  value={showPassedOut ? passedOutFilterProgram : listFilterProgram}
-                  onValueChange={(v) => {
-                    if (showPassedOut) {
-                      setPassedOutFilterProgram(v);
-                      setPassedOutFilterClass("all");
-                      setPassedOutFilterSection("all");
-                    } else {
-                      setListFilterProgram(v);
-                      setListFilterClass("all");
-                      setListFilterSection("all");
-                    }
+                  value={filterProgram || ""}
+                  onValueChange={(value) => {
+                    setFilterProgram(value || null);
+                    setFilterClass(null);
+                    setFilterSection(null);
                   }}
                 >
-                  <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Program" />
+                  </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Programs</SelectItem>
                     {programData.map((p) => (
                       <SelectItem key={p.id} value={p.id.toString()}>
                         {p.name}
@@ -702,28 +758,18 @@ const Students = () => {
               <div>
                 <Label>Class</Label>
                 <Select
-                  value={showPassedOut ? passedOutFilterClass : listFilterClass}
-                  onValueChange={(v) => {
-                    if (showPassedOut) {
-                      setPassedOutFilterClass(v);
-                      setPassedOutFilterSection("all");
-                    } else {
-                      setListFilterClass(v);
-                      setListFilterSection("all");
-                    }
+                  value={filterClass || ""}
+                  onValueChange={(value) => {
+                    setFilterClass(value || null);
+                    setFilterSection(null);
                   }}
-                  disabled={
-                    (showPassedOut ? passedOutFilterProgram : listFilterProgram) === "all"
-                  }
+                  disabled={!filterProgram}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="All" />
+                    <SelectValue placeholder={filterProgram ? "Select Class" : "Select Program First"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Classes</SelectItem>
-                    {getClassesForProgram(
-                      showPassedOut ? passedOutFilterProgram : listFilterProgram
-                    ).map((c) => (
+                    {getClassesForProgram(filterProgram).map((c) => (
                       <SelectItem key={c.id} value={c.id.toString()}>
                         {c.name}
                       </SelectItem>
@@ -735,25 +781,15 @@ const Students = () => {
               <div>
                 <Label>Section</Label>
                 <Select
-                  value={showPassedOut ? passedOutFilterSection : listFilterSection}
-                  onValueChange={(v) =>
-                    showPassedOut
-                      ? setPassedOutFilterSection(v)
-                      : setListFilterSection(v)
-                  }
-                  disabled={
-                    (showPassedOut ? passedOutFilterClass : listFilterClass) === "all"
-                  }
+                  value={filterSection || ""}
+                  onValueChange={(value) => setFilterSection(value || null)}
+                  disabled={!filterClass}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="All" />
+                    <SelectValue placeholder={filterClass ? "Select Section" : "Select Class First"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Sections</SelectItem>
-                    {getSectionsForClass(
-                      showPassedOut ? passedOutFilterProgram : listFilterProgram,
-                      showPassedOut ? passedOutFilterClass : listFilterClass
-                    ).map((s) => (
+                    {getSectionsForClass(filterProgram, filterClass).map((s) => (
                       <SelectItem key={s.id} value={s.id.toString()}>
                         {s.name}
                       </SelectItem>
@@ -761,9 +797,29 @@ const Students = () => {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
 
-            {/* Table */}
+              <div className="flex items-end w-fit">
+                <Button onClick={clearFilters} variant="outline">
+                  Clear
+                </Button>
+              </div>
+            </div>
+            <Command shouldFilter={false}>
+              <CommandInput placeholder="Search by name or roll no..." onValueChange={v => handleStudentSearch(v)} />
+            </Command>
+          </CardContent>
+        </Card>
+
+        {/* Main Table */}
+        <Card className="shadow-soft">
+          <CardHeader>
+            <CardTitle>
+              {showPassedOut ? "Passed Out Students" : "Active Students"}
+              {(loadingPassedOut && showPassedOut) && " (Loading...)"}
+              {(loadingStudents && !showPassedOut) && " (Loading...)"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -777,59 +833,75 @@ const Students = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(showPassedOut
-                  ? passedOutStudents.filter((s) => {
-                    if (passedOutFilterProgram !== "all" && s.programId !== Number(passedOutFilterProgram)) return false;
-                    if (passedOutFilterClass !== "all" && s.classId !== Number(passedOutFilterClass)) return false;
-                    if (passedOutFilterSection !== "all" && s.sectionId !== Number(passedOutFilterSection)) return false;
-                    return true;
-                  })
-                  : getFilteredStudents()
-                ).map((student) => {
-                  const prog = programData.find((p) => p.id === student.programId);
-                  const cls = prog?.classes.find((c) => c.id === student.classId);
-                  const sec = cls?.sections.find((s) => s.id === student.sectionId);
-
-                  return (
-                    <TableRow key={student.id}>
-                      <TableCell>
-                        <Avatar>
-                          <AvatarImage src={student.photo_url} />
-                          <AvatarFallback>{student.fName}</AvatarFallback>
-                        </Avatar>
-                      </TableCell>
-                      <TableCell className="font-medium">{student.rollNumber}</TableCell>
-                      <TableCell>{student.fName} {student.mName} {student.lName}</TableCell>
-                      <TableCell><Badge variant="outline">{prog?.name || "-"}</Badge></TableCell>
-                      <TableCell>
-                        {showPassedOut ? (
-                          <Badge variant="secondary">Passed Out</Badge>
-                        ) : (
-                          cls?.name || "-"
+                {currentStudents?.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={showPassedOut ? 6 : 7} className="text-center py-8">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <p className="text-muted-foreground">
+                          {showPassedOut
+                            ? "No passed out students found"
+                            : "No students found. Try adjusting your filters or add a new student."}
+                        </p>
+                        {(filterProgram || filterClass || filterSection) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={clearFilters}
+                          >
+                            Clear Filters
+                          </Button>
                         )}
-                      </TableCell>
-                      <TableCell>{sec?.name || <span className="text-muted-foreground">N/A</span>}</TableCell>
-                      {!showPassedOut && (
+                      </div>
+
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  currentStudents?.map((student) => {
+                    const prog = programData.find((p) => p.id === student.programId);
+                    const cls = prog?.classes.find((c) => c.id === student.classId);
+                    const sec = cls?.sections.find((s) => s.id === student.sectionId);
+
+                    return (
+                      <TableRow key={student.id}>
                         <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setViewOpen(true); }}>
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => openEdit(student)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => { setStudentToDelete(student.id); setDeleteDialogOpen(true); }}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setIdCardOpen(true); }}>
-                              <IdCard className="w-4 h-4" />
-                            </Button>
-                          </div>
+                          <Avatar>
+                            <AvatarImage src={student.photo_url} />
+                            <AvatarFallback>{student.fName}</AvatarFallback>
+                          </Avatar>
                         </TableCell>
-                      )}
-                    </TableRow>
-                  );
-                })}
+                        <TableCell className="font-medium">{student.rollNumber}</TableCell>
+                        <TableCell>{student.fName} {student.mName} {student.lName}</TableCell>
+                        <TableCell><Badge variant="outline">{prog?.name || "-"}</Badge></TableCell>
+                        <TableCell>
+                          {showPassedOut ? (
+                            <Badge variant="secondary">Passed Out</Badge>
+                          ) : (
+                            cls?.name || "-"
+                          )}
+                        </TableCell>
+                        <TableCell>{sec?.name || <span className="text-muted-foreground">N/A</span>}</TableCell>
+                        {!showPassedOut && (
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setViewOpen(true); }}>
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => openEdit(student)}>
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => { setStudentToDelete(student.id); setDeleteDialogOpen(true); }}>
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setIdCardOpen(true); }}>
+                                <IdCard className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    );
+                  })
+                )}
               </TableBody>
             </Table>
           </CardContent>
@@ -1584,7 +1656,7 @@ const Students = () => {
                   <Select value={filterProgram} onValueChange={setFilterProgram}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="">Select a Program</SelectItem>
                       {programData.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -1594,7 +1666,7 @@ const Students = () => {
                   <Select value={filterClass} onValueChange={setFilterClass} disabled={filterProgram === "all"}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="">Select a Class</SelectItem>
                       {getClassesForProgram(filterProgram).map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -1604,7 +1676,7 @@ const Students = () => {
                   <Select value={filterSection} onValueChange={setFilterSection} disabled={filterClass === "all"}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="">Select a Section(if any)</SelectItem>
                       {getSectionsForClass(filterProgram, filterClass).map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -1634,12 +1706,7 @@ const Students = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {students.filter(s => {
-                    if (filterProgram !== "all" && s.programId !== Number(filterProgram)) return false;
-                    if (filterClass !== "all" && s.classId !== Number(filterClass)) return false;
-                    if (filterSection !== "all" && s.sectionId !== Number(filterSection)) return false;
-                    return true;
-                  }).map(s => (
+                  {students?.map(s => (
                     <TableRow key={s.id}>
                       <TableCell>
                         <input

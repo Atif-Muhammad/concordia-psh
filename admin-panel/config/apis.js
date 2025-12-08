@@ -1120,9 +1120,9 @@ export const deleteAssignment = async (assID) => {
 
 ///////////////////////////////////////////////////////////////////////////
 // students //
-export const getPassedOutStudents = async () => {
+export const getPassedOutStudents = async (programId, classId, sectionId) => {
   try {
-    const response = await axios.get(`${base_url}/student/get/all/passout`, {
+    const response = await axios.get(`${base_url}/student/get/all/passout?programId=${programId}&classId=${classId}&sectionId=${sectionId}`, {
       withCredentials: true,
     });
     return response.data;
@@ -1136,9 +1136,9 @@ export const getPassedOutStudents = async () => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getStudents = async () => {
+export const getStudents = async (programId, classId, sectionId, searchQuery) => {
   try {
-    const response = await axios.get(`${base_url}/student/get/all`, {
+    const response = await axios.get(`${base_url}/student/get/all?programId=${programId}&classId=${classId}&sectionId=${sectionId}&searchQuery=${searchQuery}`, {
       withCredentials: true,
     });
     return response.data;
