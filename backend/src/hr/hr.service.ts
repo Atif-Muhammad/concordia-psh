@@ -9,19 +9,19 @@ import {
 
 @Injectable()
 export class HrService {
-  constructor(private prismService: PrismaService) { }
+  constructor(private prismService: PrismaService) {}
 
   async fetchEmpls(dept: string) {
     return dept
       ? await this.prismService.employee.findMany({
-        where: {
-          empDepartment: dept as EmployeeDepartment,
-        },
-        orderBy: { name: 'asc' },
-      })
+          where: {
+            empDepartment: dept as EmployeeDepartment,
+          },
+          orderBy: { name: 'asc' },
+        })
       : await this.prismService.employee.findMany({
-        orderBy: { name: 'asc' },
-      });
+          orderBy: { name: 'asc' },
+        });
   }
 
   async createEmp(payload: EmployeeDto) {
@@ -131,7 +131,7 @@ export class HrService {
   async getPayrollSheet(month: string, type: 'teacher' | 'employee') {
     // Get payroll settings for deduction rates
     const settings: any = await this.getPayrollSettings();
-    console.log('Payroll Settings:', settings);
+    // console.log('Payroll Settings:', settings);
 
     // Parse month to get date range (YYYY-MM)
     const [year, monthNum] = month.split('-').map(Number);
@@ -181,7 +181,6 @@ export class HrService {
           0,
         );
 
-
         // Calculate deductions for absents/leaves
         const calculatedAbsentDeduction =
           absentCount * (settings.absentDeduction || 0);
@@ -229,7 +228,6 @@ export class HrService {
           0,
           leaveCount - (settings.leavesAllowed || 0),
         );
-
 
         return {
           id: t.id,
@@ -735,5 +733,104 @@ export class HrService {
     return await this.prismService.advanceSalary.delete({
       where: { id },
     });
+  }
+
+  // summary
+  async getTeacherAttendanceSummary(
+    teacherId: number,
+    startDate: Date,
+    endDate: Date,
+  ) {
+    // Verify teacher exists
+    const teacher = await this.prismService.teacher.findUnique({
+      where: { id: teacherId },
+    });
+
+    if (!teacher) {
+      throw new Error('Teacher not found');
+    }
+
+    // Get attendance records for the specified month
+    const attendanceRecords =
+      await this.prismService.teacherAttendance.findMany({
+        where: {
+          teacherId,
+          date: {
+            gte: startDate,
+            lte: endDate,
+          },
+        },
+        select: {
+          status: true,
+          date: true,
+        },
+        orderBy: {
+          date: 'asc',
+        },
+      });
+
+    // Calculate summary
+    const summary = {
+      present: 0,
+      absent: 0,
+      late: 0,
+      leaves: 0,
+      halfDay: 0,
+      holiday: 0,
+      totalDays: attendanceRecords.length,
+      month: `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`,
+      teacherName: teacher.name,
+      teacherId: teacher.id,
+      details: attendanceRecords, // Optional: include detailed records
+    };
+
+    // Count each status
+    attendanceRecords.forEach((record) => {
+      switch (record.status) {
+        case 'PRESENT':
+          summary.present++;
+          break;
+        case 'ABSENT':
+          summary.absent++;
+          break;
+        case 'LEAVE':
+          summary.leaves++;
+          break;
+        case 'HOLIDAY':
+          summary.holiday++;
+          break;
+      }
+    });
+
+    // Also calculate working days in the month (optional)
+    const totalWorkingDays = await this.calculateWorkingDays(
+      startDate,
+      endDate,
+    );
+    summary.totalDays = totalWorkingDays; // Or keep as attended days
+
+    return summary;
+  }
+
+  async calculateWorkingDays(
+    startDate: Date,
+    endDate: Date,
+  ): Promise<number> {
+    // This method calculates total working days in the month excluding weekends
+    // You might want to exclude holidays too if you have a holidays table
+
+    let workingDays = 0;
+    const currentDate = new Date(startDate);
+
+    while (currentDate <= endDate) {
+      const dayOfWeek = currentDate.getDay();
+      // Monday (1) to Friday (5) are working days
+      if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+        workingDays++;
+      }
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    return workingDays;
   }
 }

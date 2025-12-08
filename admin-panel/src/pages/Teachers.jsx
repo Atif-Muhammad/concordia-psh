@@ -23,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { GraduationCap, PlusCircle, Edit, Trash2, UserCheck, CheckCircle2, XCircle, Clock, CalendarIcon } from "lucide-react";
+import { GraduationCap, PlusCircle, Edit, Trash2, UserCheck, CheckCircle2, XCircle, Clock, CalendarIcon, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -34,12 +34,15 @@ import {
   getTeacherAttendance,
   markTeacherAttendance,
   getDepartments,
+  getAttendanceSummary,
+  getPayrollSheet,
 } from "../../config/apis";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const Teachers = () => {
   const { toast } = useToast();
@@ -49,6 +52,11 @@ const Teachers = () => {
   const [teacherToDelete, setTeacherToDelete] = useState(null);
   const [editingTeacher, setEditingTeacher] = useState(null);
   const [activeScreen, setActiveScreen] = useState("management");
+
+  // Detail Dialog States
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [viewTeacher, setViewTeacher] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
 
   // Form State
   const [formData, setFormData] = useState({
@@ -93,6 +101,20 @@ const Teachers = () => {
   });
 
   const [attendanceData, setAttendanceData] = useState({});
+
+  // Teacher Detail Data Queries
+  const { data: teacherAttendanceSummary = [], isLoading: attendanceSummaryLoading } = useQuery({
+    queryKey: ["teacherAttendanceSummary", viewTeacher?.id, selectedMonth],
+    queryFn: () => getAttendanceSummary(selectedMonth, viewTeacher.id, "TEACHER"),
+    enabled: !!viewTeacher?.id && detailDialogOpen,
+  });
+
+  const { data: teacherPayrollHistory = [], isLoading: payrollHistoryLoading } = useQuery({
+    queryKey: ["teacherPayrollHistory", selectedMonth],
+    queryFn: () => getPayrollSheet(selectedMonth, "teacher"),
+    enabled: !!viewTeacher?.id && detailDialogOpen,
+  });
+  console.log(teacherPayrollHistory)
 
   // Mutations
   const createTeacherMutation = useMutation({
@@ -514,6 +536,9 @@ const Teachers = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
+                            <Button size="sm" variant="outline" onClick={() => { setViewTeacher(t); setDetailDialogOpen(true); }}>
+                              <Eye className="h-4 w-4" />
+                            </Button>
                             <Button size="sm" variant="outline" onClick={() => handleEdit(t)}>
                               <Edit className="h-4 w-4" />
                             </Button>
@@ -643,6 +668,178 @@ const Teachers = () => {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* View / Detail Dialog */}
+        <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
+          <DialogContent className="max-w-7xl h-[90vh] overflow-y-auto flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Teacher Profile</DialogTitle>
+            </DialogHeader>
+            {viewTeacher && (
+              <Tabs defaultValue="info" className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="info">Info</TabsTrigger>
+                  <TabsTrigger value="payroll">Payroll History</TabsTrigger>
+                  <TabsTrigger value="attendance">Attendance</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="info" className="space-y-6 pt-4">
+                  <div className="flex items-start gap-6">
+                    <div className="h-24 w-24 rounded-full bg-primary/10 flex items-center justify-center text-3xl font-bold text-primary uppercase">
+                      {viewTeacher.name.charAt(0)}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-2xl font-bold">{viewTeacher.name}</h3>
+                      <p className="text-muted-foreground">{viewTeacher.email}</p>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <Badge>{viewTeacher.teacherType}</Badge>
+                        <Badge variant={viewTeacher.teacherStatus === "ACTIVE" ? "default" : "destructive"}>
+                          {viewTeacher.teacherStatus}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-1">
+                      <h4 className="font-semibold text-sm text-muted-foreground">Contact</h4>
+                      <p>{viewTeacher.phone || "-"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="font-semibold text-sm text-muted-foreground">Department</h4>
+                      <p>{viewTeacher.department?.name || "-"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="font-semibold text-sm text-muted-foreground">Qualification</h4>
+                      <p>{viewTeacher.highestDegree} - {viewTeacher.specialization}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="font-semibold text-sm text-muted-foreground">Basic Pay</h4>
+                      <p>PKR {viewTeacher.basicPay ? parseFloat(viewTeacher.basicPay).toLocaleString() : "0"}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-sm text-muted-foreground">Documents Status</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {Object.entries(viewTeacher.documents || {}).map(([key, present]) => (
+                        <div key={key} className={`flex items-center gap-2 p-2 rounded border ${present ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
+                          {present ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                          <span className="text-sm capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="payroll" className="space-y-4 pt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Monthly Payroll</h3>
+                    <Input
+                      type="month"
+                      className="w-auto"
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(e.target.value)}
+                    />
+                  </div>
+
+                  {payrollHistoryLoading ? (
+                    <div className="text-center py-8">Loading...</div>
+                  ) : (
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Month</TableHead>
+                            <TableHead>Basic Pay</TableHead>
+                            <TableHead>Allowances</TableHead>
+                            <TableHead>Deductions</TableHead>
+                            <TableHead>Net Salary</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {/* Filter payroll for this teacher from the monthly sheet */}
+                          {teacherPayrollHistory
+                            .filter(p => p.id === viewTeacher.id)
+                            .map(p => (
+                              <TableRow key={p.id}>
+                                <TableCell>{format(new Date(selectedMonth), "MMMM yyyy")}</TableCell>
+                                <TableCell>{p.basicSalary.toLocaleString()}</TableCell>
+                                <TableCell className="text-green-600">+{p.totalAllowances.toLocaleString()}</TableCell>
+                                <TableCell className="text-red-600">-{p.totalDeductions.toLocaleString()}</TableCell>
+                                <TableCell className="font-bold">{p.netSalary.toLocaleString()}</TableCell>
+                                <TableCell>
+                                  <Badge variant={p.status === "PAID" ? "default" : "outline"}>{p.status}</Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          {teacherPayrollHistory.filter(p => p.id === viewTeacher.id).length === 0 && (
+                            <TableRow>
+                              <TableCell colSpan={6} className="text-center py-4 text-muted-foreground">
+                                No payroll record found for selected month
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="attendance" className="space-y-4 pt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Attendance Summary</h3>
+                    <Input
+                      type="month"
+                      className="w-auto"
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(e.target.value)}
+                    />
+                  </div>
+
+                  {attendanceSummaryLoading ? (
+                    <div className="text-center py-8">Loading...</div>
+                  ) : (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-4 gap-4">
+                        <Card className="bg-green-50 border-green-100">
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-green-700">{teacherAttendanceSummary?.present || 0}</div>
+                            <div className="text-sm text-green-600">Present</div>
+                          </CardContent>
+                        </Card>
+                        <Card className="bg-red-50 border-red-100">
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-red-700">{teacherAttendanceSummary?.absent || 0}</div>
+                            <div className="text-sm text-red-600">Absent</div>
+                          </CardContent>
+                        </Card>
+                        <Card className="bg-orange-50 border-orange-100">
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-orange-700">{teacherAttendanceSummary?.leaves || 0}</div>
+                            <div className="text-sm text-orange-600">Leaves</div>
+                          </CardContent>
+                        </Card>
+                        <Card className="bg-blue-50 border-blue-100">
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-blue-700">{teacherAttendanceSummary?.late || 0}</div>
+                            <div className="text-sm text-blue-600">Late</div>
+                          </CardContent>
+                        </Card>
+                      </div>
+
+                      {/* Maybe a day-wise list if available later */}
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+            )}
+            <div className="flex justify-end mt-4">
+              <Button variant="outline" onClick={() => setDetailDialogOpen(false)}>Close</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

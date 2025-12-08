@@ -126,4 +126,16 @@ export class HrController {
         return await this.hrService.deleteAdvanceSalary(Number(id));
     }
 
+    // summary
+    @Get("attendance-summary")
+    async getAttendanceSummary(@Query("month") month: string, @Query("staffId") staffId: number, @Query("type") type: string){
+        const [year, monthNum] = month.split('-').map(Number);
+        const startDate = new Date(year, monthNum - 1, 1);
+        const endDate = new Date(year, monthNum, 0); // Last day of the month
+        if(type === "TEACHER"){
+            return await this.hrService.getTeacherAttendanceSummary(staffId, startDate, endDate)
+        }
+    }
+
+
 }
