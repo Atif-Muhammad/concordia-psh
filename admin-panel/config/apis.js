@@ -1873,7 +1873,6 @@ export const getStudentFeeHistory = async (studentId) => {
   }
 };
 
-
 export const getStudentFeeSummary = async (studentId) => {
   try {
     const response = await axios.get(`${base_url}/fee-management/student/summary?studentId=${studentId}`, {
@@ -1885,6 +1884,19 @@ export const getStudentFeeSummary = async (studentId) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
+
+export const getStudentArrears = async (studentId) => {
+  try {
+    const response = await axios.get(`${base_url}/fee-management/student/arrears?studentId=${studentId}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 export const delVisitor = async (id) => {
   try {
     const { data } = await axios.delete(

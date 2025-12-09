@@ -18,7 +18,7 @@ import {
   createFeeStructure, getFeeStructures, updateFeeStructure, deleteFeeStructure,
   getPrograms, getClasses,
   createFeeChallan, getFeeChallans, updateFeeChallan, deleteFeeChallan, getStudentFeeHistory,
-  searchStudents, getStudentFeeSummary, getRevenueOverTime, getClassCollectionStats
+  searchStudents, getStudentFeeSummary, getStudentArrears, getRevenueOverTime, getClassCollectionStats
 } from "../../config/apis";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -38,6 +38,7 @@ const FeeManagement = () => {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentFeeHistory, setStudentFeeHistory] = useState([]);
   const [studentFeeSummary, setStudentFeeSummary] = useState(null);
+  const [studentArrears, setStudentArrears] = useState(null);
   const [challanSearch, setChallanSearch] = useState("");
   const [challanFilter, setChallanFilter] = useState("all");
 
@@ -57,7 +58,8 @@ const FeeManagement = () => {
     dueDate: "",
     discount: "",
     remarks: "",
-    installmentNumber: ""
+    installmentNumber: "",
+    includesArrears: false
   });
   const [feeHeadForm, setFeeHeadForm] = useState({
     name: "",
@@ -237,12 +239,18 @@ const FeeManagement = () => {
   });
 
   const handleSubmitChallan = () => {
-    if (!challanForm.studentId || !challanForm.amount) {
-      toast({ title: "Please fill required fields", variant: "destructive" });
+    // Allow submission if:
+    // 1. Student is selected AND
+    // 2. Either amount is provided OR arrears checkbox is checked
+    if (!challanForm.studentId || (!challanForm.amount && !challanForm.includesArrears)) {
+      toast({
+        title: challanForm.includesArrears ? "Please select a student" : "Please fill required fields",
+        variant: "destructive"
+      });
       return;
     }
 
-    const totalPayable = parseFloat(challanForm.amount);
+    const totalPayable = parseFloat(challanForm.amount) || 0;
     const fineAmount = Number(challanForm.fineAmount) || 0;
     const discount = Number(challanForm.discount) || 0;
 
@@ -261,7 +269,8 @@ const FeeManagement = () => {
       fineAmount: fineAmount,
       remarks: challanForm.remarks,
       installmentNumber: installmentNumber,
-      selectedHeads: challanForm.selectedHeads || []
+      selectedHeads: challanForm.selectedHeads || [],
+      includesArrears: challanForm.includesArrears || false
     };
 
     if (editingChallan) {
@@ -392,10 +401,12 @@ const FeeManagement = () => {
       discount: "",
       remarks: "",
       installmentNumber: "",
-      selectedHeads: []
+      selectedHeads: [],
+      includesArrears: false
     });
     setEditingChallan(null);
     setStudentFeeSummary(null);
+    setStudentArrears(null);
     setSelectedStudent(null);
   };
   const resetFeeHeadForm = () => {
@@ -591,6 +602,7 @@ const FeeManagement = () => {
                 <CardTitle>Fee Challans</CardTitle>
                 <Button onClick={() => {
                   resetChallanForm();
+                  setChallanForm(prev => ({ ...prev, includesArrears: false })); // Ensure field is initialized
                   setChallanOpen(true);
                 }} className="gap-2">
                   <Plus className="w-4 h-4" />Create Challan
@@ -1046,8 +1058,14 @@ const FeeManagement = () => {
                                 setChallanForm({ ...challanForm, studentId: student.id.toString() });
                                 setStudentSearchOpen(false);
                                 try {
-                                  const summary = await getStudentFeeSummary(student.id);
+                                  const [summary, arrears] = await Promise.all([
+                                    getStudentFeeSummary(student.id),
+                                    getStudentArrears(student.id)
+                                  ]);
+
                                   setStudentFeeSummary(summary);
+                                  setStudentArrears(arrears);
+
                                   // Auto-fill amount if available
                                   if (summary) {
                                     const perInstallment = summary.feeStructure ?
@@ -1149,6 +1167,75 @@ const FeeManagement = () => {
                       <div>Discounts: <span className="font-medium text-primary">PKR {Number(challanForm.discount || 0).toLocaleString()}</span></div>
                       <div className="font-bold text-foreground">
                         Total Payable: PKR {Number(challanForm.amount || 0).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ARREARS WARNING BOX - Shows when student has unpaid previous fees */}
+              {studentArrears && studentArrears.totalArrears > 0 && (
+                <div className="bg-destructive/10 border-2 border-destructive/50 p-3 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="font-bold text-destructive flex items-center gap-2">
+                      ⚠️ PREVIOUS ARREARS FOUND
+                    </div>
+                    <div className="text-xl font-bold text-destructive">
+                      PKR {studentArrears.totalArrears.toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-destructive/80">
+                    {studentArrears.arrearsCount} unpaid challan(s) from previous sessions
+                  </div>
+
+                  {/* Compact Arrears Breakdown */}
+                  <details className="text-xs">
+                    <summary className="cursor-pointer font-semibold text-destructive hover:underline">View Breakdown by Session</summary>
+                    <div className="space-y-1.5 mt-2">
+                      {studentArrears.arrearsBySession.map((session, idx) => (
+                        <div key={idx} className="bg-background/80 p-2 rounded border border-destructive/20 text-xs">
+                          <div className="flex justify-between items-center">
+                            <div className="font-semibold text-destructive">
+                              {session.className} - {session.programName}
+                            </div>
+                            <div className="font-bold text-destructive">
+                              PKR {session.totalArrears.toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="text-muted-foreground mt-0.5">
+                            {session.challans.length} challan(s), oldest: {session.challans[0]?.daysOverdue} days overdue
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+
+                  {/* Include Arrears Checkbox */}
+                  <div className="bg-destructive/5 p-2 rounded border border-destructive/30">
+                    <div className="flex items-start space-x-2">
+                      <input
+                        type="checkbox"
+                        id="includesArrears"
+                        className="w-4 h-4 mt-0.5 cursor-pointer"
+                        checked={challanForm.includesArrears || false}
+                        onChange={(e) => {
+                          const isChecked = e.target.checked;
+                          setChallanForm({
+                            ...challanForm,
+                            includesArrears: isChecked,
+                            // When arrears-only, set amount to 0
+                            amount: isChecked ? "0" : challanForm.amount
+                          });
+                        }}
+                      />
+                      <div className="flex-1">
+                        <Label htmlFor="includesArrears" className="font-semibold cursor-pointer text-sm">
+                          Pay arrears only (PKR {studentArrears.totalArrears.toLocaleString()})
+                        </Label>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          Creates arrears challan stored against original session
+                        </div>
                       </div>
                     </div>
                   </div>

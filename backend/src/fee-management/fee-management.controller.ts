@@ -10,7 +10,7 @@ import { FeeReportQueryDto } from './dtos/fee-report-query.dto';
 
 @Controller('fee-management')
 export class FeeManagementController {
-  constructor(private readonly feeService: FeeManagementService) {}
+  constructor(private readonly feeService: FeeManagementService) { }
 
   // Fee Heads
   @Post('head/create')
@@ -109,5 +109,11 @@ export class FeeManagementController {
   @Get('student/summary')
   async getStudentFeeSummary(@Query('studentId') studentId: string) {
     return await this.feeService.getStudentFeeSummary(Number(studentId));
+  }
+
+  // Arrears
+  @Get('student/arrears')
+  async getStudentArrears(@Query('studentId') studentId: string) {
+    return await this.feeService.getStudentArrears(Number(studentId));
   }
 }

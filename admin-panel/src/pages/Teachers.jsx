@@ -114,7 +114,6 @@ const Teachers = () => {
     queryFn: () => getPayrollSheet(selectedMonth, "teacher"),
     enabled: !!viewTeacher?.id && detailDialogOpen,
   });
-  console.log(teacherPayrollHistory)
 
   // Mutations
   const createTeacherMutation = useMutation({

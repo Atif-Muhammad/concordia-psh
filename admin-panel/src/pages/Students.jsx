@@ -1656,7 +1656,7 @@ const Students = () => {
                   <Select value={filterProgram} onValueChange={setFilterProgram}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Select a Program</SelectItem>
+                      <SelectItem value="*">Select a Program</SelectItem>
                       {programData.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -1666,7 +1666,7 @@ const Students = () => {
                   <Select value={filterClass} onValueChange={setFilterClass} disabled={filterProgram === "all"}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Select a Class</SelectItem>
+                      <SelectItem value="*">Select a Class</SelectItem>
                       {getClassesForProgram(filterProgram).map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -1676,7 +1676,7 @@ const Students = () => {
                   <Select value={filterSection} onValueChange={setFilterSection} disabled={filterClass === "all"}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Select a Section(if any)</SelectItem>
+                      <SelectItem value="*">Select a Section(if any)</SelectItem>
                       {getSectionsForClass(filterProgram, filterClass).map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
                     </SelectContent>
                   </Select>

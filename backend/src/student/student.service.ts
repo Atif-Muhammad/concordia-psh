@@ -8,7 +8,7 @@ import { StudentDto } from './dtos/student.dto';
 
 @Injectable()
 export class StudentService {
-  constructor(private prismaService: PrismaService) {}
+  constructor(private prismaService: PrismaService) { }
 
   async findOne(id: number) {
     return await this.prismaService.student.findFirst({
@@ -19,15 +19,15 @@ export class StudentService {
       },
     });
   }
-  
+
   async search(query: string, passedOut: boolean = false) {
     return await this.prismaService.student.findMany({
       where: {
         passedOut: passedOut,
         OR: [
-          { fName: { contains: query} },
+          { fName: { contains: query } },
           { mName: { contains: query } },
-          { lName: { contains: query} },
+          { lName: { contains: query } },
           { rollNumber: { contains: query } },
         ],
       },
@@ -168,8 +168,8 @@ export class StudentService {
             });
             throw new BadRequestException(
               `Cannot promote student. Outstanding fees for current class (${currentClass?.name || 'Unknown Class'}). ` +
-                `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
-                `Amount: ${totalPaid}/${currentFeeStructure.totalAmount}`,
+              `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
+              `Amount: ${totalPaid}/${currentFeeStructure.totalAmount}`,
             );
           }
         }
@@ -244,359 +244,375 @@ export class StudentService {
     });
   }
 
-  async promote(id: number) {
-    const student = await this.prismaService.student.findUnique({
+  async promote(id: number, forcePromote = false) {
+    const student = await this.prisma.student.findUnique({
       where: { id },
       include: {
-        class: {
-          include: {
-            program: { include: { classes: { include: { sections: true } } } },
-          },
-        },
-        section: true,
-      },
+        class: true,
+        program: true
+      }
     });
 
-    if (!student) throw new NotFoundException('Student not found');
-    if (student.passedOut)
-      throw new BadRequestException('Student already passed out');
-
-    const program = student.class.program;
-
-    // FIXED SORTING
-    const classes = program.classes.sort((a, b) => {
-      if (a.isSemester && b.isSemester) {
-        return (a.semester ?? 0) - (b.semester ?? 0);
-      }
-      if (!a.isSemester && !b.isSemester) {
-        return (a.year ?? 0) - (b.year ?? 0);
-      }
-      if (a.isSemester && !b.isSemester) return 1;
-      if (!a.isSemester && b.isSemester) return -1;
-      return 0;
-    });
-
-    const curIdx = classes.findIndex((c) => c.id === student.classId);
-    if (curIdx >= classes.length - 1) {
-      throw new BadRequestException('Student is already in the final class');
+    if (!student) {
+      throw new NotFoundException('Student not found');
     }
 
-    const nextClass = classes[curIdx + 1];
-    const matchingSection = nextClass.sections.find(
-      (s) => s.name === student.section?.name,
-    );
+    // Check for unpaid fees in CURRENT session (before promotion)
+    if (!forcePromote && student.classId && student.programId) {
+      const currentSessionChallans = await this.prisma.feeChallan.findMany({
+        where: {
+          studentId: id,
+          studentClassId: student.classId,
+          studentProgramId: student.programId
+        },
+        include: {
+          feeStructure: true
+        }
+      });
 
-    return this.prismaService.student.update({
+      // Calculate what's paid vs what's expected for current session
+      let totalPaid = 0;
+      let expectedTotal = 0;
+
+      for (const challan of currentSessionChallans) {
+        if (challan.status === 'PAID') {
+          totalPaid += challan.paidAmount || 0;
+        }
+        if (challan.feeStructure) {
+          expectedTotal = challan.feeStructure.totalAmount;
+        }
+      }
+
+      const outstandingAmount = expectedTotal - totalPaid;
+
+      if (outstandingAmount > 0) {
+        // Return error with arrears info so frontend can prompt admin
+        throw new Error(
+          `ARREARS_WARNING:${outstandingAmount}:${student.class?.name}:${student.program?.name}` +
+          `|Student has outstanding fees of PKR ${outstandingAmount.toLocaleString()} ` +
+          `for ${student.class?.name} - ${student.program?.name}. ` +
+          `Promoting will move these to arrears.`
+        );
+      }
+    }
+
+    // Proceed with promotion
+    const currentClass = student.class;
+    if (!currentClass) {
+      throw new NotFoundException('Current class not found');
+    }
+
+    const nextClass = await this.prisma.class.findFirst({
+      where: {
+        sequence: currentClass.sequence + 1
+      }
+    });
+
+    if (!nextClass) {
+      throw new Error('No next class available for promotion');
+    }
+
+    return await this.prisma.student.update({
       where: { id },
       data: {
-        class: { connect: { id: nextClass.id } },
-        section: matchingSection
-          ? { connect: { id: matchingSection.id } }
-          : { disconnect: true },
-        passedOut: false,
+        classId: nextClass.id
       },
-    });
-  }
-  async demote(id: number) {
-    const student = await this.prismaService.student.findUnique({
-      where: { id },
       include: {
-        class: {
-          include: {
-            program: { include: { classes: { include: { sections: true } } } },
-          },
+        include: {
+          program: { include: { classes: { include: { sections: true } } } },
         },
-        section: true,
       },
-    });
+      section: true,
+    },
+  });
 
-    if (!student) throw new NotFoundException('Student not found');
-    if (student.passedOut)
-      throw new BadRequestException('Student already passed out');
+  if(!student) throw new NotFoundException('Student not found');
+if (student.passedOut)
+  throw new BadRequestException('Student already passed out');
 
-    const program = student.class.program;
-    const classes = program.classes.sort((a, b) => {
-      if (a.isSemester && b.isSemester) {
-        return (a.semester ?? 0) - (b.semester ?? 0);
-      }
-      if (!a.isSemester && !b.isSemester) {
-        return (a.year ?? 0) - (b.year ?? 0);
-      }
-      if (a.isSemester && !b.isSemester) return 1;
-      if (!a.isSemester && b.isSemester) return -1;
-      return 0;
-    });
-
-    const curIdx = classes.findIndex((c) => c.id === student.classId);
-    if (curIdx <= 0) {
-      throw new BadRequestException('Cannot demote below entry level');
-    }
-
-    const prevClass = classes[curIdx - 1];
-    const matchingSection = prevClass.sections.find(
-      (s) => s.name === student.section?.name,
-    );
-
-    return this.prismaService.student.update({
-      where: { id },
-      data: {
-        class: { connect: { id: prevClass.id } },
-        section: matchingSection
-          ? { connect: { id: matchingSection.id } }
-          : { disconnect: true },
-        passedOut: false,
-      },
-    });
+const program = student.class.program;
+const classes = program.classes.sort((a, b) => {
+  if (a.isSemester && b.isSemester) {
+    return (a.semester ?? 0) - (b.semester ?? 0);
   }
+  if (!a.isSemester && !b.isSemester) {
+    return (a.year ?? 0) - (b.year ?? 0);
+  }
+  if (a.isSemester && !b.isSemester) return 1;
+  if (!a.isSemester && b.isSemester) return -1;
+  return 0;
+});
+
+const curIdx = classes.findIndex((c) => c.id === student.classId);
+if (curIdx <= 0) {
+  throw new BadRequestException('Cannot demote below entry level');
+}
+
+const prevClass = classes[curIdx - 1];
+const matchingSection = prevClass.sections.find(
+  (s) => s.name === student.section?.name,
+);
+
+return this.prismaService.student.update({
+  where: { id },
+  data: {
+    class: { connect: { id: prevClass.id } },
+    section: matchingSection
+      ? { connect: { id: matchingSection.id } }
+      : { disconnect: true },
+    passedOut: false,
+  },
+});
+}
 
   async passout(id: number) {
-    const student = await this.prismaService.student.findUnique({
-      where: { id },
-    });
-    if (!student) throw new NotFoundException('Student not found');
-    if (student.passedOut)
-      throw new BadRequestException('Student already passed out');
+  const student = await this.prismaService.student.findUnique({
+    where: { id },
+  });
+  if (!student) throw new NotFoundException('Student not found');
+  if (student.passedOut)
+    throw new BadRequestException('Student already passed out');
 
-    return this.prismaService.student.update({
-      where: { id },
-      data: {
-        passedOut: true,
-      },
-    });
-  }
+  return this.prismaService.student.update({
+    where: { id },
+    data: {
+      passedOut: true,
+    },
+  });
+}
 
   // get students by sectionid or classid
   async getStudentsByClassSection(id: number, fetchFor: 'class' | 'section') {
-    const where: any = {};
-    if (fetchFor === 'section') {
-      where.sectionId = id;
-    } else {
-      where.classId = id;
-      where.sectionId = null;
-    }
-
-    const students = await this.prismaService.student.findMany({
-      where: { ...where, passedOut: false },
-      select: {
-        id: true,
-        rollNumber: true,
-        fName: true,
-        mName: true,
-        lName: true,
-        class: {
-          select: {
-            id: true,
-            name: true,
-            program: { select: { name: true } },
-          },
-        },
-        section: { select: { id: true, name: true } },
-        attendance: { select: { status: true, date: true } }, // keep shape same
-      },
-    });
-
-    // Format like attendance API output
-    return students.map((s) => ({
-      id: s.id,
-      rollNumber: s.rollNumber,
-      fName: s.fName,
-      mName: s.mName,
-      lName: s.lName,
-      class: s.class,
-      section: s.section,
-      attendance: s.attendance || [], // empty if none
-    }));
+  const where: any = {};
+  if (fetchFor === 'section') {
+    where.sectionId = id;
+  } else {
+    where.classId = id;
+    where.sectionId = null;
   }
+
+  const students = await this.prismaService.student.findMany({
+    where: { ...where, passedOut: false },
+    select: {
+      id: true,
+      rollNumber: true,
+      fName: true,
+      mName: true,
+      lName: true,
+      class: {
+        select: {
+          id: true,
+          name: true,
+          program: { select: { name: true } },
+        },
+      },
+      section: { select: { id: true, name: true } },
+      attendance: { select: { status: true, date: true } }, // keep shape same
+    },
+  });
+
+  // Format like attendance API output
+  return students.map((s) => ({
+    id: s.id,
+    rollNumber: s.rollNumber,
+    fName: s.fName,
+    mName: s.mName,
+    lName: s.lName,
+    class: s.class,
+    section: s.section,
+    attendance: s.attendance || [], // empty if none
+  }));
+}
 
   // Get attendance records for a specific student
   async getStudentAttendance(studentId: number) {
-    const student = await this.prismaService.student.findUnique({
-      where: { id: studentId },
-    });
+  const student = await this.prismaService.student.findUnique({
+    where: { id: studentId },
+  });
 
-    if (!student) throw new NotFoundException('Student not found');
+  if (!student) throw new NotFoundException('Student not found');
 
-    return await this.prismaService.attendance.findMany({
-      where: { studentId },
-      include: {
-        subject: { select: { name: true, code: true } },
-        class: { select: { name: true } },
-        section: { select: { name: true } },
-      },
-      orderBy: { date: 'desc' },
-    });
-  }
+  return await this.prismaService.attendance.findMany({
+    where: { studentId },
+    include: {
+      subject: { select: { name: true, code: true } },
+      class: { select: { name: true } },
+      section: { select: { name: true } },
+    },
+    orderBy: { date: 'desc' },
+  });
+}
 
   // Get exam results for a specific student
   // Get exam results for a specific student
   async getStudentResults(studentId: number) {
-    const student = await this.prismaService.student.findUnique({
-      where: { id: studentId },
-    });
+  const student = await this.prismaService.student.findUnique({
+    where: { id: studentId },
+  });
 
-    if (!student) throw new NotFoundException('Student not found');
+  if (!student) throw new NotFoundException('Student not found');
 
-    return await this.prismaService.result.findMany({
-      where: { studentId },
-      include: {
-        exam: {
-          select: {
-            examName: true,
-            session: true,
-            type: true,
-            startDate: true,
-            program: { select: { name: true } },
-            class: { select: { name: true } },
-          },
+  return await this.prismaService.result.findMany({
+    where: { studentId },
+    include: {
+      exam: {
+        select: {
+          examName: true,
+          session: true,
+          type: true,
+          startDate: true,
+          program: { select: { name: true } },
+          class: { select: { name: true } },
         },
       },
-      orderBy: { exam: { startDate: 'desc' } },
-    });
-  }
+    },
+    orderBy: { exam: { startDate: 'desc' } },
+  });
+}
 
   // Generate attendance report with statistics
   async generateAttendanceReport(studentId: number) {
-    const student = await this.prismaService.student.findUnique({
-      where: { id: studentId },
-      include: {
-        class: { select: { name: true } },
-        section: { select: { name: true } },
-        program: { select: { name: true } },
-      },
-    });
+  const student = await this.prismaService.student.findUnique({
+    where: { id: studentId },
+    include: {
+      class: { select: { name: true } },
+      section: { select: { name: true } },
+      program: { select: { name: true } },
+    },
+  });
 
-    if (!student) throw new NotFoundException('Student not found');
+  if (!student) throw new NotFoundException('Student not found');
 
-    const attendanceRecords = await this.prismaService.attendance.findMany({
-      where: { studentId },
-      include: {
-        subject: { select: { name: true, code: true } },
-      },
-      orderBy: { date: 'asc' },
-    });
+  const attendanceRecords = await this.prismaService.attendance.findMany({
+    where: { studentId },
+    include: {
+      subject: { select: { name: true, code: true } },
+    },
+    orderBy: { date: 'asc' },
+  });
 
-    // Group by subject
-    const bySubject = attendanceRecords.reduce((acc, record) => {
-      const subjectName = record.subject.name;
-      if (!acc[subjectName]) {
-        acc[subjectName] = {
-          subjectName,
-          total: 0,
-          present: 0,
-          absent: 0,
-          leave: 0,
-          halfDay: 0,
-        };
-      }
-      acc[subjectName].total++;
-      if (record.status === 'PRESENT') acc[subjectName].present++;
-      if (record.status === 'ABSENT') acc[subjectName].absent++;
-      if (record.status === 'LEAVE') acc[subjectName].leave++;
-      if (record.status === 'HALF_DAY') acc[subjectName].halfDay++;
-      return acc;
-    }, {});
+  // Group by subject
+  const bySubject = attendanceRecords.reduce((acc, record) => {
+    const subjectName = record.subject.name;
+    if (!acc[subjectName]) {
+      acc[subjectName] = {
+        subjectName,
+        total: 0,
+        present: 0,
+        absent: 0,
+        leave: 0,
+        halfDay: 0,
+      };
+    }
+    acc[subjectName].total++;
+    if (record.status === 'PRESENT') acc[subjectName].present++;
+    if (record.status === 'ABSENT') acc[subjectName].absent++;
+    if (record.status === 'LEAVE') acc[subjectName].leave++;
+    if (record.status === 'HALF_DAY') acc[subjectName].halfDay++;
+    return acc;
+  }, {});
 
-    // Calculate percentages
-    const subjectStats = Object.values(bySubject).map((stat: any) => ({
-      ...stat,
+  // Calculate percentages
+  const subjectStats = Object.values(bySubject).map((stat: any) => ({
+    ...stat,
+    percentage:
+      stat.total > 0
+        ? ((stat.present + stat.halfDay * 0.5) / stat.total) * 100
+        : 0,
+  }));
+
+  // Overall statistics
+  const totalDays = attendanceRecords.length;
+  const presentDays = attendanceRecords.filter(
+    (r) => r.status === 'PRESENT',
+  ).length;
+  const absentDays = attendanceRecords.filter(
+    (r) => r.status === 'ABSENT',
+  ).length;
+  const leaveDays = attendanceRecords.filter(
+    (r) => r.status === 'LEAVE',
+  ).length;
+  const halfDays = attendanceRecords.filter(
+    (r) => r.status === 'HALF_DAY',
+  ).length;
+
+  return {
+    student: {
+      id: student.id,
+      name: `${student.fName} ${student.mName || ''} ${student.lName}`.trim(),
+      rollNumber: student.rollNumber,
+      class: student.class?.name,
+      section: student.section?.name,
+      program: student.program?.name,
+    },
+    overall: {
+      totalDays,
+      presentDays,
+      absentDays,
+      leaveDays,
+      halfDays,
       percentage:
-        stat.total > 0
-          ? ((stat.present + stat.halfDay * 0.5) / stat.total) * 100
+        totalDays > 0
+          ? ((presentDays + halfDays * 0.5) / totalDays) * 100
           : 0,
-    }));
-
-    // Overall statistics
-    const totalDays = attendanceRecords.length;
-    const presentDays = attendanceRecords.filter(
-      (r) => r.status === 'PRESENT',
-    ).length;
-    const absentDays = attendanceRecords.filter(
-      (r) => r.status === 'ABSENT',
-    ).length;
-    const leaveDays = attendanceRecords.filter(
-      (r) => r.status === 'LEAVE',
-    ).length;
-    const halfDays = attendanceRecords.filter(
-      (r) => r.status === 'HALF_DAY',
-    ).length;
-
-    return {
-      student: {
-        id: student.id,
-        name: `${student.fName} ${student.mName || ''} ${student.lName}`.trim(),
-        rollNumber: student.rollNumber,
-        class: student.class?.name,
-        section: student.section?.name,
-        program: student.program?.name,
-      },
-      overall: {
-        totalDays,
-        presentDays,
-        absentDays,
-        leaveDays,
-        halfDays,
-        percentage:
-          totalDays > 0
-            ? ((presentDays + halfDays * 0.5) / totalDays) * 100
-            : 0,
-      },
-      bySubject: subjectStats,
-      records: attendanceRecords,
-    };
-  }
+    },
+    bySubject: subjectStats,
+    records: attendanceRecords,
+  };
+}
 
   // Generate result report with statistics
   async generateResultReport(studentId: number) {
-    const student = await this.prismaService.student.findUnique({
-      where: { id: studentId },
-      include: {
-        class: { select: { name: true } },
-        section: { select: { name: true } },
-        program: { select: { name: true } },
-      },
-    });
+  const student = await this.prismaService.student.findUnique({
+    where: { id: studentId },
+    include: {
+      class: { select: { name: true } },
+      section: { select: { name: true } },
+      program: { select: { name: true } },
+    },
+  });
 
-    if (!student) throw new NotFoundException('Student not found');
+  if (!student) throw new NotFoundException('Student not found');
 
-    const results = await this.prismaService.result.findMany({
-      where: { studentId },
-      include: {
-        exam: {
-          select: {
-            examName: true,
-            session: true,
-            type: true,
-            startDate: true,
-            program: { select: { name: true } },
-          },
+  const results = await this.prismaService.result.findMany({
+    where: { studentId },
+    include: {
+      exam: {
+        select: {
+          examName: true,
+          session: true,
+          type: true,
+          startDate: true,
+          program: { select: { name: true } },
         },
       },
-      orderBy: { exam: { startDate: 'desc' } },
-    });
+    },
+    orderBy: { exam: { startDate: 'desc' } },
+  });
 
-    // Calculate statistics
-    const totalExams = results.length;
-    const totalPercentage = results.reduce((sum, r) => sum + r.percentage, 0);
-    const totalGPA = results.reduce((sum, r) => sum + r.gpa, 0);
-    const averagePercentage = totalExams > 0 ? totalPercentage / totalExams : 0;
-    const averageGPA = totalExams > 0 ? totalGPA / totalExams : 0;
+  // Calculate statistics
+  const totalExams = results.length;
+  const totalPercentage = results.reduce((sum, r) => sum + r.percentage, 0);
+  const totalGPA = results.reduce((sum, r) => sum + r.gpa, 0);
+  const averagePercentage = totalExams > 0 ? totalPercentage / totalExams : 0;
+  const averageGPA = totalExams > 0 ? totalGPA / totalExams : 0;
 
-    console.log(student);
-    return {
-      student: {
-        id: student.id,
-        name: `${student.fName} ${student.mName || ''} ${student.lName}`.trim(),
-        rollNumber: student.rollNumber,
-        class: student.class?.name,
-        section: student.section?.name,
-        program: student.program?.name,
-      },
-      statistics: {
-        totalExams,
-        averagePercentage: parseFloat(averagePercentage.toFixed(2)),
-        averageGPA: parseFloat(averageGPA.toFixed(2)),
-      },
-      results,
-    };
-  }
+  console.log(student);
+  return {
+    student: {
+      id: student.id,
+      name: `${student.fName} ${student.mName || ''} ${student.lName}`.trim(),
+      rollNumber: student.rollNumber,
+      class: student.class?.name,
+      section: student.section?.name,
+      program: student.program?.name,
+    },
+    statistics: {
+      totalExams,
+      averagePercentage: parseFloat(averagePercentage.toFixed(2)),
+      averageGPA: parseFloat(averageGPA.toFixed(2)),
+    },
+    results,
+  };
+}
 }
