@@ -1204,7 +1204,7 @@ const FeeManagement = () => {
                       </div>
                     </details>
                   )}
-
+                  {/* asdasd */}
                   {/* Arrears Payment Checkbox */}
                   <div className="mt-3 pt-3 border-t border-destructive/30">
                     <label className="flex items-center gap-2 cursor-pointer hover:bg-destructive/5 p-2 rounded transition">
