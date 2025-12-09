@@ -36,8 +36,31 @@ export class CreateFeeChallanDto {
   @IsArray()
   @IsOptional()
   selectedHeads?: number[];
-  
+
   @IsNumber()
   @IsOptional()
   installmentNumber?: number;
+
+  @IsOptional()
+  isArrearsPayment?: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  arrearsInstallments?: number;
+
+  @IsNumber()
+  @IsOptional()
+  arrearsSessionClassId?: number;
+
+  @IsNumber()
+  @IsOptional()
+  arrearsSessionProgramId?: number;
+
+  @IsNumber()
+  @IsOptional()
+  arrearsSessionFeeStructureId?: number;
+
+  @IsNumber()
+  @IsOptional()
+  paidAmount?: number
 }

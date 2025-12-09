@@ -8,7 +8,7 @@ import { StudentDto } from './dtos/student.dto';
 
 @Injectable()
 export class StudentService {
-  constructor(private prismaService: PrismaService) {}
+  constructor(private prismaService: PrismaService) { }
 
   async findOne(id: number) {
     return await this.prismaService.student.findFirst({
@@ -19,15 +19,15 @@ export class StudentService {
       },
     });
   }
-  
+
   async search(query: string, passedOut: boolean = false) {
     return await this.prismaService.student.findMany({
       where: {
         passedOut: passedOut,
         OR: [
-          { fName: { contains: query} },
+          { fName: { contains: query } },
           { mName: { contains: query } },
-          { lName: { contains: query} },
+          { lName: { contains: query } },
           { rollNumber: { contains: query } },
         ],
       },
@@ -168,8 +168,8 @@ export class StudentService {
             });
             throw new BadRequestException(
               `Cannot promote student. Outstanding fees for current class (${currentClass?.name || 'Unknown Class'}). ` +
-                `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
-                `Amount: ${totalPaid}/${currentFeeStructure.totalAmount}`,
+              `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
+              `Amount: ${totalPaid}/${currentFeeStructure.totalAmount}`,
             );
           }
         }
@@ -244,7 +244,7 @@ export class StudentService {
     });
   }
 
-  async promote(id: number) {
+  async promote(id: number, forcePromote = false) {
     const student = await this.prismaService.student.findUnique({
       where: { id },
       include: {
@@ -254,6 +254,7 @@ export class StudentService {
           },
         },
         section: true,
+        program: true
       },
     });
 
@@ -261,6 +262,50 @@ export class StudentService {
     if (student.passedOut)
       throw new BadRequestException('Student already passed out');
 
+    // Check for arrears before promotion (only if not forcing)
+    if (!forcePromote && student.classId && student.programId) {
+      const currentChallans = await this.prismaService.feeChallan.findMany({
+        where: {
+          studentId: id,
+          studentClassId: student.classId,
+          studentProgramId: student.programId
+        },
+        include: { feeStructure: true }
+      });
+
+      let totalPaid = 0;
+      let expectedTotal = 0;
+
+      for (const challan of currentChallans) {
+        if (challan.status === 'PAID') {
+          totalPaid += challan.paidAmount || 0;
+        }
+        if (challan.feeStructure) {
+          expectedTotal = challan.feeStructure.totalAmount;
+        }
+      }
+
+      const outstandingAmount = expectedTotal - totalPaid;
+
+      // If arrears found, return confirmation requirement
+      if (outstandingAmount > 0) {
+        return {
+          requiresConfirmation: true,
+          studentInfo: {
+            id: student.id,
+            rollNumber: student.rollNumber,
+            name: `${student.fName} ${student.mName || ''} ${student.lName || ''}`.trim()
+          },
+          arrears: {
+            outstandingAmount,
+            className: student.class?.name,
+            programName: student.program?.name
+          }
+        };
+      }
+    }
+
+    // No arrears OR force promote - proceed with promotion
     const program = student.class.program;
 
     // FIXED SORTING
@@ -286,7 +331,7 @@ export class StudentService {
       (s) => s.name === student.section?.name,
     );
 
-    return this.prismaService.student.update({
+    const promoted = await this.prismaService.student.update({
       where: { id },
       data: {
         class: { connect: { id: nextClass.id } },
@@ -296,6 +341,12 @@ export class StudentService {
         passedOut: false,
       },
     });
+
+    return {
+      requiresConfirmation: false,
+      promoted: true,
+      student: promoted
+    };
   }
   async demote(id: number) {
     const student = await this.prismaService.student.findUnique({

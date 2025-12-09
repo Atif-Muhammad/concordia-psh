@@ -1205,10 +1205,10 @@ export const deleteStudent = async (studentID) => {
 };
 
 // promote
-export const promoteStudents = async (studentID) => {
+export const promoteStudents = async (studentID, forcePromote = false) => {
   try {
     const response = await axios.patch(
-      `${base_url}/student/promote?studentID=${studentID}`,
+      `${base_url}/student/promote?studentID=${studentID}${forcePromote ? '&forcePromote=true' : ''}`,
       {},
       { withCredentials: true }
     );

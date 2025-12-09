@@ -58,7 +58,9 @@ const FeeManagement = () => {
     dueDate: "",
     discount: "",
     remarks: "",
-    installmentNumber: ""
+    installmentNumber: "",
+    isArrearsPayment: false,
+    arrearsInstallments: 1
   });
   const [feeHeadForm, setFeeHeadForm] = useState({
     name: "",
@@ -1202,6 +1204,96 @@ const FeeManagement = () => {
                       </div>
                     </details>
                   )}
+
+                  {/* Arrears Payment Checkbox */}
+                  <div className="mt-3 pt-3 border-t border-destructive/30">
+                    <label className="flex items-center gap-2 cursor-pointer hover:bg-destructive/5 p-2 rounded transition">
+                      <input
+                        type="checkbox"
+                        checked={challanForm.isArrearsPayment || false}
+                        onChange={(e) => {
+                          const isChecked = e.target.checked;
+                          // Get first arrears session (highest arrears)
+                          const firstArrearsSession = studentArrears.arrearsBySession?.[0];
+
+                          setChallanForm(prev => ({
+                            ...prev,
+                            isArrearsPayment: isChecked,
+                            arrearsInstallments: isChecked ? 1 : undefined,
+                            amount: isChecked ? studentArrears.totalArrears.toString() : prev.amount,
+                            remarks: isChecked ? `Arrears payment for ${firstArrearsSession?.className || 'previous'} - ${firstArrearsSession?.programName || 'sessions'}` : (prev.remarks || ''),
+                            // Pass session IDs for arrears
+                            arrearsSessionClassId: isChecked ? firstArrearsSession?.classId : undefined,
+                            arrearsSessionProgramId: isChecked ? firstArrearsSession?.programId : undefined,
+                            arrearsSessionFeeStructureId: isChecked ? firstArrearsSession?.feeStructure?.id : undefined
+                          }));
+                        }}
+                        className="w-4 h-4 text-destructive border-destructive focus:ring-destructive"
+                      />
+                      <span className="text-sm font-medium text-destructive">
+                        Pay arrears (PKR {studentArrears.totalArrears.toLocaleString()})
+                      </span>
+
+                    </label>
+
+                    {/* Installment Option */}
+                    {challanForm.isArrearsPayment && (
+                      <div className="ml-6 mt-2 space-y-2">
+                        <label className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={challanForm.arrearsInstallments > 1}
+                            onChange={(e) => {
+                              setChallanForm(prev => ({
+                                ...prev,
+                                arrearsInstallments: e.target.checked ? 2 : 1,
+                                amount: e.target.checked
+                                  ? (studentArrears.totalArrears / 2).toFixed(0)
+                                  : studentArrears.totalArrears.toString()
+                              }));
+                            }}
+                            className="w-3 h-3"
+                          />
+                          <span className="text-muted-foreground">Pay in installments</span>
+                        </label>
+
+                        {challanForm.arrearsInstallments > 1 && (
+                          <div className="space-y-1">
+                            <label className="text-xs text-muted-foreground">Number of installments:</label>
+                            <input
+                              type="number"
+                              min="2"
+                              max="12"
+                              value={challanForm.arrearsInstallments}
+                              onChange={(e) => {
+                                const installments = Math.max(2, Math.min(12, parseInt(e.target.value) || 2));
+                                const perInstallment = Math.ceil(studentArrears.totalArrears / installments);
+                                setChallanForm(prev => ({
+                                  ...prev,
+                                  arrearsInstallments: installments,
+                                  amount: perInstallment.toString(),
+                                  remarks: `Arrears payment - Installment 1 of ${installments} (PKR ${perInstallment.toLocaleString()} each)`
+                                }));
+                              }}
+                              className="w-20 px-2 py-1 text-xs border rounded"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Per installment: PKR {Math.ceil(studentArrears.totalArrears / (challanForm.arrearsInstallments || 1)).toLocaleString()}
+                            </p>
+                            <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                              Creates 1st installment challan. Create remaining manually.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <p className="text-[10px] text-muted-foreground mt-1 ml-6">
+                      {challanForm.arrearsInstallments > 1
+                        ? `Arrears installment challan (${challanForm.arrearsInstallments} total)`
+                        : 'Creates arrears challan linked to original session'}
+                    </p>
+                  </div>
                 </div>
               )}
 

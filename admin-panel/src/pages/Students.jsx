@@ -114,6 +114,12 @@ const Students = () => {
   const [editingStudent, setEditingStudent] = useState(null);
   const [viewStudent, setViewStudent] = useState(null);
   const [selectedForPromotion, setSelectedForPromotion] = useState([]);
+  const [promotionDialog, setPromotionDialog] = useState({
+    open: false,
+    studentId: null,
+    studentInfo: null,
+    arrears: null
+  });
   const [promotionAction, setPromotionAction] = useState("promote");
   const [showPassedOut, setShowPassedOut] = useState(false);
   const [selectedFeeSession, setSelectedFeeSession] = useState("current");
@@ -140,21 +146,21 @@ const Students = () => {
 
 
   const {
-  data: passedOutStudents = [],
-  isLoading: loadingPassedOut,
-  refetch: refetchPassedOut,
-} = useQuery({
-  queryKey: ["passedOutStudents", filterProgram, filterClass, filterSection, searchQuery],
-  queryFn: () => {
-    // Don't fetch if no filters are selected (except search)
-    if (!filterProgram && !filterClass && !filterSection && !searchQuery) {
-      return Promise.resolve([]);
-    }
-    // You need to update getPassedOutStudents to accept searchQuery parameter
-    return getPassedOutStudents(filterProgram, filterClass, filterSection, searchQuery);
-  },
-  enabled: showPassedOut,
-});
+    data: passedOutStudents = [],
+    isLoading: loadingPassedOut,
+    refetch: refetchPassedOut,
+  } = useQuery({
+    queryKey: ["passedOutStudents", filterProgram, filterClass, filterSection, searchQuery],
+    queryFn: () => {
+      // Don't fetch if no filters are selected (except search)
+      if (!filterProgram && !filterClass && !filterSection && !searchQuery) {
+        return Promise.resolve([]);
+      }
+      // You need to update getPassedOutStudents to accept searchQuery parameter
+      return getPassedOutStudents(filterProgram, filterClass, filterSection, searchQuery);
+    },
+    enabled: showPassedOut,
+  });
 
 
   const {
@@ -202,26 +208,55 @@ const Students = () => {
       toast({ title: "Student deleted", variant: "destructive" });
     },
   });
+
+
   const bulkPromotionMut = useMutation({
-    mutationFn: async ({
-      ids,
-      action,
-    }) => {
+    mutationFn: async ({ ids, action, forcePromote = false }) => {
       const fn =
         action === "promote"
           ? promoteStudents
           : action === "demote"
             ? demoteStudents
             : passoutStudents;
+      // For promotion, check each student individually
+      if (action === "promote" && !forcePromote) {
+        for (const id of ids) {
+          const response = await fn(id, false);
 
-      const promises = ids.map((id) => fn(id));
-      return Promise.all(promises);
+          // If student has arrears, stop and show dialog
+          if (response.requiresConfirmation) {
+            return {
+              requiresConfirmation: true,
+              studentId: id,
+              studentInfo: response.studentInfo,
+              arrears: response.arrears,
+              remainingIds: ids
+            };
+          }
+        }
+        return { success: true, count: ids.length };
+      }
+      // For force promote or demote/passout
+      const promises = ids.map((id) => fn(id, forcePromote));
+      await Promise.all(promises);
+      return { success: true, count: ids.length };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["students"] });
-      toast({ title: `Students ${promotionAction}d successfully` });
-      setPromoteOpen(false);
-      setSelectedForPromotion([]);
+    onSuccess: (result) => {
+      if (result.requiresConfirmation) {
+        // Show your dialog
+        setPromotionDialog({
+          open: true,
+          studentId: result.studentId,
+          studentInfo: result.studentInfo,
+          arrears: result.arrears,
+          remainingIds: result.remainingIds
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["students"] });
+        toast({ title: `${result.count} student(s) ${promotionAction}d successfully` });
+        setPromoteOpen(false);
+        setSelectedForPromotion([]);
+      }
     },
     onError: (e) =>
       toast({
@@ -1860,6 +1895,65 @@ const Students = () => {
             </Button>
           </DialogContent>
         </Dialog>
+
+        <AlertDialog
+          open={promotionDialog.open}
+          onOpenChange={(open) => !open && setPromotionDialog({
+            open: false, studentId: null, studentInfo: null, arrears: null
+          })}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm Student Promotion</AlertDialogTitle>
+              <AlertDialogDescription>
+                {promotionDialog.studentInfo && (
+                  <div className="space-y-4">
+                    <div className="bg-muted p-3 rounded-lg">
+                      <p><strong>Roll:</strong> {promotionDialog.studentInfo.rollNumber}</p>
+                      <p><strong>Name:</strong> {promotionDialog.studentInfo.name}</p>
+                    </div>
+                    <div className="bg-destructive/10 border border-destructive rounded-lg p-3">
+                      <div className="font-semibold text-destructive mb-2 flex items-center gap-2">
+                        <div className="h-2 w-2 bg-destructive rounded-full animate-pulse" />
+                        Outstanding Fees
+                      </div>
+                      <p><strong>Class:</strong> {promotionDialog.arrears?.className}</p>
+                      <p><strong>Program:</strong> {promotionDialog.arrears?.programName}</p>
+                      <p className="text-lg font-bold text-destructive mt-2">
+                        PKR {promotionDialog.arrears?.outstandingAmount?.toLocaleString()}
+                      </p>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Promoting will move these fees to arrears. Continue?
+                    </p>
+                  </div>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={async () => {
+                  try {
+                    await bulkPromotionMut.mutate({
+                      ids: promotionDialog.remainingIds || [promotionDialog.studentId],
+                      action: "promote",
+                      forcePromote: true
+                    });
+                    toast({ title: "Student promoted" });
+                    setPromotionDialog({ open: false, studentId: null, studentInfo: null, arrears: null });
+                    refetchStudents();
+                  } catch (error) {
+                    toast({ title: "Error", description: error.message, variant: "destructive" });
+                  }
+                }}
+                className="bg-destructive hover:bg-destructive/90"
+              >
+                Promote Anyway
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Delete Confirmation */}
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

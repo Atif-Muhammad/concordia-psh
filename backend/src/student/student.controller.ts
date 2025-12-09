@@ -23,7 +23,7 @@ export class StudentController {
   constructor(
     private readonly studentService: StudentService,
     private readonly cloudinaryService: CloudinaryService,
-  ) {}
+  ) { }
 
   @Get('get/all/passout')
   async getPassoutStudents(
@@ -35,7 +35,7 @@ export class StudentController {
     if (!programId && !classId && !sectionId && !searchQuery) return [];
 
     if (searchQuery && searchQuery.trim() !== '') {
-      return await this.studentService.search(searchQuery, true); 
+      return await this.studentService.search(searchQuery, true);
     }
 
     return await this.studentService.getPassedOutStudents({
@@ -178,8 +178,14 @@ export class StudentController {
   }
 
   @Patch('promote')
-  async promoteStudents(@Query('studentID') studentID: string) {
-    return await this.studentService.promote(Number(studentID));
+  async promoteStudents(
+    @Query('studentID') studentID: string,
+    @Query('forcePromote') forcePromote?: string
+  ) {
+    return await this.studentService.promote(
+      Number(studentID),
+      forcePromote === 'true'
+    );
   }
   @Patch('demote')
   async demoteStudents(@Query('studentID') studentID: string) {
