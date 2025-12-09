@@ -62,5 +62,9 @@ export class CreateFeeChallanDto {
 
   @IsNumber()
   @IsOptional()
+  studentArrearId?: number;
+
+  @IsNumber()
+  @IsOptional()
   paidAmount?: number
 }

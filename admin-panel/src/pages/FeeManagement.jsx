@@ -1219,13 +1219,15 @@ const FeeManagement = () => {
                           setChallanForm(prev => ({
                             ...prev,
                             isArrearsPayment: isChecked,
-                            arrearsInstallments: isChecked ? 1 : undefined,
-                            amount: isChecked ? studentArrears.totalArrears.toString() : prev.amount,
+                            amount: isChecked ? firstArrearsSession?.totalArrears?.toString() : prev.amount,
                             remarks: isChecked ? `Arrears payment for ${firstArrearsSession?.className || 'previous'} - ${firstArrearsSession?.programName || 'sessions'}` : (prev.remarks || ''),
-                            // Pass session IDs for arrears
-                            arrearsSessionClassId: isChecked ? firstArrearsSession?.classId : undefined,
-                            arrearsSessionProgramId: isChecked ? firstArrearsSession?.programId : undefined,
-                            arrearsSessionFeeStructureId: isChecked ? firstArrearsSession?.feeStructure?.id : undefined
+                            // Pass the arrear record ID
+                            studentArrearId: isChecked ? firstArrearsSession?.id : undefined,
+                            // Clear other arrears-specific fields when unchecked
+                            arrearsSessionClassId: undefined,
+                            arrearsSessionProgramId: undefined,
+                            arrearsSessionFeeStructureId: undefined,
+                            arrearsInstallments: undefined
                           }));
                         }}
                         className="w-4 h-4 text-destructive border-destructive focus:ring-destructive"

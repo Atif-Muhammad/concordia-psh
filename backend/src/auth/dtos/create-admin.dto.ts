@@ -21,8 +21,8 @@ export class CreateAdminDto {
     
     @IsEnum(AdminRole, {message: "Role must be either SUPER_ADMIN or ADMIN"})
     role: AdminRole;
-    @IsNotEmptyObject()
-    permissions: {}
+    @IsOptional()
+    permissions?: {}
 }
 
 

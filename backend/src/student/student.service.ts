@@ -45,7 +45,6 @@ export class StudentService {
     classId?: number | null;
     sectionId?: number | null;
   }) {
-
     const where: any = { passedOut: false };
 
     // Using optional chaining and nullish checks
@@ -254,7 +253,7 @@ export class StudentService {
           },
         },
         section: true,
-        program: true
+        program: true,
       },
     });
 
@@ -268,9 +267,9 @@ export class StudentService {
         where: {
           studentId: id,
           studentClassId: student.classId,
-          studentProgramId: student.programId
+          studentProgramId: student.programId,
         },
-        include: { feeStructure: true }
+        include: { feeStructure: true },
       });
 
       let totalPaid = 0;
@@ -285,23 +284,52 @@ export class StudentService {
         }
       }
 
+
       const outstandingAmount = expectedTotal - totalPaid;
 
-      // If arrears found, return confirmation requirement
+      // If arrears found
       if (outstandingAmount > 0) {
-        return {
-          requiresConfirmation: true,
-          studentInfo: {
-            id: student.id,
-            rollNumber: student.rollNumber,
-            name: `${student.fName} ${student.mName || ''} ${student.lName || ''}`.trim()
-          },
-          arrears: {
-            outstandingAmount,
-            className: student.class?.name,
-            programName: student.program?.name
-          }
-        };
+        if (!forcePromote) {
+          // Return confirmation requirement
+          return {
+            requiresConfirmation: true,
+            studentInfo: {
+              id: student.id,
+              rollNumber: student.rollNumber,
+              name: `${student.fName} ${student.mName || ''} ${student.lName || ''}`.trim(),
+            },
+            arrears: {
+              outstandingAmount,
+              className: student.class?.name,
+              programName: student.program?.name,
+            },
+          };
+        } else {
+          // Force promote - create arrears record
+          // Find last paid installment
+          const lastPaid = await this.prismaService.feeChallan.findFirst({
+            where: {
+              studentId: student.id,
+              studentClassId: student.classId,
+              studentProgramId: student.programId,
+              status: 'PAID',
+            },
+            orderBy: { installmentNumber: 'desc' },
+            select: { installmentNumber: true },
+          });
+          const lastInstallmentNumber = lastPaid?.installmentNumber || 0;
+
+          // Create arrears record
+          await this.prismaService.studentArrear.create({
+            data: {
+              studentId: student.id,
+              classId: student.classId,
+              programId: student.programId,
+              arrearAmount: outstandingAmount,
+              lastInstallmentNumber,
+            },
+          });
+        }
       }
     }
 
@@ -345,7 +373,7 @@ export class StudentService {
     return {
       requiresConfirmation: false,
       promoted: true,
-      student: promoted
+      student: promoted,
     };
   }
   async demote(id: number) {
