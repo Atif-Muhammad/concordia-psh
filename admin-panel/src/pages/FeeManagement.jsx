@@ -18,7 +18,7 @@ import {
   createFeeStructure, getFeeStructures, updateFeeStructure, deleteFeeStructure,
   getPrograms, getClasses,
   createFeeChallan, getFeeChallans, updateFeeChallan, deleteFeeChallan, getStudentFeeHistory,
-  searchStudents, getStudentFeeSummary, getRevenueOverTime, getClassCollectionStats
+  searchStudents, getStudentFeeSummary, getRevenueOverTime, getClassCollectionStats, getStudentArrears
 } from "../../config/apis";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -38,6 +38,7 @@ const FeeManagement = () => {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentFeeHistory, setStudentFeeHistory] = useState([]);
   const [studentFeeSummary, setStudentFeeSummary] = useState(null);
+  const [studentArrears, setStudentArrears] = useState(null);
   const [challanSearch, setChallanSearch] = useState("");
   const [challanFilter, setChallanFilter] = useState("all");
 
@@ -1048,6 +1049,16 @@ const FeeManagement = () => {
                                 try {
                                   const summary = await getStudentFeeSummary(student.id);
                                   setStudentFeeSummary(summary);
+
+                                  // Fetch arrears data
+                                  try {
+                                    const arrearsData = await getStudentArrears(student.id);
+                                    setStudentArrears(arrearsData);
+                                  } catch (arrErr) {
+                                    console.error('Error fetching arrears:', arrErr);
+                                    setStudentArrears(null);
+                                  }
+
                                   // Auto-fill amount if available
                                   if (summary) {
                                     const perInstallment = summary.feeStructure ?
@@ -1152,6 +1163,45 @@ const FeeManagement = () => {
                       </div>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Arrears Warning */}
+              {studentArrears && studentArrears.totalArrears > 0 && (
+                <div className="bg-destructive/10 border-2 border-destructive rounded-lg p-3 mb-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-2 bg-destructive rounded-full animate-pulse" />
+                      <h4 className="font-semibold text-destructive text-sm">PREVIOUS ARREARS FOUND</h4>
+                    </div>
+                    <div className="text-destructive font-bold">PKR {studentArrears.totalArrears.toLocaleString()}</div>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground mb-2">
+                    {studentArrears.arrearsCount} unpaid session(s) from previous classes
+                  </p>
+
+                  {studentArrears.arrearsBySession && studentArrears.arrearsBySession.length > 0 && (
+                    <details className="text-xs mt-2">
+                      <summary className="cursor-pointer text-destructive hover:underline font-medium">
+                        View Breakdown by Session
+                      </summary>
+                      <div className="mt-2 space-y-2 pl-2 border-l-2 border-destructive/30">
+                        {studentArrears.arrearsBySession.map((session, idx) => (
+                          <div key={idx} className="text-muted-foreground">
+                            <div className="font-medium text-foreground">
+                              {session.className} - {session.programName}
+                            </div>
+                            <div>Arrears: PKR {session.totalArrears.toLocaleString()}</div>
+                            <div className="text-[10px]">
+                              {session.challans?.length || 0} challan(s),
+                              {session.oldestDaysOverdue > 0 && ` oldest: ${session.oldestDaysOverdue} days overdue`}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
               )}
 

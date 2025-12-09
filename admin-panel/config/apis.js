@@ -1881,14 +1881,37 @@ export const getStudentFeeSummary = async (studentId) => {
     });
     return response.data;
   } catch (error) {
-    const message = error.response?.data?.message || error.message || "Something went wrong";
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const delVisitor = async (id) => {
+export const getStudentArrears = async (studentId) => {
   try {
-    const { data } = await axios.delete(
-      `${base_url}/front-office/delete/visitor?id=${id}`,
+    const response = await axios.get(`${base_url}/fee-management/student/arrears?studentId=${studentId}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getVisitors = async (month) => {
+  try {
+    const url = month 
+      ? `${base_url}/front-office/get/visitors?month=${month}`
+      : `${base_url}/front-office/get/visitors`;
+    const { data } = await axios.get(
+      url,
       {
         withCredentials: true,
       }
@@ -1903,13 +1926,10 @@ export const delVisitor = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getVisitors = async (month) => {
+export const delVisitor = async (id) => {
   try {
-    const url = month 
-      ? `${base_url}/front-office/get/visitors?month=${month}`
-      : `${base_url}/front-office/get/visitors`;
-    const { data } = await axios.get(
-      url,
+    const { data } = await axios.delete(
+      `${base_url}/front-office/delete/visitor?id=${id}`,
       {
         withCredentials: true,
       }
