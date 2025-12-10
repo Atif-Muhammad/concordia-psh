@@ -806,6 +806,13 @@ model FeeHead {
   isFine      Boolean  @default(false)
   isLabFee    Boolean  @default(false)
   isLibraryFee Boolean @default(false)
+  isRegistrationFee Boolean @default(false)
+  isAdmissionFee Boolean @default(false)
+  isProspectusFee Boolean @default(false)
+  isExaminationFee Boolean @default(false)
+  isAlliedCharges Boolean @default(false)
+  isHostelFee Boolean @default(false)
+  isOther Boolean @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

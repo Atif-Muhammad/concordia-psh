@@ -103,10 +103,6 @@ const Academics = () => {
   const [sectionFilterProgram, setSectionFilterProgram] = useState("all");
   const [sectionFilterClass, setSectionFilterClass] = useState("all");
   const currentUser = queryClient.getQueryData(["currentUser"]);
-  useEffect(() => {
-    if (!hasModuleAccess("Academics", currentUser?.permissions)) return navigate("/not-found");
-  }, []);
-
   // Queries
   const { data: programs = [] } = useQuery({
     queryKey: ["programs"],

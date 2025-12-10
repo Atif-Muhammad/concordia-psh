@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect, useRef } from "react";
-import { DollarSign, Plus, CheckCircle2, Edit, Trash2, Receipt, TrendingUp, Layers, Printer } from "lucide-react";
+import { DollarSign, Plus, CheckCircle2, Edit, Trash2, Receipt, TrendingUp, Layers, Printer, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -47,6 +47,8 @@ const FeeManagement = () => {
   const [structureOpen, setStructureOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [selectedChallanDetails, setSelectedChallanDetails] = useState(null);
   const [itemToDelete, setItemToDelete] = useState(null);
   const [itemToPay, setItemToPay] = useState(null);
   const [editingChallan, setEditingChallan] = useState(null);
@@ -57,15 +59,29 @@ const FeeManagement = () => {
     amount: "",
     dueDate: "",
     discount: "",
+    fineAmount: 0,
     remarks: "",
     installmentNumber: "",
+    selectedHeads: [],
     isArrearsPayment: false,
     arrearsInstallments: 1
   });
   const [feeHeadForm, setFeeHeadForm] = useState({
     name: "",
     amount: "",
-    type: "monthly"
+    type: "monthly",
+    isDiscount: false,
+    isTuition: false,
+    isFine: false,
+    isLabFee: false,
+    isLibraryFee: false,
+    isRegistrationFee: false,
+    isAdmissionFee: false,
+    isProspectusFee: false,
+    isExaminationFee: false,
+    isAlliedCharges: false,
+    isHostelFee: false,
+    isOther: false
   });
   const [structureForm, setStructureForm] = useState({
     programId: "",
@@ -115,6 +131,12 @@ const FeeManagement = () => {
     queryFn: getClassCollectionStats
   });
 
+  // Helper function to format amounts as integers (no decimals)
+  const formatAmount = (amount) => {
+    const num = Number(amount) || 0;
+    return Math.round(num).toLocaleString();
+  };
+
   const searchTimeoutRef = useRef(null);
 
   const handleStudentSearch = (query, setResults) => {
@@ -135,11 +157,6 @@ const FeeManagement = () => {
         console.error(error);
       }
     }, 300); // 300ms debounce delay
-  };
-
-  // Helper to format amounts to 2 decimal places
-  const formatAmount = (amount) => {
-    return Number(amount || 0).toFixed(2);
   };
 
   // Mutations
@@ -245,26 +262,46 @@ const FeeManagement = () => {
       return;
     }
 
-    const totalPayable = parseFloat(challanForm.amount);
-    const fineAmount = Number(challanForm.fineAmount) || 0;
+    const totalPayable = parseFloat(challanForm.amount) || 0;
+    const additionalCharges = Number(challanForm.fineAmount) || 0;
     const discount = Number(challanForm.discount) || 0;
 
-    // Calculate base tuition amount: Total Payable - Fine + Discount
-    // If totalPayable is just the fine, baseAmount should be 0
-    const baseAmount = Math.max(0, totalPayable - fineAmount + discount);
+    // Calculate tuition amount: Total Payable - Additional Charges + Discount
+    // This gives us the pure tuition component
+    const tuitionAmount = Math.max(0, totalPayable - additionalCharges + discount);
 
-    // If base tuition is 0, installment number should be 0 (not applicable)
-    const installmentNumber = baseAmount > 0 ? (parseInt(challanForm.installmentNumber) || 1) : 0;
+    // Tuition and Additional Charges are stored separately
+    // amount = tuition only (rounded to integer)
+    // fineAmount = additional charges only (rounded to integer)
+    const tuitionToStore = Math.round(tuitionAmount);
+    const additionalToStore = Math.round(additionalCharges);
+    const discountToStore = Math.round(discount);
+
+    // Installment number only applies when tuition is being paid
+    // If tuition is 0, this is an additional-charges-only challan
+    const hasTuition = tuitionToStore > 0;
+    const installmentNumber = hasTuition ? (parseInt(challanForm.installmentNumber) || 1) : 0;
+
+    // Build complete fee head breakdown - ALL fee heads with 0 if not selected
+    // This allows backend to calculate tuition vs additional charges separately
+    const selectedHeadIds = challanForm.selectedHeads || [];
+    const allFeeHeadDetails = feeHeads.map(h => ({
+      id: h.id,
+      name: h.name,
+      amount: selectedHeadIds.includes(h.id) ? Math.round(h.amount) : 0,
+      type: h.isDiscount ? 'discount' : h.isTuition ? 'tuition' : 'additional',
+      isSelected: selectedHeadIds.includes(h.id)
+    }));
 
     const payload = {
       studentId: parseInt(challanForm.studentId),
-      amount: baseAmount, // Send base tuition amount only
+      amount: tuitionToStore, // Tuition fee only (integer)
       dueDate: challanForm.dueDate,
-      discount: discount,
-      fineAmount: fineAmount,
+      discount: discountToStore, // Discount (integer)
+      fineAmount: additionalToStore, // Additional charges only (integer)
       remarks: challanForm.remarks,
-      installmentNumber: installmentNumber,
-      selectedHeads: challanForm.selectedHeads || []
+      installmentNumber: installmentNumber, // 0 when no tuition, else from form
+      selectedHeads: allFeeHeadDetails // Array of all fee heads with amounts (0 if not selected)
     };
 
     if (editingChallan) {
@@ -288,7 +325,14 @@ const FeeManagement = () => {
       isTuition: feeHeadForm.isTuition,
       isFine: feeHeadForm.isFine,
       isLabFee: feeHeadForm.isLabFee,
-      isLibraryFee: feeHeadForm.isLibraryFee
+      isLibraryFee: feeHeadForm.isLibraryFee,
+      isRegistrationFee: feeHeadForm.isRegistrationFee,
+      isAdmissionFee: feeHeadForm.isAdmissionFee,
+      isProspectusFee: feeHeadForm.isProspectusFee,
+      isExaminationFee: feeHeadForm.isExaminationFee,
+      isAlliedCharges: feeHeadForm.isAlliedCharges,
+      isHostelFee: feeHeadForm.isHostelFee,
+      isOther: feeHeadForm.isOther
     };
 
     if (editingFeeHead) {
@@ -393,6 +437,7 @@ const FeeManagement = () => {
       amount: "",
       dueDate: "",
       discount: "",
+      fineAmount: 0,
       remarks: "",
       installmentNumber: "",
       selectedHeads: []
@@ -406,7 +451,18 @@ const FeeManagement = () => {
       name: "",
       description: "",
       amount: "",
-      isDiscount: false
+      isDiscount: false,
+      isTuition: false,
+      isFine: false,
+      isLabFee: false,
+      isLibraryFee: false,
+      isRegistrationFee: false,
+      isAdmissionFee: false,
+      isProspectusFee: false,
+      isExaminationFee: false,
+      isAlliedCharges: false,
+      isHostelFee: false,
+      isOther: false
     });
     setEditingFeeHead(null);
   };
@@ -669,6 +725,12 @@ const FeeManagement = () => {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
+                              <Button size="sm" variant="outline" onClick={() => {
+                                setSelectedChallanDetails(challan);
+                                setDetailsDialogOpen(true);
+                              }}>
+                                <Eye className="w-4 h-4" />
+                              </Button>
                               <Button size="sm" variant="outline" onClick={() => printChallan(challan.id)}>
                                 <Printer className="w-4 h-4" />
                               </Button>
@@ -838,7 +900,18 @@ const FeeManagement = () => {
                               name: head.name,
                               description: head.description,
                               amount: head.amount.toString(),
-                              isDiscount: head.isDiscount
+                              isDiscount: head.isDiscount || false,
+                              isTuition: head.isTuition || false,
+                              isFine: head.isFine || false,
+                              isLabFee: head.isLabFee || false,
+                              isLibraryFee: head.isLibraryFee || false,
+                              isRegistrationFee: head.isRegistrationFee || false,
+                              isAdmissionFee: head.isAdmissionFee || false,
+                              isProspectusFee: head.isProspectusFee || false,
+                              isExaminationFee: head.isExaminationFee || false,
+                              isAlliedCharges: head.isAlliedCharges || false,
+                              isHostelFee: head.isHostelFee || false,
+                              isOther: head.isOther || false
                             });
                             setFeeHeadOpen(true);
                           }}>
@@ -1068,7 +1141,7 @@ const FeeManagement = () => {
 
                                     // Set initial amount based on remaining tuition
                                     const remainingTuition = summary.summary.totalAmount - (summary.summary.tuitionPaid || 0);
-                                    const initialAmount = remainingTuition <= 0 ? 0 : perInstallment;
+                                    const initialAmount = remainingTuition <= 0 ? 0 : Math.round(perInstallment);
 
                                     setChallanForm(prev => ({
                                       ...prev,
@@ -1365,12 +1438,28 @@ const FeeManagement = () => {
                               selectedHeads: newHeads,
                               fineAmount: newFine,
                               discount: newDiscount,
-                              amount: newTotalAmount.toString()
+                              amount: Math.round(newTotalAmount).toString()
                             });
                           }}
                         />
                         <Label htmlFor={`head-${head.id}`} className={head.isDiscount ? "text-primary" : ""}>
-                          {head.name} {head.isDiscount ? "(Discount)" : ""}
+                          {head.name}
+                          {head.isDiscount && " (Discount)"}
+                          {head.isFine && " (Fine)"}
+                          {head.isLabFee && " (Lab)"}
+                          {head.isLibraryFee && " (Library)"}
+                          {head.isRegistrationFee && " (Registration)"}
+                          {head.isAdmissionFee && " (Admission)"}
+                          {head.isProspectusFee && " (Prospectus)"}
+                          {head.isExaminationFee && " (Examination)"}
+                          {head.isAlliedCharges && " (Allied)"}
+                          {head.isHostelFee && " (Hostel)"}
+                          {head.isOther && " (Other)"}
+                          {studentFeeSummary?.summary?.additionalChargesPaid?.[head.name] !== undefined && (
+                            <Badge variant="secondary" className="ml-2 text-[10px] h-5 bg-green-100 text-green-800 hover:bg-green-100">
+                              PAID
+                            </Badge>
+                          )}
                         </Label>
                       </div>
                       <span className="text-sm font-medium">PKR {head.amount.toLocaleString()}</span>
@@ -1393,7 +1482,12 @@ const FeeManagement = () => {
               setChallanOpen(false)
               setSelectedStudent(null)
             }}>Cancel</Button>
-            <Button onClick={handleSubmitChallan}>{editingChallan ? "Update" : "Create"}</Button>
+            <Button
+              onClick={handleSubmitChallan}
+              disabled={createChallanMutation.isPending || updateChallanMutation.isPending}
+            >
+              {createChallanMutation.isPending || updateChallanMutation.isPending ? "Processing..." : (editingChallan ? "Update" : "Create")}
+            </Button>
           </div>
         </DialogContent>
       </Dialog >
@@ -1425,64 +1519,226 @@ const FeeManagement = () => {
                 amount: e.target.value
               })} />
             </div>
-            <div className="flex items-center space-x-2">
-              <input type="checkbox" id="isDiscount" checked={feeHeadForm.isDiscount} onChange={e => setFeeHeadForm({
-                ...feeHeadForm,
-                isDiscount: e.target.checked,
-                isTuition: false,
-                isFine: false,
-                isLabFee: false,
-                isLibraryFee: false
-              })} className="w-4 h-4" />
-              <Label htmlFor="isDiscount">Discount</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <input type="checkbox" id="isTuition" checked={feeHeadForm.isTuition} onChange={e => setFeeHeadForm({
-                ...feeHeadForm,
-                isTuition: e.target.checked,
-                isDiscount: false,
-                isFine: false,
-                isLabFee: false,
-                isLibraryFee: false
-              })} className="w-4 h-4" />
-              <Label htmlFor="isTuition">Tuition Fee</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <input type="checkbox" id="isFine" checked={feeHeadForm.isFine} onChange={e => setFeeHeadForm({
-                ...feeHeadForm,
-                isFine: e.target.checked,
-                isDiscount: false,
-                isTuition: false,
-                isLabFee: false,
-                isLibraryFee: false
-              })} className="w-4 h-4" />
-              <Label htmlFor="isFine">Fine</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <input type="checkbox" id="isLabFee" checked={feeHeadForm.isLabFee} onChange={e => setFeeHeadForm({
-                ...feeHeadForm,
-                isLabFee: e.target.checked,
-                isDiscount: false,
-                isTuition: false,
-                isFine: false,
-                isLibraryFee: false
-              })} className="w-4 h-4" />
-              <Label htmlFor="isLabFee">Lab Fee</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <input type="checkbox" id="isLibraryFee" checked={feeHeadForm.isLibraryFee} onChange={e => setFeeHeadForm({
-                ...feeHeadForm,
-                isLibraryFee: e.target.checked,
-                isDiscount: false,
-                isTuition: false,
-                isFine: false,
-                isLabFee: false
-              })} className="w-4 h-4" />
-              <Label htmlFor="isLibraryFee">Library Fee</Label>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isDiscount" checked={feeHeadForm.isDiscount} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isDiscount: e.target.checked,
+                  isTuition: false,
+                  isFine: false,
+                  isLabFee: false,
+                  isLibraryFee: false,
+                  isRegistrationFee: false,
+                  isAdmissionFee: false,
+                  isProspectusFee: false,
+                  isExaminationFee: false,
+                  isAlliedCharges: false,
+                  isHostelFee: false,
+                  isOther: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isDiscount">Discount</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isTuition" checked={feeHeadForm.isTuition} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isTuition: e.target.checked,
+                  isDiscount: false,
+                  isFine: false,
+                  isLabFee: false,
+                  isLibraryFee: false,
+                  isRegistrationFee: false,
+                  isAdmissionFee: false,
+                  isProspectusFee: false,
+                  isExaminationFee: false,
+                  isAlliedCharges: false,
+                  isHostelFee: false,
+                  isOther: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isTuition">Tuition Fee</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isFine" checked={feeHeadForm.isFine} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isFine: e.target.checked,
+                  isDiscount: false,
+                  isTuition: false,
+                  isLabFee: false,
+                  isLibraryFee: false,
+                  isRegistrationFee: false,
+                  isAdmissionFee: false,
+                  isProspectusFee: false,
+                  isExaminationFee: false,
+                  isAlliedCharges: false,
+                  isHostelFee: false,
+                  isOther: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isFine">Fine</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isLabFee" checked={feeHeadForm.isLabFee} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isLabFee: e.target.checked,
+                  isDiscount: false,
+                  isTuition: false,
+                  isFine: false,
+                  isLibraryFee: false,
+                  isRegistrationFee: false,
+                  isAdmissionFee: false,
+                  isProspectusFee: false,
+                  isExaminationFee: false,
+                  isAlliedCharges: false,
+                  isHostelFee: false,
+                  isOther: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isLabFee">Lab Fee</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isLibraryFee" checked={feeHeadForm.isLibraryFee} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isLibraryFee: e.target.checked,
+                  isDiscount: false,
+                  isTuition: false,
+                  isFine: false,
+                  isLabFee: false,
+                  isRegistrationFee: false,
+                  isAdmissionFee: false,
+                  isProspectusFee: false,
+                  isExaminationFee: false,
+                  isAlliedCharges: false,
+                  isHostelFee: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isLibraryFee">Library Fee</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isRegistrationFee" checked={feeHeadForm.isRegistrationFee} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isRegistrationFee: e.target.checked,
+                  isDiscount: false,
+                  isTuition: false,
+                  isFine: false,
+                  isLabFee: false,
+                  isLibraryFee: false,
+                  isAdmissionFee: false,
+                  isProspectusFee: false,
+                  isExaminationFee: false,
+                  isAlliedCharges: false,
+                  isHostelFee: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isRegistrationFee">Registration Fee</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isAdmissionFee" checked={feeHeadForm.isAdmissionFee} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isAdmissionFee: e.target.checked,
+                  isDiscount: false,
+                  isTuition: false,
+                  isFine: false,
+                  isLabFee: false,
+                  isLibraryFee: false,
+                  isRegistrationFee: false,
+                  isProspectusFee: false,
+                  isExaminationFee: false,
+                  isAlliedCharges: false,
+                  isHostelFee: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isAdmissionFee">Admission Fee</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isProspectusFee" checked={feeHeadForm.isProspectusFee} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isProspectusFee: e.target.checked,
+                  isDiscount: false,
+                  isTuition: false,
+                  isFine: false,
+                  isLabFee: false,
+                  isLibraryFee: false,
+                  isRegistrationFee: false,
+                  isAdmissionFee: false,
+                  isExaminationFee: false,
+                  isAlliedCharges: false,
+                  isHostelFee: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isProspectusFee">Prospectus Fee</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isExaminationFee" checked={feeHeadForm.isExaminationFee} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isExaminationFee: e.target.checked,
+                  isDiscount: false,
+                  isTuition: false,
+                  isFine: false,
+                  isLabFee: false,
+                  isLibraryFee: false,
+                  isRegistrationFee: false,
+                  isAdmissionFee: false,
+                  isProspectusFee: false,
+                  isAlliedCharges: false,
+                  isHostelFee: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isExaminationFee">Examination Fee</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isAlliedCharges" checked={feeHeadForm.isAlliedCharges} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isAlliedCharges: e.target.checked,
+                  isDiscount: false,
+                  isTuition: false,
+                  isFine: false,
+                  isLabFee: false,
+                  isLibraryFee: false,
+                  isRegistrationFee: false,
+                  isAdmissionFee: false,
+                  isProspectusFee: false,
+                  isExaminationFee: false,
+                  isHostelFee: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isAlliedCharges">Allied Charges</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isHostelFee" checked={feeHeadForm.isHostelFee} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isHostelFee: e.target.checked,
+                  isDiscount: false,
+                  isTuition: false,
+                  isFine: false,
+                  isLabFee: false,
+                  isLibraryFee: false,
+                  isRegistrationFee: false,
+                  isAdmissionFee: false,
+                  isProspectusFee: false,
+                  isExaminationFee: false,
+                  isAlliedCharges: false,
+                  isOther: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isHostelFee">Hostel Fee</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="isOther" checked={feeHeadForm.isOther} onChange={e => setFeeHeadForm({
+                  ...feeHeadForm,
+                  isOther: e.target.checked,
+                  isDiscount: false,
+                  isTuition: false,
+                  isFine: false,
+                  isLabFee: false,
+                  isLibraryFee: false,
+                  isRegistrationFee: false,
+                  isAdmissionFee: false,
+                  isProspectusFee: false,
+                  isExaminationFee: false,
+                  isAlliedCharges: false,
+                  isHostelFee: false
+                })} className="w-4 h-4" />
+                <Label htmlFor="isOther">Others</Label>
+              </div>
             </div>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setFeeHeadOpen(false)}>Cancel</Button>
-              <Button onClick={handleSubmitFeeHead}>{editingFeeHead ? "Update" : "Add"}</Button>
+              <Button
+                onClick={handleSubmitFeeHead}
+                disabled={createHeadMutation.isPending || updateHeadMutation.isPending}
+              >
+                {createHeadMutation.isPending || updateHeadMutation.isPending ? "Saving..." : (editingFeeHead ? "Update" : "Add")}
+              </Button>
             </div>
           </div>
         </DialogContent>
@@ -1545,7 +1801,12 @@ const FeeManagement = () => {
             </div>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setStructureOpen(false)}>Cancel</Button>
-              <Button onClick={handleSubmitStructure}>{editingStructure ? "Update" : "Add"}</Button>
+              <Button
+                onClick={handleSubmitStructure}
+                disabled={createStructureMutation.isPending || updateStructureMutation.isPending}
+              >
+                {createStructureMutation.isPending || updateStructureMutation.isPending ? "Saving..." : (editingStructure ? "Update" : "Add")}
+              </Button>
             </div>
           </div>
         </DialogContent>
@@ -1558,12 +1819,17 @@ const FeeManagement = () => {
             <AlertDialogDescription>
               Are you sure you want to mark this challan as PAID?
               <br />
-              Amount: PKR {itemToPay ? (itemToPay.amount - itemToPay.discount + itemToPay.fineAmount).toLocaleString() : 0}
+              Amount: PKR {itemToPay ? Math.round(itemToPay.amount - itemToPay.discount + itemToPay.fineAmount).toLocaleString() : 0}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmPayment}>Confirm Payment</AlertDialogAction>
+            <AlertDialogAction
+              onClick={confirmPayment}
+              disabled={updateChallanMutation.isPending}
+            >
+              {updateChallanMutation.isPending ? "Processing..." : "Confirm Payment"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1580,6 +1846,145 @@ const FeeManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Challan Details Dialog */}
+      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Challan Details</DialogTitle>
+          </DialogHeader>
+          {selectedChallanDetails && (
+            <div className="space-y-4">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Challan #:</span>
+                <span className="font-medium">{selectedChallanDetails.challanNumber}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Student:</span>
+                <span className="font-medium">{selectedChallanDetails.student?.fName} {selectedChallanDetails.student?.lName}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Roll Number:</span>
+                <span className="font-medium">{selectedChallanDetails.student?.rollNumber}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Installment:</span>
+                <span className="font-medium">
+                  {selectedChallanDetails.installmentNumber === 0 ? "Additional Charges Only" : `#${selectedChallanDetails.installmentNumber}`}
+                </span>
+              </div>
+
+              <hr className="my-4" />
+
+              <div className="font-semibold text-sm mb-2">Fee Breakdown</div>
+
+              {selectedChallanDetails.amount > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span>Tuition Fee</span>
+                  <span className="font-medium">PKR {Math.round(selectedChallanDetails.amount).toLocaleString()}</span>
+                </div>
+              )}
+
+              {(() => {
+                // Handle both array format (new) and JSON string format (legacy)
+                let heads = [];
+                try {
+                  if (typeof selectedChallanDetails.selectedHeads === 'string') {
+                    heads = JSON.parse(selectedChallanDetails.selectedHeads || '[]');
+                  } else if (Array.isArray(selectedChallanDetails.selectedHeads)) {
+                    heads = selectedChallanDetails.selectedHeads;
+                  }
+                } catch {
+                  heads = [];
+                }
+
+                // Only show heads with amount > 0 (selected ones)
+                const additionalHeads = heads.filter(h => h.type === 'additional' && h.amount > 0);
+                const discountHeads = heads.filter(h => h.type === 'discount' && h.amount > 0);
+
+                if (additionalHeads.length === 0 && discountHeads.length === 0) {
+                  // Fallback for old challans without detailed breakdown
+                  return selectedChallanDetails.fineAmount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Additional Charges</span>
+                      <span>PKR {Math.round(selectedChallanDetails.fineAmount).toLocaleString()}</span>
+                    </div>
+                  );
+                }
+
+                return (
+                  <>
+                    {additionalHeads.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground font-medium mt-2">Additional Charges:</div>
+                        {additionalHeads.map((head, idx) => (
+                          <div key={idx} className="flex justify-between text-sm pl-2">
+                            <span className="text-muted-foreground">{head.name}</span>
+                            <span>PKR {Math.round(head.amount).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {discountHeads.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground font-medium mt-2">Discounts:</div>
+                        {discountHeads.map((head, idx) => (
+                          <div key={idx} className="flex justify-between text-sm pl-2 text-primary">
+                            <span>{head.name}</span>
+                            <span>-PKR {Math.round(head.amount).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {selectedChallanDetails.discount > 0 && (
+                <div className="flex justify-between text-sm text-primary">
+                  <span>Discount</span>
+                  <span>-PKR {Math.round(selectedChallanDetails.discount).toLocaleString()}</span>
+                </div>
+              )}
+
+              <hr className="my-2" />
+
+              <div className="flex justify-between font-semibold">
+                <span>Total Payable</span>
+                <span>PKR {Math.round(
+                  (selectedChallanDetails.amount || 0) +
+                  (selectedChallanDetails.fineAmount || 0) -
+                  (selectedChallanDetails.discount || 0)
+                ).toLocaleString()}</span>
+              </div>
+
+              <div className="flex justify-between text-sm text-green-600">
+                <span>Paid Amount</span>
+                <span>PKR {Math.round(selectedChallanDetails.paidAmount || 0).toLocaleString()}</span>
+              </div>
+
+              <div className="flex justify-between text-sm">
+                <span>Status</span>
+                <Badge variant={selectedChallanDetails.status === "PAID" ? "default" : selectedChallanDetails.status === "OVERDUE" ? "destructive" : "secondary"}>
+                  {selectedChallanDetails.status}
+                </Badge>
+              </div>
+
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Due Date</span>
+                <span>{new Date(selectedChallanDetails.dueDate).toLocaleDateString()}</span>
+              </div>
+
+              {selectedChallanDetails.remarks && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Remarks:</span>
+                  <p className="mt-1 text-xs bg-muted p-2 rounded">{selectedChallanDetails.remarks}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div >
   </DashboardLayout >;
 };

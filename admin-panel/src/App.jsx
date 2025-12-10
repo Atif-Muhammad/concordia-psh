@@ -1,11 +1,7 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQuery,
-} from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   BrowserRouter,
   Routes,
@@ -31,8 +27,6 @@ import Configuration from "./pages/Configuration";
 import Inventory from "./pages/Inventory";
 import NotFound from "./pages/NotFound";
 import { refreshTokens, userWho } from "../config/apis";
-
-const queryClient = new QueryClient();
 
 // Menu order for default landing
 const menuOrder = [
@@ -63,7 +57,7 @@ const getDefaultPath = (user) => {
     // Return first allowed module in menu order
     for (const label of menuOrder) {
       if (modules.includes(label)) {
-        const pathMap= {
+        const pathMap = {
           "Dashboard": "/dashboard",
           "Front Office": "/front-office",
           "Students": "/students",
@@ -147,6 +141,11 @@ function PermissionRoute({ children, moduleName }) {
     return <Navigate to="/" replace />;
   }
 
+  // SUPER_ADMIN has access to everything
+  if (currentUser?.role === "SUPER_ADMIN") {
+    return <>{children}</>;
+  }
+
   const modulePermissions = currentUser?.permissions?.modules ?? [];
   const hasModuleList = Array.isArray(modulePermissions) && modulePermissions.length > 0;
   const isTeacher = currentUser?.role === "Teacher";
@@ -162,133 +161,128 @@ function PermissionRoute({ children, moduleName }) {
   return <>{children}</>;
 }
 
-// ──────────────────────────────────────────────────────────────
-// App
-// ──────────────────────────────────────────────────────────────
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
-        <DataProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <Routes>
-                <Route path="/" element={<RootRoutes />} />
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+      <DataProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<RootRoutes />} />
 
-                <Route
-                  path="/dashboard"
-                  element={
-                    <PermissionRoute moduleName="Dashboard">
-                      <Dashboard />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/front-office"
-                  element={
-                    <PermissionRoute moduleName="Front Office">
-                      <FrontOffice />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/students"
-                  element={
-                    <PermissionRoute moduleName="Students">
-                      <Students />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/teachers"
-                  element={
-                    <PermissionRoute moduleName="Teachers">
-                      <Teachers />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/attendance"
-                  element={
-                    <PermissionRoute moduleName="Attendance">
-                      <Attendance />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/fee-management"
-                  element={
-                    <PermissionRoute moduleName="Fee Management">
-                      <FeeManagement />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/examination"
-                  element={
-                    <PermissionRoute moduleName="Examination">
-                      <Examination />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/academics"
-                  element={
-                    <PermissionRoute moduleName="Academics">
-                      <Academics />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/hr-payroll"
-                  element={
-                    <PermissionRoute moduleName="HR & Payroll">
-                      <HRPayroll />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/hostel"
-                  element={
-                    <PermissionRoute moduleName="Hostel">
-                      <Hostel />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/finance"
-                  element={
-                    <PermissionRoute moduleName="Finance">
-                      <Finance />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/inventory"
-                  element={
-                    <PermissionRoute moduleName="Inventory">
-                      <Inventory />
-                    </PermissionRoute>
-                  }
-                />
-                <Route
-                  path="/configuration"
-                  element={
-                    <PermissionRoute moduleName="Configuration">
-                      <Configuration />
-                    </PermissionRoute>
-                  }
-                />
+              <Route
+                path="/dashboard"
+                element={
+                  <PermissionRoute moduleName="Dashboard">
+                    <Dashboard />
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/front-office"
+                element={
+                  <PermissionRoute moduleName="Front Office">
+                    <FrontOffice />
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/students"
+                element={
+                  <PermissionRoute moduleName="Students">
+                    <Students />
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/teachers"
+                element={
+                  <PermissionRoute moduleName="Teachers">
+                    <Teachers />
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/attendance"
+                element={
+                  <PermissionRoute moduleName="Attendance">
+                    <Attendance />
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/fee-management"
+                element={
+                  <PermissionRoute moduleName="Fee Management">
+                    <FeeManagement />
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/examination"
+                element={
+                  <PermissionRoute moduleName="Examination">
+                    <Examination />
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/academics"
+                element={
+                  <PermissionRoute moduleName="Academics">
+                    <Academics/>
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/hr-payroll"
+                element={
+                  <PermissionRoute moduleName="HR & Payroll">
+                    <HRPayroll />
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/hostel"
+                element={
+                  <PermissionRoute moduleName="Hostel">
+                    <Hostel />
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/finance"
+                element={
+                  <PermissionRoute moduleName="Finance">
+                    <Finance />
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/inventory"
+                element={
+                  <PermissionRoute moduleName="Inventory">
+                    <Inventory />
+                  </PermissionRoute>
+                }
+              />
+              <Route
+                path="/configuration"
+                element={
+                  <PermissionRoute moduleName="Configuration">
+                    <Configuration />
+                  </PermissionRoute>
+                }
+              />
 
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </TooltipProvider>
-        </DataProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </DataProvider>
+    </ThemeProvider>
   );
 }
 

@@ -527,21 +527,43 @@ export class FeeManagementService {
       (c) => c.status === 'PAID' && c.selectedHeads,
     )) {
       try {
-        const selectedHeadIds = JSON.parse(challan.selectedHeads!) || [];
-        if (Array.isArray(selectedHeadIds) && selectedHeadIds.length > 0) {
-          // Fetch the fee heads for this challan
-          const heads = await this.prisma.feeHead.findMany({
-            where: {
-              id: { in: selectedHeadIds },
-              isDiscount: false,
-              isTuition: false,
-            },
-          });
+        const parsedHeads = JSON.parse(challan.selectedHeads!) || [];
 
-          heads.forEach((head) => {
-            const current = additionalChargesMap.get(head.name) || 0;
-            additionalChargesMap.set(head.name, current + head.amount);
-          });
+        if (Array.isArray(parsedHeads) && parsedHeads.length > 0) {
+          // Check if it's the new format (Array of objects with 'type' or 'amount')
+          const isNewFormat = typeof parsedHeads[0] === 'object' && parsedHeads[0] !== null;
+
+          if (isNewFormat) {
+            // New Format: Extract directly from the stored JSON
+            // [{ id, name, amount, type, ... }]
+            parsedHeads.forEach((head: any) => {
+              // Check if it is an additional charge (not tuition, not discount)
+              // The new format uses 'type', but let's be robust
+              const isAdditional = head.type === 'additional' ||
+                (!head.type && !head.isTuition && !head.isDiscount); // fallback
+
+              // Only count if amount > 0
+              if (isAdditional && head.amount > 0) {
+                const current = additionalChargesMap.get(head.name) || 0;
+                additionalChargesMap.set(head.name, current + head.amount);
+              }
+            });
+          } else {
+            // Old Format: Array of IDs [1, 2, 3]
+            // Fetch the fee heads for this challan
+            const heads = await this.prisma.feeHead.findMany({
+              where: {
+                id: { in: parsedHeads },
+                isDiscount: false,
+                isTuition: false,
+              },
+            });
+
+            heads.forEach((head) => {
+              const current = additionalChargesMap.get(head.name) || 0;
+              additionalChargesMap.set(head.name, current + head.amount);
+            });
+          }
         }
       } catch (e) {
         // Skip if JSON parse fails

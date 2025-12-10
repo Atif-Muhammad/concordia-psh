@@ -8,8 +8,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { logout } from "../../config/apis";
-import { useQueryClient } from "@tanstack/react-query";
+import { logout, userWho, refreshTokens } from "../../config/apis";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -34,14 +34,39 @@ const DashboardLayout = ({ children }) => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const currentUser = queryClient.getQueryData(["currentUser"]);
+  // Fetch current user data
+  const { data: currentUser } = useQuery({
+    queryKey: ["currentUser"],
+    queryFn: async () => {
+      try {
+        return await userWho();
+      } catch (error) {
+        if (error.response?.status === 401) {
+          try {
+            await refreshTokens();
+            return await userWho();
+          } catch {
+            return null;
+          }
+        }
+        return null;
+      }
+    },
+    retry: false,
+  });
 
   // Determine allowed modules
   const modulePermissions = currentUser?.permissions?.modules ?? [];
   const hasModulePermissions = Array.isArray(modulePermissions) && modulePermissions.length > 0;
   const isTeacher = currentUser?.role === "Teacher";
+  const isSuperAdmin = currentUser?.role === "SUPER_ADMIN";
 
   const canAccess = (label) => {
+    // SUPER_ADMIN has access to everything
+    if (isSuperAdmin) {
+      return true;
+    }
+
     if (hasModulePermissions) {
       return modulePermissions.includes(label);
     }

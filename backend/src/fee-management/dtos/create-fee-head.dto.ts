@@ -32,4 +32,32 @@ export class CreateFeeHeadDto {
   @IsBoolean()
   @IsOptional()
   isLibraryFee?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isRegistrationFee?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isAdmissionFee?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isProspectusFee?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isExaminationFee?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isAlliedCharges?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isHostelFee?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isOther?: boolean;
 }

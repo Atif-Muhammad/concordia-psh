@@ -36,7 +36,7 @@ export class DepartmentService {
       data: {
         name: payload.departmentName,
         description: payload.description,
-        hodId: Number(payload.headOfDepartment),
+        hodId: payload.headOfDepartment ? Number(payload.headOfDepartment): null,
       },
     });
   }
