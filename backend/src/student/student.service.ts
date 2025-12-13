@@ -243,7 +243,7 @@ export class StudentService {
     });
   }
 
-  async promote(id: number, forcePromote = false) {
+  async promote(id: number, forcePromote) {
     const student = await this.prismaService.student.findUnique({
       where: { id },
       include: {
@@ -261,35 +261,78 @@ export class StudentService {
     if (student.passedOut)
       throw new BadRequestException('Student already passed out');
 
-    // Check for arrears before promotion (only if not forcing)
-    if (!forcePromote && student.classId && student.programId) {
+
+    // Check for arrears before promotion - ALWAYS calculate to handle both initial check and force promote
+    if (student.classId && student.programId) {
       const currentChallans = await this.prismaService.feeChallan.findMany({
         where: {
           studentId: id,
-          studentClassId: student.classId,
-          studentProgramId: student.programId,
+          OR: [
+            {
+              studentClassId: student.classId,
+              studentProgramId: student.programId,
+            },
+            {
+              // Legacy support: Check via fee structure if snapshot missing
+              studentClassId: null,
+              feeStructure: {
+                classId: student.classId,
+                programId: student.programId,
+              },
+            },
+          ],
         },
         include: { feeStructure: true },
       });
 
-      let totalPaid = 0;
-      let expectedTotal = 0;
+
+      let totalTuitionPaid = 0;
+      let expectedTuitionTotal = 0;
 
       for (const challan of currentChallans) {
-        if (challan.status === 'PAID') {
-          totalPaid += challan.paidAmount || 0;
+        if (challan.status === 'PAID' || challan.status === 'PARTIAL') {
+          // Only count the portion of payment that went toward TUITION (amount field)
+          // challan.amount = tuition only
+          // challan.fineAmount = additional charges
+          // challan.paidAmount = total paid (might include both)
+
+          // Calculate how much of the payment went toward tuition:
+          // If paidAmount <= amount, all of it went to tuition
+          // If paidAmount > amount, only 'amount' went to tuition (rest was additional charges)
+          const tuitionPortionPaid = challan.tuitionPaid ?? Math.min(challan.paidAmount || 0, challan.amount || 0);
+          totalTuitionPaid += tuitionPortionPaid;
         }
         if (challan.feeStructure) {
-          expectedTotal = challan.feeStructure.totalAmount;
+          expectedTuitionTotal = challan.feeStructure.totalAmount;
+        }
+      }
+
+      // Fallback: If no challans found (or no structure linked), fetch structure directly
+      // This handles cases where student was enrolled but no challan was ever generated
+      if (expectedTuitionTotal === 0) {
+        const structure = await this.prismaService.feeStructure.findUnique({
+          where: {
+            programId_classId: {
+              programId: student.programId,
+              classId: student.classId,
+            },
+          },
+        });
+        if (structure) {
+          expectedTuitionTotal = structure.totalAmount;
         }
       }
 
 
-      const outstandingAmount = expectedTotal - totalPaid;
+      const outstandingAmount = expectedTuitionTotal - totalTuitionPaid;
 
       // If arrears found
       if (outstandingAmount > 0) {
+        console.log('💰 Arrears Detected:', outstandingAmount);
+        console.log('🔧 forcePromote flag:', forcePromote);
+
         if (!forcePromote) {
+          console.log('⚠️  Returning confirmation requirement (forcePromote is false)');
           // Return confirmation requirement
           return {
             requiresConfirmation: true,
@@ -306,22 +349,69 @@ export class StudentService {
           };
         } else {
           // Force promote - create arrears record
-          // Find last paid installment
-          const lastPaid = await this.prismaService.feeChallan.findFirst({
+          // Find the highest installment number paid (handle ranges like "1-6")
+          const paidChallans = await this.prismaService.feeChallan.findMany({
             where: {
               studentId: student.id,
-              studentClassId: student.classId,
-              studentProgramId: student.programId,
               status: 'PAID',
+              OR: [
+                {
+                  studentClassId: student.classId,
+                  studentProgramId: student.programId,
+                },
+                {
+                  // Legacy support
+                  studentClassId: null,
+                  feeStructure: {
+                    classId: student.classId,
+                    programId: student.programId,
+                  },
+                },
+              ],
             },
-            orderBy: { installmentNumber: 'desc' },
-            select: { installmentNumber: true },
+            select: { installmentNumber: true, coveredInstallments: true },
           });
-          const lastInstallmentNumber = lastPaid?.installmentNumber || 0;
 
-          // Create arrears record
-          await this.prismaService.studentArrear.create({
-            data: {
+          let lastInstallmentNumber = 0;
+
+          // Parse coveredInstallments to find highest installment
+          for (const challan of paidChallans) {
+            if (challan.coveredInstallments) {
+              // Parse "1-6" or "7" format
+              const parts = challan.coveredInstallments.split('-');
+              const highestInChallan = parseInt(parts[parts.length - 1]) || 0;
+              lastInstallmentNumber = Math.max(lastInstallmentNumber, highestInChallan);
+            } else {
+              // Fallback to installmentNumber if coveredInstallments not set
+              lastInstallmentNumber = Math.max(lastInstallmentNumber, challan.installmentNumber || 0);
+            }
+          }
+
+          console.log('📊 Highest installment paid:', lastInstallmentNumber);
+
+          console.log('🎓 Creating/Updating StudentArrear Record:');
+          console.log('  Student ID:', student.id);
+          console.log('  Class ID:', student.classId, '(Class:', student.class?.name, ')');
+          console.log('  Program ID:', student.programId, '(Program:', student.program?.name, ')');
+          console.log('  Arrear Amount:', outstandingAmount);
+          console.log('  Last Installment Number:', lastInstallmentNumber);
+
+          // Use upsert to handle case where StudentArrear already exists
+          // This prevents unique constraint violations if student is promoted multiple times
+          const createdArrear = await this.prismaService.studentArrear.upsert({
+            where: {
+              studentId_classId_programId: {
+                studentId: student.id,
+                classId: student.classId,
+                programId: student.programId,
+              },
+            },
+            update: {
+              // If record exists, ADD the new outstanding amount to existing arrears
+              arrearAmount: { increment: outstandingAmount },
+              lastInstallmentNumber,
+            },
+            create: {
               studentId: student.id,
               classId: student.classId,
               programId: student.programId,
@@ -329,6 +419,8 @@ export class StudentService {
               lastInstallmentNumber,
             },
           });
+
+          console.log('✅ StudentArrear Created/Updated:', createdArrear);
         }
       }
     }

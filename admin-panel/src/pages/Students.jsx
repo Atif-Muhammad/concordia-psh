@@ -212,6 +212,9 @@ const Students = () => {
 
   const bulkPromotionMut = useMutation({
     mutationFn: async ({ ids, action, forcePromote = false }) => {
+      console.log('📥 Mutation received:', { ids, action, forcePromote });
+      console.log('📊 ids length:', ids?.length, 'forcePromote type:', typeof forcePromote);
+
       const fn =
         action === "promote"
           ? promoteStudents
@@ -220,6 +223,7 @@ const Students = () => {
             : passoutStudents;
       // For promotion, check each student individually
       if (action === "promote" && !forcePromote) {
+        console.log('🔄 Taking INITIAL promotion path (forcePromote is falsy)');
         for (const id of ids) {
           const response = await fn(id, false);
 
@@ -237,6 +241,8 @@ const Students = () => {
         return { success: true, count: ids.length };
       }
       // For force promote or demote/passout
+      console.log('🚀 Taking FORCE promotion path (forcePromote:', forcePromote, ')');
+      console.log('🔥 Calling promoteStudents with forcePromote =', forcePromote);
       const promises = ids.map((id) => fn(id, forcePromote));
       await Promise.all(promises);
       return { success: true, count: ids.length };
@@ -1935,15 +1941,18 @@ const Students = () => {
               <AlertDialogAction
                 onClick={async () => {
                   try {
-                    await bulkPromotionMut.mutate({
+                    console.log('🚀 Calling force promote with forcePromote=true');
+                    await bulkPromotionMut.mutateAsync({
                       ids: promotionDialog.remainingIds || [promotionDialog.studentId],
                       action: "promote",
                       forcePromote: true
                     });
+                    console.log('✅ Force promote completed');
                     toast({ title: "Student promoted" });
                     setPromotionDialog({ open: false, studentId: null, studentInfo: null, arrears: null });
                     refetchStudents();
                   } catch (error) {
+                    console.error('❌ Force promote error:', error);
                     toast({ title: "Error", description: error.message, variant: "destructive" });
                   }
                 }}

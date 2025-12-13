@@ -301,7 +301,10 @@ const FeeManagement = () => {
       fineAmount: additionalToStore, // Additional charges only (integer)
       remarks: challanForm.remarks,
       installmentNumber: installmentNumber, // 0 when no tuition, else from form
-      selectedHeads: allFeeHeadDetails // Array of all fee heads with amounts (0 if not selected)
+      selectedHeads: allFeeHeadDetails, // Array of all fee heads with amounts (0 if not selected)
+      // Arrears payment specific fields
+      isArrearsPayment: challanForm.isArrearsPayment || false,
+      studentArrearId: challanForm.studentArrearId || null,
     };
 
     if (editingChallan) {
@@ -1090,6 +1093,7 @@ const FeeManagement = () => {
           resetChallanForm();
           setSelectedStudent(null);
           setStudentFeeSummary(null);
+          setStudentArrears(null);
         }
       }}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
@@ -1128,9 +1132,12 @@ const FeeManagement = () => {
                                   // Fetch arrears data
                                   try {
                                     const arrearsData = await getStudentArrears(student.id);
+                                    console.log('🔍 Arrears Data:', arrearsData);
+                                    console.log('📊 Total Arrears:', arrearsData?.totalArrears);
+                                    console.log('📋 Arrears Count:', arrearsData?.arrearsCount);
                                     setStudentArrears(arrearsData);
                                   } catch (arrErr) {
-                                    console.error('Error fetching arrears:', arrErr);
+                                    console.error('❌ Error fetching arrears:', arrErr);
                                     setStudentArrears(null);
                                   }
 
@@ -1329,7 +1336,7 @@ const FeeManagement = () => {
                             }}
                             className="w-3 h-3"
                           />
-                          <span className="text-muted-foreground">Pay in installments</span>
+                          <span className="text-muted-foreground">Auto-calculate Installments</span>
                         </label>
 
                         {challanForm.arrearsInstallments > 1 && (
@@ -1373,7 +1380,7 @@ const FeeManagement = () => {
               )}
 
               <div className="space-y-2">
-                <Label>Payable (PKR)</Label>
+                <Label>{challanForm.isArrearsPayment ? "Payment Amount (Partial or Full)" : "Payable (PKR)"}</Label>
                 <Input
                   type="number"
                   value={challanForm.amount}

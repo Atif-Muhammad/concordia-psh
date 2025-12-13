@@ -180,12 +180,24 @@ export class StudentController {
   @Patch('promote')
   async promoteStudents(
     @Query('studentID') studentID: string,
-    @Query('forcePromote') forcePromote?: string
+    @Query('forcePromote') forcePromote?: string  // Query params are always strings!
   ) {
-    return await this.studentService.promote(
-      Number(studentID),
-      forcePromote === 'true'
-    );
+    console.log('🔵 Controller received forcePromote:', forcePromote, 'typeof:', typeof forcePromote);
+    const forceBool = forcePromote === 'true';
+    console.log('🔵 Converting to boolean:', forceBool);
+    console.log('🔵 Calling promote service...');
+
+    try {
+      const result = await this.studentService.promote(
+        Number(studentID),
+        forceBool
+      );
+      console.log('🔵 Promote service returned:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ Promote controller error:', error);
+      throw error;
+    }
   }
   @Patch('demote')
   async demoteStudents(@Query('studentID') studentID: string) {

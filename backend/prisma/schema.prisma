@@ -876,6 +876,8 @@ model FeeChallan {
   
   amount         Float
   paidAmount     Float         @default(0)
+  tuitionPaid    Float         @default(0)  // Portion of payment that went to tuition
+  additionalPaid Float         @default(0)  // Portion of payment that went to additional charges
   discount       Float         @default(0)
   fineAmount     Float         @default(0)
   
@@ -895,6 +897,7 @@ model FeeChallan {
   arrearsAmount   Float       @default(0)
   
   studentArrearId Int?
+  studentArrear   StudentArrear? @relation("StudentArrearChallans", fields: [studentArrearId], references: [id])
 
   
   // Session Tracking: Snapshot of student's class/program at challan creation
@@ -1103,7 +1106,7 @@ model InstituteSettings {
 
 model StudentArrear {
   id             Int      @id @default(autoincrement())
-  student        Student  @relation(fields: [studentId], references: [id])
+  student        Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
   studentId      Int
   
   // The session where debt occurred
@@ -1115,6 +1118,8 @@ model StudentArrear {
   // Financial details
   arrearAmount          Float // Outstanding amount for this session
   lastInstallmentNumber Int   @default(0) // Last paid installment number (0 if none paid)
+  
+  challans              FeeChallan[] @relation("StudentArrearChallans")
   
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
