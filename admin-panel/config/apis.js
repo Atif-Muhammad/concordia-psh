@@ -1820,11 +1820,13 @@ export const createFeeChallan = async (data) => {
   }
 };
 
-export const getFeeChallans = async (studentId, search) => {
+export const getFeeChallans = async (studentId, search, page = 1, limit = 10) => {
   try {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);
     if (search) params.append('search', search);
+    params.append('page', page);
+    params.append('limit', limit);
     
     const url = `${base_url}/fee-management/challan/get/all${params.toString() ? '?' + params.toString() : ''}`;
     const response = await axios.get(url, {
@@ -3034,9 +3036,26 @@ export const getRevenueOverTime = async ({ period }) => {
   }
 };
 
-export const getClassCollectionStats = async () => {
+export const getClassCollectionStats = async ({ period }) => {
   try {
-    const response = await axios.get(`${base_url}/fee-management/reports/class-collection`, {
+    const response = await axios.get(`${base_url}/fee-management/reports/class-collection?period=${period}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      'Something went wrong';
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getFeeCollectionSummary = async ({ period }) => {
+  try {
+    const response = await axios.get(`${base_url}/fee-management/reports/collection-summary?period=${period}`, {
       withCredentials: true,
     });
     return response.data;

@@ -350,7 +350,12 @@ export class FeeManagementService {
     });
   }
 
-  async getFeeChallans(studentId?: number, search?: string) {
+  async getFeeChallans(
+    studentId?: number,
+    search?: string,
+    page: number = 1,
+    limit: number = 10,
+  ) {
     const where: any = studentId ? { studentId } : {};
 
     if (search) {
@@ -363,11 +368,13 @@ export class FeeManagementService {
       ];
     }
 
-    const take = search ? undefined : 10;
+    const total = await this.prisma.feeChallan.count({ where });
+    const lastPage = Math.ceil(total / limit);
 
-    return await this.prisma.feeChallan.findMany({
+    const data = await this.prisma.feeChallan.findMany({
       where,
-      take,
+      skip: (page - 1) * limit,
+      take: limit,
       include: {
         student: true,
         feeStructure: true,
@@ -376,6 +383,16 @@ export class FeeManagementService {
         createdAt: 'desc',
       },
     });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        lastPage,
+        limit,
+      },
+    };
   }
 
   async updateFeeChallan(id: number, payload: UpdateFeeChallanDto) {
@@ -731,9 +748,16 @@ export class FeeManagementService {
   }
 
   // Reports
-  async getRevenueOverTime(period: 'month' | 'year' | 'overall') {
+  async getRevenueOverTime(period: 'daily' | 'weekly' | 'month' | 'year' | 'overall') {
+    const startDate = this.getDateRange(period);
+
     const paidChallans = await this.prisma.feeChallan.findMany({
-      where: { status: 'PAID' },
+      where: {
+        status: 'PAID',
+        paidDate: {
+          gte: startDate
+        }
+      },
       select: { paidAmount: true, paidDate: true },
     });
 
@@ -745,7 +769,19 @@ export class FeeManagementService {
       const date = new Date(challan.paidDate);
       let key = '';
 
-      if (period === 'month') {
+      if (period === 'daily') {
+        // Daily: "2024-01-01"
+        key = date.toISOString().split('T')[0];
+      } else if (period === 'weekly') {
+        // Group by Week (e.g., "Week 45, 2024") - simple approximation
+        // Can be improved with actual ISO week logic
+        const d = new Date(date);
+        d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+        const yearStart = new Date(d.getFullYear(), 0, 1);
+        const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+        key = `Week ${weekNo}, ${date.getFullYear()}`;
+      } else if (period === 'month') {
         // Group by Month (e.g., "Jan 2024")
         key = date.toLocaleDateString('en-US', {
           month: 'short',
@@ -755,8 +791,7 @@ export class FeeManagementService {
         // Group by Year (e.g., "2024")
         key = date.getFullYear().toString();
       } else {
-        // Overall - maybe group by month for the last 12 months or just return total?
-        // Let's default to monthly for overall trend
+        // Overall - default to monthly for overall trend
         key = date.toLocaleDateString('en-US', {
           month: 'short',
           year: 'numeric',
@@ -767,51 +802,149 @@ export class FeeManagementService {
     });
 
     // Convert to array format for Recharts
-    return Object.entries(groupedData).map(([name, value]) => ({
+    const chartData = Object.entries(groupedData).map(([name, value]) => ({
       name,
       value,
     }));
+
+    // Sort by date for daily filter
+    if (period === 'daily') {
+      chartData.sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime());
+    } else if (period === 'month') {
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      chartData.sort((a, b) => {
+        const [monA, yearA] = a.name.split(" ");
+        const [monB, yearB] = b.name.split(" ");
+        if (yearA !== yearB) return parseInt(yearA) - parseInt(yearB);
+        return months.indexOf(monA) - months.indexOf(monB);
+      });
+    }
+
+    return chartData;
   }
 
-  async getClassCollectionStats() {
-    // Get all classes
-    const classes = await this.prisma.class.findMany({
-      include: {
-        students: {
-          select: { id: true },
-        },
+  // Helper to get date range based on period
+  private getDateRange(period: string): Date {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+
+    if (period === 'daily') {
+      // Last 30 Days
+      date.setDate(date.getDate() - 30);
+    } else if (period === 'weekly') {
+      // Last 12 Weeks (approx 3 months)
+      date.setDate(date.getDate() - (12 * 7));
+    } else if (period === 'month') {
+      // Last 12 Months
+      date.setMonth(date.getMonth() - 12);
+    } else if (period === 'year') {
+      // Last 5 Years
+      date.setFullYear(date.getFullYear() - 5);
+    } else {
+      // Overall - retrieve everything (e.g. from year 2000)
+      date.setFullYear(2000);
+    }
+
+    return date;
+  }
+
+  async getFeeCollectionSummary(period: 'daily' | 'weekly' | 'month' | 'year' | 'overall' = 'month') {
+    const startDate = this.getDateRange(period);
+
+    const where: any = {
+      status: 'PAID',
+      paidDate: {
+        gte: startDate,
+      },
+    };
+
+    // 1. Total Revenue (Paid Amount)
+    const revenueAggr = await this.prisma.feeChallan.aggregate({
+      where,
+      _sum: {
+        paidAmount: true,
+        discount: true,
       },
     });
 
-    const stats: any = [];
+    const totalRevenue = revenueAggr._sum.paidAmount || 0;
+    const totalDiscounts = revenueAggr._sum.discount || 0;
 
-    for (const cls of classes) {
-      const studentIds = cls.students.map((s) => s.id);
+    // 2. Outstanding (Pending or Partial)
+    // Outstanding depends on Due Date being within the range?
+    // Or outstanding created within range?
+    // Let's assume outstanding challans whose due date is within the range
+    const outstandingAggr = await this.prisma.feeChallan.findMany({
+      where: {
+        status: { not: 'PAID' },
+        dueDate: {
+          gte: startDate,
+        },
+      },
+      select: {
+        amount: true,
+        discount: true,
+        fineAmount: true,
+        paidAmount: true,
+      },
+    });
 
-      // Get total expected revenue for this class (sum of fee structures)
-      // This is complex because fee structures are per program/class.
-      // Simpler approach: Sum of all challans for students in this class
+    const totalOutstanding = outstandingAggr.reduce((sum, c) => {
+      const netAmount = (c.amount || 0) + (c.fineAmount || 0) - (c.discount || 0);
+      const remaining = netAmount - (c.paidAmount || 0);
+      return sum + Math.max(0, remaining);
+    }, 0);
 
-      const challans = await this.prisma.feeChallan.findMany({
-        where: { studentId: { in: studentIds } },
-      });
+    return {
+      totalRevenue,
+      totalOutstanding,
+      totalDiscounts,
+    };
+  }
 
-      let collected = 0;
-      let outstanding = 0;
+  async getClassCollectionStats(period: 'daily' | 'weekly' | 'month' | 'year' | 'overall' = 'month') {
+    const startDate = this.getDateRange(period);
 
-      challans.forEach((c) => {
-        if (c.status === 'PAID') {
-          collected += c.paidAmount || 0;
-        } else {
-          outstanding += c.amount + (c.fineAmount || 0) - (c.discount || 0);
+    const stats: any = {};
+
+    // Fetch all challans within the period
+    const challans = await this.prisma.feeChallan.findMany({
+      where: {
+        OR: [
+          { paidDate: { gte: startDate } }, // for collection
+          { dueDate: { gte: startDate } }   // for outstanding
+        ]
+      },
+      include: {
+        studentClass: {
+          include: { program: true }
         }
-      });
+      }
+    });
 
-      stats.push({
-        name: cls.name,
-        collected,
-        outstanding,
-      });
-    }
+    challans.forEach((c) => {
+      // Determine class name from history (studentClassId) or nothing
+      let className = "Unknown Class";
+      if (c.studentClass) {
+        className = `${c.studentClass.name} - ${c.studentClass.program?.name || '-'}`;
+      }
+
+      if (!stats[className]) {
+        stats[className] = { name: className, collected: 0, outstanding: 0 };
+      }
+
+      // Collection count
+      if (c.status === 'PAID' && c.paidDate && new Date(c.paidDate) >= startDate) {
+        stats[className].collected += c.paidAmount || 0;
+      }
+
+      // Outstanding count
+      if (c.status !== 'PAID' && new Date(c.dueDate) >= startDate) {
+        stats[className].outstanding += c.amount + (c.fineAmount || 0) - (c.discount || 0) - (c.paidAmount || 0);
+      }
+    });
+
+    // Convert to array
+    return Object.values(stats);
   }
 }

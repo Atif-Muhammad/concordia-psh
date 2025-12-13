@@ -81,21 +81,6 @@ import {
   Check,
   ChevronsUpDown,
 } from "lucide-react";
-import { cn } from "../lib/utils";
-
-// Mock data for fees, attendance, results (replace with real APIs later)
-const mockFees = [
-  { id: 1, studentId: 1, challanNumber: "CH-001", amount: 50000, paidAmount: 30000, status: "partial", dueDate: "2025-12-01" },
-  { id: 2, studentId: 1, challanNumber: "CH-002", amount: 50000, paidAmount: 50000, status: "paid", dueDate: "2025-11-01" },
-];
-const mockAttendance = [
-  { id: 1, studentId: 1, date: "2025-11-01", status: "present", class: "XI-A" },
-  { id: 2, studentId: 1, date: "2025-11-02", status: "absent", class: "XI-A" },
-];
-const mockResults = [
-  { id: 1, studentId: 1, examId: 1, examName: "Mid Term", obtainedMarks: 420, totalMarks: 500, percentage: 84, gpa: 3.8, grade: "A" },
-  { id: 2, studentId: 1, examId: 2, examName: "Final", obtainedMarks: 450, totalMarks: 500, percentage: 90, gpa: 4.0, grade: "A+" },
-];
 
 const Students = () => {
   const { toast } = useToast();
@@ -124,6 +109,10 @@ const Students = () => {
   const [showPassedOut, setShowPassedOut] = useState(false);
   const [selectedFeeSession, setSelectedFeeSession] = useState("current");
   const [selectedStudent, setSelectedStudent] = useState({})
+
+  // Challan Details State
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [selectedChallanDetails, setSelectedChallanDetails] = useState(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -542,24 +531,6 @@ const Students = () => {
       })
       .map((s) => ({ ...s, avgGPA: 3.5 }))
       .sort((a, b) => b.avgGPA - a.avgGPA);
-  };
-
-  const getStudentStats = (studentId) => {
-    const studentFees = mockFees.filter(f => f.studentId === studentId);
-    const totalFees = studentFees.reduce((sum, f) => sum + f.amount, 0);
-    const paidFees = studentFees.reduce((sum, f) => sum + f.paidAmount, 0);
-    const studentAttendance = mockAttendance.filter(a => a.studentId === studentId);
-    const presentDays = studentAttendance.filter(a => a.status === "present").length;
-    const attendanceRate = studentAttendance.length > 0 ? (presentDays / studentAttendance.length * 100).toFixed(1) : "0";
-    const studentResults = mockResults.filter(r => r.studentId === studentId);
-    const avgMarks = studentResults.length > 0 ? (studentResults.reduce((sum, r) => sum + r.percentage, 0) / studentResults.length).toFixed(1) : "N/A";
-    return {
-      totalFees,
-      paidFees,
-      attendanceRate,
-      avgMarks,
-      dueFees: totalFees - paidFees
-    };
   };
 
   const processFeesData = () => {
@@ -1349,12 +1320,13 @@ const Students = () => {
                                   <TableHead>Status</TableHead>
                                   <TableHead>Installments</TableHead>
                                   <TableHead>Due Date</TableHead>
+                                  <TableHead>Actions</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
                                 {feesData.selectedSessionData.challans.length === 0 ? (
                                   <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-4 text-muted-foreground">
+                                    <TableCell colSpan={7} className="text-center py-4 text-muted-foreground">
                                       No challans for this session
                                     </TableCell>
                                   </TableRow>
@@ -1371,6 +1343,18 @@ const Students = () => {
                                       </TableCell>
                                       <TableCell>{fee.coveredInstallments || fee.installmentNumber || "-"}</TableCell>
                                       <TableCell>{fee.dueDate ? new Date(fee.dueDate).toLocaleDateString() : "-"}</TableCell>
+                                      <TableCell>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() => {
+                                            setSelectedChallanDetails(fee);
+                                            setDetailsDialogOpen(true);
+                                          }}
+                                        >
+                                          <Eye className="h-4 w-4" />
+                                        </Button>
+                                      </TableCell>
                                     </TableRow>
                                   ))
                                 )}
@@ -1977,6 +1961,149 @@ const Students = () => {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Challan Details Dialog */}
+        <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Challan Details</DialogTitle>
+            </DialogHeader>
+            {selectedChallanDetails && (
+              <div className="space-y-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Challan #:</span>
+                  <span className="font-medium">{selectedChallanDetails.challanNumber}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Student:</span>
+                  <span className="font-medium">{selectedChallanDetails.student?.fName} {selectedChallanDetails.student?.lName}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Roll Number:</span>
+                  <span className="font-medium">{selectedChallanDetails.student?.rollNumber}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Installment:</span>
+                  <span className="font-medium">
+                    {selectedChallanDetails.installmentNumber === 0
+                      ? "Additional Charges Only"
+                      : (selectedChallanDetails.coveredInstallments
+                        ? `#${selectedChallanDetails.coveredInstallments}`
+                        : `#${selectedChallanDetails.installmentNumber}`)}
+                  </span>
+                </div>
+
+                <hr className="my-4" />
+
+                <div className="font-semibold text-sm mb-2">Fee Breakdown</div>
+
+                {selectedChallanDetails.amount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span>Tuition Fee</span>
+                    <span className="font-medium">PKR {Math.round(selectedChallanDetails.amount).toLocaleString()}</span>
+                  </div>
+                )}
+
+                {(() => {
+                  // Handle both array format (new) and JSON string format (legacy)
+                  let heads = [];
+                  try {
+                    if (typeof selectedChallanDetails.selectedHeads === 'string') {
+                      heads = JSON.parse(selectedChallanDetails.selectedHeads || '[]');
+                    } else if (Array.isArray(selectedChallanDetails.selectedHeads)) {
+                      heads = selectedChallanDetails.selectedHeads;
+                    }
+                  } catch {
+                    heads = [];
+                  }
+
+                  // Only show heads with amount > 0 (selected ones)
+                  const additionalHeads = heads.filter(h => h.type === 'additional' && h.amount > 0);
+                  const discountHeads = heads.filter(h => h.type === 'discount' && h.amount > 0);
+
+                  if (additionalHeads.length === 0 && discountHeads.length === 0) {
+                    // Fallback for old challans without detailed breakdown
+                    return selectedChallanDetails.fineAmount > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Additional Charges</span>
+                        <span>PKR {Math.round(selectedChallanDetails.fineAmount).toLocaleString()}</span>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <>
+                      {additionalHeads.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-xs text-muted-foreground font-medium mt-2">Additional Charges:</div>
+                          {additionalHeads.map((head, idx) => (
+                            <div key={idx} className="flex justify-between text-sm pl-2">
+                              <span className="text-muted-foreground">{head.name}</span>
+                              <span>PKR {Math.round(head.amount).toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {discountHeads.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-xs text-muted-foreground font-medium mt-2">Discounts:</div>
+                          {discountHeads.map((head, idx) => (
+                            <div key={idx} className="flex justify-between text-sm pl-2 text-primary">
+                              <span>{head.name}</span>
+                              <span>-PKR {Math.round(head.amount).toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+
+                {selectedChallanDetails.discount > 0 && (
+                  <div className="flex justify-between text-sm text-primary">
+                    <span>Discount</span>
+                    <span>-PKR {Math.round(selectedChallanDetails.discount).toLocaleString()}</span>
+                  </div>
+                )}
+
+                <hr className="my-2" />
+
+                <div className="flex justify-between font-semibold">
+                  <span>Total Payable</span>
+                  <span>PKR {Math.round(
+                    (selectedChallanDetails.amount || 0) +
+                    (selectedChallanDetails.fineAmount || 0) -
+                    (selectedChallanDetails.discount || 0)
+                  ).toLocaleString()}</span>
+                </div>
+
+                <div className="flex justify-between text-sm text-green-600">
+                  <span>Paid Amount</span>
+                  <span>PKR {Math.round(selectedChallanDetails.paidAmount || 0).toLocaleString()}</span>
+                </div>
+
+                <div className="flex justify-between text-sm">
+                  <span>Status</span>
+                  <Badge variant={selectedChallanDetails.status === "PAID" ? "default" : selectedChallanDetails.status === "OVERDUE" ? "destructive" : "secondary"}>
+                    {selectedChallanDetails.status}
+                  </Badge>
+                </div>
+
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Due Date</span>
+                  <span>{new Date(selectedChallanDetails.dueDate).toLocaleDateString()}</span>
+                </div>
+
+                {selectedChallanDetails.remarks && (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Remarks:</span>
+                    <p className="mt-1 text-xs bg-muted p-2 rounded">{selectedChallanDetails.remarks}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

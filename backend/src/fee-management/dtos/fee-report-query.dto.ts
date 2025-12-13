@@ -1,6 +1,8 @@
 import { IsEnum, IsOptional, IsString } from 'class-validator';
 
 export enum ReportPeriod {
+  DAILY = 'daily',
+  WEEKLY = 'weekly',
   MONTH = 'month',
   YEAR = 'year',
   OVERALL = 'overall',

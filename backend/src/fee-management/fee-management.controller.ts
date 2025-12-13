@@ -61,14 +61,20 @@ export class FeeManagementController {
   }
 
   // Reports
+
   @Get('reports/revenue-over-time')
   async getRevenueOverTime(@Query() query: FeeReportQueryDto) {
-    return await this.feeService.getRevenueOverTime(query.period!);
+    return await this.feeService.getRevenueOverTime(query.period as any);
   }
 
   @Get('reports/class-collection')
-  async getClassCollectionStats() {
-    return await this.feeService.getClassCollectionStats();
+  async getClassCollectionStats(@Query() query: FeeReportQueryDto) {
+    return await this.feeService.getClassCollectionStats(query.period as any);
+  }
+
+  @Get('reports/collection-summary')
+  async getFeeCollectionSummary(@Query() query: FeeReportQueryDto) {
+    return await this.feeService.getFeeCollectionSummary(query.period as any);
   }
 
   // Fee Challans
@@ -80,11 +86,15 @@ export class FeeManagementController {
   @Get('challan/get/all')
   async getFeeChallans(
     @Query('studentId') studentId?: string,
-    @Query('search') search?: string
+    @Query('search') search?: string,
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '10',
   ) {
     return await this.feeService.getFeeChallans(
       studentId ? Number(studentId) : undefined,
-      search
+      search,
+      Number(page),
+      Number(limit),
     );
   }
 

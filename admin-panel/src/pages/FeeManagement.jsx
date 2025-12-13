@@ -18,7 +18,7 @@ import {
   createFeeStructure, getFeeStructures, updateFeeStructure, deleteFeeStructure,
   getPrograms, getClasses,
   createFeeChallan, getFeeChallans, updateFeeChallan, deleteFeeChallan, getStudentFeeHistory,
-  searchStudents, getStudentFeeSummary, getRevenueOverTime, getClassCollectionStats, getStudentArrears
+  searchStudents, getStudentFeeSummary, getRevenueOverTime, getClassCollectionStats, getStudentArrears, getFeeCollectionSummary
 } from "../../config/apis";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -103,11 +103,20 @@ const FeeManagement = () => {
     queryFn: getFeeStructures
   });
 
-  const { data: feeChallans = [] } = useQuery({
-    queryKey: ['feeChallans', challanSearch],
-    queryFn: () => getFeeChallans(null, challanSearch),
-    enabled: true
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [challanMeta, setChallanMeta] = useState(null);
+
+  const { data: feeChallansData = { data: [], meta: {} }, isLoading: isChallansLoading } = useQuery({
+    queryKey: ['feeChallans', challanSearch, page, limit],
+    queryFn: () => getFeeChallans(null, challanSearch, page, limit),
+    keepPreviousData: true,
   });
+
+  const feeChallans = feeChallansData.data || [];
+  useEffect(() => {
+    if (feeChallansData.meta) setChallanMeta(feeChallansData.meta);
+  }, [feeChallansData]);
 
   const { data: programs = [] } = useQuery({
     queryKey: ['programs'],
@@ -119,17 +128,27 @@ const FeeManagement = () => {
     queryFn: getClasses
   });
 
-  const [revenuePeriod, setRevenuePeriod] = useState('month');
+  const [reportFilter, setReportFilter] = useState('month');
 
   const { data: revenueData = [] } = useQuery({
-    queryKey: ['revenueOverTime', revenuePeriod],
-    queryFn: () => getRevenueOverTime({ period: revenuePeriod })
+    queryKey: ['revenueOverTime', reportFilter],
+    queryFn: () => getRevenueOverTime({ period: reportFilter })
   });
 
   const { data: classCollectionData = [] } = useQuery({
-    queryKey: ['classCollectionStats'],
-    queryFn: getClassCollectionStats
+    queryKey: ['classCollectionStats', reportFilter],
+    queryFn: () => getClassCollectionStats({ period: reportFilter })
   });
+
+  const { data: feeCollectionSummary = { totalRevenue: 0, totalOutstanding: 0, totalDiscounts: 0 } } = useQuery({
+    queryKey: ['feeCollectionSummary', reportFilter],
+    queryFn: () => getFeeCollectionSummary({ period: reportFilter })
+  });
+
+  // Derived state for summary cards (using fetched summary instead of local calc)
+  const totalReceived = feeCollectionSummary.totalRevenue;
+  const totalPending = feeCollectionSummary.totalOutstanding;
+  const totalDiscount = feeCollectionSummary.totalDiscounts;
 
   // Helper function to format amounts as integers (no decimals)
   const formatAmount = (amount) => {
@@ -589,9 +608,6 @@ const FeeManagement = () => {
       printWindow.print();
     };
   };
-  const totalReceived = feeChallans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
-  const totalPending = feeChallans.reduce((sum, c) => sum + (c.status !== "PAID" ? c.amount - c.discount : 0), 0);
-  const totalDiscount = feeChallans.reduce((sum, c) => sum + (c.discount || 0), 0);
 
   return <DashboardLayout>
     <div className="space-y-6 max-w-full overflow-x-hidden">
@@ -771,6 +787,34 @@ const FeeManagement = () => {
                       })}
                   </TableBody>
                 </Table>
+              </div>
+
+              {/* Pagination Controls */}
+              <div className="flex items-center justify-between mt-4">
+                <div className="text-sm text-muted-foreground">
+                  Showing {feeChallans.length} of {challanMeta?.total || 0} challans
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1 || isChallansLoading}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm">
+                    Page {page} of {challanMeta?.lastPage || 1}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(p => p + 1)}
+                    disabled={page >= (challanMeta?.lastPage || 1) || isChallansLoading}
+                  >
+                    Next
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1009,7 +1053,23 @@ const FeeManagement = () => {
         <TabsContent value="reports">
           <div className="grid gap-6">
             <Card>
-              <CardHeader><CardTitle>Fee Collection Summary</CardTitle></CardHeader>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Fee Collection Summary</CardTitle>
+                  <Select value={reportFilter} onValueChange={setReportFilter}>
+                    <SelectTrigger className="w-[150px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">Daily (Last 30 Days)</SelectItem>
+                      <SelectItem value="weekly">Weekly (Last 12 Weeks)</SelectItem>
+                      <SelectItem value="month">Monthly (Last 12 Months)</SelectItem>
+                      <SelectItem value="year">Yearly (Last 5 Years)</SelectItem>
+                      <SelectItem value="overall">Overall</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div className="flex justify-between p-4 border rounded-lg">
@@ -1033,16 +1093,7 @@ const FeeManagement = () => {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle>Revenue Over Time</CardTitle>
-                    <Select value={revenuePeriod} onValueChange={setRevenuePeriod}>
-                      <SelectTrigger className="w-[120px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="month">Monthly</SelectItem>
-                        <SelectItem value="year">Yearly</SelectItem>
-                        <SelectItem value="overall">Overall</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    {/* Filter moved to top */}
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -1050,7 +1101,17 @@ const FeeManagement = () => {
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={revenueData}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" />
+                        <XAxis
+                          dataKey="name"
+                          tickFormatter={(value) => {
+                            // Simple formatting for daily dates (YYYY-MM-DD) to (DD MMM)
+                            if (reportFilter === 'daily' && value.includes('-')) {
+                              const date = new Date(value);
+                              return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+                            }
+                            return value;
+                          }}
+                        />
                         <YAxis />
                         <Tooltip formatter={(value) => `PKR ${value.toLocaleString()}`} />
                         <Legend />
@@ -1066,18 +1127,34 @@ const FeeManagement = () => {
                   <CardTitle>Collection vs Outstanding (Per Class)</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={classCollectionData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" />
-                        <YAxis />
-                        <Tooltip formatter={(value) => `PKR ${value.toLocaleString()}`} />
-                        <Legend />
-                        <Bar dataKey="collected" name="Collected" fill="#4ade80" />
-                        <Bar dataKey="outstanding" name="Outstanding" fill="#facc15" />
-                      </BarChart>
-                    </ResponsiveContainer>
+                  <div className="min-h-[500px] pr-4 border rounded-md">
+                    {/* Dynamic height based on data length to ensure "at a glance" view without internal scroll */}
+                    <div style={{ height: `${Math.max(500, (classCollectionData?.length || 0) * 50)}px` }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          layout="vertical"
+                          data={classCollectionData}
+                          margin={{ top: 20, right: 30, left: 10, bottom: 5 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                          <XAxis type="number" />
+                          <YAxis
+                            dataKey="name"
+                            type="category"
+                            width={160}
+                            tick={{ fontSize: 11 }}
+                            interval={0}
+                          />
+                          <Tooltip
+                            formatter={(value) => `PKR ${value.toLocaleString()}`}
+                            cursor={{ fill: 'rgba(0,0,0,0.05)' }}
+                          />
+                          <Legend verticalAlign="top" height={36} />
+                          <Bar dataKey="collected" name="Collected" fill="#4ade80" radius={[0, 4, 4, 0]} barSize={15} />
+                          <Bar dataKey="outstanding" name="Outstanding" fill="#facc15" radius={[0, 4, 4, 0]} barSize={15} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -1877,7 +1954,11 @@ const FeeManagement = () => {
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Installment:</span>
                 <span className="font-medium">
-                  {selectedChallanDetails.installmentNumber === 0 ? "Additional Charges Only" : `#${selectedChallanDetails.installmentNumber}`}
+                  {selectedChallanDetails.installmentNumber === 0
+                    ? "Additional Charges Only"
+                    : (selectedChallanDetails.coveredInstallments
+                      ? `#${selectedChallanDetails.coveredInstallments}`
+                      : `#${selectedChallanDetails.installmentNumber}`)}
                 </span>
               </div>
 
