@@ -45,10 +45,13 @@ export class ExaminationController {
   }
 
   @Get('marks/all')
-  findAllMarks(@Query('examId') examId?: string, @Query('sectionId') sectionId?: string) {
+  findAllMarks(
+    @Query('examId') examId?: string,
+    @Query('sectionId') sectionId?: string,
+  ) {
     return this.examService.findAllMarks(
       examId ? Number(examId) : undefined,
-      sectionId ? Number(sectionId) : undefined
+      sectionId ? Number(sectionId) : undefined,
     );
   }
 
@@ -74,10 +77,13 @@ export class ExaminationController {
   }
 
   @Post('result/generate')
-  generateResults(@Query('examId') examId: string, @Query('classId') classId?: string) {
+  generateResults(
+    @Query('examId') examId: string,
+    @Query('classId') classId?: string,
+  ) {
     return this.examService.generateResultsForExam(
       Number(examId),
-      classId ? Number(classId) : undefined
+      classId ? Number(classId) : undefined,
     );
   }
 
@@ -96,26 +102,29 @@ export class ExaminationController {
     @Query('studentId') studentId: string,
     @Query('examId') examId: string,
   ) {
-    return this.examService.getStudentResult(
-      Number(studentId),
-      Number(examId),
-    );
+    return this.examService.getStudentResult(Number(studentId), Number(examId));
   }
 
   //positions
   @Post('positions/generate')
-  generatePositions(@Query('examId') examId: string, @Query('classId') classId?: string) {
+  generatePositions(
+    @Query('examId') examId: string,
+    @Query('classId') classId?: string,
+  ) {
     return this.examService.generatePositionsForExam(
       Number(examId),
-      classId ? Number(classId) : undefined
+      classId ? Number(classId) : undefined,
     );
   }
 
   @Get('positions/all')
-  findAllPositions(@Query('examId') examId?: string, @Query('classId') classId?: string) {
+  findAllPositions(
+    @Query('examId') examId?: string,
+    @Query('classId') classId?: string,
+  ) {
     return this.examService.findAllPositions(
       examId ? Number(examId) : undefined,
-      classId ? Number(classId) : undefined
+      classId ? Number(classId) : undefined,
     );
   }
 
@@ -128,6 +137,4 @@ export class ExaminationController {
   removePosition(@Query('id') id: string) {
     return this.examService.deletePosition(id);
   }
-
-
 }

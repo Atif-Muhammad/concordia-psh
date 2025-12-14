@@ -1,5 +1,13 @@
-import { IsString, IsOptional, IsEnum, IsEmail, IsNumber, IsNotEmpty, ValidateIf } from "class-validator";
-import { ContactCategory } from "@prisma/client";
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsEmail,
+  IsNumber,
+  IsNotEmpty,
+  ValidateIf,
+} from 'class-validator';
+import { ContactCategory } from '@prisma/client';
 
 export class ContactDto {
   @IsString()
@@ -9,8 +17,8 @@ export class ContactDto {
   phone: number;
 
   @IsOptional()
-  @IsEmail({}, { message: "Invalid email format" })
-  @ValidateIf(o => o.email !== "")
+  @IsEmail({}, { message: 'Invalid email format' })
+  @ValidateIf((o) => o.email !== '')
   email?: string;
 
   @IsEnum(ContactCategory)

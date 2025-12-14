@@ -190,6 +190,86 @@ export const updatePayrollSettings = async (data) => {
   }
 };
 
+export const getPayrollTemplates = async () => {
+  try {
+    const response = await axios.get(`${base_url}/hr/payroll-template`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getPayrollHistory = async (staffId, type) => {
+  try {
+    const response = await axios.get(`${base_url}/hr/payroll-history?staffId=${staffId}&type=${type}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const createPayrollTemplate = async (data) => {
+  try {
+    const response = await axios.post(`${base_url}/hr/payroll-template`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updatePayrollTemplate = async (id, data) => {
+  try {
+    const response = await axios.patch(`${base_url}/hr/payroll-template?id=${id}`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deletePayrollTemplate = async (id) => {
+  try {
+    const response = await axios.delete(`${base_url}/hr/payroll-template?id=${id}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 // department
 export const getDepartmentNames = async () => {
   try {

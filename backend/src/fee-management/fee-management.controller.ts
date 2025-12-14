@@ -1,4 +1,12 @@
-import { Body, Controller, Delete, Get, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { FeeManagementService } from './fee-management.service';
 import { CreateFeeHeadDto } from './dtos/create-fee-head.dto';
 import { UpdateFeeHeadDto } from './dtos/update-fee-head.dto';
@@ -10,7 +18,7 @@ import { FeeReportQueryDto } from './dtos/fee-report-query.dto';
 
 @Controller('fee-management')
 export class FeeManagementController {
-  constructor(private readonly feeService: FeeManagementService) { }
+  constructor(private readonly feeService: FeeManagementService) {}
 
   // Fee Heads
   @Post('head/create')

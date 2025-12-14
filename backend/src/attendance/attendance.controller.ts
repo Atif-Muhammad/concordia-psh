@@ -17,10 +17,13 @@ import { PermissionsGuard } from 'src/common/guards/permission.guard';
 
 @Controller('attendance')
 export class AttendanceController {
-  constructor(private readonly attendanceService: AttendanceService) { }
+  constructor(private readonly attendanceService: AttendanceService) {}
 
   @Post('generate')
-  async generateAttendance(@Query('date') date: string, @Query("attenFor") attenFor: "teacher" | "student") {
+  async generateAttendance(
+    @Query('date') date: string,
+    @Query('attenFor') attenFor: 'teacher' | 'student',
+  ) {
     let targetDate: Date;
     if (date) {
       const [day, month, year] = date.split('/').map(Number);
@@ -31,8 +34,10 @@ export class AttendanceController {
         Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()),
       );
     }
-    if (attenFor === "teacher") return await this.attendanceService.generateAttendanceTeacher(targetDate);
-    if (attenFor === "student") return await this.attendanceService.generateAttendanceForDate(targetDate);
+    if (attenFor === 'teacher')
+      return await this.attendanceService.generateAttendanceTeacher(targetDate);
+    if (attenFor === 'student')
+      return await this.attendanceService.generateAttendanceForDate(targetDate);
     throw new ForbiddenException();
   }
 
@@ -68,13 +73,17 @@ export class AttendanceController {
 
   @Patch('student/update')
   async updateStudentAttendance(
-    @Body() payload: {
+    @Body()
+    payload: {
       classId: number;
       sectionId: number | null;
       subjectId: number;
       teacherId: number | null;
       date: string;
-      students: { studentId: string; status: 'PRESENT' | 'ABSENT' | 'LEAVE' | 'HALF_DAY' }[];
+      students: {
+        studentId: string;
+        status: 'PRESENT' | 'ABSENT' | 'LEAVE' | 'HALF_DAY';
+      }[];
     },
   ) {
     return await this.attendanceService.updateAttendance(
@@ -83,7 +92,7 @@ export class AttendanceController {
       payload.subjectId,
       payload.teacherId ?? null,
       payload.date,
-      payload.students
+      payload.students,
     );
   }
 
@@ -120,8 +129,5 @@ export class AttendanceController {
     return await this.attendanceService.deleteLeave(Number(id));
   }
 
-
   // teacher attendance and leave
-
-
 }

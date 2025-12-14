@@ -191,6 +191,7 @@ model Subject {
   teachers    TeacherSubjectMapping[] @relation("SubjectTeacherMappings")
   assignments Assignment[]            @relation("SubjectAssignments")
   attendance  Attendance[]
+  examSchedules ExamSchedule[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -599,6 +600,25 @@ model Exam {
   marks       Marks[]
   results     Result[]
   positions   Position[]
+  schedules   ExamSchedule[]
+}
+
+model ExamSchedule {
+  id        Int      @id @default(autoincrement())
+  examId    Int
+  subjectId Int
+  date      DateTime @db.Date // The specific date for this subject's paper
+  startTime String   @db.VarChar(10) // e.g. "09:00"
+  endTime   String   @db.VarChar(10) // e.g. "12:00"
+  room      String?  @db.VarChar(50) // Optional: assign a room
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  exam    Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id])
+  
+  @@unique([examId, subjectId]) // One slot per subject per exam
 }
 
 model Marks {
@@ -932,13 +952,19 @@ model Payroll {
   securityDeduction Float @default(0)
   advanceDeduction  Float @default(0)
   absentDeduction   Float @default(0)
-  leaveDeduction   Float @default(0)
+  leaveDeduction    Float @default(0)
+  incomeTax         Float @default(0)
+  eobi              Float @default(0)
+  lateArrivalDeduction Float @default(0)
   otherDeduction    Float @default(0)
   totalDeductions   Float @default(0)
   
   // Allowances
   extraAllowance    Float @default(0)
   travelAllowance   Float @default(0)
+  houseRentAllowance Float @default(0)
+  medicalAllowance  Float @default(0)
+  insuranceAllowance Float @default(0)
   otherAllowance    Float @default(0)
   totalAllowances   Float @default(0)
   
@@ -1125,4 +1151,14 @@ model StudentArrear {
   updatedAt      DateTime @updatedAt
   
   @@unique([studentId, classId, programId])
+}
+
+model PayrollTemplate {
+  id          Int      @id @default(autoincrement())
+  name        String
+  type        String   // "SALARY_SLIP" | "PAYROLL_SHEET"
+  htmlContent String   @db.Text
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

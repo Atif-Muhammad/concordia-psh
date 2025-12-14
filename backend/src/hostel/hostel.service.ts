@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateRegistrationDto } from './dtos/create-registration.dto';
 import { UpdateRegistrationDto } from './dtos/update-registration.dto';
@@ -202,7 +206,6 @@ export class HostelService {
       throw new NotFoundException('Room not found');
     }
 
-
     if (room.currentOccupancy >= room.capacity) {
       throw new BadRequestException('Room is at full capacity');
     }
@@ -230,7 +233,8 @@ export class HostelService {
       where: { id: data.roomId },
       data: {
         currentOccupancy: { increment: 1 },
-        status: room.currentOccupancy + 1 >= room.capacity ? 'occupied' : room.status,
+        status:
+          room.currentOccupancy + 1 >= room.capacity ? 'occupied' : room.status,
       },
     });
 
@@ -281,7 +285,9 @@ export class HostelService {
   }
 
   async findOneExpense(id: string) {
-    const expense = await this.prisma.hostelExpense.findUnique({ where: { id } });
+    const expense = await this.prisma.hostelExpense.findUnique({
+      where: { id },
+    });
     if (!expense) {
       throw new NotFoundException(`Expense with ID ${id} not found`);
     }
@@ -289,7 +295,9 @@ export class HostelService {
   }
 
   async updateExpense(id: string, data: any) {
-    const exists = await this.prisma.hostelExpense.findUnique({ where: { id } });
+    const exists = await this.prisma.hostelExpense.findUnique({
+      where: { id },
+    });
     if (!exists) {
       throw new NotFoundException(`Expense with ID ${id} not found`);
     }
@@ -305,7 +313,9 @@ export class HostelService {
   }
 
   async deleteExpense(id: string) {
-    const exists = await this.prisma.hostelExpense.findUnique({ where: { id } });
+    const exists = await this.prisma.hostelExpense.findUnique({
+      where: { id },
+    });
     if (!exists) {
       throw new NotFoundException(`Expense with ID ${id} not found`);
     }
@@ -335,7 +345,9 @@ export class HostelService {
   }
 
   async findOneInventory(id: string) {
-    const item = await this.prisma.hostelInventory.findUnique({ where: { id } });
+    const item = await this.prisma.hostelInventory.findUnique({
+      where: { id },
+    });
     if (!item) {
       throw new NotFoundException(`Inventory item with ID ${id} not found`);
     }
@@ -343,7 +355,9 @@ export class HostelService {
   }
 
   async updateInventory(id: string, data: any) {
-    const exists = await this.prisma.hostelInventory.findUnique({ where: { id } });
+    const exists = await this.prisma.hostelInventory.findUnique({
+      where: { id },
+    });
     if (!exists) {
       throw new NotFoundException(`Inventory item with ID ${id} not found`);
     }
@@ -354,13 +368,17 @@ export class HostelService {
         ...(data.category && { category: data.category }),
         ...(data.quantity && { quantity: Number(data.quantity) }),
         ...(data.condition && { condition: data.condition }),
-        ...(data.allocatedToRoom !== undefined && { allocatedToRoom: data.allocatedToRoom }),
+        ...(data.allocatedToRoom !== undefined && {
+          allocatedToRoom: data.allocatedToRoom,
+        }),
       },
     });
   }
 
   async deleteInventory(id: string) {
-    const exists = await this.prisma.hostelInventory.findUnique({ where: { id } });
+    const exists = await this.prisma.hostelInventory.findUnique({
+      where: { id },
+    });
     if (!exists) {
       throw new NotFoundException(`Inventory item with ID ${id} not found`);
     }

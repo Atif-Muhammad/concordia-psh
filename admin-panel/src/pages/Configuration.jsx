@@ -55,6 +55,10 @@ import {
   deleteReportCardTemplate,
   getInstituteSettings,
   updateInstituteSettings,
+  getPayrollTemplates,
+  createPayrollTemplate,
+  updatePayrollTemplate,
+  deletePayrollTemplate,
 } from "../../config/apis";
 import {
   AlertDialog,
@@ -73,6 +77,169 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
+
+const salarySlipTemplate = `
+<div style="display: flex; gap: 20px; font-family: Arial, sans-serif; font-size: 12px; min-width: 900px;">
+  <!-- Employee Copy -->
+  <div style="flex: 1; border: 1px solid #ccc; padding: 10px;">
+     <div style="text-align: center; margin-bottom: 5px;">
+        <h2 style="margin: 0; font-size: 18px; color: #333;">Concordia College Peshawar</h2>
+        <p style="margin: 0; font-size: 11px; color: #555;">60-C, Near NCS School, University Town Peshawar<br>091-5619915 | 0332-8581222</p>
+     </div>
+     <div style="background-color: #ed7d31; color: white; text-align: center; padding: 5px; font-weight: bold; margin-bottom: 10px; border: 1px solid #d66d28;">
+        Salary Slip FMO {{month}}
+     </div>
+     
+     <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 11px;">
+        <tr><td style="border: 1px solid #ccc; padding: 4px; background-color: #f9f9f9; width: 30%;">Employee Name</td><td style="border: 1px solid #ccc; padding: 4px;">{{name}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px; background-color: #f9f9f9;">Employee Id</td><td style="border: 1px solid #ccc; padding: 4px;">{{id}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px; background-color: #f9f9f9;">Designation</td><td style="border: 1px solid #ccc; padding: 4px;">{{designation}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px; background-color: #f9f9f9;">Department</td><td style="border: 1px solid #ccc; padding: 4px;">{{department}}</td></tr>
+     </table>
+
+     <table style="width: 100%; border-collapse: collapse; border: 1px solid #ccc; margin-bottom: 10px; font-size: 11px;">
+        <thead>
+            <tr style="background-color: #fce4d6;">
+                <th style="border: 1px solid #ccc; padding: 4px; width: 25%;">Allowances</th>
+                <th style="border: 1px solid #ccc; padding: 4px; width: 25%;">Amount</th>
+                <th style="border: 1px solid #ccc; padding: 4px; width: 25%;">Deductions</th>
+                <th style="border: 1px solid #ccc; padding: 4px; width: 25%;">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td style="border: 1px solid #ccc; padding: 3px;">Travelling</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{travelAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">EOBI</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{eobi}}</td></tr>
+            <tr><td style="border: 1px solid #ccc; padding: 3px;">House Rent</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{houseRentAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">Income Tax</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{incomeTax}}</td></tr>
+            <tr><td style="border: 1px solid #ccc; padding: 3px;">Medical</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{medicalAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">Security</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{securityDeduction}}</td></tr>
+            <tr><td style="border: 1px solid #ccc; padding: 3px;">Insurance</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{insuranceAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">Advance Salary</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{advanceDeduction}}</td></tr>
+             <tr><td style="border: 1px solid #ccc; padding: 3px;">Other</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{otherAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">Absentee</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{absentDeduction}}</td></tr>
+             <tr><td style="border: 1px solid #ccc; padding: 3px;">Extra</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{extraAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">Leave</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{leaveDeduction}}</td></tr>
+              <tr><td style="border: 1px solid #ccc; padding: 3px;"></td><td style="border: 1px solid #ccc; padding: 3px;"></td><td style="border: 1px solid #ccc; padding: 3px;">Late Arrival</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{lateArrivalDeduction}}</td></tr>
+              <tr><td style="border: 1px solid #ccc; padding: 3px;"></td><td style="border: 1px solid #ccc; padding: 3px;"></td><td style="border: 1px solid #ccc; padding: 3px;">Other</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{otherDeduction}}</td></tr>
+        </tbody>
+     </table>
+
+     <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px;">
+        <tr><td style="border: 1px solid #ccc; padding: 4px; width: 60%;">Basic Salary</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right; font-weight: bold;">{{basicSalary}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px;">Advance Salary</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right;">{{advanceDeduction}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px;">Total Allowances</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right;">{{totalAllowances}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px;">Total Deductions</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right;">{{totalDeductions}}</td></tr>
+        <tr style="background-color: #f7f7f7;"><td style="border: 1px solid #ccc; padding: 4px; font-weight: bold;">Total Paid Salary</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right; font-weight: bold;">{{netSalary}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px;">Salary Paid Date</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right;">{{paymentDate}}</td></tr>
+     </table>
+
+     <div style="display: flex; justify-content: space-between; margin-top: 40px; border-top: 2px solid #ed7d31; padding-top: 5px;">
+        <span style="font-size: 10px;">Accounts Officer Signature</span>
+        <span style="font-size: 10px;">Employee Signature</span>
+     </div>
+     <div style="background-color: #ed7d31; color: white; text-align: center; padding: 2px; font-size: 10px; margin-top: 5px;">Employee Copy</div>
+  </div>
+
+  <!-- Institute Copy -->
+  <div style="flex: 1; border: 1px solid #ccc; padding: 10px;">
+     <div style="text-align: center; margin-bottom: 5px;">
+        <h2 style="margin: 0; font-size: 18px; color: #333;">Concordia College Peshawar</h2>
+        <p style="margin: 0; font-size: 11px; color: #555;">60-C, Near NCS School, University Town Peshawar<br>091-5619915 | 0332-8581222</p>
+     </div>
+     <div style="background-color: #ed7d31; color: white; text-align: center; padding: 5px; font-weight: bold; margin-bottom: 10px; border: 1px solid #d66d28;">
+        Salary Slip FMO {{month}}
+     </div>
+     
+     <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 11px;">
+        <tr><td style="border: 1px solid #ccc; padding: 4px; background-color: #f9f9f9; width: 30%;">Employee Name</td><td style="border: 1px solid #ccc; padding: 4px;">{{name}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px; background-color: #f9f9f9;">Employee Id</td><td style="border: 1px solid #ccc; padding: 4px;">{{id}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px; background-color: #f9f9f9;">Designation</td><td style="border: 1px solid #ccc; padding: 4px;">{{designation}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px; background-color: #f9f9f9;">Department</td><td style="border: 1px solid #ccc; padding: 4px;">{{department}}</td></tr>
+     </table>
+
+     <table style="width: 100%; border-collapse: collapse; border: 1px solid #ccc; margin-bottom: 10px; font-size: 11px;">
+        <thead>
+            <tr style="background-color: #fce4d6;">
+                <th style="border: 1px solid #ccc; padding: 4px; width: 25%;">Allowances</th>
+                <th style="border: 1px solid #ccc; padding: 4px; width: 25%;">Amount</th>
+                <th style="border: 1px solid #ccc; padding: 4px; width: 25%;">Deductions</th>
+                <th style="border: 1px solid #ccc; padding: 4px; width: 25%;">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td style="border: 1px solid #ccc; padding: 3px;">Travelling</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{travelAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">EOBI</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{eobi}}</td></tr>
+            <tr><td style="border: 1px solid #ccc; padding: 3px;">House Rent</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{houseRentAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">Income Tax</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{incomeTax}}</td></tr>
+            <tr><td style="border: 1px solid #ccc; padding: 3px;">Medical</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{medicalAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">Security</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{securityDeduction}}</td></tr>
+            <tr><td style="border: 1px solid #ccc; padding: 3px;">Insurance</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{insuranceAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">Advance Salary</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{advanceDeduction}}</td></tr>
+             <tr><td style="border: 1px solid #ccc; padding: 3px;">Other</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{otherAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">Absentee</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{absentDeduction}}</td></tr>
+             <tr><td style="border: 1px solid #ccc; padding: 3px;">Extra</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{extraAllowance}}</td><td style="border: 1px solid #ccc; padding: 3px;">Leave</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{leaveDeduction}}</td></tr>
+              <tr><td style="border: 1px solid #ccc; padding: 3px;"></td><td style="border: 1px solid #ccc; padding: 3px;"></td><td style="border: 1px solid #ccc; padding: 3px;">Late Arrival</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{lateArrivalDeduction}}</td></tr>
+              <tr><td style="border: 1px solid #ccc; padding: 3px;"></td><td style="border: 1px solid #ccc; padding: 3px;"></td><td style="border: 1px solid #ccc; padding: 3px;">Other</td><td style="border: 1px solid #ccc; padding: 3px; text-align: right;">{{otherDeduction}}</td></tr>
+        </tbody>
+     </table>
+
+     <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px;">
+        <tr><td style="border: 1px solid #ccc; padding: 4px; width: 60%;">Basic Salary</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right; font-weight: bold;">{{basicSalary}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px;">Advance Salary</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right;">{{advanceDeduction}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px;">Total Allowances</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right;">{{totalAllowances}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px;">Total Deductions</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right;">{{totalDeductions}}</td></tr>
+        <tr style="background-color: #f7f7f7;"><td style="border: 1px solid #ccc; padding: 4px; font-weight: bold;">Total Paid Salary</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right; font-weight: bold;">{{netSalary}}</td></tr>
+        <tr><td style="border: 1px solid #ccc; padding: 4px;">Salary Paid Date</td><td style="border: 1px solid #ccc; padding: 4px; text-align: right;">{{paymentDate}}</td></tr>
+     </table>
+
+     <div style="display: flex; justify-content: space-between; margin-top: 40px; border-top: 2px solid #ed7d31; padding-top: 5px;">
+        <span style="font-size: 10px;">Accounts Officer Signature</span>
+        <span style="font-size: 10px;">Employee Signature</span>
+     </div>
+     <div style="background-color: #ed7d31; color: white; text-align: center; padding: 2px; font-size: 10px; margin-top: 5px;">Institute Copy</div>
+  </div>
+</div>
+`;
+
+const payrollSheetTemplate = `
+<div style="font-family: Arial, sans-serif; font-size: 12px; width: 100%;">
+    <div style="text-align: center; margin-bottom: 10px;">
+        <h1 style="margin: 5px 0; font-size: 24px; color: #333;">Concordia College Peshawar</h1>
+        <p style="margin: 0; color: #666; font-size: 12px;">60-C, Near NCS School, University Town Peshawar<br>091-5619915 | 0332-8581222</p>
+    </div>
+    <div style="background-color: #ed7d31; color: white; text-align: center; padding: 8px; font-weight: bold; font-size: 16px; margin-bottom: 15px; border: 1px solid #d66d28;">
+        Employees Salary / Payroll Sheet
+    </div>
+
+    <div style="display: flex; justify-content: space-between; margin-bottom: 10px; border: 1px solid #ccc; padding: 8px; background-color: #f9f9f9;">
+        <div><strong>Month:</strong> {{month}}</div>
+        <div><strong>Session:</strong> 2024-2025</div>
+    </div>
+
+    <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+        <thead>
+            <tr style="background-color: #fce4d6;">
+                <th style="border: 1px solid #ccc; padding: 8px; text-align: center; width: 5%;">Sr.</th>
+                <th style="border: 1px solid #ccc; padding: 8px; text-align: left; width: 20%;">Employee Name</th>
+                <th style="border: 1px solid #ccc; padding: 8px; text-align: left; width: 15%;">Designation</th>
+                <th style="border: 1px solid #ccc; padding: 8px; text-align: right;">Basic Salary</th>
+                <th style="border: 1px solid #ccc; padding: 8px; text-align: right;">Allowances</th>
+                <th style="border: 1px solid #ccc; padding: 8px; text-align: right;">Deductions</th>
+                <th style="border: 1px solid #ccc; padding: 8px; text-align: right;">Total Payable</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{rows}}
+        </tbody>
+        <tfoot>
+             <tr style="background-color: #fce4d6; font-weight: bold;">
+                <td colspan="3" style="border: 1px solid #ccc; padding: 8px; text-align: center;">Total</td>
+                <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">{{totalBasicSalary}}</td>
+                <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">{{totalAllowances}}</td>
+                <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">{{totalDeductions}}</td>
+                <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">{{totalNetSalary}}</td>
+             </tr>
+        </tfoot>
+    </table>
+</div>
+`;
+
 const Configuration = () => {
   const {
     config,
@@ -215,6 +382,36 @@ const Configuration = () => {
       }
     };
     loadTemplates();
+  }, []);
+
+  // Payroll Templates state
+  const [payrollTemplates, setPayrollTemplates] = useState([]);
+  const [payrollDialog, setPayrollDialog] = useState(false);
+  const [payrollForm, setPayrollForm] = useState({
+    name: "",
+    type: "SALARY_SLIP",
+    htmlContent: "",
+    isDefault: false,
+  });
+  const [editingPayroll, setEditingPayroll] = useState(null);
+  const [previewPayroll, setPreviewPayroll] = useState(null);
+
+  // Fetch Payroll Templates on component mount
+  useEffect(() => {
+    const loadPayrollTemplates = async () => {
+      try {
+        const templates = await getPayrollTemplates();
+        setPayrollTemplates(templates);
+      } catch (error) {
+        console.error("Failed to fetch payroll templates:", error);
+        toast({
+          title: "Error",
+          description: error.message || "Failed to fetch payroll templates",
+          variant: "destructive",
+        });
+      }
+    };
+    loadPayrollTemplates();
   }, []);
 
   // Fetch Institute Settings on component mount
@@ -1590,12 +1787,238 @@ const Configuration = () => {
                   </Table>
                 </CardContent>
               </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5" />
+                    Payroll & Salary Slip Templates
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex justify-end mb-4">
+                    <Dialog
+                      open={payrollDialog}
+                      onOpenChange={setPayrollDialog}
+                    >
+                      <DialogTrigger asChild>
+                        <Button
+                          onClick={() => {
+                            setEditingPayroll(null);
+                            setPayrollForm({
+                              name: "",
+                              type: "SALARY_SLIP",
+                              htmlContent: "",
+                              isDefault: false,
+                            });
+                          }}
+                        >
+                          <PlusCircle className="w-4 h-4 mr-2" />
+                          Add Template
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
+                        <DialogHeader>
+                          <DialogTitle>
+                            {editingPayroll ? "Edit" : "Add"} Payroll Template
+                          </DialogTitle>
+                        </DialogHeader>
+                        <div className="grid gap-4 p-3 flex-1 overflow-y-auto">
+                          <div className="grid grid-row-4 gap-4">
+                            <Label htmlFor="pay_name" className="text-left">
+                              Template Name
+                            </Label>
+                            <Input
+                              id="pay_name"
+                              value={payrollForm.name}
+                              onChange={(e) =>
+                                setPayrollForm({ ...payrollForm, name: e.target.value })
+                              }
+                              className="col-span-3"
+                            />
+                          </div>
+                          <div className="grid grid-row-4 gap-4">
+                            <Label htmlFor="pay_type" className="text-left">
+                              Type
+                            </Label>
+                            <Select
+                              value={payrollForm.type}
+                              onValueChange={(value) =>
+                                setPayrollForm({ ...payrollForm, type: value })
+                              }
+                            >
+                              <SelectTrigger className="col-span-3">
+                                <SelectValue placeholder="Select type" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="SALARY_SLIP">Salary Slip</SelectItem>
+                                <SelectItem value="PAYROLL_SHEET">Payroll Sheet</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="grid grid-row-4 gap-4">
+                            <div className="col-span-4 flex items-center justify-between pt-2 space-y-2">
+                              <Label htmlFor="content">
+                                HTML Content
+                              </Label>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                type="button"
+                                onClick={() => {
+                                  if (payrollForm.type === 'SALARY_SLIP') {
+                                    setPayrollForm(prev => ({ ...prev, htmlContent: salarySlipTemplate }));
+                                  } else if (payrollForm.type === 'PAYROLL_SHEET') {
+                                    setPayrollForm(prev => ({ ...prev, htmlContent: payrollSheetTemplate }));
+                                  } else {
+                                    toast({ title: "Please select a type first", variant: "destructive" });
+                                  }
+                                }}
+                              >
+                                Load Default Design
+                              </Button>
+                            </div>
+                            <div className="col-span-4">
+                              <Textarea
+                                id="content"
+                                value={payrollForm.htmlContent}
+                                onChange={(e) => setPayrollForm({ ...payrollForm, htmlContent: e.target.value })}
+                                className="h-[300px] mb-12 font-mono text-xs"
+                                placeholder="Enter HTML content..."
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center  gap-4">
+                            <Checkbox
+                              id="pay_default"
+                              checked={payrollForm.isDefault}
+                              onCheckedChange={(checked) =>
+                                setPayrollForm({ ...payrollForm, isDefault: checked })
+                              }
+                            />
+                            <Label htmlFor="pay_default" className="text-left">
+                              Set as Default
+                            </Label>
+                          </div>
+                        </div>
+                        <Button
+                          onClick={async () => {
+                            try {
+                              if (editingPayroll) {
+                                const updatedTemplate = await updatePayrollTemplate(editingPayroll, {
+                                  ...payrollForm,
+                                });
+                                setPayrollTemplates(
+                                  payrollTemplates.map((t) =>
+                                    t.id === editingPayroll ? updatedTemplate : t
+                                  )
+                                );
+                                toast({
+                                  title: "Template updated successfully",
+                                });
+                              } else {
+                                const newTemplate = await createPayrollTemplate({
+                                  ...payrollForm,
+                                });
+                                setPayrollTemplates([...payrollTemplates, newTemplate]);
+                                toast({
+                                  title: "Template added successfully",
+                                });
+                              }
+                              setPayrollDialog(false);
+                            } catch (error) {
+                              toast({
+                                title: "Error",
+                                description: error.message || "Failed to save template",
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                          className="w-full"
+                        >
+                          {editingPayroll ? "Update" : "Add"}
+                        </Button>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Template Name</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Default</TableHead>
+                        <TableHead>Created Date</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {payrollTemplates.map((template) => (
+                        <TableRow key={template.id}>
+                          <TableCell>{template.name}</TableCell>
+                          <TableCell>{template.type.replace('_', ' ')}</TableCell>
+                          <TableCell>
+                            {template.isDefault ? <Badge>Default</Badge> : "-"}
+                          </TableCell>
+                          <TableCell>
+                            {new Date(template.createdAt).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setEditingPayroll(template.id);
+                                  setPayrollForm(template);
+                                  setPayrollDialog(true);
+                                }}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  setPreviewPayroll(template.htmlContent)
+                                }
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={async () => {
+                                  try {
+                                    await deletePayrollTemplate(template.id);
+                                    setPayrollTemplates(payrollTemplates.filter(t => t.id !== template.id));
+                                    toast({
+                                      title: "Template deleted",
+                                    });
+                                  } catch (error) {
+                                    toast({
+                                      title: "Error",
+                                      description: "Failed to delete template",
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
-        </Tabs>
+        </Tabs >
 
         {/* Preview Dialogs */}
-        <Dialog
+        < Dialog
           open={!!previewChallan}
           onOpenChange={() => setPreviewChallan(null)}
         >
@@ -1609,7 +2032,7 @@ const Configuration = () => {
               }}
             />
           </DialogContent>
-        </Dialog>
+        </Dialog >
 
         <Dialog
           open={!!previewIdCard}
@@ -1638,6 +2061,22 @@ const Configuration = () => {
             <div
               dangerouslySetInnerHTML={{
                 __html: previewMarksheet || "",
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={!!previewPayroll}
+          onOpenChange={() => setPreviewPayroll(null)}
+        >
+          <DialogContent className="max-w-7xl max-h-[95dvh] overflow-auto">
+            <DialogHeader>
+              <DialogTitle>Payroll Template Preview</DialogTitle>
+            </DialogHeader>
+            <div
+              dangerouslySetInnerHTML={{
+                __html: previewPayroll || "",
               }}
             />
           </DialogContent>
@@ -1708,8 +2147,8 @@ const Configuration = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
-    </DashboardLayout>
+      </div >
+    </DashboardLayout >
   );
 };
 export default Configuration;

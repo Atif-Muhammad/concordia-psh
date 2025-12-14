@@ -5,10 +5,10 @@ import { JwtAccGuard } from '../common/guards/jwt-access.guard';
 @Controller('dashboard')
 @UseGuards(JwtAccGuard)
 export class DashboardController {
-    constructor(private readonly dashboardService: DashboardService) { }
+  constructor(private readonly dashboardService: DashboardService) {}
 
-    @Get('stats')
-    getDashboardStats() {
-        return this.dashboardService.getDashboardStats();
-    }
+  @Get('stats')
+  getDashboardStats() {
+    return this.dashboardService.getDashboardStats();
+  }
 }

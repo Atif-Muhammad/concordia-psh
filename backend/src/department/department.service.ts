@@ -18,12 +18,13 @@ export class DepartmentService {
           },
         },
       },
-      orderBy: {createdAt: "desc"}
+      orderBy: { createdAt: 'desc' },
     });
   }
   async getDepartments() {
     return await this.prismaService.department.findMany({
-      include: { hod: { select: { id: true, name: true } } },orderBy: {createdAt: "desc"}
+      include: { hod: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'desc' },
     });
   }
   async createDepartment(payload: DepartmentDto) {
@@ -36,7 +37,9 @@ export class DepartmentService {
       data: {
         name: payload.departmentName,
         description: payload.description,
-        hodId: payload.headOfDepartment ? Number(payload.headOfDepartment): null,
+        hodId: payload.headOfDepartment
+          ? Number(payload.headOfDepartment)
+          : null,
       },
     });
   }

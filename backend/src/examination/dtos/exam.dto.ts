@@ -1,23 +1,29 @@
-import { IsNotEmpty, IsOptional } from "class-validator";
-
+import { IsNotEmpty, IsOptional } from 'class-validator';
 
 export class CreateExamDto {
-  @IsNotEmpty({message: "exam name must be provided"})
+  @IsNotEmpty({ message: 'exam name must be provided' })
   examName: string;
-  @IsNotEmpty({message: "exam program must be specified"})
+  @IsNotEmpty({ message: 'exam program must be specified' })
   programId: number;
   @IsOptional()
   classId?: number;
-  @IsNotEmpty({message: "session must be provided"})
+  @IsNotEmpty({ message: 'session must be provided' })
   session: string;
-  @IsNotEmpty({message: "exam type must be provided"})
+  @IsNotEmpty({ message: 'exam type must be provided' })
   type: string;
-  @IsNotEmpty({message: "exam start date must be provided"})
+  @IsNotEmpty({ message: 'exam start date must be provided' })
   startDate: string;
-  @IsNotEmpty({message: "exam end date must be provided"})
+  @IsNotEmpty({ message: 'exam end date must be provided' })
   endDate: string;
   @IsOptional()
   description?: string;
+  @IsOptional()
+  schedule?: {
+    subjectId: number;
+    date: string;
+    startTime: string;
+    endTime: string;
+  }[];
 }
 
 export class UpdateExamDto extends CreateExamDto {}

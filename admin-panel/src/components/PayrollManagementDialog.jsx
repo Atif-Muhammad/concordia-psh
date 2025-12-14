@@ -16,11 +16,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, SaveAll, CheckCircle, XCircle, Printer } from "lucide-react";
+import { Loader2, SaveAll, CheckCircle, XCircle, Printer, MoreHorizontal, Eye } from "lucide-react";
+
+
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getPayrollSheet, upsertPayroll } from "../../config/apis";
+import { getPayrollSheet, upsertPayroll, getPayrollTemplates, getPayrollHistory } from "../../config/apis";
 import { useToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -39,6 +47,16 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
     queryFn: () => getPayrollSheet(month, activeTab),
     enabled: open,
   });
+
+  const [templates, setTemplates] = useState([]);
+  useEffect(() => {
+    if (open) {
+      getPayrollTemplates().then(data => {
+        console.log("Fetched Payroll Templates:", data);
+        setTemplates(data);
+      }).catch(console.error);
+    }
+  }, [open]);
 
   const upsertMutation = useMutation({
     mutationFn: upsertPayroll,
@@ -64,10 +82,16 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
           securityDeduction: Number(row.securityDeduction) || 0,
           advanceDeduction: Number(row.advanceDeduction) || 0,
           absentDeduction: Number(row.absentDeduction) || 0,
-          leaveDeduction: Number(row.leaveDeduction) || 0, // Added this line
+          leaveDeduction: Number(row.leaveDeduction) || 0,
           otherDeduction: Number(row.otherDeduction) || 0,
+          incomeTax: Number(row.incomeTax) || 0,
+          eobi: Number(row.eobi) || 0,
+          lateArrivalDeduction: Number(row.lateArrivalDeduction) || 0,
           extraAllowance: Number(row.extraAllowance) || 0,
           travelAllowance: Number(row.travelAllowance) || 0,
+          houseRentAllowance: Number(row.houseRentAllowance) || 0,
+          medicalAllowance: Number(row.medicalAllowance) || 0,
+          insuranceAllowance: Number(row.insuranceAllowance) || 0,
           otherAllowance: Number(row.otherAllowance) || 0,
           status: row.status || "UNPAID",
           employeeId: activeTab === "employee" ? row.id : undefined,
@@ -130,216 +154,230 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
     toast({ title: `${selectedRows.size} record(s) marked as UNPAID` });
   };
 
-  // Print individual payslip
+  // Preview state
+  const [previewHtml, setPreviewHtml] = useState(null);
+
+  // Print individual payslip (Salary Slip)
   const handlePrintPayslip = (row) => {
+    // 1. Try Specific (Default)
+    let template = templates.find(t => (t.type || '').toUpperCase().includes('SLIP') && t.isDefault);
+
+    // 2. Try Specific (Any)
+    if (!template) {
+      template = templates.find(t => (t.type || '').toUpperCase().includes('SLIP'));
+    }
+
+    // 3. Fallback to ANY template if nothing else works (Fail-safe)
+    if (!template && templates.length > 0) {
+      console.warn("No 'SLIP' template found. Falling back to first available template.");
+      template = templates[0];
+    }
+
+    console.log("Selected Template:", template);
+
+    const htmlContent = generatePayslipHtml(template, row, "Salary Slip");
     const printWindow = window.open("", "", "width=800,height=600");
-    printWindow.document.write(`
-            <html>
-                <head>
-                    <title>Payslip - ${row.name}</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; padding: 20px; }
-                        .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 10px; }
-                        .company-name { font-size: 24px; font-weight: bold; }
-                        .title { font-size: 18px; margin-top: 5px; }
-                        .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
-                        .section { margin-bottom: 20px; }
-                        .section-title { font-weight: bold; border-bottom: 1px solid #ccc; margin-bottom: 10px; }
-                        .row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-                        .total-row { display: flex; justify-content: space-between; font-weight: bold; border-top: 1px solid #333; margin-top: 5px; padding-top: 5px; }
-                        .net-salary { font-size: 20px; font-weight: bold; text-align: right; margin-top: 30px; border-top: 2px solid #333; padding-top: 10px; }
-                    </style>
-                </head>
-                <body>
-                    <div class="header">
-                        <div class="company-name">Concordia College</div>
-                        <div class="title">Payslip for ${new Date(
-      month
-    ).toLocaleString("default", {
-      month: "long",
-      year: "numeric",
-    })}</div>
-                    </div>
-                    
-                    <div class="details-grid">
-                        <div>
-                            <div class="row"><span>Name:</span> <strong>${row.name
-      }</strong></div>
-                            <div class="row"><span>Designation:</span> <strong>${row.designation
-      }</strong></div>
-                        </div>
-                        <div>
-                            <div class="row"><span>Department:</span> <strong>${row.department
-      }</strong></div>
-                            <div class="row"><span>Status:</span> <strong>${row.status
-      }</strong></div>
-                        </div>
-                    </div>
-
-                    <div class="details-grid">
-                        <div class="section">
-                            <div class="section-title">Earnings</div>
-                            <div class="row"><span>Basic Pay:</span> <span>${Number(
-        row.basicSalary
-      ).toLocaleString()}</span></div>
-                            <div class="row"><span>Extra Allowance:</span> <span>${Number(
-        row.extraAllowance
-      ).toLocaleString()}</span></div>
-                            <div class="row"><span>Travel Allowance:</span> <span>${Number(
-        row.travelAllowance
-      ).toLocaleString()}</span></div>
-                            <div class="row"><span>Other Allowance:</span> <span>${Number(
-        row.otherAllowance
-      ).toLocaleString()}</span></div>
-                            <div class="total-row"><span>Total Earnings:</span> <span>${(
-        Number(row.basicSalary) +
-        Number(row.totalAllowances)
-      ).toLocaleString()}</span></div>
-                        </div>
-                        <div class="section">
-                            <div class="section-title">Deductions</div>
-                            <div class="row"><span>Security:</span> <span>${Number(
-        row.securityDeduction
-      ).toLocaleString()}</span></div>
-                            <div class="row"><span>Advance:</span> <span>${Number(
-        row.advanceDeduction
-      ).toLocaleString()}</span></div>
-                            <div class="row"><span>Absent:</span> <span>${Number(
-        row.absentDeduction
-      ).toLocaleString()}</span></div>
-                            <div class="row"><span>Other:</span> <span>${Number(
-        row.otherDeduction
-      ).toLocaleString()}</span></div>
-                            <div class="total-row"><span>Total Deductions:</span> <span>${Number(
-        row.totalDeductions
-      ).toLocaleString()}</span></div>
-                        </div>
-                    </div>
-
-                    <div class="net-salary">
-                        Net Salary: PKR ${Number(
-        row.netSalary
-      ).toLocaleString()}
-                    </div>
-                    
-                    <div style="margin-top: 50px; display: flex; justify-content: space-between;">
-                        <div style="text-align: center; border-top: 1px solid #333; width: 200px; padding-top: 5px;">Employee Signature</div>
-                        <div style="text-align: center; border-top: 1px solid #333; width: 200px; padding-top: 5px;">Authorized Signature</div>
-                    </div>
-                </body>
-            </html>
-        `);
+    printWindow.document.write(htmlContent);
     printWindow.document.close();
     printWindow.print();
   };
 
-  // Print monthly sheet
-  const handlePrintMonth = () => {
-    const printWindow = window.open("", "", "width=1000,height=800");
-    printWindow.document.write(`
+  const handlePreviewPayslip = (row) => {
+    // 1. Try Specific (Default)
+    let template = templates.find(t => (t.type || '').toUpperCase().includes('SLIP') && t.isDefault);
+
+    // 2. Try Specific (Any)
+    if (!template) {
+      template = templates.find(t => (t.type || '').toUpperCase().includes('SLIP'));
+    }
+
+    // 3. Fallback to ANY template if nothing else works (Fail-safe)
+    if (!template && templates.length > 0) {
+      console.warn("No 'SLIP' template found. Falling back to first available template.");
+      template = templates[0];
+    }
+
+    const htmlContent = generatePayslipHtml(template, row, "Salary Slip Preview");
+    setPreviewHtml(htmlContent);
+  };
+
+  const generatePayslipHtml = (template, row, title) => {
+    let htmlContent = "";
+    if (template) {
+      let content = template.htmlContent || "";
+      // Basic check if it looks like HTML
+      if (!content.trim().startsWith("<")) {
+        content = `<div style="white-space: pre-wrap; font-family: monospace;">${content}</div>`;
+      }
+
+      htmlContent = content
+        .replace(/{{name}}/g, row.name)
+        .replace(/{{id}}/g, row.id)
+        .replace(/{{designation}}/g, row.designation)
+        .replace(/{{department}}/g, row.department)
+        .replace(/{{month}}/g, new Date(month).toLocaleString("default", { month: "long", year: "numeric" }))
+        .replace(/{{basicSalary}}/g, Number(row.basicSalary).toLocaleString())
+        .replace(/{{securityDeduction}}/g, Number(row.securityDeduction).toLocaleString())
+        .replace(/{{advanceDeduction}}/g, Number(row.advanceDeduction).toLocaleString())
+        .replace(/{{absentDeduction}}/g, Number(row.absentDeduction).toLocaleString())
+        .replace(/{{leaveDeduction}}/g, Number(row.leaveDeduction).toLocaleString())
+        .replace(/{{otherDeduction}}/g, Number(row.otherDeduction).toLocaleString())
+        .replace(/{{incomeTax}}/g, Number(row.incomeTax).toLocaleString())
+        .replace(/{{eobi}}/g, Number(row.eobi).toLocaleString())
+        .replace(/{{lateArrivalDeduction}}/g, Number(row.lateArrivalDeduction).toLocaleString())
+        .replace(/{{totalDeductions}}/g, Number(row.totalDeductions).toLocaleString())
+        .replace(/{{extraAllowance}}/g, Number(row.extraAllowance).toLocaleString())
+        .replace(/{{travelAllowance}}/g, Number(row.travelAllowance).toLocaleString())
+        .replace(/{{houseRentAllowance}}/g, Number(row.houseRentAllowance).toLocaleString())
+        .replace(/{{medicalAllowance}}/g, Number(row.medicalAllowance).toLocaleString())
+        .replace(/{{insuranceAllowance}}/g, Number(row.insuranceAllowance).toLocaleString())
+        .replace(/{{otherAllowance}}/g, Number(row.otherAllowance).toLocaleString())
+        .replace(/{{totalAllowances}}/g, Number(row.totalAllowances).toLocaleString())
+        .replace(/{{netSalary}}/g, Number(row.netSalary).toLocaleString())
+        .replace(/{{status}}/g, row.status)
+        .replace(/{{paymentDate}}/g, row.paymentDate || "N/A");
+    } else {
+      htmlContent = `
             <html>
-                <head>
-                    <title>Payroll Sheet - ${new Date(month).toLocaleString(
-      "default",
-      { month: "long", year: "numeric" }
-    )}</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }
-                        .header { text-align: center; margin-bottom: 20px; }
-                        h1 { margin: 0; font-size: 20px; }
-                        h2 { margin: 5px 0; font-size: 16px; color: #666; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                        th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
-                        th { background-color: #f5f5f5; font-weight: bold; text-align: center; }
-                        .text-right { text-align: right; }
-                        .center { text-align: center; }
-                        .total-row { font-weight: bold; background-color: #eee; }
-                    </style>
-                </head>
+                <head><title>${title}</title></head>
                 <body>
-                    <div class="header">
-                        <h1>Concordia College</h1>
-                        <h2>Payroll Sheet - ${activeTab === "teacher" ? "Teachers" : "Staff"
-      }</h2>
-                        <h3>${new Date(month).toLocaleString("default", {
-        month: "long",
-        year: "numeric",
-      })}</h3>
+                    <div style="text-align: center; padding: 20px;">
+                        <h1>${title}</h1>
+                        <p style="color: red; font-weight: bold;">CRITICAL ERROR: No Template Object Selected.</p>
+                        <p>We tried finding 'SLIP'. We tried falling back to [0]. Nothing worked.</p>
+                        <p>Employee: ${row.name}</p>
+                        <hr/>
+                        <p style="color: grey; font-size: 12px; white-space: pre-wrap; text-align: left;">
+                            Debug Info:<br/>
+                            Templates Loaded: ${templates.length}<br/>
+                            Raw Data: ${JSON.stringify(templates, null, 2)}
+                        </p>
                     </div>
-                    
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Designation</th>
-                                <th>Basic Pay</th>
-                                <th>Total Allowances</th>
-                                <th>Total Deductions</th>
-                                <th>Net Salary</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${localData
-        .map(
-          (row) => `
-                                <tr>
-                                    <td>${row.name}</td>
-                                    <td>${row.designation}</td>
-                                    <td class="text-right">${Number(
-            row.basicSalary
-          ).toLocaleString()}</td>
-                                    <td class="text-right">${Number(
-            row.totalAllowances
-          ).toLocaleString()}</td>
-                                    <td class="text-right">${Number(
-            row.totalDeductions
-          ).toLocaleString()}</td>
-                                    <td class="text-right"><strong>${Number(
-            row.netSalary
-          ).toLocaleString()}</strong></td>
-                                    <td class="center">${row.status}</td>
-                                </tr>
-                            `
-        )
-        .join("")}
-                            <tr class="total-row">
-                                <td colspan="2">Total</td>
-                                <td class="text-right">${localData
-        .reduce(
-          (sum, row) => sum + Number(row.basicSalary),
-          0
-        )
-        .toLocaleString()}</td>
-                                <td class="text-right">${localData
-        .reduce(
-          (sum, row) =>
-            sum + Number(row.totalAllowances),
-          0
-        )
-        .toLocaleString()}</td>
-                                <td class="text-right">${localData
-        .reduce(
-          (sum, row) =>
-            sum + Number(row.totalDeductions),
-          0
-        )
-        .toLocaleString()}</td>
-                                <td class="text-right">${localData
-        .reduce(
-          (sum, row) => sum + Number(row.netSalary),
-          0
-        )
-        .toLocaleString()}</td>
-                                <td></td>
-                            </tr>
-                        </tbody>
-                    </table>
                 </body>
             </html>
-        `);
+        `;
+    }
+    return htmlContent;
+  }
+
+  // Payroll Print (History)
+  const handlePrintPayrollDetails = async (row) => {
+    try {
+      const historyData = await getPayrollHistory(row.id, activeTab === 'teacher' ? 'teacher' : 'employee');
+
+      let template = templates.find(t => (t.type || '').toUpperCase().includes('SHEET') && t.isDefault);
+      if (!template) {
+        template = templates.find(t => (t.type || '').toUpperCase().includes('SHEET'));
+      }
+      if (!template && templates.length > 0) {
+        template = templates[0];
+      }
+
+      const htmlContent = generateSheetHtml(template, historyData, `Payroll History - ${row.name}`);
+
+      const printWindow = window.open("", "", "width=1000,height=800");
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+      // Wait for images/styles to load then print
+      setTimeout(() => {
+        printWindow.print();
+      }, 500);
+
+    } catch (error) {
+      console.error("Failed to fetch payroll history", error);
+      toast({ title: "Failed to load history", variant: "destructive" });
+    }
+  };
+
+  const printTemplate = (template, row, title) => {
+    // Deprecated in favor of generatePayslipHtml separation
+  }
+
+
+
+
+  // Print monthly sheet
+  const handlePrintMonth = () => {
+    let template = templates.find(t => (t.type || '').toUpperCase().includes('SHEET') && t.isDefault);
+    if (!template) {
+      template = templates.find(t => (t.type || '').toUpperCase().includes('SHEET'));
+    }
+    if (!template && templates.length > 0) {
+      template = templates[0];
+    }
+    const htmlContent = generateSheetHtml(template);
+
+    const printWindow = window.open("", "", "width=1000,height=800");
+    printWindow.document.write(htmlContent);
     printWindow.document.close();
     printWindow.print();
+  };
+
+  const handlePreviewSheet = () => {
+    let template = templates.find(t => (t.type || '').toUpperCase().includes('SHEET') && t.isDefault);
+    if (!template) {
+      template = templates.find(t => (t.type || '').toUpperCase().includes('SHEET'));
+    }
+    if (!template && templates.length > 0) {
+      template = templates[0];
+    }
+    const htmlContent = generateSheetHtml(template);
+    setPreviewHtml(htmlContent);
+  };
+
+  const generateSheetHtml = (template, data = null, customTitle = null) => {
+    // data allows overriding (e.g. for history print)
+    const rowsData = data || localData;
+    const title = customTitle || new Date(month).toLocaleString("default", { month: "long", year: "numeric" });
+
+    // Generate rows HTML
+    const rowsHtml = rowsData.map((row, index) => `
+      <tr>
+        <td class="text-center">${index + 1}</td>
+        <td>${row.name}</td>
+        <td>${row.designation}</td>
+        <td class="text-right">${Number(row.basicSalary).toLocaleString()}</td>
+        <td class="text-right">${Number(row.totalAllowances).toLocaleString()}</td>
+        <td class="text-right">${Number(row.totalDeductions).toLocaleString()}</td>
+        <td class="text-right"><strong>${Number(row.netSalary).toLocaleString()}</strong></td>
+      </tr>
+    `).join("");
+
+    let htmlContent = "";
+    if (template) {
+      let content = template.htmlContent || "";
+      if (!content.trim().startsWith("<")) {
+        content = `<div style="white-space: pre-wrap; font-family: monospace;">${content}</div>`;
+      }
+
+      htmlContent = content
+        .replace(/{{month}}/g, title) // Use title instead of month for flexibility
+        .replace(/{{rows}}/g, rowsHtml)
+        .replace(/{{totalBasicSalary}}/g, rowsData.reduce((sum, row) => sum + Number(row.basicSalary), 0).toLocaleString())
+        .replace(/{{totalAllowances}}/g, rowsData.reduce((sum, row) => sum + Number(row.totalAllowances), 0).toLocaleString())
+        .replace(/{{totalDeductions}}/g, rowsData.reduce((sum, row) => sum + Number(row.totalDeductions), 0).toLocaleString())
+        .replace(/{{totalNetSalary}}/g, rowsData.reduce((sum, row) => sum + Number(row.netSalary), 0).toLocaleString());
+    } else {
+      // Fallback
+      htmlContent = `
+            <html>
+                <head><title>Payroll Sheet</title></head>
+                <body>
+                    <div style="text-align: center; padding: 20px;">
+                        <h1>Payroll Sheet - ${new Date(month).toLocaleString("default", { month: "long", year: "numeric" })}</h1>
+                        <p style="color: red;">CRITICAL ERROR: No Template Found.</p>
+                        <hr/>
+                        <p style="color: gray; font-size: 10px; white-space: pre-wrap; text-align: left;">
+                            <strong>Debug Info:</strong><br/>
+                            Loaded Templates: ${templates.length}<br/>
+                            Raw Data: ${JSON.stringify(templates, null, 2)}
+                        </p>
+                    </div>
+                </body>
+            </html>
+        `;
+    }
+    return htmlContent;
   };
 
   // Local state to handle input changes before saving
@@ -354,10 +392,17 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
         securityDeduction: Number(row.securityDeduction),
         advanceDeduction: Number(row.advanceDeduction),
         absentDeduction: Number(row.absentDeduction),
+        leaveDeduction: Number(row.leaveDeduction),
         otherDeduction: Number(row.otherDeduction),
+        incomeTax: Number(row.incomeTax),
+        eobi: Number(row.eobi),
+        lateArrivalDeduction: Number(row.lateArrivalDeduction),
         totalDeductions: Number(row.totalDeductions),
         extraAllowance: Number(row.extraAllowance),
         travelAllowance: Number(row.travelAllowance),
+        houseRentAllowance: Number(row.houseRentAllowance),
+        medicalAllowance: Number(row.medicalAllowance),
+        insuranceAllowance: Number(row.insuranceAllowance),
         otherAllowance: Number(row.otherAllowance),
         totalAllowances: Number(row.totalAllowances),
         netSalary: Number(row.netSalary),
@@ -384,24 +429,25 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
     newData[index][field] = numValue;
 
     // Recalculate totals based on what changed
-    if (field === 'securityDeduction' || field === 'advanceDeduction' ||
-      field === 'absentDeduction' || field === 'leaveDeduction' ||
-      field === 'otherDeduction') {
-      // Recalculate total deductions
+    if (['securityDeduction', 'advanceDeduction', 'absentDeduction', 'leaveDeduction', 'otherDeduction', 'incomeTax', 'eobi', 'lateArrivalDeduction'].includes(field)) {
       newData[index].totalDeductions =
         Number(newData[index].securityDeduction || 0) +
         Number(newData[index].advanceDeduction || 0) +
         Number(newData[index].absentDeduction || 0) +
         Number(newData[index].leaveDeduction || 0) +
-        Number(newData[index].otherDeduction || 0);
+        Number(newData[index].otherDeduction || 0) +
+        Number(newData[index].incomeTax || 0) +
+        Number(newData[index].eobi || 0) +
+        Number(newData[index].lateArrivalDeduction || 0);
     }
-    else if (field === 'extraAllowance' || field === 'travelAllowance' ||
-      field === 'otherAllowance') {
-      // Recalculate total allowances
+    else if (['extraAllowance', 'travelAllowance', 'otherAllowance', 'houseRentAllowance', 'medicalAllowance', 'insuranceAllowance'].includes(field)) {
       newData[index].totalAllowances =
         Number(newData[index].extraAllowance || 0) +
         Number(newData[index].travelAllowance || 0) +
-        Number(newData[index].otherAllowance || 0);
+        Number(newData[index].otherAllowance || 0) +
+        Number(newData[index].houseRentAllowance || 0) +
+        Number(newData[index].medicalAllowance || 0) +
+        Number(newData[index].insuranceAllowance || 0);
     }
 
     // Always recalculate net salary
@@ -433,6 +479,10 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
           <Button onClick={handlePrintMonth} variant="outline">
             <Printer className="mr-2 h-4 w-4" />
             Print Sheet
+          </Button>
+          <Button onClick={handlePreviewSheet} variant="outline">
+            <Eye className="mr-2 h-4 w-4" />
+            Preview Sheet
           </Button>
           <Button
             onClick={handleBulkMarkPaid}
@@ -502,7 +552,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                   {/* Deductions */}
                   <TableHead
                     className="text-center border-l-2 border-red-400 bg-red-100 dark:bg-red-950/40 dark:border-red-700"
-                    colSpan={6}
+                    colSpan={9}
                   >
                     Deductions (PKR)
                   </TableHead>
@@ -510,7 +560,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                   {/* Allowances */}
                   <TableHead
                     className="text-center border-l-2 border-green-400 bg-green-100 dark:bg-green-950/40 dark:border-green-700"
-                    colSpan={4}
+                    colSpan={7}
                   >
                     Allowances (PKR)
                   </TableHead>
@@ -542,6 +592,15 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                   <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
                     Other
                   </TableHead>
+                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                    Tax
+                  </TableHead>
+                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                    EOBI
+                  </TableHead>
+                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                    Late
+                  </TableHead>
                   <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs font-bold border-r-2 border-red-400 dark:border-red-700">
                     Total
                   </TableHead>
@@ -555,6 +614,15 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                   </TableHead>
                   <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
                     Other
+                  </TableHead>
+                  <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                    House Rent
+                  </TableHead>
+                  <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                    Medical
+                  </TableHead>
+                  <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                    Insurance
                   </TableHead>
                   <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs font-bold border-r-2 border-green-400 dark:border-green-700">
                     Total
@@ -660,6 +728,48 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         }
                       />
                     </TableCell>
+                    <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={row.incomeTax}
+                        onChange={(e) =>
+                          handleInputChange(
+                            index,
+                            "incomeTax",
+                            e.target.value
+                          )
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={row.eobi}
+                        onChange={(e) =>
+                          handleInputChange(
+                            index,
+                            "eobi",
+                            e.target.value
+                          )
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={row.lateArrivalDeduction}
+                        onChange={(e) =>
+                          handleInputChange(
+                            index,
+                            "lateArrivalDeduction",
+                            e.target.value
+                          )
+                        }
+                      />
+                    </TableCell>
                     <TableCell className="bg-red-100 dark:bg-red-950/30 font-medium text-red-700 dark:text-red-400 border-r-2 border-red-400 dark:border-red-700">
                       {Number(row.totalDeductions).toLocaleString()}
                     </TableCell>
@@ -707,6 +817,48 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         }
                       />
                     </TableCell>
+                    <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={row.houseRentAllowance}
+                        onChange={(e) =>
+                          handleInputChange(
+                            index,
+                            "houseRentAllowance",
+                            e.target.value
+                          )
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={row.medicalAllowance}
+                        onChange={(e) =>
+                          handleInputChange(
+                            index,
+                            "medicalAllowance",
+                            e.target.value
+                          )
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={row.insuranceAllowance}
+                        onChange={(e) =>
+                          handleInputChange(
+                            index,
+                            "insuranceAllowance",
+                            e.target.value
+                          )
+                        }
+                      />
+                    </TableCell>
                     <TableCell className="bg-green-100 dark:bg-green-950/30 font-medium text-green-700 dark:text-green-400 border-r-2 border-green-400 dark:border-green-700">
                       {Number(row.totalAllowances).toLocaleString()}
                     </TableCell>
@@ -731,13 +883,28 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handlePrintPayslip(row)}
-                      >
-                        <Printer className="h-4 w-4" />
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <span className="sr-only">Open menu</span>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handlePrintPayslip(row)}>
+                            <Printer className="mr-2 h-4 w-4" />
+                            Print Salary Slip
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handlePrintPayrollDetails(row)}>
+                            <Printer className="mr-2 h-4 w-4" />
+                            Payroll Print
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handlePreviewPayslip(row)}>
+                            <Printer className="mr-2 h-4 w-4" />
+                            Preview Slip
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -746,7 +913,17 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
           )}
         </TabsContent>
       </Tabs>
-    </div>
+
+      {/* Preview Dialog */}
+      <Dialog open={!!previewHtml} onOpenChange={() => setPreviewHtml(null)}>
+        <DialogContent className="max-w-7xl max-h-[95vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle>Payslip Preview</DialogTitle>
+          </DialogHeader>
+          <div dangerouslySetInnerHTML={{ __html: previewHtml || "" }} />
+        </DialogContent>
+      </Dialog>
+    </div >
   );
 };
 

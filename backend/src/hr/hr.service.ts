@@ -39,7 +39,7 @@ export class HrService {
         basicPay: payload.basicPay ? parseFloat(payload.basicPay) : null,
         phone: payload.contactNumber,
         joinDate: new Date(payload.joinDate),
-        leaveDate: payload.leaveDate ? new Date(payload.leaveDate!) : null,
+        leaveDate: payload.leaveDate ? new Date(payload.leaveDate) : null,
       },
     });
   }
@@ -60,7 +60,7 @@ export class HrService {
         basicPay: payload.basicPay ? parseFloat(payload.basicPay) : null,
         phone: payload.contactNumber,
         joinDate: new Date(payload.joinDate),
-        leaveDate: payload.leaveDate ? new Date(payload.leaveDate!) : null,
+        leaveDate: payload.leaveDate ? new Date(payload.leaveDate) : null,
       },
     });
   }
@@ -193,7 +193,7 @@ export class HrService {
 
         // CRITICAL FIX: If there are advance salaries, use their total
         // Only use payroll.advanceDeduction if there are NO advance salaries
-        let advanceDeduction =
+        const advanceDeduction =
           advanceSalaryTotal > 0
             ? advanceSalaryTotal
             : payroll?.advanceDeduction || 0;
@@ -202,6 +202,9 @@ export class HrService {
           payroll?.absentDeduction ?? calculatedAbsentDeduction;
         const leaveDeduction = calculatedLeaveDeduction; // Always use calculated value for leaves
         const otherDeduction = payroll?.otherDeduction || 0;
+        const incomeTax = payroll?.incomeTax || 0;
+        const eobi = payroll?.eobi || 0;
+        const lateArrivalDeduction = payroll?.lateArrivalDeduction || 0;
 
         // Recalculate total deductions
         const totalDeductions =
@@ -209,13 +212,24 @@ export class HrService {
           advanceDeduction +
           absentDeduction +
           leaveDeduction +
-          otherDeduction;
+          otherDeduction +
+          incomeTax +
+          eobi +
+          lateArrivalDeduction;
 
         const extraAllowance = payroll?.extraAllowance || 0;
         const travelAllowance = payroll?.travelAllowance || 0;
+        const houseRentAllowance = payroll?.houseRentAllowance || 0;
+        const medicalAllowance = payroll?.medicalAllowance || 0;
+        const insuranceAllowance = payroll?.insuranceAllowance || 0;
         const otherAllowance = payroll?.otherAllowance || 0;
         const totalAllowances =
-          extraAllowance + travelAllowance + otherAllowance;
+          extraAllowance +
+          travelAllowance +
+          houseRentAllowance +
+          medicalAllowance +
+          insuranceAllowance +
+          otherAllowance;
 
         const netSalary = basicSalary - totalDeductions + totalAllowances;
 
@@ -232,7 +246,9 @@ export class HrService {
         return {
           id: t.id,
           name: t.name,
-          designation: t.specialization || 'Teacher',
+          designation: t.specialization
+            ? `Teacher - ${t.specialization}`
+            : 'Teacher',
           department: t.department?.name || 'N/A',
           basicSalary,
           payrollId: payroll?.id,
@@ -242,9 +258,15 @@ export class HrService {
           absentDeduction,
           leaveDeduction,
           otherDeduction,
+          incomeTax,
+          eobi,
+          lateArrivalDeduction,
           totalDeductions,
           extraAllowance,
           travelAllowance,
+          houseRentAllowance,
+          medicalAllowance,
+          insuranceAllowance,
           otherAllowance,
           totalAllowances,
           netSalary,
@@ -256,6 +278,9 @@ export class HrService {
           excessLeaves,
           advanceSalaryTotal,
           hasAdvanceSalary: advanceSalaryTotal > 0,
+          paymentDate: payroll?.paymentDate
+            ? new Date(payroll.paymentDate).toLocaleDateString()
+            : 'N/A',
         };
       });
     } else {
@@ -312,7 +337,7 @@ export class HrService {
         const securityDeduction = payroll?.securityDeduction || 0;
 
         // Apply the same fix for employees
-        let advanceDeduction =
+        const advanceDeduction =
           advanceSalaryTotal > 0
             ? advanceSalaryTotal
             : payroll?.advanceDeduction || 0;
@@ -321,18 +346,33 @@ export class HrService {
           payroll?.absentDeduction ?? calculatedAbsentDeduction;
         const leaveDeduction = calculatedLeaveDeduction;
         const otherDeduction = payroll?.otherDeduction || 0;
+        const incomeTax = payroll?.incomeTax || 0;
+        const eobi = payroll?.eobi || 0;
+        const lateArrivalDeduction = payroll?.lateArrivalDeduction || 0;
+
         const totalDeductions =
           securityDeduction +
           advanceDeduction +
           absentDeduction +
           leaveDeduction +
-          otherDeduction;
+          otherDeduction +
+          incomeTax +
+          eobi +
+          lateArrivalDeduction;
 
         const extraAllowance = payroll?.extraAllowance || 0;
         const travelAllowance = payroll?.travelAllowance || 0;
+        const houseRentAllowance = payroll?.houseRentAllowance || 0;
+        const medicalAllowance = payroll?.medicalAllowance || 0;
+        const insuranceAllowance = payroll?.insuranceAllowance || 0;
         const otherAllowance = payroll?.otherAllowance || 0;
         const totalAllowances =
-          extraAllowance + travelAllowance + otherAllowance;
+          extraAllowance +
+          travelAllowance +
+          houseRentAllowance +
+          medicalAllowance +
+          insuranceAllowance +
+          otherAllowance;
 
         const netSalary = basicSalary - totalDeductions + totalAllowances;
 
@@ -359,9 +399,15 @@ export class HrService {
           absentDeduction,
           leaveDeduction,
           otherDeduction,
+          incomeTax,
+          eobi,
+          lateArrivalDeduction,
           totalDeductions,
           extraAllowance,
           travelAllowance,
+          houseRentAllowance,
+          medicalAllowance,
+          insuranceAllowance,
           otherAllowance,
           totalAllowances,
           netSalary,
@@ -373,6 +419,9 @@ export class HrService {
           excessLeaves,
           advanceSalaryTotal,
           hasAdvanceSalary: advanceSalaryTotal > 0,
+          paymentDate: payroll?.paymentDate
+            ? new Date(payroll.paymentDate).toLocaleDateString()
+            : 'N/A',
         };
       });
     }
@@ -385,9 +434,17 @@ export class HrService {
       dto.advanceDeduction +
       dto.absentDeduction +
       (dto.leaveDeduction || 0) +
-      dto.otherDeduction;
+      dto.otherDeduction +
+      (dto.incomeTax || 0) +
+      (dto.eobi || 0) +
+      (dto.lateArrivalDeduction || 0);
     const totalAllowances =
-      dto.extraAllowance + dto.travelAllowance + dto.otherAllowance;
+      dto.extraAllowance +
+      dto.travelAllowance +
+      (dto.houseRentAllowance || 0) +
+      (dto.medicalAllowance || 0) +
+      (dto.insuranceAllowance || 0) +
+      dto.otherAllowance;
     const netSalary = dto.basicSalary - totalDeductions + totalAllowances;
 
     const data = {
@@ -398,9 +455,15 @@ export class HrService {
       absentDeduction: dto.absentDeduction,
       leaveDeduction: dto.leaveDeduction || 0,
       otherDeduction: dto.otherDeduction,
+      incomeTax: dto.incomeTax || 0,
+      eobi: dto.eobi || 0,
+      lateArrivalDeduction: dto.lateArrivalDeduction || 0,
       totalDeductions,
       extraAllowance: dto.extraAllowance,
       travelAllowance: dto.travelAllowance,
+      houseRentAllowance: dto.houseRentAllowance || 0,
+      medicalAllowance: dto.medicalAllowance || 0,
+      insuranceAllowance: dto.insuranceAllowance || 0,
       otherAllowance: dto.otherAllowance,
       totalAllowances,
       netSalary,
@@ -802,35 +865,117 @@ export class HrService {
       }
     });
 
-    // Also calculate working days in the month (optional)
-    const totalWorkingDays = await this.calculateWorkingDays(
-      startDate,
-      endDate,
-    );
-    summary.totalDays = totalWorkingDays; // Or keep as attended days
-
     return summary;
   }
 
-  async calculateWorkingDays(
-    startDate: Date,
-    endDate: Date,
-  ): Promise<number> {
-    // This method calculates total working days in the month excluding weekends
-    // You might want to exclude holidays too if you have a holidays table
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Payroll Template Management
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    let workingDays = 0;
-    const currentDate = new Date(startDate);
+  async createPayrollTemplate(data: any) {
+    return await this.prismService.payrollTemplate.create({
+      data: {
+        name: data.name,
+        type: data.type,
+        htmlContent: data.htmlContent,
+        isDefault: data.isDefault || false,
+      },
+    });
+  }
 
-    while (currentDate <= endDate) {
-      const dayOfWeek = currentDate.getDay();
-      // Monday (1) to Friday (5) are working days
-      if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-        workingDays++;
-      }
-      currentDate.setDate(currentDate.getDate() + 1);
+  async getPayrollTemplates() {
+    return await this.prismService.payrollTemplate.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async updatePayrollTemplate(id: number, data: any) {
+    return await this.prismService.payrollTemplate.update({
+      where: { id },
+      data,
+    });
+  }
+
+  async deletePayrollTemplate(id: number) {
+    return await this.prismService.payrollTemplate.delete({
+      where: { id },
+    });
+  }
+
+  // History
+  async getPayrollHistory(staffId: number, type: 'teacher' | 'employee') {
+    const where: any = {};
+
+    if (type === 'teacher') {
+      where.teacherId = staffId;
+    } else {
+      where.employeeId = staffId;
     }
 
-    return workingDays;
+    const payrolls = await this.prismService.payroll.findMany({
+      where,
+      orderBy: { month: 'desc' },
+      include: {
+        teacher: { include: { department: true } },
+        employee: true,
+        // Note: 'advanceSalary' relation in Payroll is NOT a list, it's just 'advanceDeduction' field.
+        // We rely on the stored snapshot values in the Payroll record.
+      },
+    });
+
+    return payrolls.map((p) => {
+      const staff = p.teacher || p.employee;
+      const designation =
+        type === 'teacher'
+          ? p.teacher?.specialization
+            ? `Teacher - ${p.teacher.specialization}`
+            : 'Teacher'
+          : p.employee?.designation || 'Employee';
+
+      const dept =
+        type === 'teacher'
+          ? p.teacher?.department?.name
+          : (p.employee?.empDepartment as any) || 'N/A';
+
+      const totalAllowances =
+        (p.extraAllowance || 0) +
+        (p.travelAllowance || 0) +
+        (p.houseRentAllowance || 0) +
+        (p.medicalAllowance || 0) +
+        (p.insuranceAllowance || 0) +
+        (p.otherAllowance || 0);
+
+      const totalDeductions =
+        (p.securityDeduction || 0) +
+        (p.advanceDeduction || 0) +
+        (p.absentDeduction || 0) +
+        (p.leaveDeduction || 0) +
+        (p.otherDeduction || 0) +
+        (p.incomeTax || 0) +
+        (p.eobi || 0) +
+        (p.lateArrivalDeduction || 0);
+
+      const netSalary =
+        (Number(p.basicSalary) || 0) + totalAllowances - totalDeductions;
+
+      return {
+        id: p.id,
+        month: p.month, // "2024-10"
+        // MAPPING FOR TEMPLATE COMPATIBILITY:
+        // name -> Month String (so it appears in the Name column)
+        name: new Date(p.month + '-01').toLocaleString('default', {
+          month: 'long',
+          year: 'numeric',
+        }),
+        designation: designation,
+        department: dept,
+        basicSalary: Number(p.basicSalary) || 0,
+        totalAllowances,
+        totalDeductions,
+        netSalary,
+        status: p.status,
+        paymentDate: p.paymentDate,
+      };
+    });
   }
 }

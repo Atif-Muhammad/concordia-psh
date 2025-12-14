@@ -19,10 +19,29 @@ import { FeeManagementModule } from './fee-management/fee-management.module';
 import { FinanceModule } from './finance/finance.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 
-
 @Module({
-  imports: [AuthModule, PrismaModule, ConfigModule.forRoot({ isGlobal: true }), AdminModule, DepartmentModule, TeacherModule, AcademicsModule, StudentModule, CloudinaryModule, AttendanceModule, HrModule, FrontOfficeModule, ExaminationModule, ConfigurationModule, HostelModule, InventoryModule, FeeManagementModule, FinanceModule, DashboardModule],
+  imports: [
+    AuthModule,
+    PrismaModule,
+    ConfigModule.forRoot({ isGlobal: true }),
+    AdminModule,
+    DepartmentModule,
+    TeacherModule,
+    AcademicsModule,
+    StudentModule,
+    CloudinaryModule,
+    AttendanceModule,
+    HrModule,
+    FrontOfficeModule,
+    ExaminationModule,
+    ConfigurationModule,
+    HostelModule,
+    InventoryModule,
+    FeeManagementModule,
+    FinanceModule,
+    DashboardModule,
+  ],
   controllers: [],
   providers: [],
 })
-export class AppModule { }
+export class AppModule {}

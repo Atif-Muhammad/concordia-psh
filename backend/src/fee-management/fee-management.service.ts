@@ -13,7 +13,7 @@ import { UpdateFeeChallanDto } from './dtos/update-fee-challan.dto';
 
 @Injectable()
 export class FeeManagementService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   // Fee Heads
   async createFeeHead(payload: CreateFeeHeadDto) {
@@ -178,10 +178,13 @@ export class FeeManagementService {
     });
 
     // Calculate total
-    const totalArrears = arrearRecords.reduce((sum, record) => sum + record.arrearAmount, 0);
+    const totalArrears = arrearRecords.reduce(
+      (sum, record) => sum + record.arrearAmount,
+      0,
+    );
 
     // Format for frontend
-    const arrearsBySession = arrearRecords.map(record => ({
+    const arrearsBySession = arrearRecords.map((record) => ({
       id: record.id, // Important: frontend needs this
       sessionKey: `${record.programId}-${record.classId}`,
       className: record.class.name,
@@ -194,7 +197,8 @@ export class FeeManagementService {
 
     return {
       studentId,
-      studentName: `${student.fName} ${student.mName || ''} ${student.lName || ''}`.trim(),
+      studentName:
+        `${student.fName} ${student.mName || ''} ${student.lName || ''}`.trim(),
       rollNumber: student.rollNumber,
       currentClass: student.class?.name,
       currentProgram: student.program?.name,
@@ -238,7 +242,9 @@ export class FeeManagementService {
       const studentArrearId = (payload as any).studentArrearId;
 
       if (!studentArrearId) {
-        throw new BadRequestException('Student arrear ID is required for arrears payment');
+        throw new BadRequestException(
+          'Student arrear ID is required for arrears payment',
+        );
       }
 
       // Get arrear record
@@ -261,7 +267,12 @@ export class FeeManagementService {
       classId = arrearRecord.classId;
       programId = arrearRecord.programId;
 
-      console.log('🎯 Arrears Payment - Using arrear classId:', classId, 'programId:', programId);
+      console.log(
+        '🎯 Arrears Payment - Using arrear classId:',
+        classId,
+        'programId:',
+        programId,
+      );
 
       // CRITICAL: Fetch fee structure from the ORIGINAL class (where arrear originated)
       const arrearFeeStructure = await this.prisma.feeStructure.findUnique({
@@ -275,7 +286,10 @@ export class FeeManagementService {
 
       if (arrearFeeStructure) {
         feeStructureId = arrearFeeStructure.id;
-        console.log('✅ Using fee structure from original class:', feeStructureId);
+        console.log(
+          '✅ Using fee structure from original class:',
+          feeStructureId,
+        );
       }
 
       // Next installment = last installment + 1
@@ -313,7 +327,12 @@ export class FeeManagementService {
       }
     }
 
-    console.log('💾 Creating challan with studentClassId:', classId, 'studentProgramId:', programId);
+    console.log(
+      '💾 Creating challan with studentClassId:',
+      classId,
+      'studentProgramId:',
+      programId,
+    );
 
     return await this.prisma.feeChallan.create({
       data: {
@@ -414,7 +433,6 @@ export class FeeManagementService {
       data.paidDate = new Date(payload.paidDate);
     }
 
-
     if (payload.status === 'PAID') {
       if (!data.paidDate) {
         data.paidDate = new Date();
@@ -434,7 +452,7 @@ export class FeeManagementService {
           data.paidAmount = challan.amount + challan.fineAmount;
         }
 
-        // Calculate new payment amount  
+        // Calculate new payment amount
         const paymentIncrease = data.paidAmount - challan.paidAmount;
 
         if (paymentIncrease > 0) {
@@ -458,16 +476,35 @@ export class FeeManagementService {
 
           console.log('💳 Payment Allocation:');
           console.log('  New Payment:', paymentIncrease);
-          console.log('  → Tuition:', tuitionPayment, '(Total:', data.tuitionPaid, '/', challan.amount, ')');
-          console.log('  → Additional:', additionalPayment, '(Total:', data.additionalPaid, '/', challan.fineAmount, ')');
+          console.log(
+            '  → Tuition:',
+            tuitionPayment,
+            '(Total:',
+            data.tuitionPaid,
+            '/',
+            challan.amount,
+            ')',
+          );
+          console.log(
+            '  → Additional:',
+            additionalPayment,
+            '(Total:',
+            data.additionalPaid,
+            '/',
+            challan.fineAmount,
+            ')',
+          );
 
           // Calculate covered installments if fee structure exists
           if (challan.feeStructure && challan.feeStructure.installments > 0) {
             const structure = challan.feeStructure;
-            const installmentAmount = structure.totalAmount / structure.installments;
+            const installmentAmount =
+              structure.totalAmount / structure.installments;
 
             // CRITICAL: Calculate based on NEW tuition payment, not cumulative total
-            const installmentsCovered = Math.floor(tuitionPayment / installmentAmount);
+            const installmentsCovered = Math.floor(
+              tuitionPayment / installmentAmount,
+            );
 
             if (installmentsCovered > 0) {
               let startInstallment = 1;
@@ -481,7 +518,10 @@ export class FeeManagementService {
 
                 if (arrear) {
                   startInstallment = arrear.lastInstallmentNumber + 1;
-                  console.log('🔢 Arrears payment - Starting from installment:', startInstallment);
+                  console.log(
+                    '🔢 Arrears payment - Starting from installment:',
+                    startInstallment,
+                  );
                 }
               } else {
                 // For normal payments, check previous paid challans for this fee structure
@@ -492,7 +532,10 @@ export class FeeManagementService {
                     status: 'PAID',
                     id: { not: challan.id }, // Exclude current challan
                   },
-                  select: { coveredInstallments: true, installmentNumber: true },
+                  select: {
+                    coveredInstallments: true,
+                    installmentNumber: true,
+                  },
                 });
 
                 let highestInstallment = 0;
@@ -502,13 +545,19 @@ export class FeeManagementService {
                     const highest = parseInt(parts[parts.length - 1]) || 0;
                     highestInstallment = Math.max(highestInstallment, highest);
                   } else if (prev.installmentNumber) {
-                    highestInstallment = Math.max(highestInstallment, prev.installmentNumber);
+                    highestInstallment = Math.max(
+                      highestInstallment,
+                      prev.installmentNumber,
+                    );
                   }
                 }
 
                 if (highestInstallment > 0) {
                   startInstallment = highestInstallment + 1;
-                  console.log('🔢 Normal payment - Continuing from installment:', startInstallment);
+                  console.log(
+                    '🔢 Normal payment - Continuing from installment:',
+                    startInstallment,
+                  );
                 }
               }
 
@@ -521,7 +570,13 @@ export class FeeManagementService {
                 data.coveredInstallments = `${startInstallment}-${endInstallment}`;
               }
 
-              console.log('📋 Installments Covered:', data.coveredInstallments, '(based on payment of', tuitionPayment, ')');
+              console.log(
+                '📋 Installments Covered:',
+                data.coveredInstallments,
+                '(based on payment of',
+                tuitionPayment,
+                ')',
+              );
             }
           }
         }
@@ -546,16 +601,25 @@ export class FeeManagementService {
       if (arrear) {
         // Use tuitionPaid for arrears reduction (not total paidAmount)
         // Only tuition payments reduce arrears, not additional charges
-        const newArrearAmount = Math.max(0, arrear.arrearAmount - updatedChallan.tuitionPaid);
+        const newArrearAmount = Math.max(
+          0,
+          arrear.arrearAmount - updatedChallan.tuitionPaid,
+        );
 
         // Parse coveredInstallments to get the highest installment paid
         let highestInstallment = arrear.lastInstallmentNumber;
         if (updatedChallan.coveredInstallments) {
           const parts = updatedChallan.coveredInstallments.split('-');
-          highestInstallment = parseInt(parts[parts.length - 1]) || arrear.lastInstallmentNumber;
+          highestInstallment =
+            parseInt(parts[parts.length - 1]) || arrear.lastInstallmentNumber;
         }
 
-        console.log('📝 Updating StudentArrear - lastInstallment:', arrear.lastInstallmentNumber, '→', highestInstallment);
+        console.log(
+          '📝 Updating StudentArrear - lastInstallment:',
+          arrear.lastInstallmentNumber,
+          '→',
+          highestInstallment,
+        );
 
         await this.prisma.studentArrear.update({
           where: { id: arrear.id },
@@ -631,11 +695,11 @@ export class FeeManagementService {
 
     const challans = feeStructure
       ? await this.prisma.feeChallan.findMany({
-        where: {
-          studentId,
-          feeStructureId: feeStructure.id,
-        },
-      })
+          where: {
+            studentId,
+            feeStructureId: feeStructure.id,
+          },
+        })
       : [];
 
     // Calculate tuition-only amount from fee structure
@@ -680,7 +744,8 @@ export class FeeManagementService {
 
         if (Array.isArray(parsedHeads) && parsedHeads.length > 0) {
           // Check if it's the new format (Array of objects with 'type' or 'amount')
-          const isNewFormat = typeof parsedHeads[0] === 'object' && parsedHeads[0] !== null;
+          const isNewFormat =
+            typeof parsedHeads[0] === 'object' && parsedHeads[0] !== null;
 
           if (isNewFormat) {
             // New Format: Extract directly from the stored JSON
@@ -688,7 +753,8 @@ export class FeeManagementService {
             parsedHeads.forEach((head: any) => {
               // Check if it is an additional charge (not tuition, not discount)
               // The new format uses 'type', but let's be robust
-              const isAdditional = head.type === 'additional' ||
+              const isAdditional =
+                head.type === 'additional' ||
                 (!head.type && !head.isTuition && !head.isDiscount); // fallback
 
               // Only count if amount > 0
@@ -748,15 +814,17 @@ export class FeeManagementService {
   }
 
   // Reports
-  async getRevenueOverTime(period: 'daily' | 'weekly' | 'month' | 'year' | 'overall') {
+  async getRevenueOverTime(
+    period: 'daily' | 'weekly' | 'month' | 'year' | 'overall',
+  ) {
     const startDate = this.getDateRange(period);
 
     const paidChallans = await this.prisma.feeChallan.findMany({
       where: {
         status: 'PAID',
         paidDate: {
-          gte: startDate
-        }
+          gte: startDate,
+        },
       },
       select: { paidAmount: true, paidDate: true },
     });
@@ -779,7 +847,9 @@ export class FeeManagementService {
         d.setHours(0, 0, 0, 0);
         d.setDate(d.getDate() + 4 - (d.getDay() || 7));
         const yearStart = new Date(d.getFullYear(), 0, 1);
-        const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+        const weekNo = Math.ceil(
+          ((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7,
+        );
         key = `Week ${weekNo}, ${date.getFullYear()}`;
       } else if (period === 'month') {
         // Group by Month (e.g., "Jan 2024")
@@ -809,12 +879,27 @@ export class FeeManagementService {
 
     // Sort by date for daily filter
     if (period === 'daily') {
-      chartData.sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime());
+      chartData.sort(
+        (a, b) => new Date(a.name).getTime() - new Date(b.name).getTime(),
+      );
     } else if (period === 'month') {
-      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
       chartData.sort((a, b) => {
-        const [monA, yearA] = a.name.split(" ");
-        const [monB, yearB] = b.name.split(" ");
+        const [monA, yearA] = a.name.split(' ');
+        const [monB, yearB] = b.name.split(' ');
         if (yearA !== yearB) return parseInt(yearA) - parseInt(yearB);
         return months.indexOf(monA) - months.indexOf(monB);
       });
@@ -833,7 +918,7 @@ export class FeeManagementService {
       date.setDate(date.getDate() - 30);
     } else if (period === 'weekly') {
       // Last 12 Weeks (approx 3 months)
-      date.setDate(date.getDate() - (12 * 7));
+      date.setDate(date.getDate() - 12 * 7);
     } else if (period === 'month') {
       // Last 12 Months
       date.setMonth(date.getMonth() - 12);
@@ -848,7 +933,9 @@ export class FeeManagementService {
     return date;
   }
 
-  async getFeeCollectionSummary(period: 'daily' | 'weekly' | 'month' | 'year' | 'overall' = 'month') {
+  async getFeeCollectionSummary(
+    period: 'daily' | 'weekly' | 'month' | 'year' | 'overall' = 'month',
+  ) {
     const startDate = this.getDateRange(period);
 
     const where: any = {
@@ -890,7 +977,8 @@ export class FeeManagementService {
     });
 
     const totalOutstanding = outstandingAggr.reduce((sum, c) => {
-      const netAmount = (c.amount || 0) + (c.fineAmount || 0) - (c.discount || 0);
+      const netAmount =
+        (c.amount || 0) + (c.fineAmount || 0) - (c.discount || 0);
       const remaining = netAmount - (c.paidAmount || 0);
       return sum + Math.max(0, remaining);
     }, 0);
@@ -902,7 +990,9 @@ export class FeeManagementService {
     };
   }
 
-  async getClassCollectionStats(period: 'daily' | 'weekly' | 'month' | 'year' | 'overall' = 'month') {
+  async getClassCollectionStats(
+    period: 'daily' | 'weekly' | 'month' | 'year' | 'overall' = 'month',
+  ) {
     const startDate = this.getDateRange(period);
 
     const stats: any = {};
@@ -912,19 +1002,19 @@ export class FeeManagementService {
       where: {
         OR: [
           { paidDate: { gte: startDate } }, // for collection
-          { dueDate: { gte: startDate } }   // for outstanding
-        ]
+          { dueDate: { gte: startDate } }, // for outstanding
+        ],
       },
       include: {
         studentClass: {
-          include: { program: true }
-        }
-      }
+          include: { program: true },
+        },
+      },
     });
 
     challans.forEach((c) => {
       // Determine class name from history (studentClassId) or nothing
-      let className = "Unknown Class";
+      let className = 'Unknown Class';
       if (c.studentClass) {
         className = `${c.studentClass.name} - ${c.studentClass.program?.name || '-'}`;
       }
@@ -934,13 +1024,21 @@ export class FeeManagementService {
       }
 
       // Collection count
-      if (c.status === 'PAID' && c.paidDate && new Date(c.paidDate) >= startDate) {
+      if (
+        c.status === 'PAID' &&
+        c.paidDate &&
+        new Date(c.paidDate) >= startDate
+      ) {
         stats[className].collected += c.paidAmount || 0;
       }
 
       // Outstanding count
       if (c.status !== 'PAID' && new Date(c.dueDate) >= startDate) {
-        stats[className].outstanding += c.amount + (c.fineAmount || 0) - (c.discount || 0) - (c.paidAmount || 0);
+        stats[className].outstanding +=
+          c.amount +
+          (c.fineAmount || 0) -
+          (c.discount || 0) -
+          (c.paidAmount || 0);
       }
     });
 

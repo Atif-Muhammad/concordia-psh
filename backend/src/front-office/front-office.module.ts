@@ -4,8 +4,8 @@ import { FrontOfficeService } from './front-office.service';
 import { PrismaModule } from 'src/prisma/prisma.module';
 
 @Module({
-  imports:[PrismaModule],
+  imports: [PrismaModule],
   controllers: [FrontOfficeController],
-  providers: [FrontOfficeService]
+  providers: [FrontOfficeService],
 })
 export class FrontOfficeModule {}

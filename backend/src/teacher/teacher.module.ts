@@ -6,8 +6,8 @@ import { AttendanceModule } from 'src/attendance/attendance.module';
 import { StudentModule } from 'src/student/student.module';
 
 @Module({
-  imports:[PrismaModule, AttendanceModule, StudentModule],
+  imports: [PrismaModule, AttendanceModule, StudentModule],
   controllers: [TeacherController],
-  providers: [TeacherService]
+  providers: [TeacherService],
 })
 export class TeacherModule {}

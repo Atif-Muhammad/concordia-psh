@@ -24,7 +24,7 @@ export class TeacherController {
     private readonly teacherService: TeacherService,
     private readonly attendanceService: AttendanceService,
     private readonly studentService: StudentService,
-  ) { }
+  ) {}
   @Get('get/names')
   async getTeacherNames() {
     return await this.teacherService.getNames();
@@ -70,7 +70,6 @@ export class TeacherController {
       Number(classId),
     );
   }
-
 
   // for attendance
   @UseGuards(JwtAccGuard)

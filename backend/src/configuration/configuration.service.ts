@@ -7,7 +7,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class ConfigurationService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   // Create a new ReportCardTemplate
   async createReportCardTemplate(data: CreateReportCardTemplateDto) {
@@ -27,7 +27,9 @@ export class ConfigurationService {
 
   // Retrieve a single template by ID
   async findOneReportCardTemplate(id: number) {
-    const template = await this.prisma.reportCardTemplate.findUnique({ where: { id } });
+    const template = await this.prisma.reportCardTemplate.findUnique({
+      where: { id },
+    });
     if (!template) {
       throw new NotFoundException(`ReportCardTemplate with id ${id} not found`);
     }
@@ -35,7 +37,10 @@ export class ConfigurationService {
   }
 
   // Update an existing template
-  async updateReportCardTemplate(id: number, data: UpdateReportCardTemplateDto) {
+  async updateReportCardTemplate(
+    id: number,
+    data: UpdateReportCardTemplateDto,
+  ) {
     if (data.isDefault) {
       await this.prisma.reportCardTemplate.updateMany({
         where: { isDefault: true },

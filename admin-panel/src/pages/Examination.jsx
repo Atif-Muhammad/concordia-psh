@@ -78,6 +78,9 @@ const Examination = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const [examSearch, setExamSearch] = useState("");
+  const [examDateFilter, setExamDateFilter] = useState("");
+  const [examTimeFilter, setExamTimeFilter] = useState("");
   const [examDialog, setExamDialog] = useState(false);
   const [marksDialog, setMarksDialog] = useState(false);
   const [resultDialog, setResultDialog] = useState(false);
@@ -96,6 +99,7 @@ const Examination = () => {
     endDate: "",
     type: "",
     description: "",
+    schedule: [], // Array of { subjectId, date, startTime, endTime }
   });
 
   const [resultFilterProgram, setResultFilterProgram] = useState("");
@@ -240,6 +244,26 @@ const Examination = () => {
 
   const getFullName = (student) => {
     return `${student.fName} ${student.mName || ""} ${student.lName}`.trim();
+  };
+
+  const formatDateForInput = (dateString) => {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    // Align with local time for input datetime-local
+    const offset = date.getTimezoneOffset() * 60000;
+    const localISOTime = new Date(date.getTime() - offset).toISOString().slice(0, 16);
+    return localISOTime;
+  };
+
+  const formatDateTimeDisplay = (dateString) => {
+    if (!dateString) return "N/A";
+    return new Date(dateString).toLocaleString([], {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   // Classes from selected program
@@ -404,6 +428,8 @@ const Examination = () => {
     if (percentage >= 70) return { grade: "B+", gpa: 3.3 };
     if (percentage >= 60) return { grade: "B", gpa: 3.0 };
     if (percentage >= 50) return { grade: "C", gpa: 2.5 };
+    if (percentage >= 40) return { grade: "D", gpa: 2.0 }; // Adding missing grade for 40-50 range just in case, though original code stopped at C
+    if (percentage >= 33) return { grade: "E", gpa: 1.0 }; // Matches backend logic better if needed
     return { grade: "F", gpa: 0.0 };
   };
 
@@ -418,10 +444,13 @@ const Examination = () => {
       programId: Number(examForm.program),
       classId: Number(examForm.classId),
       session: examForm.session,
-      startDate: examForm.startDate || null,
-      endDate: examForm.endDate || null,
+      // Pass the full ISO string as collected from new Date(datetime-local value).toISOString() or similar
+      // Actually datetime-local value is "YYYY-MM-DDTHH:mm" which is ISO-compatible for constructor
+      startDate: new Date(examForm.startDate).toISOString(),
+      endDate: new Date(examForm.endDate).toISOString(),
       type: examForm.type || "Final",
       description: examForm.description,
+      schedule: examForm.schedule?.filter(s => s.date && s.startTime && s.endTime), // Only send complete entries
     };
 
     if (editingExam) {
@@ -438,10 +467,16 @@ const Examination = () => {
       program: exam.programId?.toString() || "",
       classId: exam.classId?.toString() || "",
       session: exam.session,
-      startDate: exam.startDate?.split("T")[0] || "",
-      endDate: exam.endDate?.split("T")[0] || "",
+      startDate: exam.startDate ? new Date(exam.startDate).toISOString().split("T")[0] : "",
+      endDate: exam.endDate ? new Date(exam.endDate).toISOString().split("T")[0] : "",
       type: exam.type || "",
       description: exam.description || "",
+      schedule: exam.schedules?.map(s => ({
+        subjectId: s.subjectId,
+        date: s.date ? s.date.split("T")[0] : "",
+        startTime: s.startTime,
+        endTime: s.endTime
+      })) || [],
     });
     setExamDialog(true);
   };
@@ -743,7 +778,7 @@ const Examination = () => {
                   <BookOpen className="w-5 h-5" />
                   Exam Management
                 </CardTitle>
-                <Dialog open={examDialog} onOpenChange={setExamDialog}>
+                <Dialog open={examDialog} onOpenChange={setExamDialog} className="">
                   <DialogTrigger asChild>
                     <Button
                       onClick={() => {
@@ -764,195 +799,327 @@ const Examination = () => {
                       Create Exam
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="max-w-[95vw] w-full max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>
                         {editingExam ? "Edit Exam" : "Create New Exam"}
                       </DialogTitle>
                     </DialogHeader>
-                    <div className="w-full max-w-5xl mx-auto">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                          <Label>Exam Name</Label>
-                          <Input
-                            value={examForm.examName}
-                            onChange={(e) =>
-                              setExamForm({ ...examForm, examName: e.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Program *</Label>
-                          <Select
-                            value={examForm.program}
-                            onValueChange={(value) => {
-                              setExamForm({ ...examForm, program: value, classId: "" });
-                            }}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select program" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {programs?.map((program) => (
-                                <SelectItem key={program?.id} value={program?.id.toString()}>
-                                  {program?.name} — {program?.department?.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                    <div className="grid grid-cols-4 gap-6 p-2">
+                      <div className="space-y-2">
+                        <Label>Exam Name</Label>
+                        <Input
+                          value={examForm.examName}
+                          onChange={(e) =>
+                            setExamForm({ ...examForm, examName: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Program *</Label>
+                        <Select
+                          value={examForm.program}
+                          onValueChange={(value) => {
+                            setExamForm({ ...examForm, program: value, classId: "" });
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select program" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {programs?.map((program) => (
+                              <SelectItem key={program?.id} value={program?.id.toString()}>
+                                {program?.name} — {program?.department?.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                        <div className="space-y-2">
-                          <Label>Class *</Label>
-                          <Select
-                            value={examForm.classId}
-                            onValueChange={(value) =>
-                              setExamForm({ ...examForm, classId: value })
-                            }
-                            disabled={!examForm.program}
-                          >
-                            <SelectTrigger>
-                              <SelectValue
-                                placeholder={
-                                  examForm.program ? "Select class" : "First select a program"
-                                }
-                              />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {availableClasses.map((cls) => (
-                                <SelectItem key={cls.id} value={cls.id.toString()}>
-                                  {cls.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                      <div className="space-y-2">
+                        <Label>Class *</Label>
+                        <Select
+                          value={examForm.classId}
+                          onValueChange={(value) =>
+                            setExamForm({ ...examForm, classId: value })
+                          }
+                          disabled={!examForm.program}
+                        >
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                examForm.program ? "Select class" : "First select a program"
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableClasses.map((cls) => (
+                              <SelectItem key={cls.id} value={cls.id.toString()}>
+                                {cls.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                        <div className="space-y-2">
-                          <Label>Session</Label>
-                          <Input
-                            value={examForm.session}
-                            onChange={(e) =>
-                              setExamForm({ ...examForm, session: e.target.value })
-                            }
-                          />
-                        </div>
+                      <div className="space-y-2">
+                        <Label>Session</Label>
+                        <Input
+                          value={examForm.session}
+                          onChange={(e) =>
+                            setExamForm({ ...examForm, session: e.target.value })
+                          }
+                        />
+                      </div>
 
-                        <div className="space-y-2">
-                          <Label>Type</Label>
-                          <Select
-                            value={examForm.type}
-                            onValueChange={(value) =>
-                              setExamForm({ ...examForm, type: value })
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Midterm">Midterm</SelectItem>
-                              <SelectItem value="Final">Final</SelectItem>
-                              <SelectItem value="Quiz">Quiz</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                      <div className="space-y-2">
+                        <Label>Type</Label>
+                        <Select
+                          value={examForm.type}
+                          onValueChange={(value) =>
+                            setExamForm({ ...examForm, type: value })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Midterm">Midterm</SelectItem>
+                            <SelectItem value="Final">Final</SelectItem>
+                            <SelectItem value="Quiz">Quiz</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                        <div className="space-y-2">
-                          <Label>Start Date</Label>
-                          <Input
-                            type="date"
-                            value={examForm.startDate}
-                            onChange={(e) =>
-                              setExamForm({ ...examForm, startDate: e.target.value })
-                            }
-                          />
-                        </div>
+                      <div className="space-y-2">
+                        <Label>Start Date</Label>
+                        <Input
+                          type="date"
+                          value={examForm.startDate}
+                          onChange={(e) =>
+                            setExamForm({ ...examForm, startDate: e.target.value })
+                          }
+                        />
+                      </div>
 
-                        <div className="space-y-2">
-                          <Label>End Date</Label>
-                          <Input
-                            type="date"
-                            value={examForm.endDate}
-                            onChange={(e) =>
-                              setExamForm({ ...examForm, endDate: e.target.value })
-                            }
-                          />
-                        </div>
+                      <div className="space-y-2">
+                        <Label>End Date</Label>
+                        <Input
+                          type="date"
+                          value={examForm.endDate}
+                          onChange={(e) =>
+                            setExamForm({ ...examForm, endDate: e.target.value })
+                          }
+                        />
+                      </div>
 
-                        <div className="space-y-2">
-                          <Label>Description</Label>
-                          <Input
-                            value={examForm.description}
-                            onChange={(e) =>
-                              setExamForm({ ...examForm, description: e.target.value })
-                            }
-                          />
-                        </div>
+                      <div className="space-y-2 col-span-4">
+                        <Label>Description</Label>
+                        <Input
+                          value={examForm.description}
+                          onChange={(e) =>
+                            setExamForm({ ...examForm, description: e.target.value })
+                          }
+                        />
+                      </div>
 
-                        {/* Full grid width button */}
-                        <div className="col-span-1 sm:col-span-2 lg:col-span-3">
-                          <Button onClick={handleExamSubmit} className="w-full">
-                            {editingExam ? "Update" : "Create"} Exam
-                          </Button>
-                        </div>
+                      <div className="col-span-4">
+                        <Label className="text-lg font-semibold mb-2 block">Date Sheet (Schedule)</Label>
+                        {!examForm.classId ? (
+                          <p className="text-sm text-muted-foreground">Select a class to generate the date sheet.</p>
+                        ) : (
+                          <div className="border rounded-md overflow-hidden">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Subject</TableHead>
+                                  <TableHead>Date</TableHead>
+                                  <TableHead>Start Time</TableHead>
+                                  <TableHead>End Time</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {subjects.filter(s => s.classId === Number(examForm.classId)).map((subject) => {
+                                  // Find existing schedule entry for this subject
+                                  const scheduleEntry = examForm.schedule?.find(s => s.subjectId === subject.id) || {};
+
+                                  return (
+                                    <TableRow key={subject.id}>
+                                      <TableCell className="font-medium">{subject.name}</TableCell>
+                                      <TableCell>
+                                        <Input
+                                          type="date"
+                                          value={scheduleEntry.date || ""}
+                                          onChange={(e) => {
+                                            const newSchedule = [...(examForm.schedule || [])];
+                                            const index = newSchedule.findIndex(s => s.subjectId === subject.id);
+                                            if (index > -1) {
+                                              newSchedule[index] = { ...newSchedule[index], date: e.target.value };
+                                            } else {
+                                              newSchedule.push({ subjectId: subject.id, date: e.target.value, startTime: "", endTime: "" });
+                                            }
+                                            setExamForm({ ...examForm, schedule: newSchedule });
+                                          }}
+                                        />
+                                      </TableCell>
+                                      <TableCell>
+                                        <Input
+                                          type="time"
+                                          value={scheduleEntry.startTime || ""}
+                                          onChange={(e) => {
+                                            const newSchedule = [...(examForm.schedule || [])];
+                                            const index = newSchedule.findIndex(s => s.subjectId === subject.id);
+                                            if (index > -1) {
+                                              newSchedule[index] = { ...newSchedule[index], startTime: e.target.value };
+                                            } else {
+                                              newSchedule.push({ subjectId: subject.id, date: "", startTime: e.target.value, endTime: "" });
+                                            }
+                                            setExamForm({ ...examForm, schedule: newSchedule });
+                                          }}
+                                        />
+                                      </TableCell>
+                                      <TableCell>
+                                        <Input
+                                          type="time"
+                                          value={scheduleEntry.endTime || ""}
+                                          onChange={(e) => {
+                                            const newSchedule = [...(examForm.schedule || [])];
+                                            const index = newSchedule.findIndex(s => s.subjectId === subject.id);
+                                            if (index > -1) {
+                                              newSchedule[index] = { ...newSchedule[index], endTime: e.target.value };
+                                            } else {
+                                              newSchedule.push({ subjectId: subject.id, date: "", startTime: "", endTime: e.target.value });
+                                            }
+                                            setExamForm({ ...examForm, schedule: newSchedule });
+                                          }}
+                                        />
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                                {subjects.filter(s => s.classId === Number(examForm.classId)).length === 0 && (
+                                  <TableRow>
+                                    <TableCell colSpan={4} className="text-center text-muted-foreground">No subjects found for this class.</TableCell>
+                                  </TableRow>
+                                )}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Full grid width button */}
+                      <div className="col-span-4">
+                        <Button onClick={handleExamSubmit} className="w-full">
+                          {editingExam ? "Update" : "Create"} Exam
+                        </Button>
                       </div>
                     </div>
                   </DialogContent>
                 </Dialog>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Exam Name</TableHead>
-                        <TableHead>Program</TableHead>
-                        <TableHead>Class</TableHead>
-                        <TableHead>Session</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Start Date</TableHead>
-                        <TableHead>End Date</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {exams?.map((exam) => (
-                        <TableRow key={exam.id}>
-                          <TableCell>{exam.examName}</TableCell>
-                          <TableCell>{exam.program.name}</TableCell>
-                          <TableCell>{exam.class.name}</TableCell>
-                          <TableCell>{exam.session}</TableCell>
-                          <TableCell>{exam.type}</TableCell>
-                          <TableCell>{exam.startDate.split("T")[0]}</TableCell>
-                          <TableCell>{exam.endDate.split("T")[0]}</TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openEditExam(exam)}
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => {
-                                  setDeleteTarget({
-                                    type: "exam",
-                                    id: exam.id,
-                                  });
-                                  setDeleteDialog(true);
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
+                <div className="space-y-4">
+                  {/* Filters */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Search Exam</Label>
+                      <Input
+                        placeholder="Search by name..."
+                        value={examSearch}
+                        onChange={(e) => setExamSearch(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Filter by Date</Label>
+                      <Input
+                        type="date"
+                        value={examDateFilter}
+                        onChange={(e) => setExamDateFilter(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Filter by Time (Starts after)</Label>
+                      <Input
+                        type="time"
+                        value={examTimeFilter}
+                        onChange={(e) => setExamTimeFilter(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Exam Name</TableHead>
+                          <TableHead>Program</TableHead>
+                          <TableHead>Class</TableHead>
+                          <TableHead>Session</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Start Date</TableHead>
+                          <TableHead>End Date</TableHead>
+                          <TableHead>Actions</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {exams?.filter(exam => {
+                          const matchesSearch = exam.examName.toLowerCase().includes(examSearch.toLowerCase());
+                          const matchesDate = examDateFilter
+                            ? new Date(exam.startDate).toDateString() === new Date(examDateFilter).toDateString()
+                            : true;
+
+                          // Time filter: Check if exam starts at or after the selected time
+                          // Extract HH:mm from exam startDate
+                          const examTime = new Date(exam.startDate).toTimeString().slice(0, 5);
+                          const matchesTime = examTimeFilter ? examTime >= examTimeFilter : true;
+
+                          return matchesSearch && matchesDate && matchesTime;
+                        }).map((exam) => (
+                          <TableRow key={exam.id}>
+                            <TableCell className="font-medium">{exam.examName}</TableCell>
+                            <TableCell>{exam.program.name}</TableCell>
+                            <TableCell>{exam.class?.name || "N/A"}</TableCell>
+                            <TableCell>{exam.session}</TableCell>
+                            <TableCell>{exam.type}</TableCell>
+                            <TableCell className="whitespace-nowrap">{new Date(exam.startDate).toLocaleDateString()}</TableCell>
+                            <TableCell className="whitespace-nowrap">{new Date(exam.endDate).toLocaleDateString()}</TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openEditExam(exam)}
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => {
+                                    setDeleteTarget({
+                                      type: "exam",
+                                      id: exam.id,
+                                    });
+                                    setDeleteDialog(true);
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {exams?.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                              No exams found. Create one to get started.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -1053,7 +1220,7 @@ const Examination = () => {
                             ?.filter(exam => exam.classId === Number(marksFilterClass))
                             .map((exam) => (
                               <SelectItem key={exam.id} value={exam.id.toString()}>
-                                {exam.examName} - {exam.session}
+                                {exam.examName} - {exam.session} ({formatDateTimeDisplay(exam.startDate)})
                               </SelectItem>
                             ));
                         })()}
@@ -1084,7 +1251,7 @@ const Examination = () => {
                             <SelectTrigger><SelectValue placeholder="Select exam" /></SelectTrigger>
                             <SelectContent>
                               {exams.map((exam) => (
-                                <SelectItem key={exam.id} value={exam.id.toString()}>{exam.examName}</SelectItem>
+                                <SelectItem key={exam.id} value={exam.id.toString()}>{exam.examName} - {formatDateTimeDisplay(exam.startDate)}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -1246,7 +1413,7 @@ const Examination = () => {
                                 <SelectContent>
                                   {exams?.map((exam) => (
                                     <SelectItem key={exam.id} value={exam.id.toString()}>
-                                      {exam.examName} - {exam.session}
+                                      {exam.examName} - {exam.session} ({formatDateTimeDisplay(exam.startDate)})
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -1540,7 +1707,7 @@ const Examination = () => {
                         <SelectItem value="*">All Exams</SelectItem>
                         {exams?.map((exam) => (
                           <SelectItem key={exam.id} value={exam.id.toString()}>
-                            {exam.examName} - {exam.session}
+                            {exam.examName} - {exam.session} ({formatDateTimeDisplay(exam.startDate)})
                           </SelectItem>
                         ))}
                       </SelectContent>

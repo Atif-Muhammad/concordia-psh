@@ -300,10 +300,7 @@ export class InventoryController {
   }
 
   @Patch('expenses/:id')
-  async updateExpense(
-    @Param('id') id: string,
-    @Body() dto: UpdateExpenseDto,
-  ) {
+  async updateExpense(@Param('id') id: string, @Body() dto: UpdateExpenseDto) {
     const updateData: any = {};
 
     if (dto.expenseType !== undefined) updateData.expenseType = dto.expenseType;

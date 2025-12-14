@@ -8,7 +8,7 @@ import { StudentDto } from './dtos/student.dto';
 
 @Injectable()
 export class StudentService {
-  constructor(private prismaService: PrismaService) { }
+  constructor(private prismaService: PrismaService) {}
 
   async findOne(id: number) {
     return await this.prismaService.student.findFirst({
@@ -167,8 +167,8 @@ export class StudentService {
             });
             throw new BadRequestException(
               `Cannot promote student. Outstanding fees for current class (${currentClass?.name || 'Unknown Class'}). ` +
-              `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
-              `Amount: ${totalPaid}/${currentFeeStructure.totalAmount}`,
+                `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
+                `Amount: ${totalPaid}/${currentFeeStructure.totalAmount}`,
             );
           }
         }
@@ -261,7 +261,6 @@ export class StudentService {
     if (student.passedOut)
       throw new BadRequestException('Student already passed out');
 
-
     // Check for arrears before promotion - ALWAYS calculate to handle both initial check and force promote
     if (student.classId && student.programId) {
       const currentChallans = await this.prismaService.feeChallan.findMany({
@@ -285,7 +284,6 @@ export class StudentService {
         include: { feeStructure: true },
       });
 
-
       let totalTuitionPaid = 0;
       let expectedTuitionTotal = 0;
 
@@ -299,7 +297,9 @@ export class StudentService {
           // Calculate how much of the payment went toward tuition:
           // If paidAmount <= amount, all of it went to tuition
           // If paidAmount > amount, only 'amount' went to tuition (rest was additional charges)
-          const tuitionPortionPaid = challan.tuitionPaid ?? Math.min(challan.paidAmount || 0, challan.amount || 0);
+          const tuitionPortionPaid =
+            challan.tuitionPaid ??
+            Math.min(challan.paidAmount || 0, challan.amount || 0);
           totalTuitionPaid += tuitionPortionPaid;
         }
         if (challan.feeStructure) {
@@ -323,7 +323,6 @@ export class StudentService {
         }
       }
 
-
       const outstandingAmount = expectedTuitionTotal - totalTuitionPaid;
 
       // If arrears found
@@ -332,7 +331,9 @@ export class StudentService {
         console.log('🔧 forcePromote flag:', forcePromote);
 
         if (!forcePromote) {
-          console.log('⚠️  Returning confirmation requirement (forcePromote is false)');
+          console.log(
+            '⚠️  Returning confirmation requirement (forcePromote is false)',
+          );
           // Return confirmation requirement
           return {
             requiresConfirmation: true,
@@ -380,10 +381,16 @@ export class StudentService {
               // Parse "1-6" or "7" format
               const parts = challan.coveredInstallments.split('-');
               const highestInChallan = parseInt(parts[parts.length - 1]) || 0;
-              lastInstallmentNumber = Math.max(lastInstallmentNumber, highestInChallan);
+              lastInstallmentNumber = Math.max(
+                lastInstallmentNumber,
+                highestInChallan,
+              );
             } else {
               // Fallback to installmentNumber if coveredInstallments not set
-              lastInstallmentNumber = Math.max(lastInstallmentNumber, challan.installmentNumber || 0);
+              lastInstallmentNumber = Math.max(
+                lastInstallmentNumber,
+                challan.installmentNumber || 0,
+              );
             }
           }
 
@@ -391,8 +398,20 @@ export class StudentService {
 
           console.log('🎓 Creating/Updating StudentArrear Record:');
           console.log('  Student ID:', student.id);
-          console.log('  Class ID:', student.classId, '(Class:', student.class?.name, ')');
-          console.log('  Program ID:', student.programId, '(Program:', student.program?.name, ')');
+          console.log(
+            '  Class ID:',
+            student.classId,
+            '(Class:',
+            student.class?.name,
+            ')',
+          );
+          console.log(
+            '  Program ID:',
+            student.programId,
+            '(Program:',
+            student.program?.name,
+            ')',
+          );
           console.log('  Arrear Amount:', outstandingAmount);
           console.log('  Last Installment Number:', lastInstallmentNumber);
 

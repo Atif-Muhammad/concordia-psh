@@ -23,7 +23,7 @@ export class StudentController {
   constructor(
     private readonly studentService: StudentService,
     private readonly cloudinaryService: CloudinaryService,
-  ) { }
+  ) {}
 
   @Get('get/all/passout')
   async getPassoutStudents(
@@ -180,9 +180,14 @@ export class StudentController {
   @Patch('promote')
   async promoteStudents(
     @Query('studentID') studentID: string,
-    @Query('forcePromote') forcePromote?: string  // Query params are always strings!
+    @Query('forcePromote') forcePromote?: string, // Query params are always strings!
   ) {
-    console.log('🔵 Controller received forcePromote:', forcePromote, 'typeof:', typeof forcePromote);
+    console.log(
+      '🔵 Controller received forcePromote:',
+      forcePromote,
+      'typeof:',
+      typeof forcePromote,
+    );
     const forceBool = forcePromote === 'true';
     console.log('🔵 Converting to boolean:', forceBool);
     console.log('🔵 Calling promote service...');
@@ -190,7 +195,7 @@ export class StudentController {
     try {
       const result = await this.studentService.promote(
         Number(studentID),
-        forceBool
+        forceBool,
       );
       console.log('🔵 Promote service returned:', result);
       return result;

@@ -1,16 +1,14 @@
-import { IsNotEmpty, IsOptional } from "class-validator";
-
+import { IsNotEmpty, IsOptional } from 'class-validator';
 
 export class DepartmentDto {
-    @IsOptional()
-    id?: string
+  @IsOptional()
+  id?: string;
 
-    @IsNotEmpty({message: "department name must be provided"})
-    departmentName: string;
-    @IsOptional()
-    headOfDepartment?: string;
+  @IsNotEmpty({ message: 'department name must be provided' })
+  departmentName: string;
+  @IsOptional()
+  headOfDepartment?: string;
 
-    @IsOptional()
-    description?: string;
-
+  @IsOptional()
+  description?: string;
 }

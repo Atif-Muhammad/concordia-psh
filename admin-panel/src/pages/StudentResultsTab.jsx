@@ -47,10 +47,16 @@ export const StudentResultsTab = ({
         : [];
 
     // Format date for display
-    const formatDate = (dateString) => {
+    const formatDateTime = (dateString) => {
         if (!dateString) return '';
         const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+        return date.toLocaleString([], {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
     };
 
     return (
@@ -159,7 +165,7 @@ export const StudentResultsTab = ({
                             <SelectContent>
                                 {availableExams.map((exam) => (
                                     <SelectItem key={exam.id} value={exam.id.toString()}>
-                                        {exam.examName} - {exam.session} ({formatDate(exam.startDate)} - {formatDate(exam.endDate)})
+                                        {exam.examName} - {exam.session} ({formatDateTime(exam.startDate)} - {formatDateTime(exam.endDate)})
                                     </SelectItem>
                                 ))}
                             </SelectContent>

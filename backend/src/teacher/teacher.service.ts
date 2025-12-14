@@ -11,7 +11,7 @@ import { Prisma, TeacherStatus, TeacherType } from '@prisma/client';
 
 @Injectable()
 export class TeacherService {
-  constructor(private prismaService: PrismaService) { }
+  constructor(private prismaService: PrismaService) {}
 
   async getNames() {
     return await this.prismaService.teacher.findMany({
@@ -28,9 +28,9 @@ export class TeacherService {
   async getAll() {
     return await this.prismaService.teacher.findMany({
       include: {
-        department: { select: { name: true } }
+        department: { select: { name: true } },
       },
-      orderBy: { name: "asc" }
+      orderBy: { name: 'asc' },
     });
   }
 
@@ -241,5 +241,4 @@ export class TeacherService {
     // Transform to return just the subjects array
     return mappings.map((mapping) => mapping.subject);
   }
-
 }

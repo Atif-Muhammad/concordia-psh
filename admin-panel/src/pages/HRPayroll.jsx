@@ -42,8 +42,8 @@ const HRPayroll = () => {
   const [editingAdvance, setEditingAdvance] = useState(null);
 
   const [payrollMonth, setPayrollMonth] = useState(new Date().toISOString().slice(0, 7));
-const [payrollType, setPayrollType] = useState("employee");
-const [payrollData, setPayrollData] = useState([]);
+  const [payrollType, setPayrollType] = useState("employee");
+  const [payrollData, setPayrollData] = useState([]);
 
   // Attendance Queries
   const { data: attendanceEmployees = [] } = useQuery({
@@ -225,7 +225,7 @@ const [payrollData, setPayrollData] = useState([]);
     queryKey: ["teachers"],
     queryFn: getTeacherNames,
   });
-  
+
   // Fetch Payroll Settings
   const { data: payrollSettings } = useQuery({
     queryKey: ["payrollSettings"],
@@ -376,7 +376,7 @@ const [payrollData, setPayrollData] = useState([]);
     queryKey: ["advanceSalaries"],
     queryFn: () => getAdvanceSalaries(),
   });
-  
+
   const createAdvanceMutation = useMutation({
     mutationFn: createAdvanceSalary,
     onSuccess: () => {

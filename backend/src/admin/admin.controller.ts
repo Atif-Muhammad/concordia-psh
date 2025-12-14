@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { RolesEnum } from 'src/common/constants/roles.enum';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { JwtAccGuard } from 'src/common/guards/jwt-access.guard';
@@ -12,7 +22,10 @@ import { AttendanceService } from 'src/attendance/attendance.service';
 
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService, private readonly attendanceService: AttendanceService) { }
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly attendanceService: AttendanceService,
+  ) {}
 
   @UseGuards(JwtAccGuard, RolesGuard)
   @Roles(RolesEnum.SUPER_ADMIN)
@@ -52,7 +65,7 @@ export class AdminController {
   @Permissions('Teacher')
   @Get('get/teacher/attendance')
   async getTeacherAttendance(@Query('date') date: string) {
-    return await this.attendanceService.getTeacherAttendance(new Date(date))
+    return await this.attendanceService.getTeacherAttendance(new Date(date));
   }
   @UseGuards(JwtAccGuard, PermissionsGuard)
   @Permissions('Teacher')
@@ -60,14 +73,17 @@ export class AdminController {
   async markTeacher(
     @Req() req: { user: { id: string } },
     @Query('id') id: string,
-    @Body() payload: { status: 'PRESENT' | 'ABSENT' | 'LEAVE' | 'HALF_DAY', date: string }
+    @Body()
+    payload: {
+      status: 'PRESENT' | 'ABSENT' | 'LEAVE' | 'HALF_DAY';
+      date: string;
+    },
   ) {
     return await this.attendanceService.markTeacherAttendance(
       Number(id),
       Number(req.user?.id),
       payload.status,
-      new Date(payload.date)
+      new Date(payload.date),
     );
   }
-
 }

@@ -32,10 +32,34 @@ export class UpsertPayrollDto {
   otherDeduction: number;
 
   @IsNumber()
+  @IsOptional()
+  incomeTax?: number;
+
+  @IsNumber()
+  @IsOptional()
+  eobi?: number;
+
+  @IsNumber()
+  @IsOptional()
+  lateArrivalDeduction?: number;
+
+  @IsNumber()
   extraAllowance: number;
 
   @IsNumber()
   travelAllowance: number;
+
+  @IsNumber()
+  @IsOptional()
+  houseRentAllowance?: number;
+
+  @IsNumber()
+  @IsOptional()
+  medicalAllowance?: number;
+
+  @IsNumber()
+  @IsOptional()
+  insuranceAllowance?: number;
 
   @IsNumber()
   otherAllowance: number;

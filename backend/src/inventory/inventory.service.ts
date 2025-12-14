@@ -58,10 +58,7 @@ export class InventoryService {
     });
   }
 
-  async updateInventory(
-    id: string,
-    data: Prisma.SchoolInventoryUpdateInput,
-  ) {
+  async updateInventory(id: string, data: Prisma.SchoolInventoryUpdateInput) {
     return this.prisma.schoolInventory.update({
       where: { id },
       data,
@@ -140,10 +137,7 @@ export class InventoryService {
     });
   }
 
-  async updateExpense(
-    id: string,
-    data: Prisma.InventoryExpenseUpdateInput,
-  ) {
+  async updateExpense(id: string, data: Prisma.InventoryExpenseUpdateInput) {
     return this.prisma.inventoryExpense.update({
       where: { id },
       data,

@@ -953,12 +953,9 @@ const Academics = () => {
                         <Input
                           value={programForm.name}
                           onChange={(e) => {
+                            // Removed automatic 4-year duration setting for BS
                             const name = e.target.value;
-                            let duration = programForm.duration;
-                            if (programForm.level === "UNDERGRADUATE" && name.toLowerCase().includes("bs")) {
-                              duration = "4 years";
-                            }
-                            setProgramForm({ ...programForm, name, duration });
+                            setProgramForm({ ...programForm, name });
                           }}
                           placeholder="Enter full program name"
                         />
@@ -990,7 +987,9 @@ const Academics = () => {
                           onValueChange={(level) => {
                             let defaultDuration = "";
                             if (level === "INTERMEDIATE") defaultDuration = "2 years";
-                            else if (level === "UNDERGRADUATE") defaultDuration = "4 years";
+                            if (level === "INTERMEDIATE") defaultDuration = "2 years";
+                            // Removed default duration for Undergraduate so it respects user choice or stays empty initially
+                            else if (level === "UNDERGRADUATE") defaultDuration = "4 years"; // Default to 4, but editable
                             else if (level === "DIPLOMA") defaultDuration = "2 years";
                             else if (level === "COACHING") defaultDuration = "3 months";
                             else if (level === "SHORT_COURSE") defaultDuration = "1 month";
@@ -1005,7 +1004,7 @@ const Academics = () => {
                           <SelectTrigger><SelectValue placeholder="Select level" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="INTERMEDIATE">Intermediate (2 Years)</SelectItem>
-                            <SelectItem value="UNDERGRADUATE">Undergraduate (BS – 4 Years)</SelectItem>
+                            <SelectItem value="UNDERGRADUATE">Undergraduate</SelectItem>
                             <SelectItem value="DIPLOMA">Diploma (1–2 Years)</SelectItem>
                             <SelectItem value="COACHING">Coaching Classes</SelectItem>
                             <SelectItem value="SHORT_COURSE">Short Course</SelectItem>
@@ -1018,7 +1017,21 @@ const Academics = () => {
                           <Input value="2 years" disabled className="bg-muted" />
                         )}
                         {programForm.level === "UNDERGRADUATE" && (
-                          <Input value="4 years" disabled className="bg-muted" />
+                          <Select
+                            value={programForm.duration}
+                            onValueChange={(v) =>
+                              setProgramForm({
+                                ...programForm,
+                                duration: v,
+                              })
+                            }
+                          >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="4 years">4 years</SelectItem>
+                              <SelectItem value="5 years">5 years</SelectItem>
+                            </SelectContent>
+                          </Select>
                         )}
                         {programForm.level === "DIPLOMA" && (
                           <Select

@@ -1,11 +1,19 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { ConfigurationService } from './configuration.service';
 import { CreateReportCardTemplateDto } from './dtos/create-report-card-template.dto';
 import { UpdateReportCardTemplateDto } from './dtos/update-report-card-template.dto';
 
 @Controller('configuration')
 export class ConfigurationController {
-  constructor(private readonly configService: ConfigurationService) { }
+  constructor(private readonly configService: ConfigurationService) {}
 
   // ==================== INSTITUTE SETTINGS ====================
 
@@ -42,7 +50,10 @@ export class ConfigurationController {
   }
 
   @Patch('report-card-templates/:id')
-  update(@Param('id') id: string, @Body() updateDto: UpdateReportCardTemplateDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateReportCardTemplateDto,
+  ) {
     return this.configService.updateReportCardTemplate(Number(id), updateDto);
   }
 

@@ -8,6 +8,6 @@ import { AttendanceCron } from './attendance.cron';
   imports: [PrismaModule],
   controllers: [AttendanceController],
   providers: [AttendanceService, AttendanceCron],
-  exports: [AttendanceService]
+  exports: [AttendanceService],
 })
 export class AttendanceModule {}
