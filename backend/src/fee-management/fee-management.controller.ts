@@ -18,7 +18,7 @@ import { FeeReportQueryDto } from './dtos/fee-report-query.dto';
 
 @Controller('fee-management')
 export class FeeManagementController {
-  constructor(private readonly feeService: FeeManagementService) {}
+  constructor(private readonly feeService: FeeManagementService) { }
 
   // Fee Heads
   @Post('head/create')
@@ -132,5 +132,34 @@ export class FeeManagementController {
   @Get('student/arrears')
   async getStudentArrears(@Query('studentId') studentId: string) {
     return await this.feeService.getStudentArrears(Number(studentId));
+  }
+
+  // Fee Challan Templates
+  @Post('template/create')
+  async createFeeChallanTemplate(@Body() payload: any) {
+    return await this.feeService.createFeeChallanTemplate(payload);
+  }
+
+  @Get('template/get/all')
+  async getFeeChallanTemplates() {
+    return await this.feeService.getFeeChallanTemplates();
+  }
+
+  @Get('template/get/by-id')
+  async getFeeChallanTemplateById(@Query('id') id: string) {
+    return await this.feeService.getFeeChallanTemplateById(Number(id));
+  }
+
+  @Patch('template/update')
+  async updateFeeChallanTemplate(
+    @Query('id') id: string,
+    @Body() payload: any,
+  ) {
+    return await this.feeService.updateFeeChallanTemplate(Number(id), payload);
+  }
+
+  @Delete('template/delete')
+  async deleteFeeChallanTemplate(@Query('id') id: string) {
+    return await this.feeService.deleteFeeChallanTemplate(Number(id));
   }
 }

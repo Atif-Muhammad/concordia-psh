@@ -240,6 +240,287 @@ const payrollSheetTemplate = `
 </div>
 `;
 
+const reportCardDesignTemplate = `
+<div style="width: 210mm; padding: 10mm; font-family: 'Times New Roman', serif; border: 3px solid #336699; position: relative; margin: 0 auto; box-sizing: border-box;">
+  <!-- Corner Decorations -->
+  <div style="position: absolute; top: 5px; left: 5px; width: 20px; height: 20px; border-top: 3px solid #336699; border-left: 3px solid #336699;"></div>
+  <div style="position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; border-top: 3px solid #336699; border-right: 3px solid #336699;"></div>
+  <div style="position: absolute; bottom: 5px; left: 5px; width: 20px; height: 20px; border-bottom: 3px solid #336699; border-left: 3px solid #336699;"></div>
+  <div style="position: absolute; bottom: 5px; right: 5px; width: 20px; height: 20px; border-bottom: 3px solid #336699; border-right: 3px solid #336699;"></div>
+
+  <!-- Header -->
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
+    <div style="width: 100px;">
+       <img src="{{logoUrl}}" alt="Logo" style="width: 80px; height: auto;">
+    </div>
+    <div style="text-align: center; flex: 1;">
+       <h1 style="margin: 0; font-size: 28px; font-weight: bold; color: #000; font-family: serif;">Concordia College Peshawar</h1>
+       <p style="margin: 5px 0 0 0; font-size: 14px;">60-C A University Road, University Town, Peshawar</p>
+       <p style="margin: 2px 0 0 0; font-size: 14px; font-weight: bold;">091-5619915 | 0332-8581222</p>
+    </div>
+    <div style="width: 100px; display: flex; justify-content: flex-end;">
+       <div style="width: 90px; height: 110px; border: 2px solid #ccc; border-radius: 10px; overflow: hidden;">
+          <img src="{{studentPhoto}}" alt="Student" style="width: 100%; height: 100%; object-fit: cover;">
+       </div>
+    </div>
+  </div>
+
+  <!-- Title Bar -->
+  <div style="background-color: #BDD7EE; padding: 8px; text-align: center; margin-bottom: 25px; border-top: 2px solid #336699; border-bottom: 2px solid #336699;">
+     <h2 style="margin: 0; font-size: 18px; font-weight: bold; color: #000; text-transform: uppercase; letter-spacing: 1px;">RESULT CARD ({{examType}})</h2>
+  </div>
+
+  <!-- Student Info -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px 40px; margin-bottom: 25px; font-size: 15px;">
+     <div style="display: flex; align-items: flex-end; border-bottom: 2px solid #000;">
+       <span style="font-weight: bold; width: 130px;">Student Name:</span>
+       <span style="flex: 1; padding-left: 10px;">{{studentName}}</span>
+     </div>
+     <div style="display: flex; align-items: flex-end; border-bottom: 2px solid #000;">
+       <span style="font-weight: bold; width: 130px;">Father Name:</span>
+       <span style="flex: 1; padding-left: 10px;">{{fatherName}}</span>
+     </div>
+      <div style="display: flex; align-items: flex-end; border-bottom: 2px solid #000;">
+       <span style="font-weight: bold; width: 130px;">Class/Section:</span>
+       <span style="flex: 1; padding-left: 10px;">{{class}} / {{section}}</span>
+     </div>
+     <div style="display: flex; align-items: flex-end; border-bottom: 2px solid #000;">
+       <span style="font-weight: bold; width: 130px;">Session:</span>
+       <span style="flex: 1; padding-left: 10px;">{{session}}</span>
+     </div>
+      <div style="display: flex; align-items: flex-end; border-bottom: 2px solid #000;">
+       <span style="font-weight: bold; width: 130px;">Adm No:</span>
+       <span style="flex: 1; padding-left: 10px;">{{admNo}}</span>
+     </div>
+     <div style="display: flex; align-items: flex-end; border-bottom: 2px solid #000;">
+       <span style="font-weight: bold; width: 130px;">Reg No:</span>
+       <span style="flex: 1; padding-left: 10px;">{{regNo}}</span>
+     </div>
+  </div>
+
+  <!-- Marks Table -->
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 25px; font-size: 14px; border: 2px solid #000;">
+    <thead>
+      <tr style="background-color: #BDD7EE; border-bottom: 2px solid #000; text-align: center;">
+        <th style="border: 1px solid #000; padding: 8px; width: 60px;">S.NO</th>
+        <th style="border: 1px solid #000; padding: 8px; text-align: left;">SUBJECTS</th>
+        <th style="border: 1px solid #000; padding: 8px; width: 80px;">TOTAL</th>
+        <th style="border: 1px solid #000; padding: 8px; width: 100px;">OBTAINED</th>
+        <th style="border: 1px solid #000; padding: 8px; width: 100px;">PERCENTAGE</th>
+        <th style="border: 1px solid #000; padding: 8px; width: 60px;">Grade</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{marksRows}}
+      
+      <!-- Total Row -->
+      <tr style="background-color: #BDD7EE; font-weight: bold; border-top: 2px solid #000;">
+         <td colspan="2" style="border: 1px solid #000; padding: 8px; text-align: center; text-transform: uppercase;">TOTAL</td>
+         <td style="border: 1px solid #000; padding: 8px; text-align: center;">{{totalMarks}}</td>
+         <td style="border: 1px solid #000; padding: 8px; text-align: center;">{{obtainedMarks}}</td>
+         <td style="border: 1px solid #000; padding: 8px; text-align: center;">{{percentage}}%</td>
+         <td style="border: 1px solid #000; padding: 8px; text-align: center;">{{grade}}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Remarks Panel -->
+  <div style="border: 2px solid #336699; margin-bottom: 50px;">
+    <div style="display: flex; border-bottom: 1px solid #336699; background-color: #BDD7EE;">
+       <div style="flex: 1; border-right: 1px solid #336699; padding: 8px; text-align: center; font-weight: bold;">
+          Grade: {{grade}}
+       </div>
+       <div style="flex: 2; padding: 8px; text-align: center; font-weight: bold;">
+          Remarks: {{remarks}}
+       </div>
+    </div>
+    <div style="display: flex; padding: 12px; align-items: flex-start; min-height: 40px;">
+       <span style="font-weight: bold; margin-right: 10px; white-space: nowrap;">Teacher Remarks:</span>
+       <span style="font-style: italic; font-family: cursive;">{{teacherRemarks}}</span>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; padding: 0 20px;">
+     <div style="text-align: center;">
+        <div style="border-bottom: 2px solid #000; width: 180px; margin-bottom: 8px;"></div>
+        <span style="font-weight: bold;">Exam Controller Signature</span>
+     </div>
+     
+     <div style="text-align: center;">
+        <!-- Badge Icon Gold -->
+        <div style="width: 80px; height: 80px; background: radial-gradient(circle, #fdb931 0%, #d4af37 100%); border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 2px solid #fff;">
+           <span style="font-size: 20px; text-shadow: 1px 1px 2px #000;">{{position}}</span>
+           <span style="font-size: 10px; text-transform: uppercase;">Position</span>
+        </div>
+     </div>
+
+     <div style="text-align: center;">
+        <div style="border-bottom: 2px solid #000; width: 180px; margin-bottom: 8px;"></div>
+        <span style="font-weight: bold;">Principal's Signature</span>
+     </div>
+  </div>
+</div>
+`;
+
+const challanDesignTemplate = `
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+  body { font-family: 'Roboto', sans-serif; font-size: 10px; margin: 0; padding: 10px; -webkit-print-color-adjust: exact; }
+  .challan-container { display: flex; justify-content: space-between; gap: 10px; width: 100%; box-sizing: border-box; }
+  .challan-copy { flex: 1; border: 1px solid #999; padding: 0; max-width: 32.5%; box-sizing: border-box; display: flex; flex-direction: column; }
+  
+  /* Header */
+  .header { display: flex; padding: 10px; align-items: center; justify-content: center; gap: 10px; border-bottom: 1px solid #ccc; }
+  .logo { width: 40px; height: 40px; background-color: #f29200; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; border-radius: 4px; }
+  .institute-info { text-align: center; }
+  .institute-info h1 { margin: 0; font-size: 14px; font-weight: bold; color: #000; }
+  .institute-info p { margin: 2px 0; font-size: 9px; color: #333; }
+
+  /* Bank Info */
+  .bank-info { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 5px; border-bottom: 1px solid #ccc; }
+  .bank-logo { font-weight: bold; color: #0056b3; font-style: italic; font-size: 12px; }
+  .account-info { text-align: center; font-size: 10px; }
+  .account-info strong { display: block; }
+
+  /* Student Details Grid */
+  .details-grid { display: grid; grid-template-columns: 100px 1fr; border-bottom: 1px solid #ccc; }
+  .grid-row { display: contents; }
+  .grid-label { padding: 4px 8px; border-bottom: 1px solid #ccc; border-right: 1px solid #ccc; font-weight: bold; background-color: #f9f9f9; }
+  .grid-value { padding: 4px 8px; border-bottom: 1px solid #ccc; }
+  .grid-row:last-child .grid-label, .grid-row:last-child .grid-value { border-bottom: none; }
+
+  /* Fee Table */
+  .fee-table { width: 100%; border-collapse: collapse; margin-top: 0; flex-grow: 1; }
+  .fee-table th { background-color: #ed7d31; color: black; padding: 4px 8px; text-align: left; border: 1px solid #ccc; font-weight: bold; font-size: 10px; }
+  .fee-table th:last-child { text-align: right; }
+  .fee-table td { padding: 4px 8px; border: 1px solid #ccc; font-size: 10px; }
+  .fee-table td:last-child { text-align: right; }
+  
+  /* Fee Rows Height Fix to match look */
+  .fee-table tbody tr td { height: 14px; } 
+
+  /* Totals */
+  .total-row td { background-color: #ed7d31; color: black; font-weight: bold; border-top: 2px solid #000; }
+  .late-fee-row td { color: black; font-weight: bold; text-align: center; border: 1px solid #ccc; padding: 5px; }
+
+  /* Instructions */
+  .instructions { padding: 10px; font-size: 8px; border-top: 1px solid #ccc; }
+  .instructions h3 { margin: 0 0 2px 0; font-size: 9px; font-weight: bold; }
+  .instructions ol { margin: 0; padding-left: 15px; }
+  .instructions li { margin-bottom: 1px; }
+
+  /* Signatures */
+  .signatures { display: flex; justify-content: space-between; padding: 20px 10px 5px 10px; margin-top: auto; }
+  .sig-box { text-align: center; }
+  .sig-line { border-top: 1px solid #000; width: 80px; margin-bottom: 2px; }
+  .sig-label { font-size: 8px; }
+
+  /* Footer Label */
+  .footer-label { background-color: #ed7d31; color: black; text-align: center; padding: 4px; font-weight: bold; font-size: 10px; border-top: 1px solid #000; }
+</style>
+</head>
+<body>
+<div class="challan-container">
+  <!-- Copy Loop -->
+  ${['Bank Copy', 'Institute Copy', 'Student Copy'].map(copyName => `
+  <div class="challan-copy">
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">LOGO</div>
+      <div class="institute-info">
+        <h1>Concordia College Peshawar</h1>
+        <p>60-C, Near NCS School, University Town Peshawar</p>
+        <p>091-5619915 | 0332-8581222</p>
+      </div>
+    </div>
+
+    <!-- Bank -->
+    <div class="bank-info">
+      <div class="bank-logo">UBL</div>
+      <div class="account-info">
+        <strong>United Bank Limited</strong>
+        <span>A/C No. 340346138</span>
+      </div>
+    </div>
+
+    <!-- Student Details -->
+    <div class="details-grid">
+      <div class="grid-row"><div class="grid-label">Challan Number</div><div class="grid-value">{{challanNo}}</div></div>
+      <div class="grid-row"><div class="grid-label">Issue Date</div><div class="grid-value">{{issueDate}}</div></div>
+      <div class="grid-row"><div class="grid-label">Valid Date</div><div class="grid-value">{{dueDate}}</div></div>
+      <div class="grid-row" style="border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px"><div class="grid-label">Student Name</div><div class="grid-value">{{studentName}}</div></div>
+      <div class="grid-row"><div class="grid-label">Father Name</div><div class="grid-value">{{fatherName}}</div></div>
+      <div class="grid-row"><div class="grid-label">Student Id</div><div class="grid-value">{{rollNo}}</div></div>
+      <div class="grid-row"><div class="grid-label">Class / Section</div><div class="grid-value">{{class}} / {{section}}</div></div>
+    </div>
+
+    <!-- Fees -->
+    <table class="fee-table">
+      <thead>
+        <tr>
+          <th>Particulars</th>
+          <th>Amount (PKR)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{feeHeadsRows}}
+        
+        <tr><td>Tuition Fee</td><td>{{Tuition Fee}}</td></tr>
+        
+        <tr>
+          <td>Arrears</td>
+          <td>{{arrears}}</td>
+        </tr>
+        <tr>
+          <td>Discount</td>
+          <td>{{discount}}</td>
+        </tr>
+        <tr class="total-row">
+          <td>Total Payable within due date</td>
+          <td>{{totalPayable}}</td>
+        </tr>
+        <tr class="late-fee-row">
+          <td>Late Fee Fine after due date</td>
+          <td>Rs. 150 Per Day</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Instructions -->
+    <div class="instructions">
+      <h3>Instructions:</h3>
+      <ol>
+        <li>Dues once paid are non refundable non transferable.</li>
+        <li>Rs. 100/- will be charged in case of Re-Issuance of Challan.</li>
+        <li>Scholarship/Concession will be cancelled if a student dont maintain minimum 70% Attendance and 80% academic record.</li>
+        <li>Fines will be calculated as per policy.</li>
+        <li>Rs. 150/- per day late fee will be charged on the challan after due date.</li>
+      </ol>
+    </div>
+
+    <!-- Footer -->
+    <div class="signatures">
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-label">Bank/Account Officer Signature</div>
+      </div>
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-label">Depositor Signature</div>
+      </div>
+    </div>
+    <div class="footer-label">${copyName}</div>
+  </div>
+  `).join('')}
+</div>
+</body>
+</html>
+`;
+
 const Configuration = () => {
   const {
     config,
@@ -1316,7 +1597,22 @@ const Configuration = () => {
                             />
                           </div>
                           <div>
-                            <Label>HTML Content</Label>
+                            <div className="flex justify-between items-center mb-2">
+                              <Label>HTML Content</Label>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  setChallanForm({
+                                    ...challanForm,
+                                    htmlContent: challanDesignTemplate,
+                                  })
+                                }
+                              >
+                                Load Standard Design
+                              </Button>
+                            </div>
                             <Textarea
                               rows={10}
                               value={challanForm.htmlContent}
@@ -1344,26 +1640,44 @@ const Configuration = () => {
                           </div>
                           <Button
                             onClick={() => {
+                              const payload = {
+                                name: challanForm.name,
+                                htmlContent: challanForm.htmlContent,
+                                isDefault: challanForm.isDefault,
+                              };
+
                               if (editingChallan) {
-                                updateChallanTemplate(editingChallan, {
-                                  ...challanForm,
-                                  createdAt: new Date().toISOString(),
-                                  createdBy: "admin",
-                                });
-                                toast({
-                                  title: "Template updated successfully",
-                                });
+                                // "editingChallan" is the ID of the template being edited
+                                updateChallanTemplate(editingChallan, payload)
+                                  .then(() => {
+                                    toast({
+                                      title: "Template updated successfully",
+                                    });
+                                    setChallanDialog(false);
+                                  })
+                                  .catch((err) => {
+                                    toast({
+                                      title: "Failed to update template",
+                                      description: err.message,
+                                      variant: "destructive",
+                                    });
+                                  });
                               } else {
-                                addChallanTemplate({
-                                  ...challanForm,
-                                  createdAt: new Date().toISOString(),
-                                  createdBy: "admin",
-                                });
-                                toast({
-                                  title: "Template added successfully",
-                                });
+                                addChallanTemplate(payload)
+                                  .then(() => {
+                                    toast({
+                                      title: "Template added successfully",
+                                    });
+                                    setChallanDialog(false);
+                                  })
+                                  .catch((err) => {
+                                    toast({
+                                      title: "Failed to add template",
+                                      description: err.message,
+                                      variant: "destructive",
+                                    });
+                                  });
                               }
-                              setChallanDialog(false);
                             }}
                             className="w-full"
                           >
@@ -1414,18 +1728,20 @@ const Configuration = () => {
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => {
-                                  deleteChallanTemplate(template.id);
-                                  toast({
-                                    title: "Template deleted",
-                                  });
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              {!template.isDefault && (
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => {
+                                    deleteChallanTemplate(template.id);
+                                    toast({
+                                      title: "Template deleted",
+                                    });
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1578,18 +1894,20 @@ const Configuration = () => {
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => {
-                                  deleteIDCardTemplate(template.id);
-                                  toast({
-                                    title: "Template deleted",
-                                  });
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              {!template.isDefault && (
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => {
+                                    deleteIDCardTemplate(template.id);
+                                    toast({
+                                      title: "Template deleted",
+                                    });
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1648,7 +1966,22 @@ const Configuration = () => {
                             />
                           </div>
                           <div>
-                            <Label>HTML Content</Label>
+                            <div className="flex items-center justify-between">
+                              <Label>HTML Content</Label>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                type="button"
+                                onClick={() =>
+                                  setMarksheetForm({
+                                    ...marksheetForm,
+                                    htmlContent: reportCardDesignTemplate,
+                                  })
+                                }
+                              >
+                                Load Standard Design
+                              </Button>
+                            </div>
                             <Textarea
                               rows={10}
                               value={marksheetForm.htmlContent}
@@ -1756,29 +2089,31 @@ const Configuration = () => {
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={async () => {
-                                  try {
-                                    await deleteReportCardTemplate(template.id);
-                                    setMarksheetTemplates(
-                                      marksheetTemplates.filter((t) => t.id !== template.id)
-                                    );
-                                    toast({
-                                      title: "Template deleted",
-                                    });
-                                  } catch (error) {
-                                    toast({
-                                      title: "Error",
-                                      description: error.message || "Failed to delete template",
-                                      variant: "destructive",
-                                    });
-                                  }
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              {!template.isDefault && (
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={async () => {
+                                    try {
+                                      await deleteReportCardTemplate(template.id);
+                                      setMarksheetTemplates(
+                                        marksheetTemplates.filter((t) => t.id !== template.id)
+                                      );
+                                      toast({
+                                        title: "Template deleted",
+                                      });
+                                    } catch (error) {
+                                      toast({
+                                        title: "Error",
+                                        description: error.message || "Failed to delete template",
+                                        variant: "destructive",
+                                      });
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1984,27 +2319,29 @@ const Configuration = () => {
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={async () => {
-                                  try {
-                                    await deletePayrollTemplate(template.id);
-                                    setPayrollTemplates(payrollTemplates.filter(t => t.id !== template.id));
-                                    toast({
-                                      title: "Template deleted",
-                                    });
-                                  } catch (error) {
-                                    toast({
-                                      title: "Error",
-                                      description: "Failed to delete template",
-                                      variant: "destructive",
-                                    });
-                                  }
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              {!template.isDefault && (
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={async () => {
+                                    try {
+                                      await deletePayrollTemplate(template.id);
+                                      setPayrollTemplates(payrollTemplates.filter(t => t.id !== template.id));
+                                      toast({
+                                        title: "Template deleted",
+                                      });
+                                    } catch (error) {
+                                      toast({
+                                        title: "Error",
+                                        description: "Failed to delete template",
+                                        variant: "destructive",
+                                      });
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -2022,7 +2359,7 @@ const Configuration = () => {
           open={!!previewChallan}
           onOpenChange={() => setPreviewChallan(null)}
         >
-          <DialogContent className="max-w-4xl max-h-[80vh] overflow-auto">
+          <DialogContent className="max-w-7xl max-h-[90vh] overflow-auto">
             <DialogHeader>
               <DialogTitle>Challan Template Preview</DialogTitle>
             </DialogHeader>

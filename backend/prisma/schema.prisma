@@ -151,6 +151,10 @@ model Teacher {
   email          String  @unique @db.VarChar(100)
   password       String  @db.VarChar(255)
   phone          String? @db.VarChar(20)
+  
+  photo_url       String?
+  photo_public_id String?
+
   specialization String? @db.VarChar(50)
   highestDegree  String  @db.VarChar(50)
   documents      Json?   @default("{}")
@@ -1157,6 +1161,15 @@ model PayrollTemplate {
   id          Int      @id @default(autoincrement())
   name        String
   type        String   // "SALARY_SLIP" | "PAYROLL_SHEET"
+  htmlContent String   @db.Text
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model FeeChallanTemplate {
+  id          Int      @id @default(autoincrement())
+  name        String
   htmlContent String   @db.Text
   isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())

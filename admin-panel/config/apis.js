@@ -3593,3 +3593,69 @@ export const getDashboardStats = async () => {
     throw { message, status: error.response?.status || 500 };
   }
 };
+
+// Fee Challan Templates
+export const getFeeChallanTemplates = async () => {
+  try {
+    const response = await axios.get(`${base_url}/fee-management/template/get/all`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to fetch fee challan templates";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const createFeeChallanTemplate = async (data) => {
+  try {
+    const response = await axios.post(`${base_url}/fee-management/template/create`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to create fee challan template";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateFeeChallanTemplate = async (id, data) => {
+  try {
+    const response = await axios.patch(`${base_url}/fee-management/template/update?id=${id}`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to update fee challan template";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteFeeChallanTemplate = async (id) => {
+  try {
+    const response = await axios.delete(`${base_url}/fee-management/template/delete?id=${id}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to delete fee challan template";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// ID Card Templates (Stubs)
+export const getIDCardTemplates = async () => {
+  return []; // Stubbed
+};
+
+export const createIDCardTemplate = async (data) => {
+  return data; // Stubbed
+};
+
+export const updateIDCardTemplate = async (id, data) => {
+  return data; // Stubbed
+};
+
+export const deleteIDCardTemplate = async (id) => {
+  return true; // Stubbed
+};

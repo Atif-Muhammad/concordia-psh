@@ -1,4 +1,14 @@
 import { createContext, useContext, useState, useEffect } from "react";
+import {
+  getFeeChallanTemplates,
+  createFeeChallanTemplate,
+  updateFeeChallanTemplate,
+  deleteFeeChallanTemplate,
+  getIDCardTemplates,
+  createIDCardTemplate,
+  updateIDCardTemplate,
+  deleteIDCardTemplate
+} from "../../config/apis";
 
 
 // Types
@@ -1114,50 +1124,162 @@ const initialChallanTemplates = [{
   createdAt: "2025-01-01",
   createdBy: "admin",
   htmlContent: `
-      <div style="max-width: 800px; margin: 0 auto; padding: 40px; font-family: Arial, sans-serif; border: 2px solid #F29200;">
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #F29200; margin: 0;">{{instituteName}}</h1>
-          <p style="margin: 5px 0;">{{instituteAddress}}</p>
-          <p style="margin: 5px 0;">Contact: {{institutePhone}}</p>
-        </div>
-        <div style="background: #F29200; color: white; padding: 10px; text-align: center; font-size: 18px; font-weight: bold; margin: 20px 0;">
-          FEE CHALLAN
-        </div>
-        <div style="display: flex; justify-content: space-between; margin: 20px 0;">
-          <div><strong>Challan No:</strong> {{challanNumber}}</div>
-          <div><strong>Date:</strong> {{date}}</div>
-        </div>
-        <div style="margin: 20px 0;">
-          <div style="margin: 10px 0;"><strong>Student Name:</strong> {{studentName}}</div>
-          <div style="margin: 10px 0;"><strong>Roll Number:</strong> {{rollNumber}}</div>
-          <div style="margin: 10px 0;"><strong>Class:</strong> {{class}}</div>
-          <div style="margin: 10px 0;"><strong>Due Date:</strong> {{dueDate}}</div>
-        </div>
-        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-          <thead>
-            <tr style="background: #f5f5f5;">
-              <th style="border: 1px solid #ddd; padding: 10px; text-align: left;">Description</th>
-              <th style="border: 1px solid #ddd; padding: 10px; text-align: right;">Amount (PKR)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td style="border: 1px solid #ddd; padding: 10px;">Tuition Fee</td><td style="border: 1px solid #ddd; padding: 10px; text-align: right;">{{amount}}</td></tr>
-            {{#if discount}}<tr><td style="border: 1px solid #ddd; padding: 10px;">Discount</td><td style="border: 1px solid #ddd; padding: 10px; text-align: right; color: green;">-{{discount}}</td></tr>{{/if}}
-            {{#if fine}}<tr><td style="border: 1px solid #ddd; padding: 10px;">Late Fee</td><td style="border: 1px solid #ddd; padding: 10px; text-align: right; color: red;">{{fine}}</td></tr>{{/if}}
-          </tbody>
-          <tfoot>
-            <tr style="background: #f5f5f5; font-weight: bold;">
-              <td style="border: 1px solid #ddd; padding: 10px;">Total Amount</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: right;">{{totalAmount}}</td>
-            </tr>
-          </tfoot>
-        </table>
-        <div style="margin-top: 40px; text-align: center; color: #666; font-size: 12px;">
-          <p>This is a computer-generated challan and does not require signature.</p>
-          <p>Please pay before the due date to avoid late fee charges.</p>
-        </div>
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+  body { font-family: 'Roboto', sans-serif; font-size: 10px; margin: 0; padding: 10px; -webkit-print-color-adjust: exact; }
+  .challan-container { display: flex; justify-content: space-between; gap: 10px; width: 100%; box-sizing: border-box; }
+  .challan-copy { flex: 1; border: 1px solid #999; padding: 0; max-width: 32.5%; box-sizing: border-box; display: flex; flex-direction: column; }
+  
+  /* Header */
+  .header { display: flex; padding: 10px; align-items: center; justify-content: center; gap: 10px; border-bottom: 1px solid #ccc; }
+  .logo { width: 40px; height: 40px; background-color: #f29200; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; border-radius: 4px; }
+  .institute-info { text-align: center; }
+  .institute-info h1 { margin: 0; font-size: 14px; font-weight: bold; color: #000; }
+  .institute-info p { margin: 2px 0; font-size: 9px; color: #333; }
+
+  /* Bank Info */
+  .bank-info { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 5px; border-bottom: 1px solid #ccc; }
+  .bank-logo { font-weight: bold; color: #0056b3; font-style: italic; font-size: 12px; }
+  .account-info { text-align: center; font-size: 10px; }
+  .account-info strong { display: block; }
+
+  /* Student Details Grid */
+  .details-grid { display: grid; grid-template-columns: 100px 1fr; border-bottom: 1px solid #ccc; }
+  .grid-row { display: contents; }
+  .grid-label { padding: 4px 8px; border-bottom: 1px solid #ccc; border-right: 1px solid #ccc; font-weight: bold; background-color: #f9f9f9; }
+  .grid-value { padding: 4px 8px; border-bottom: 1px solid #ccc; }
+  .grid-row:last-child .grid-label, .grid-row:last-child .grid-value { border-bottom: none; }
+
+  /* Fee Table */
+  .fee-table { width: 100%; border-collapse: collapse; margin-top: 0; flex-grow: 1; }
+  .fee-table th { background-color: #ed7d31; color: black; padding: 4px 8px; text-align: left; border: 1px solid #ccc; font-weight: bold; font-size: 10px; }
+  .fee-table th:last-child { text-align: right; }
+  .fee-table td { padding: 4px 8px; border: 1px solid #ccc; font-size: 10px; }
+  .fee-table td:last-child { text-align: right; }
+  
+  /* Fee Rows Height Fix to match look */
+  .fee-table tbody tr td { height: 14px; } 
+
+  /* Totals */
+  .total-row td { background-color: #ed7d31; color: black; font-weight: bold; border-top: 2px solid #000; }
+  .late-fee-row td { color: black; font-weight: bold; text-align: center; border: 1px solid #ccc; padding: 5px; }
+
+  /* Instructions */
+  .instructions { padding: 10px; font-size: 8px; border-top: 1px solid #ccc; }
+  .instructions h3 { margin: 0 0 2px 0; font-size: 9px; font-weight: bold; }
+  .instructions ol { margin: 0; padding-left: 15px; }
+  .instructions li { margin-bottom: 1px; }
+
+  /* Signatures */
+  .signatures { display: flex; justify-content: space-between; padding: 20px 10px 5px 10px; margin-top: auto; }
+  .sig-box { text-align: center; }
+  .sig-line { border-top: 1px solid #000; width: 80px; margin-bottom: 2px; }
+  .sig-label { font-size: 8px; }
+
+  /* Footer Label */
+  .footer-label { background-color: #ed7d31; color: black; text-align: center; padding: 4px; font-weight: bold; font-size: 10px; border-top: 1px solid #000; }
+</style>
+</head>
+<body>
+<div class="challan-container">
+  <!-- Copy Loop -->
+  ${['Bank Copy', 'Institute Copy', 'Student Copy'].map(copyName => `
+  <div class="challan-copy">
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">LOGO</div>
+      <div class="institute-info">
+        <h1>Concordia College Peshawar</h1>
+        <p>60-C, Near NCS School, University Town Peshawar</p>
+        <p>091-5619915 | 0332-8581222</p>
       </div>
-    `
+    </div>
+
+    <!-- Bank -->
+    <div class="bank-info">
+      <div class="bank-logo">UBL</div>
+      <div class="account-info">
+        <strong>United Bank Limited</strong>
+        <span>A/C No. 340346138</span>
+      </div>
+    </div>
+
+    <!-- Student Details -->
+    <div class="details-grid">
+      <div class="grid-row"><div class="grid-label">Challan Number</div><div class="grid-value">{{challanNo}}</div></div>
+      <div class="grid-row"><div class="grid-label">Issue Date</div><div class="grid-value">{{issueDate}}</div></div>
+      <div class="grid-row"><div class="grid-label">Valid Date</div><div class="grid-value">{{dueDate}}</div></div>
+      <div class="grid-row" style="border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px"><div class="grid-label">Student Name</div><div class="grid-value">{{studentName}}</div></div>
+      <div class="grid-row"><div class="grid-label">Father Name</div><div class="grid-value">{{fatherName}}</div></div>
+      <div class="grid-row"><div class="grid-label">Student Id</div><div class="grid-value">{{rollNo}}</div></div>
+      <div class="grid-row"><div class="grid-label">Class / Section</div><div class="grid-value">{{class}} / {{section}}</div></div>
+    </div>
+
+    <!-- Fees -->
+    <table class="fee-table">
+      <thead>
+        <tr>
+          <th>Particulars</th>
+          <th>Amount (PKR)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{feeHeadsRows}}
+        
+        <tr><td>Tuition Fee</td><td>{{Tuition Fee}}</td></tr>
+        
+        <tr>
+          <td>Arrears</td>
+          <td>{{arrears}}</td>
+        </tr>
+        <tr>
+          <td>Discount</td>
+          <td>{{discount}}</td>
+        </tr>
+        <tr class="total-row">
+          <td>Total Payable within due date</td>
+          <td>{{totalPayable}}</td>
+        </tr>
+        <tr class="late-fee-row">
+          <td>Late Fee Fine after due date</td>
+          <td>Rs. 150 Per Day</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Instructions -->
+    <div class="instructions">
+      <h3>Instructions:</h3>
+      <ol>
+        <li>Dues once paid are non refundable non transferable.</li>
+        <li>Rs. 100/- will be charged in case of Re-Issuance of Challan.</li>
+        <li>Scholarship/Concession will be cancelled if a student dont maintain minimum 70% Attendance and 80% academic record.</li>
+        <li>Fines will be calculated as per policy.</li>
+        <li>Rs. 150/- per day late fee will be charged on the challan after due date.</li>
+      </ol>
+    </div>
+
+    <!-- Footer -->
+    <div class="signatures">
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-label">Bank/Account Officer Signature</div>
+      </div>
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-label">Depositor Signature</div>
+      </div>
+    </div>
+    <div class="footer-label">${copyName}</div>
+  </div>
+  `).join('')}
+</div>
+</body>
+</html>
+`
 }];
 const initialMarksheetTemplates = [{
   id: "1",
@@ -1401,6 +1523,20 @@ export const DataProvider = ({
     };
     setStudents([...students, newStudent]);
   };
+
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const idCardData = await getIDCardTemplates();
+        setIdCardTemplates(idCardData);
+        const challanData = await getFeeChallanTemplates();
+        setChallanTemplates(challanData);
+      } catch (error) {
+        console.error("Error fetching templates:", error);
+      }
+    };
+    fetchTemplates();
+  }, []);
   const updateStudent = (id, studentData) => {
     setStudents(students.map(s => s.id === id ? {
       ...s,
@@ -1969,15 +2105,38 @@ export const DataProvider = ({
 
 
   // Challan Template CRUD
-  const addChallanTemplate = template => setChallanTemplates([...challanTemplates, {
-    ...template,
-    id: Date.now().toString()
-  }]);
-  const updateChallanTemplate = (id, data) => setChallanTemplates(challanTemplates.map(t => t.id === id ? {
-    ...t,
-    ...data
-  } : t));
-  const deleteChallanTemplate = id => setChallanTemplates(challanTemplates.filter(t => t.id !== id));
+  // Challan Template CRUD
+  const addChallanTemplate = async (template) => {
+    try {
+      const newTemplate = await createFeeChallanTemplate(template);
+      setChallanTemplates([newTemplate, ...challanTemplates]);
+      return newTemplate;
+    } catch (error) {
+      console.error("Error adding challan template:", error);
+      throw error;
+    }
+  };
+
+  const updateChallanTemplate = async (id, data) => {
+    try {
+      const updatedTemplate = await updateFeeChallanTemplate(id, data);
+      setChallanTemplates(challanTemplates.map(t => t.id === id ? updatedTemplate : t));
+      return updatedTemplate;
+    } catch (error) {
+      console.error("Error updating challan template:", error);
+      throw error;
+    }
+  };
+
+  const deleteChallanTemplate = async (id) => {
+    try {
+      await deleteFeeChallanTemplate(id);
+      setChallanTemplates(challanTemplates.filter(t => t.id !== id));
+    } catch (error) {
+      console.error("Error deleting challan template:", error);
+      throw error;
+    }
+  };
 
   // ID Card Template CRUD
   const addIDCardTemplate = template => setIdCardTemplates([...idCardTemplates, {

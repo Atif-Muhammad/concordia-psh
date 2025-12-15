@@ -18,7 +18,8 @@ import {
   createFeeStructure, getFeeStructures, updateFeeStructure, deleteFeeStructure,
   getPrograms, getClasses,
   createFeeChallan, getFeeChallans, updateFeeChallan, deleteFeeChallan, getStudentFeeHistory,
-  searchStudents, getStudentFeeSummary, getRevenueOverTime, getClassCollectionStats, getStudentArrears, getFeeCollectionSummary
+  searchStudents, getStudentFeeSummary, getRevenueOverTime, getClassCollectionStats, getStudentArrears, getFeeCollectionSummary,
+  getFeeChallanTemplates
 } from "../../config/apis";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -143,6 +144,11 @@ const FeeManagement = () => {
   const { data: feeCollectionSummary = { totalRevenue: 0, totalOutstanding: 0, totalDiscounts: 0 } } = useQuery({
     queryKey: ['feeCollectionSummary', reportFilter],
     queryFn: () => getFeeCollectionSummary({ period: reportFilter })
+  });
+
+  const { data: challanTemplates = [] } = useQuery({
+    queryKey: ['feeChallanTemplates'],
+    queryFn: getFeeChallanTemplates
   });
 
   // Derived state for summary cards (using fetched summary instead of local calc)
@@ -498,46 +504,192 @@ const FeeManagement = () => {
     setEditingStructure(null);
   };
 
-  const printChallan = challanId => {
-    const challan = feeChallans.find(c => c.id === challanId);
-    if (!challan || !challan.student) return;
+  const generateChallanHtml = (challan) => {
+    if (!challan || !challan.student) return "";
 
     const student = challan.student;
+
+    // Resolve Class Name from global list using ID if available
+    // Sections are not globally fetched, so rely on student.section or empty
+    const classObj = classes.find(c => c.id === student.classId) || student.class;
+
+    const className = classObj?.name || "";
+    const sectionName = student.section?.name || "";
+
+    // Find default template or use the first one available
+    let templateContent = "";
+    if (challanTemplates && challanTemplates.length > 0) {
+      const defaultTemplate = challanTemplates.find(t => t.isDefault);
+      templateContent = defaultTemplate ? defaultTemplate.htmlContent : challanTemplates[0].htmlContent;
+    }
+
+    // Fallback if no template found (Basic Design)
+    if (!templateContent) {
+      templateContent = `
+      <html>
+        <head><title>Fee Challan</title></head>
+        <body>
+          <h1>Fee Challan</h1>
+          <p>Please configure a fee challan template in Settings.</p>
+          <p>Challan No: {{challanNo}}</p>
+          <p>Student: {{studentName}}</p>
+          <p>Amount: {{totalAmount}}</p>
+        </body>
+      </html>`;
+    }
+
+    // Prepare data for replacement
+    const headsList = (challan.selectedHeads && typeof challan.selectedHeads === 'string')
+      ? JSON.parse(challan.selectedHeads)
+      : (challan.selectedHeads || []);
+
+    const headMap = {};
+    if (Array.isArray(headsList)) {
+      headsList.forEach(h => {
+        headMap[h.name] = h.amount;
+      });
+    }
+
+    // Generate dynamic fee rows (excluding Tuition and Discounts, showing only > 0)
+    // Generate dynamic fee rows for ALL system fee heads (excluding Tuition and Discounts)
+    // User Request: Fetch all fee heads, put amount if present, else 0.
+    const feeHeadsRows = feeHeads
+      .filter(h => {
+        const name = (h.name || '').toLowerCase();
+        const type = (h.type || '').toLowerCase();
+
+        // Exclude Tuition (static) and Discount (handled in footer)
+        const isTuition = name.includes('tuition') || type === 'tuition';
+        const isDiscount = name.includes('discount') || type === 'discount';
+
+        return !isTuition && !isDiscount;
+      })
+      .map(h => {
+        // Match by name from the processed headMap (which comes from challan.selectedHeads)
+        const amount = headMap[h.name] || 0;
+        return `<tr><td>${h.name}</td><td>${amount.toLocaleString()}</td></tr>`;
+      })
+      .join('');
+
+    // Helper to convert number to words
+    const numberToWords = (n) => {
+      if (n < 0) return "Negative";
+      if (n === 0) return "Zero";
+      const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+      const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+      const convert = (num) => {
+        if (num < 20) return ones[num];
+        if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? " " + ones[num % 10] : "");
+        if (num < 1000) return ones[Math.floor(num / 100)] + " Hundred" + (num % 100 ? " and " + convert(num % 100) : "");
+        if (num < 100000) return convert(Math.floor(num / 1000)) + " Thousand" + (num % 1000 ? " " + convert(num % 1000) : "");
+        if (num < 10000000) return convert(Math.floor(num / 100000)) + " Lakh" + (num % 100000 ? " " + convert(num % 100000) : "");
+        return convert(Math.floor(num / 10000000)) + " Crore" + (num % 10000000 ? " " + convert(num % 10000000) : "");
+      };
+      return convert(n);
+    };
+
+    // Verify if this is an Arrears Only payment to adjust display logic
+    // In Arrears Only, the main 'amount' stores the Arrears value, so we shift it from Tuition to Arrears row
+    const isArrearsOnly = challan.challanType === 'ARREARS_ONLY' || challan.isArrearsPayment;
+
+    const displayTuition = isArrearsOnly ? 0 : (challan.amount || 0);
+    // If Arrears Only, use 'amount' (Principal) as Arrears. Else use the dedicated 'arrearsAmount' field.
+    const displayArrears = isArrearsOnly ? (challan.amount || 0) : (challan.arrearsAmount || 0);
+
+    // Calculate Net Payable using the corrected display values to avoid double counting
+    const netPayable = displayTuition + displayArrears + (challan.fineAmount || 0) - (challan.discount || 0);
+
+    const replacements = {
+      '{{challanNo}}': challan.challanNumber,
+      '{{issueDate}}': new Date(challan.issueDate).toLocaleDateString(),
+      '{{dueDate}}': new Date(challan.dueDate).toLocaleDateString(),
+      '{{studentName}}': `${student.fName} ${student.mName || ''} ${student.lName || ''}`.trim(),
+      '{{fatherName}}': student.fatherOrguardian || '',
+      '{{rollNo}}': student.rollNumber,
+      '{{class}}': className,
+      '{{section}}': sectionName,
+
+      // Institute Details
+      '{{instituteName}}': 'Concordia College Peshawar',
+      '{{instituteAddress}}': '60-C, Near NCS School, University Town Peshawar',
+      '{{institutePhone}}': '091-5619915 | 0332-8581222',
+
+      // Dynamic Rows
+      '{{feeHeadsRows}}': feeHeadsRows,
+
+      // Static Tuition (Conditionally displayed)
+      '{{Tuition Fee}}': displayTuition.toLocaleString(),
+
+      // Other Static/Specific Fields
+      '{{Fine}}': (headMap['Fine'] || 0).toLocaleString(),
+      '{{arrears}}': displayArrears.toLocaleString(),
+      '{{discount}}': (challan.discount || 0).toLocaleString(),
+
+      // Standard Placeholders (keep for backward compatibility or explicit usage)
+      '{{Registration Fee}}': (headMap['Registration Fee'] || 0).toLocaleString(),
+      '{{Admission Fee}}': (headMap['Admission Fee'] || 0).toLocaleString(),
+      '{{Prospectus Fee}}': (headMap['Prospectus Fee'] || 0).toLocaleString(),
+      '{{Examination Fee}}': (headMap['Examination Fee'] || 0).toLocaleString(),
+      '{{Allied Charges}}': (headMap['Allied Charges'] || 0).toLocaleString(),
+      '{{Lab Charges}}': (headMap['Lab Charges'] || 0).toLocaleString(),
+      '{{Hostel Fee}}': (headMap['Hostel Fee'] || 0).toLocaleString(),
+
+      '{{totalAmount}}': netPayable.toLocaleString(),
+      '{{totalPayable}}': netPayable.toLocaleString(),
+      '{{rupeesInWords}}': numberToWords(Math.round(netPayable)),
+      '{{lateFeePolicy}}': 'Late Fee Fine: Rs. 150 Per Day'
+    };
+
+    let finalHtml = templateContent;
+
+    // Runtime Migration for Legacy Templates:
+    // If the template doesn't have the {{feeHeadsRows}} placeholder, treat it as a legacy template.
+    // We remove the hardcoded optional fee rows and inject the dynamic placeholder before Tuition Fee.
+    if (!finalHtml.includes('{{feeHeadsRows}}')) {
+      const legacyRows = [
+        /<tr>\s*<td>Registration Fee<\/td>\s*<td>{{Registration Fee}}<\/td>\s*<\/tr>/gi,
+        /<tr>\s*<td>Admission Fee<\/td>\s*<td>{{Admission Fee}}<\/td>\s*<\/tr>/gi,
+        /<tr>\s*<td>Prospectus Fee<\/td>\s*<td>{{Prospectus Fee}}<\/td>\s*<\/tr>/gi,
+        /<tr>\s*<td>Examination Fee<\/td>\s*<td>{{Examination Fee}}<\/td>\s*<\/tr>/gi,
+        /<tr>\s*<td>Allied Charges<\/td>\s*<td>{{Allied Charges}}<\/td>\s*<\/tr>/gi,
+        /<tr>\s*<td>Lab Charges<\/td>\s*<td>{{Lab Charges}}<\/td>\s*<\/tr>/gi,
+        /<tr>\s*<td>Hostel Fee<\/td>\s*<td>{{Hostel Fee}}<\/td>\s*<\/tr>/gi,
+        /<tr>\s*<td>Fine<\/td>\s*<td>{{Fine}}<\/td>\s*<\/tr>/gi
+      ];
+
+      // Remove legacy rows
+      legacyRows.forEach(regex => {
+        finalHtml = finalHtml.replace(regex, '');
+      });
+
+      // Inject dynamic placeholder before Tuition Fee
+      // We look for the Tuition Fee row start tag
+      const tuitionRowRegex = /(<tr>\s*<td>Tuition Fee<\/td>)/i;
+      if (tuitionRowRegex.test(finalHtml)) {
+        finalHtml = finalHtml.replace(tuitionRowRegex, '{{feeHeadsRows}}$1');
+      } else {
+        // Fallback: If no Tuition Fee row found (weird), try to inject at start of tbody
+        finalHtml = finalHtml.replace('<tbody>', '<tbody>{{feeHeadsRows}}');
+      }
+    }
+
+    Object.entries(replacements).forEach(([key, value]) => {
+      finalHtml = finalHtml.replace(new RegExp(key, 'g'), value);
+    });
+
+    return finalHtml;
+  };
+
+  const printChallan = challanId => {
+    const challan = feeChallans.find(c => c.id === challanId);
+    if (!challan) return;
+
+    const finalHtml = generateChallanHtml(challan);
+    if (!finalHtml) return;
+
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Fee Challan - ${challan.challanNumber}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 40px; }
-            .header { text-align: center; margin-bottom: 30px; }
-            .challan-box { border: 2px solid #000; padding: 20px; }
-            .row { display: flex; justify-content: space-between; margin: 10px 0; }
-            .label { font-weight: bold; }
-            @media print { body { padding: 20px; } }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>FEE CHALLAN</h1>
-            <p>Challan No: ${challan.challanNumber}</p>
-          </div>
-          <div class="challan-box">
-            <div class="row"><span class="label">Student Name:</span> <span>${student.fName} ${student.mName || ''} ${student.lName || ''}</span></div>
-            <div class="row"><span class="label">Registration No:</span> <span>${student.rollNumber}</span></div>
-            <div class="row"><span class="label">Installment:</span> <span>#${challan.installmentNumber}</span></div>
-            <div class="row"><span class="label">Amount:</span> <span>PKR ${challan.amount.toLocaleString()}</span></div>
-            <div class="row"><span class="label">Discount:</span> <span>PKR ${challan.discount || 0}</span></div>
-            <div class="row"><span class="label">Net Amount:</span> <span>PKR ${(challan.amount - (challan.discount || 0)).toLocaleString()}</span></div>
-            <div class="row"><span class="label">Due Date:</span> <span>${new Date(challan.dueDate).toLocaleDateString()}</span></div>
-            <div class="row"><span class="label">Status:</span> <span>${challan.status}</span></div>
-            ${challan.remarks ? `<div class="row"><span class="label">Remarks:</span> <span>${challan.remarks}</span></div>` : ''}
-          </div>
-        </body>
-      </html>
-    `);
+    printWindow.document.write(finalHtml);
     printWindow.document.close();
     printWindow.onload = function () {
       printWindow.print();
@@ -1931,145 +2083,18 @@ const FeeManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Challan Details Dialog */}
       <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Challan Details</DialogTitle>
+            <DialogTitle>Challan Preview</DialogTitle>
           </DialogHeader>
           {selectedChallanDetails && (
-            <div className="space-y-4">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Challan #:</span>
-                <span className="font-medium">{selectedChallanDetails.challanNumber}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Student:</span>
-                <span className="font-medium">{selectedChallanDetails.student?.fName} {selectedChallanDetails.student?.lName}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Roll Number:</span>
-                <span className="font-medium">{selectedChallanDetails.student?.rollNumber}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Installment:</span>
-                <span className="font-medium">
-                  {selectedChallanDetails.installmentNumber === 0
-                    ? "Additional Charges Only"
-                    : (selectedChallanDetails.coveredInstallments
-                      ? `#${selectedChallanDetails.coveredInstallments}`
-                      : `#${selectedChallanDetails.installmentNumber}`)}
-                </span>
-              </div>
-
-              <hr className="my-4" />
-
-              <div className="font-semibold text-sm mb-2">Fee Breakdown</div>
-
-              {selectedChallanDetails.amount > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span>Tuition Fee</span>
-                  <span className="font-medium">PKR {Math.round(selectedChallanDetails.amount).toLocaleString()}</span>
-                </div>
-              )}
-
-              {(() => {
-                // Handle both array format (new) and JSON string format (legacy)
-                let heads = [];
-                try {
-                  if (typeof selectedChallanDetails.selectedHeads === 'string') {
-                    heads = JSON.parse(selectedChallanDetails.selectedHeads || '[]');
-                  } else if (Array.isArray(selectedChallanDetails.selectedHeads)) {
-                    heads = selectedChallanDetails.selectedHeads;
-                  }
-                } catch {
-                  heads = [];
-                }
-
-                // Only show heads with amount > 0 (selected ones)
-                const additionalHeads = heads.filter(h => h.type === 'additional' && h.amount > 0);
-                const discountHeads = heads.filter(h => h.type === 'discount' && h.amount > 0);
-
-                if (additionalHeads.length === 0 && discountHeads.length === 0) {
-                  // Fallback for old challans without detailed breakdown
-                  return selectedChallanDetails.fineAmount > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Additional Charges</span>
-                      <span>PKR {Math.round(selectedChallanDetails.fineAmount).toLocaleString()}</span>
-                    </div>
-                  );
-                }
-
-                return (
-                  <>
-                    {additionalHeads.length > 0 && (
-                      <div className="space-y-1">
-                        <div className="text-xs text-muted-foreground font-medium mt-2">Additional Charges:</div>
-                        {additionalHeads.map((head, idx) => (
-                          <div key={idx} className="flex justify-between text-sm pl-2">
-                            <span className="text-muted-foreground">{head.name}</span>
-                            <span>PKR {Math.round(head.amount).toLocaleString()}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {discountHeads.length > 0 && (
-                      <div className="space-y-1">
-                        <div className="text-xs text-muted-foreground font-medium mt-2">Discounts:</div>
-                        {discountHeads.map((head, idx) => (
-                          <div key={idx} className="flex justify-between text-sm pl-2 text-primary">
-                            <span>{head.name}</span>
-                            <span>-PKR {Math.round(head.amount).toLocaleString()}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-
-              {selectedChallanDetails.discount > 0 && (
-                <div className="flex justify-between text-sm text-primary">
-                  <span>Discount</span>
-                  <span>-PKR {Math.round(selectedChallanDetails.discount).toLocaleString()}</span>
-                </div>
-              )}
-
-              <hr className="my-2" />
-
-              <div className="flex justify-between font-semibold">
-                <span>Total Payable</span>
-                <span>PKR {Math.round(
-                  (selectedChallanDetails.amount || 0) +
-                  (selectedChallanDetails.fineAmount || 0) -
-                  (selectedChallanDetails.discount || 0)
-                ).toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between text-sm text-green-600">
-                <span>Paid Amount</span>
-                <span>PKR {Math.round(selectedChallanDetails.paidAmount || 0).toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between text-sm">
-                <span>Status</span>
-                <Badge variant={selectedChallanDetails.status === "PAID" ? "default" : selectedChallanDetails.status === "OVERDUE" ? "destructive" : "secondary"}>
-                  {selectedChallanDetails.status}
-                </Badge>
-              </div>
-
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Due Date</span>
-                <span>{new Date(selectedChallanDetails.dueDate).toLocaleDateString()}</span>
-              </div>
-
-              {selectedChallanDetails.remarks && (
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Remarks:</span>
-                  <p className="mt-1 text-xs bg-muted p-2 rounded">{selectedChallanDetails.remarks}</p>
-                </div>
-              )}
-            </div>
+            <div
+              className="w-full"
+              dangerouslySetInnerHTML={{
+                __html: generateChallanHtml(selectedChallanDetails)
+              }}
+            />
           )}
         </DialogContent>
       </Dialog>

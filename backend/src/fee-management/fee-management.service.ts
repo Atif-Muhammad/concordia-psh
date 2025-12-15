@@ -13,7 +13,7 @@ import { UpdateFeeChallanDto } from './dtos/update-fee-challan.dto';
 
 @Injectable()
 export class FeeManagementService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   // Fee Heads
   async createFeeHead(payload: CreateFeeHeadDto) {
@@ -695,11 +695,11 @@ export class FeeManagementService {
 
     const challans = feeStructure
       ? await this.prisma.feeChallan.findMany({
-          where: {
-            studentId,
-            feeStructureId: feeStructure.id,
-          },
-        })
+        where: {
+          studentId,
+          feeStructureId: feeStructure.id,
+        },
+      })
       : [];
 
     // Calculate tuition-only amount from fee structure
@@ -1044,5 +1044,84 @@ export class FeeManagementService {
 
     // Convert to array
     return Object.values(stats);
+  }
+  // Fee Challan Templates
+  async createFeeChallanTemplate(payload: any) {
+    // Sanitize payload to remove extraneous fields like 'createdBy'
+    const { name, htmlContent, isDefault } = payload;
+
+    // If the new template is set as default, unset other defaults
+    if (isDefault) {
+      await this.prisma.feeChallanTemplate.updateMany({
+        where: { isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+
+    return await this.prisma.feeChallanTemplate.create({
+      data: {
+        name,
+        htmlContent,
+        isDefault
+      },
+    });
+  }
+
+  async getFeeChallanTemplates() {
+    return await this.prisma.feeChallanTemplate.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getFeeChallanTemplateById(id: number) {
+    const template = await this.prisma.feeChallanTemplate.findUnique({
+      where: { id },
+    });
+
+    if (!template) {
+      throw new NotFoundException(`Fee challan template with ID ${id} not found`);
+    }
+
+    return template;
+  }
+
+  async updateFeeChallanTemplate(id: number, payload: any) {
+    const template = await this.prisma.feeChallanTemplate.findUnique({
+      where: { id },
+    });
+
+    if (!template) {
+      throw new NotFoundException(`Fee challan template with ID ${id} not found`);
+    }
+
+    // If setting as default, unset other defaults
+    if (payload.isDefault) {
+      await this.prisma.feeChallanTemplate.updateMany({
+        where: {
+          id: { not: id },
+          isDefault: true
+        },
+        data: { isDefault: false },
+      });
+    }
+
+    return await this.prisma.feeChallanTemplate.update({
+      where: { id },
+      data: payload,
+    });
+  }
+
+  async deleteFeeChallanTemplate(id: number) {
+    const template = await this.prisma.feeChallanTemplate.findUnique({
+      where: { id },
+    });
+
+    if (!template) {
+      throw new NotFoundException(`Fee challan template with ID ${id} not found`);
+    }
+
+    return await this.prisma.feeChallanTemplate.delete({
+      where: { id },
+    });
   }
 }

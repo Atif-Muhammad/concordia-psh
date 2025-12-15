@@ -147,6 +147,8 @@ const Examination = () => {
     setResultFilterSection("");
   }, [resultFilterClass]);
 
+  const [marksExamDate, setMarksExamDate] = useState("");
+
   useEffect(() => {
     setPositionsFilterClass("");
     setPositionsFilterExam("");
@@ -217,7 +219,7 @@ const Examination = () => {
   // === REACT QUERY DATA FETCHING ===
   const { data: programs = [] } = useQuery({ queryKey: ["programs"], queryFn: getProgramNames });
   const { data: exams = [] } = useQuery({ queryKey: ["exams"], queryFn: getExams });
-  const { data: students = [] } = useQuery({ queryKey: ["students"], queryFn: getStudents });
+  const { data: students = [] } = useQuery({ queryKey: ["students"], queryFn: () => getStudents("", "", "", "") });
   const { data: subjects = [] } = useQuery({ queryKey: ["subjects"], queryFn: getSubjects });
   const { data: marks = [] } = useQuery({
     queryKey: ["marks", marksFilterExam, marksFilterSection],
@@ -226,6 +228,19 @@ const Examination = () => {
       marksFilterSection && marksFilterSection !== "*" ? marksFilterSection : undefined
     ),
     enabled: !!(marksFilterExam && marksFilterExam !== "*") || !!(marksFilterSection && marksFilterSection !== "*") // Only fetch when at least one filter is selected
+  });
+
+  // Specific student fetch for "Add Marks" dialog
+  const selectedExamForMarks = exams.find(e => e.id.toString() === marksForm.examId);
+  const { data: studentsForMarksEntry = [] } = useQuery({
+    queryKey: ["students", "marks-entry", selectedExamForMarks?.id],
+    queryFn: () => getStudents(
+      selectedExamForMarks?.programId,
+      selectedExamForMarks?.classId,
+      "",
+      ""
+    ),
+    enabled: !!selectedExamForMarks, // Only fetch when exam is selected in the dialog
   });
   const { data: results = [] } = useQuery({
     queryKey: ["results", resultFilterProgram],
@@ -243,6 +258,7 @@ const Examination = () => {
   });
 
   const getFullName = (student) => {
+    console.log("::::", student);
     return `${student.fName} ${student.mName || ""} ${student.lName}`.trim();
   };
 
@@ -306,16 +322,15 @@ const Examination = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["marks"] })
       toast({ title: "Successfully assigned marks" })
-      setMarksDialog(false);
+      // setMarksDialog(false); // Keep dialog open for rapid entry
       setEditingMarks(null);
-      setMarksForm({
-        examId: "",
+      setMarksForm((prev) => ({
+        ...prev,
         studentId: "",
-        subject: "",
-        totalMarks: "",
         obtainedMarks: "",
         teacherRemarks: "",
-      });
+        // Keep examId, subject, totalMarks
+      }));
     },
     onError: (err) => toast({ title: err.message || "Failed to create exam marks", variant: "destructive" }),
   });
@@ -1244,15 +1259,27 @@ const Examination = () => {
                         <DialogTitle>{editingMarks ? "Edit Marks" : "Add Marks"}</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4">
+                        {/* Filter Exam by Date */}
+                        <div className="mb-2">
+                          <Label>Filter Exam by Date</Label>
+                          <Input
+                            type="date"
+                            value={marksExamDate}
+                            onChange={(e) => setMarksExamDate(e.target.value)}
+                          />
+                        </div>
+
                         {/* Exam Select */}
                         <div>
                           <Label>Exam</Label>
                           <Select value={marksForm.examId} onValueChange={(v) => setMarksForm({ ...marksForm, examId: v, studentId: "", subject: "" })}>
                             <SelectTrigger><SelectValue placeholder="Select exam" /></SelectTrigger>
                             <SelectContent>
-                              {exams.map((exam) => (
-                                <SelectItem key={exam.id} value={exam.id.toString()}>{exam.examName} - {formatDateTimeDisplay(exam.startDate)}</SelectItem>
-                              ))}
+                              {exams
+                                .filter(exam => !marksExamDate || new Date(exam.startDate).toISOString().startsWith(marksExamDate))
+                                .map((exam) => (
+                                  <SelectItem key={exam.id} value={exam.id.toString()}>{exam.examName} - {formatDateTimeDisplay(exam.startDate)}</SelectItem>
+                                ))}
                             </SelectContent>
                           </Select>
                         </div>
@@ -1268,22 +1295,21 @@ const Examination = () => {
                             <SelectTrigger><SelectValue placeholder={marksForm.examId ? "Select student" : "First select exam"} /></SelectTrigger>
                             <SelectContent>
                               {(() => {
-                                const exam = exams.find(e => e.id === Number(marksForm.examId));
-                                if (!exam) return <SelectItem disabled>No exam selected</SelectItem>;
-                                const studentsInClass = students.filter(s => s.classId === exam.classId);
-                                return studentsInClass.length > 0 ? (
-                                  studentsInClass.map((s) => (
+                                // Use the dedicated "studentsForMarksEntry" which is already filtered by exam's class
+                                return studentsForMarksEntry.length > 0 ? (
+                                  studentsForMarksEntry.map((s) => (
                                     <SelectItem key={s.id} value={s.id.toString()}>
                                       {getFullName(s)} ({s.rollNumber})
                                     </SelectItem>
                                   ))
                                 ) : (
-                                  <SelectItem disabled>No students in this class</SelectItem>
+                                  <SelectItem disabled>No students found for this exam's class</SelectItem>
                                 );
                               })()}
                             </SelectContent>
                           </Select>
                         </div>
+
 
                         {/* Subject Select - Only from Student's Class */}
                         <div>
@@ -1296,10 +1322,11 @@ const Examination = () => {
                             <SelectTrigger><SelectValue placeholder={marksForm.studentId ? "Select subject" : "First select student"} /></SelectTrigger>
                             <SelectContent>
                               {(() => {
-                                const student = students.find(s => s.id === Number(marksForm.studentId));
+                                // Find student in studentsForMarksEntry
+                                const student = studentsForMarksEntry.find(s => s.id === Number(marksForm.studentId));
                                 if (!student) return <SelectItem disabled>No student selected</SelectItem>;
 
-                                const classSubjects = subjects.filter(sub => sub.classId === student.classId);
+                                const classSubjects = subjects.filter(sub => Number(sub.classId) === Number(student.classId));
                                 return classSubjects.length > 0 ? (
                                   classSubjects.map((sub) => (
                                     <SelectItem key={sub.id} value={sub.name}>
@@ -1345,16 +1372,14 @@ const Examination = () => {
                   </TableHeader>
                   <TableBody>
                     {marks.length > 0 ? marks?.map((mark) => {
-                      console.log(mark)
-                      console.log(exams)
+
                       const exam = exams.find(e => e.id === mark.examId);
-                      const student = students.find(s => s.id === mark.studentId);
                       const percentage = mark.totalMarks > 0 ? ((mark.obtainedMarks / mark.totalMarks) * 100).toFixed(1) : 0;
 
                       return (
                         <TableRow key={mark.id}>
                           <TableCell>{exam?.examName || "N/A"}</TableCell>
-                          <TableCell>{student ? getFullName(student) : "Unknown"}</TableCell>
+                          <TableCell>{mark?.student ? `${getFullName(mark.student)} (${mark.student.rollNumber})` : "Unknown"}</TableCell>
                           <TableCell>{mark.subject}</TableCell>
                           <TableCell>{mark.totalMarks}</TableCell>
                           <TableCell>{mark.obtainedMarks}</TableCell>
