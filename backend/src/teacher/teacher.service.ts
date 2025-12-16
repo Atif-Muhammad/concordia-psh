@@ -11,7 +11,7 @@ import { Prisma, TeacherStatus, TeacherType } from '@prisma/client';
 
 @Injectable()
 export class TeacherService {
-  constructor(private prismaService: PrismaService) {}
+  constructor(private prismaService: PrismaService) { }
 
   async getNames() {
     return await this.prismaService.teacher.findMany({
@@ -25,6 +25,11 @@ export class TeacherService {
     });
   }
 
+  async findOne(id: number) {
+    return await this.prismaService.teacher.findUnique({
+      where: { id },
+    });
+  } 
   async getAll() {
     return await this.prismaService.teacher.findMany({
       include: {
@@ -41,9 +46,12 @@ export class TeacherService {
       return await this.prismaService.teacher.create({
         data: {
           name: payload.name,
+          fatherName: payload.fatherName,
           email: payload.email,
           password: hashedPass,
           phone: payload.phone,
+          cnic: payload.cnic,
+          address: payload.address,
           specialization: payload.specialization,
           highestDegree: payload.highestDegree,
           documents: payload.documents as unknown as Prisma.JsonObject,
@@ -51,6 +59,8 @@ export class TeacherService {
           teacherType: payload.teacherType as unknown as TeacherType,
           teacherStatus: payload.teacherStatus as unknown as TeacherStatus,
           basicPay: payload.basicPay ? parseFloat(payload.basicPay) : null,
+          photo_url: payload.photo_url,
+          photo_public_id: payload.photo_public_id,
         },
       });
     } catch (error) {
@@ -67,8 +77,11 @@ export class TeacherService {
         where: { id: teacherID },
         data: {
           name: payload.name,
+          fatherName: payload.fatherName,
           email: payload.email,
           phone: payload.phone,
+          cnic: payload.cnic,
+          address: payload.address,
           specialization: payload.specialization,
           highestDegree: payload.highestDegree,
           documents: payload.documents as unknown as Prisma.JsonObject,
@@ -76,6 +89,8 @@ export class TeacherService {
           teacherType: payload.teacherType as unknown as TeacherType,
           teacherStatus: payload.teacherStatus as unknown as TeacherStatus,
           basicPay: payload.basicPay ? parseFloat(payload.basicPay) : undefined,
+          photo_url: payload.photo_url,
+          photo_public_id: payload.photo_public_id,
         },
       });
     } catch (error: any) {

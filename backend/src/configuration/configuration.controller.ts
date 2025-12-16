@@ -10,10 +10,12 @@ import {
 import { ConfigurationService } from './configuration.service';
 import { CreateReportCardTemplateDto } from './dtos/create-report-card-template.dto';
 import { UpdateReportCardTemplateDto } from './dtos/update-report-card-template.dto';
+import { CreateStaffIDCardTemplateDto } from './dtos/create-staff-id-card-template.dto';
+import { UpdateStaffIDCardTemplateDto } from './dtos/update-staff-id-card-template.dto';
 
 @Controller('configuration')
 export class ConfigurationController {
-  constructor(private readonly configService: ConfigurationService) {}
+  constructor(private readonly configService: ConfigurationService) { }
 
   // ==================== INSTITUTE SETTINGS ====================
 
@@ -60,5 +62,40 @@ export class ConfigurationController {
   @Delete('report-card-templates/:id')
   remove(@Param('id') id: string) {
     return this.configService.removeReportCardTemplate(Number(id));
+  }
+
+  // ==================== STAFF ID CARD TEMPLATES ====================
+
+  @Post('staff-id-card-templates')
+  createStaffTemplate(@Body() createDto: CreateStaffIDCardTemplateDto) {
+    return this.configService.createStaffIDCardTemplate(createDto);
+  }
+
+  @Get('staff-id-card-templates/default')
+  getDefaultStaffTemplate() {
+    return this.configService.findDefaultStaffIDCardTemplate();
+  }
+
+  @Get('staff-id-card-templates')
+  findAllStaffTemplates() {
+    return this.configService.findAllStaffIDCardTemplates();
+  }
+
+  @Get('staff-id-card-templates/:id')
+  findOneStaffTemplate(@Param('id') id: string) {
+    return this.configService.findOneStaffIDCardTemplate(Number(id));
+  }
+
+  @Patch('staff-id-card-templates/:id')
+  updateStaffTemplate(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateStaffIDCardTemplateDto,
+  ) {
+    return this.configService.updateStaffIDCardTemplate(Number(id), updateDto);
+  }
+
+  @Delete('staff-id-card-templates/:id')
+  removeStaffTemplate(@Param('id') id: string) {
+    return this.configService.removeStaffIDCardTemplate(Number(id));
   }
 }

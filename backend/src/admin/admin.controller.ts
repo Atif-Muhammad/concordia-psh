@@ -61,13 +61,15 @@ export class AdminController {
     return await this.adminService.removeAdmin(Number(adminID?.adminID));
   }
 
-  @UseGuards(JwtAccGuard, PermissionsGuard)
+  @UseGuards(JwtAccGuard, RolesGuard, PermissionsGuard)
+  @Roles(RolesEnum.SUPER_ADMIN)
   @Permissions('Teacher')
   @Get('get/teacher/attendance')
   async getTeacherAttendance(@Query('date') date: string) {
     return await this.attendanceService.getTeacherAttendance(new Date(date));
   }
-  @UseGuards(JwtAccGuard, PermissionsGuard)
+  @UseGuards(JwtAccGuard, RolesGuard, PermissionsGuard)
+  @Roles(RolesEnum.SUPER_ADMIN)
   @Permissions('Teacher')
   @Patch('mark/teacher')
   async markTeacher(

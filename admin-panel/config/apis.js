@@ -153,7 +153,7 @@ export const getEmployeesByDept = async () => {
 
     throw { message, status: error.response?.status || 500 };
   }
-    
+
 };
 
 export const getPayrollSettings = async () => {
@@ -457,11 +457,11 @@ export const deleteTeacher = async (teacherID) => {
 };
 
 // mark teacher attendance
-export const markTeacherAttendance  = async (id, status, date) => {
+export const markTeacherAttendance = async (id, status, date) => {
   try {
     const response = await axios.patch(
       `${base_url}/admin/mark/teacher?id=${id}`,
-      {status, date},
+      { status, date },
       { withCredentials: true }
     );
     return response.data;
@@ -640,7 +640,7 @@ export const getClasseNames = async () => {
 };
 export const getClasses = async () => {
   try {
-    const {data} = await axios.get(`${base_url}/academics/class/get/all`, {
+    const { data } = await axios.get(`${base_url}/academics/class/get/all`, {
       withCredentials: true,
     });
     return data;
@@ -1421,9 +1421,8 @@ export const getWeeklyMonthlyReport = async (reportType, reportClass) => {
     const end = today.toISOString().split("T")[0];
 
     // Build URL dynamically
-    const url = `${base_url}/attendance/report?start=${start}&end=${end}${
-      reportClass && reportClass !== "all" ? `&classId=${reportClass}` : ""
-    }`;
+    const url = `${base_url}/attendance/report?start=${start}&end=${end}${reportClass && reportClass !== "all" ? `&classId=${reportClass}` : ""
+      }`;
 
     const { data } = await axios.get(url, { withCredentials: true });
     return data;
@@ -1612,7 +1611,7 @@ export const getAttendanceReport = async (start, end, classId, sectionId) => {
     const params = new URLSearchParams({ start, end });
     if (classId) params.append('classId', classId);
     if (sectionId) params.append('sectionId', sectionId);
-    
+
     const response = await axios.get(
       `${base_url}/attendance/report?${params.toString()}`,
       { withCredentials: true }
@@ -1907,7 +1906,7 @@ export const getFeeChallans = async (studentId, search, page = 1, limit = 10) =>
     if (search) params.append('search', search);
     params.append('page', page);
     params.append('limit', limit);
-    
+
     const url = `${base_url}/fee-management/challan/get/all${params.toString() ? '?' + params.toString() : ''}`;
     const response = await axios.get(url, {
       withCredentials: true,
@@ -1989,7 +1988,7 @@ export const getStudentArrears = async (studentId) => {
 
 export const getVisitors = async (month) => {
   try {
-    const url = month 
+    const url = month
       ? `${base_url}/front-office/get/visitors?month=${month}`
       : `${base_url}/front-office/get/visitors`;
     const { data } = await axios.get(
@@ -2323,11 +2322,11 @@ export const getMarks = async (examId, sectionId) => {
     const params = new URLSearchParams();
     if (examId) params.append('examId', examId);
     if (sectionId) params.append('sectionId', sectionId);
-    
-    const url = params.toString() 
+
+    const url = params.toString()
       ? `${base_url}/exams/marks/all?${params.toString()}`
       : `${base_url}/exams/marks/all`;
-    
+
     const { data } = await axios.get(
       url,
       {
@@ -2445,7 +2444,7 @@ export const generateResults = async (examId, classId) => {
     const params = new URLSearchParams();
     params.append('examId', examId);
     if (classId) params.append('classId', classId);
-    
+
     const { data } = await axios.post(
       `${base_url}/exams/result/generate?${params.toString()}`,
       {},
@@ -2470,11 +2469,11 @@ export const getPositions = async (examId, classId) => {
     const params = new URLSearchParams();
     if (examId) params.append('examId', examId);
     if (classId) params.append('classId', classId);
-    
-    const url = params.toString() 
+
+    const url = params.toString()
       ? `${base_url}/exams/positions/all?${params.toString()}`
       : `${base_url}/exams/positions/all`;
-      
+
     const { data } = await axios.get(url, {
       withCredentials: true,
     });
@@ -2494,7 +2493,7 @@ export const generatePositions = async (examId, classId) => {
     const params = new URLSearchParams();
     params.append('examId', examId);
     if (classId) params.append('classId', classId);
-    
+
     const { data } = await axios.post(
       `${base_url}/exams/positions/generate?${params.toString()}`,
       {},
@@ -3277,11 +3276,11 @@ export const getAdvanceSalaries = async (month, type) => {
     const params = new URLSearchParams();
     if (month) params.append('month', month);
     if (type) params.append('type', type);
-    
+
     const url = params.toString()
       ? `${base_url}/hr/advance-salary?${params.toString()}`
       : `${base_url}/hr/advance-salary`;
-    
+
     const response = await axios.get(url, {
       withCredentials: true,
     });
@@ -3362,11 +3361,11 @@ export const getFinanceIncomes = async (filters = {}) => {
     if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
     if (filters.dateTo) params.append('dateTo', filters.dateTo);
     if (filters.category && filters.category !== 'all') params.append('category', filters.category);
-    
+
     const url = params.toString()
       ? `${base_url}/finance/income?${params.toString()}`
       : `${base_url}/finance/income`;
-    
+
     const response = await axios.get(url, {
       withCredentials: true,
     });
@@ -3408,11 +3407,11 @@ export const getFinanceExpenses = async (filters = {}) => {
     if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
     if (filters.dateTo) params.append('dateTo', filters.dateTo);
     if (filters.category && filters.category !== 'all') params.append('category', filters.category);
-    
+
     const url = params.toString()
       ? `${base_url}/finance/expense?${params.toString()}`
       : `${base_url}/finance/expense`;
-    
+
     const response = await axios.get(url, {
       withCredentials: true,
     });
@@ -3453,11 +3452,11 @@ export const getFinanceClosings = async (filters = {}) => {
     const params = new URLSearchParams();
     if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
     if (filters.dateTo) params.append('dateTo', filters.dateTo);
-    
+
     const url = params.toString()
       ? `${base_url}/finance/closing?${params.toString()}`
       : `${base_url}/finance/closing`;
-    
+
     const response = await axios.get(url, {
       withCredentials: true,
     });
@@ -3658,4 +3657,118 @@ export const updateIDCardTemplate = async (id, data) => {
 
 export const deleteIDCardTemplate = async (id) => {
   return true; // Stubbed
+};
+
+// Teacher ID Card Templates (Stubs)
+export const getTeacherIDCardTemplates = async () => {
+  return []; // Stubbed
+};
+
+export const createTeacherIDCardTemplate = async (data) => {
+  return data; // Stubbed
+};
+
+export const updateTeacherIDCardTemplate = async (id, data) => {
+  return data; // Stubbed
+};
+
+export const deleteTeacherIDCardTemplate = async (id) => {
+  return true; // Stubbed
+};
+// Staff ID Card Templates
+export const getStaffIDCardTemplates = async () => {
+  try {
+    const { data } = await axios.get(
+      `${base_url}/configuration/staff-id-card-templates`,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getDefaultStaffIDCardTemplate = async () => {
+  try {
+    const { data } = await axios.get(
+      `${base_url}/configuration/staff-id-card-templates/default`,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const createStaffIDCardTemplate = async (payload) => {
+  try {
+    const { data } = await axios.post(
+      `${base_url}/configuration/staff-id-card-templates`,
+      payload,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateStaffIDCardTemplate = async (id, payload) => {
+  try {
+    const { data } = await axios.patch(
+      `${base_url}/configuration/staff-id-card-templates/${id}`,
+      payload,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteStaffIDCardTemplate = async (id) => {
+  try {
+    const { data } = await axios.delete(
+      `${base_url}/configuration/staff-id-card-templates/${id}`,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
 };

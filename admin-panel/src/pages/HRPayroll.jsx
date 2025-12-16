@@ -19,7 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, getEmployeeAttendance, markEmployeeAttendance, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary } from "../../config/apis";
+import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, getEmployeeAttendance, markEmployeeAttendance, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate } from "../../config/apis";
 import { Loader2 } from "lucide-react";
 
 const HRPayroll = () => {
@@ -40,6 +40,30 @@ const HRPayroll = () => {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [editingAdvance, setEditingAdvance] = useState(null);
+  const [idCardTemplate, setIdCardTemplate] = useState("");
+
+  const handleIDCardPreview = async (employee) => {
+    try {
+      setSelectedEmployee(employee);
+      const template = await getDefaultStaffIDCardTemplate();
+      if (template) {
+        setIdCardTemplate(template.htmlContent);
+        setIdCardOpen(true);
+      } else {
+        toast({
+          title: "No Default Template",
+          description: "Please set a default Staff ID Card template in Configuration.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error fetching template",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
 
   const [payrollMonth, setPayrollMonth] = useState(new Date().toISOString().slice(0, 7));
   const [payrollType, setPayrollType] = useState("employee");
@@ -340,7 +364,7 @@ const HRPayroll = () => {
   });
 
   const handleAddEmployee = () => {
-    const required = ["name", "cnic", "contactNumber"];
+    const required = ["name", "fatherName", "cnic", "contactNumber"];
     if (required.some(field => !employeeFormData[field])) {
       toast({ title: "Please fill all required fields", variant: "destructive" });
       return;
@@ -718,6 +742,7 @@ const HRPayroll = () => {
                       <TableRow>
                         <TableHead>Name</TableHead>
                         <TableHead>CNIC</TableHead>
+                        <TableHead>Father Name</TableHead>
                         <TableHead>Designation</TableHead>
                         <TableHead>Department</TableHead>
                         <TableHead>Basic Pay</TableHead>
@@ -730,6 +755,7 @@ const HRPayroll = () => {
                         <TableRow key={employee.id}>
                           <TableCell className="font-medium">{employee.name}</TableCell>
                           <TableCell>{employee.cnic}</TableCell>
+                          <TableCell>{employee.fatherName}</TableCell>
                           <TableCell>{employee.designation}</TableCell>
                           <TableCell>{employee.empDepartment}</TableCell>
                           <TableCell>PKR {employee.basicPay ? Number(employee.basicPay).toLocaleString() : '0'}</TableCell>
@@ -741,8 +767,7 @@ const HRPayroll = () => {
                           <TableCell>
                             <div className="flex gap-2">
                               <Button size="sm" variant="outline" onClick={() => {
-                                setSelectedEmployee(employee);
-                                setIdCardOpen(true);
+                                handleIDCardPreview(employee);
                               }}>
                                 <IdCard className="h-4 w-4" />
                               </Button>
@@ -1086,7 +1111,7 @@ const HRPayroll = () => {
 
             {/* Father Name */}
             <div>
-              <Label>Father Name</Label>
+              <Label>Father Name <span className="text-red-500">*</span></Label>
               <Input
                 value={employeeFormData.fatherName}
                 onChange={(e) => setEmployeeFormData({ ...employeeFormData, fatherName: e.target.value })}
@@ -1629,83 +1654,58 @@ const HRPayroll = () => {
 
       {/* Employee ID Card Dialog */}
       <Dialog open={idCardOpen} onOpenChange={setIdCardOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-fit max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Employee ID Card</DialogTitle>
           </DialogHeader>
-          {selectedEmployee && (
-            <div id="employee-id-card-print" className="border-2 border-primary rounded-xl p-6 bg-gradient-primary text-primary-foreground">
-              <div className="text-center space-y-4">
-                <Avatar className="w-24 h-24 mx-auto border-4 border-background">
-                  <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedEmployee.name}`} alt={selectedEmployee.name} />
-                  <AvatarFallback className="text-3xl">{selectedEmployee.name.charAt(0)}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <h3 className="text-xl font-bold">Concordia College</h3>
-                  <p className="text-sm opacity-90">Employee ID Card</p>
-                </div>
-                <div className="bg-background/10 rounded-lg p-4 space-y-2 text-left">
-                  <div className="flex justify-between">
-                    <span className="opacity-90">Name:</span>
-                    <span className="font-semibold">{selectedEmployee.name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="opacity-90">CNIC:</span>
-                    <span className="font-semibold">{selectedEmployee.cnic}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="opacity-90">Designation:</span>
-                    <span className="font-semibold">{selectedEmployee.designation}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="opacity-90">Department:</span>
-                    <span className="font-semibold">{selectedEmployee.empDepartment}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-          <Button onClick={() => {
-            const printContent = document.getElementById('employee-id-card-print');
-            if (printContent) {
-              const printWindow = window.open('', '', 'width=800,height=600');
-              if (printWindow) {
-                printWindow.document.write(`
-                    <html>
-                      <head>
-                        <title>Employee ID Card - ${selectedEmployee?.name}</title>
-                        <style>
-                          body { margin: 0; padding: 20px; font-family: Arial, sans-serif; }
-                          .id-card { border: 2px solid #f97316; border-radius: 12px; padding: 24px; background: linear-gradient(135deg, #f97316, #fb923c); color: white; max-width: 400px; margin: 0 auto; }
-                          .text-center { text-align: center; }
-                          .avatar { width: 96px; height: 96px; border-radius: 50%; border: 4px solid white; margin: 0 auto 16px; display: block; }
-                          h3 { font-size: 24px; margin: 0 0 8px; }
-                          p { margin: 0 0 16px; opacity: 0.9; }
-                          .info-box { background: rgba(255,255,255,0.1); border-radius: 8px; padding: 16px; margin-top: 16px; }
-                          .info-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
-                          .info-label { opacity: 0.9; }
-                          .info-value { font-weight: 600; }
-                          @media print {
-                            body { padding: 0; }
-                            .no-print { display: none; }
-                          }
-                        </style>
-                      </head>
-                      <body>
-                        ${printContent.innerHTML}
-                        <script>
-                          window.onload = function() {
-                            window.print();
-                            setTimeout(function() { window.close(); }, 100);
-                          }
-                        </script>
-                      </body>
-                    </html>
-                  `);
-                printWindow.document.close();
-              }
-            }
-          }}>Print ID Card</Button>
+          <div className="">
+            {selectedEmployee && idCardTemplate && (
+              <div
+                className="id-card-print-area"
+                dangerouslySetInnerHTML={{
+                  __html: idCardTemplate
+                    .replace(/{{name}}/g, selectedEmployee.name)
+                    .replace(/{{fatherName}}/g, selectedEmployee.fatherName || "")
+                    .replace(/{{designation}}/g, selectedEmployee.designation || "EMPLOYEE")
+                    .replace(/{{emporteacher}}/g, "EMPLOYEE")
+                    .replace(/{{employeeId}}/g, selectedEmployee.id)
+                    .replace(/{{phone}}/g, selectedEmployee.phone || selectedEmployee.contactNumber || "")
+                    .replace(/{{email}}/g, selectedEmployee.email || "")
+                    .replace(/{{department}}/g, selectedEmployee.empDepartment || "")
+                    .replace(/{{issueDate}}/g, new Date().toLocaleDateString())
+                    .replace(/{{dob}}/g, "")
+                    .replace(/{{cnic}}/g, selectedEmployee.cnic || "")
+                    .replace(/{{bloodGroup}}/g, "")
+                    .replace(/{{address}}/g, selectedEmployee.address || "")
+                }}
+              />
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIdCardOpen(false)}>
+              Close
+            </Button>
+            <Button onClick={() => {
+              const printContent = document.querySelector('.id-card-print-area').innerHTML;
+              const printWindow = window.open('', '', 'height=800,width=800');
+
+              printWindow.document.write('<html><head><title>Print ID Card</title>');
+              // Copy styles from the current document.
+              Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).forEach(style => {
+                printWindow.document.head.appendChild(style.cloneNode(true));
+              });
+              printWindow.document.write('</head><body>');
+              printWindow.document.write(printContent);
+              printWindow.document.write('</body></html>');
+              printWindow.document.close();
+              printWindow.focus();
+              // Wait for images to load (heuristic)
+              setTimeout(() => {
+                printWindow.print();
+                printWindow.close();
+              }, 500);
+            }}>Print ID Card</Button>
+          </div>
         </DialogContent>
       </Dialog>
     </DashboardLayout>

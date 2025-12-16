@@ -7,7 +7,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class ConfigurationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   // Create a new ReportCardTemplate
   async createReportCardTemplate(data: CreateReportCardTemplateDto) {
@@ -58,6 +58,52 @@ export class ConfigurationService {
   // Retrieve the default template
   async findDefaultReportCardTemplate() {
     return this.prisma.reportCardTemplate.findFirst({
+      where: { isDefault: true },
+    });
+  }
+
+  // ==================== STAFF ID CARD TEMPLATES ====================
+
+  async createStaffIDCardTemplate(data: any) {
+    if (data.isDefault) {
+      await this.prisma.staffIDCardTemplate.updateMany({
+        where: { isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+    return this.prisma.staffIDCardTemplate.create({ data });
+  }
+
+  async findAllStaffIDCardTemplates() {
+    return this.prisma.staffIDCardTemplate.findMany();
+  }
+
+  async findOneStaffIDCardTemplate(id: number) {
+    const template = await this.prisma.staffIDCardTemplate.findUnique({
+      where: { id },
+    });
+    if (!template) {
+      throw new NotFoundException(`StaffIDCardTemplate with id ${id} not found`);
+    }
+    return template;
+  }
+
+  async updateStaffIDCardTemplate(id: number, data: any) {
+    if (data.isDefault) {
+      await this.prisma.staffIDCardTemplate.updateMany({
+        where: { isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+    return this.prisma.staffIDCardTemplate.update({ where: { id }, data });
+  }
+
+  async removeStaffIDCardTemplate(id: number) {
+    return this.prisma.staffIDCardTemplate.delete({ where: { id } });
+  }
+
+  async findDefaultStaffIDCardTemplate() {
+    return this.prisma.staffIDCardTemplate.findFirst({
       where: { isDefault: true },
     });
   }

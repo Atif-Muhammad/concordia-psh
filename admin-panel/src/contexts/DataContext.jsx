@@ -7,7 +7,11 @@ import {
   getIDCardTemplates,
   createIDCardTemplate,
   updateIDCardTemplate,
-  deleteIDCardTemplate
+  deleteIDCardTemplate,
+  getTeacherIDCardTemplates,
+  createTeacherIDCardTemplate,
+  updateTeacherIDCardTemplate,
+  deleteTeacherIDCardTemplate
 } from "../../config/apis";
 
 
@@ -1401,6 +1405,125 @@ const initialIDCardTemplates = [{
       </div>
     `
 }];
+const initialTeacherIDCardTemplates = [{
+  id: "1",
+  name: "Standard Teacher ID Card",
+  isDefault: true,
+  createdAt: "2025-01-01",
+  createdBy: "admin",
+  htmlContent: `
+<div class="id-card-container" style="font-family: 'Times New Roman', serif; display: flex; gap: 20px; padding: 20px;">
+    <!-- Front Side -->
+    <div style="width: 322px; height: 530px; background-image: url('https://placehold.co/322x530/orange/white?text=Background+Image'); background-size: cover; background-position: center; border: 1px solid #ccc; position: relative; overflow: hidden; color: #000; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+        
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; padding: 15px 15px 5px 15px; align-items: flex-start;">
+             <div style="display: flex; align-items: center;">
+                <img src="{{logoUrl}}" alt="Concordia" style="height: 40px; display: block;">
+             </div>
+             <div>
+                <img src="https://upload.wikimedia.org/wikipedia/en/thumb/3/3a/Beaconhouse_School_System_logo.svg/1200px-Beaconhouse_School_System_logo.svg.png" alt="Beaconhouse" style="height: 35px; display: block;">
+             </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 5px;">
+            <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #000; line-height: 1.1; font-family: 'Times New Roman', serif; text-shadow: 0px 0px 1px rgba(0,0,0,0.1);">CONCORDIA COLLEGE<br>PESHAWAR CAMPUS</h1>
+            <p style="margin: 5px 0 0; font-size: 16px; font-weight: bold; font-family: 'UnifrakturMaguntia', 'Gothic', serif; color: #000;">A Project of Beaconhouse</p>
+        </div>
+
+        <!-- Photo -->
+         <div style="display: flex; justify-content: center; margin-top: 25px;">
+            <div style="width: 150px; height: 150px; border-radius: 50%; border: 5px solid #F29200; overflow: hidden; background: #fff; display: flex; align-items: center; justify-content: center;">
+                {{employeePhoto}} 
+            </div>
+         </div>
+
+         <!-- Details -->
+         <div style="text-align: center; margin-top: 20px;">
+            <h2 style="margin: 0; font-size: 26px; font-weight: 900; color: #4a3b2b; text-transform: uppercase; font-family: Arial, sans-serif;">{{name}}</h2>
+             <div style="border-bottom: 2px solid #000; width: 85%; margin: 8px auto;"></div>
+            <p style="margin: 5px 0; font-size: 18px; font-weight: 900; color: #4a3b2b; text-transform: uppercase; letter-spacing: 0.5px; font-family: Arial, sans-serif;">{{designation}}</p>
+            <p style="margin: 15px 0; font-size: 18px; font-weight: 900; color: #4a3b2b; font-family: Arial, sans-serif;">EMPLOYEE ID: {{employeeId}}</p>
+         </div>
+
+         <!-- Footer -->
+         <div style="position: absolute; bottom: 0; width: 100%;">
+            <div style="padding: 5px 15px; font-size: 14px; font-weight: bold; color: #4a3b2b; display: flex; flex-direction: column;">
+                <span style="text-decoration: underline; font-weight: 900; font-size: 16px; font-family: Arial, sans-serif;">Issued</span>
+                <span style="font-family: Arial, sans-serif;">{{issueDate}}</span>
+            </div>
+            <div style="background-color: #F29200; color: #4a3b2b; text-align: center; padding: 8px 0; font-weight: 900; font-size: 22px; letter-spacing: 1px; font-family: 'Times New Roman', serif; text-transform: uppercase; border-top: 1px solid #da8300;">
+                EMPLOYEE
+            </div>
+         </div>
+    </div>
+
+    <!-- Back Side -->
+    <div style="width: 322px; height: 530px; background-image: url('https://placehold.co/322x530/orange/white?text=Background+Image'); background-size: cover; background-position: center; border: 1px solid #ccc; position: relative; overflow: hidden; color: #000; padding: 20px; box-sizing: border-box; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+        
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; margin-bottom: 25px; align-items: flex-start;">
+             <div style="display: flex; align-items: center;">
+                <img src="{{logoUrl}}" alt="Concordia" style="height: 40px; display: block;">
+             </div>
+             <div>
+                <img src="https://upload.wikimedia.org/wikipedia/en/thumb/3/3a/Beaconhouse_School_System_logo.svg/1200px-Beaconhouse_School_System_logo.svg.png" alt="Beaconhouse" style="height: 35px; display: block;">
+             </div>
+        </div>
+
+        <h3 style="color: #F29200; font-size: 18px; font-weight: 900; text-transform: uppercase; border-bottom: 2px solid #F29200; display: inline-block; padding-bottom: 2px; margin: 0 0 25px 0; font-family: 'Times New Roman', serif;">PERSONAL INFORMATION</h3>
+
+        <div style="font-size: 13px; font-weight: 900; line-height: 1.6; color: #4a3b2b; font-family: Arial, sans-serif;">
+            <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Father Name :</span>
+                <span style="flex: 1;">{{fatherName}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Contact Number :</span>
+                <span style="flex: 1;">{{phone}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">CNIC No:</span>
+                <span style="flex: 1;">{{cnic}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Date of Birth :</span>
+                <span style="flex: 1;">{{dob}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Email Address:</span>
+                <span style="flex: 1; word-break: break-all;">{{email}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Blood Group:</span>
+                <span style="flex: 1;">{{bloodGroup}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Address :</span>
+                <span style="flex: 1; line-height: 1.2;">{{address}}</span>
+            </div>
+        </div>
+
+        <div style="border-bottom: 2px solid #000; margin: 25px 0;"></div>
+
+        <div style="text-align: center; font-size: 11px; font-weight: 900; color: #4a3b2b; line-height: 1.4; font-family: Arial, sans-serif;">
+            <p style="margin: 0;">This card is the Property of Concordia College Peshawar.</p>
+            <p style="margin: 0;">This Card is non-transferable and is valid for Concordia<br>College Peshawar Campus ONLY.</p>
+            
+            <p style="margin: 15px 0 5px 0;">If Found Please return to:</p>
+            <p style="margin: 5px 0; font-size: 11px;">Concordia College Peshawar<br>Address: 60-C University Road, University Town,<br>Peshawar, KPK, Pakistan</p>
+             <p style="margin: 10px 0;">Telephone: 091-5619915 &nbsp; WhatsApp: 0332-8581222</p>
+        </div>
+
+        <!-- Barcode Placeholder -->
+        <div style="position: absolute; bottom: 20px; width: 100%; text-align: center; left: 0;">
+             <div style="font-family: 'Code 39', sans-serif; font-size: 30px;">|| ||| || ||| || |||</div>
+        </div>
+
+    </div>
+</div>
+  `
+}];
 const initialFeeHeads = [{
   id: "1",
   name: "Tuition Fee",
@@ -1516,6 +1639,7 @@ export const DataProvider = ({
 
   const [challanTemplates, setChallanTemplates] = useState(initialChallanTemplates);
   const [idCardTemplates, setIdCardTemplates] = useState(initialIDCardTemplates);
+  const [teacherIdCardTemplates, setTeacherIdCardTemplates] = useState(initialTeacherIDCardTemplates);
   const addStudent = student => {
     const newStudent = {
       ...student,
@@ -1531,6 +1655,10 @@ export const DataProvider = ({
         setIdCardTemplates(idCardData);
         const challanData = await getFeeChallanTemplates();
         setChallanTemplates(challanData);
+        const teacherIdCardData = await getTeacherIDCardTemplates();
+        if (teacherIdCardData && teacherIdCardData.length > 0) {
+          setTeacherIdCardTemplates(teacherIdCardData);
+        }
       } catch (error) {
         console.error("Error fetching templates:", error);
       }
@@ -2148,6 +2276,17 @@ export const DataProvider = ({
     ...data
   } : t));
   const deleteIDCardTemplate = id => setIdCardTemplates(idCardTemplates.filter(t => t.id !== id));
+
+  // Teacher ID Card Template CRUD
+  const addTeacherIDCardTemplate = template => setTeacherIdCardTemplates([...teacherIdCardTemplates, {
+    ...template,
+    id: Date.now().toString()
+  }]);
+  const updateTeacherIDCardTemplate = (id, data) => setTeacherIdCardTemplates(teacherIdCardTemplates.map(t => t.id === id ? {
+    ...t,
+    ...data
+  } : t));
+  const deleteTeacherIDCardTemplate = id => setTeacherIdCardTemplates(teacherIdCardTemplates.filter(t => t.id !== id));
   return <DataContext.Provider value={{
     students,
     fees,
@@ -2320,7 +2459,11 @@ export const DataProvider = ({
     deleteChallanTemplate,
     addIDCardTemplate,
     updateIDCardTemplate,
-    deleteIDCardTemplate
+    deleteIDCardTemplate,
+    teacherIdCardTemplates,
+    addTeacherIDCardTemplate,
+    updateTeacherIDCardTemplate,
+    deleteTeacherIDCardTemplate
   }}>
     {children}
   </DataContext.Provider>;

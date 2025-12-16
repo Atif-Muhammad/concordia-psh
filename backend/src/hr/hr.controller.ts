@@ -87,8 +87,7 @@ export class HrController {
     return await this.hrService.getEmployeeAttendance(new Date(date));
   }
 
-  @UseGuards(JwtAccGuard, PermissionsGuard)
-  @Permissions('Employee')
+  @UseGuards(JwtAccGuard)
   @Post('employee-attendance')
   async markEmployeeAttendance(
     @Req() req: { user: { id: string } },

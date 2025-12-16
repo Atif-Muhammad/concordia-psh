@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { GraduationCap, PlusCircle, Edit, Trash2, UserCheck, CheckCircle2, XCircle, Clock, CalendarIcon, Eye } from "lucide-react";
+import { GraduationCap, PlusCircle, Edit, Trash2, UserCheck, CheckCircle2, XCircle, Clock, CalendarIcon, Eye, IdCard } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -36,6 +37,7 @@ import {
   getDepartments,
   getAttendanceSummary,
   getPayrollSheet,
+  getDefaultStaffIDCardTemplate,
 } from "../../config/apis";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
@@ -58,9 +60,40 @@ const Teachers = () => {
   const [viewTeacher, setViewTeacher] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
 
+  // ID Card State
+  const [idCardDialog, setIdCardDialog] = useState(false);
+  const [selectedTeacherForCard, setSelectedTeacherForCard] = useState(null);
+  const [idCardTemplate, setIdCardTemplate] = useState("");
+
+  const handleIDCardPreview = async (teacher) => {
+    try {
+      setSelectedTeacherForCard(teacher);
+      const template = await getDefaultStaffIDCardTemplate();
+      if (template) {
+        setIdCardTemplate(template.htmlContent);
+        setIdCardDialog(true);
+      } else {
+        toast({
+          title: "No Default Template",
+          description: "Please set a default Staff ID Card template in Configuration.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error fetching template",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
   // Form State
   const [formData, setFormData] = useState({
     name: "",
+    fatherName: "",
+    cnic: "",
+    address: "",
     email: "",
     password: "",
     phone: "",
@@ -78,6 +111,7 @@ const Teachers = () => {
       experienceLetter: false,
       cv: false,
     },
+    photo: null,
   });
 
   // Fetch Teachers
@@ -182,6 +216,10 @@ const Teachers = () => {
   const resetForm = () => {
     setFormData({
       name: "",
+      name: "",
+      fatherName: "",
+      cnic: "",
+      address: "",
       email: "",
       password: "",
       phone: "",
@@ -207,6 +245,9 @@ const Teachers = () => {
     setEditingTeacher(teacher);
     setFormData({
       name: teacher.name || "",
+      fatherName: teacher.fatherName || "",
+      cnic: teacher.cnic || "",
+      address: teacher.address || "",
       email: teacher.email || "",
       password: "",
       phone: teacher.phone || "",
@@ -224,30 +265,34 @@ const Teachers = () => {
         experienceLetter: false,
         cv: false,
       },
+      photo: null,
     });
     setOpen(true);
   };
 
   const handleSubmit = () => {
-    if (!formData.name || !formData.email || (!editingTeacher && !formData.password)) {
+    if (!formData.name || !formData.fatherName || !formData.email || (!editingTeacher && !formData.password)) {
       toast({ title: "Please fill required fields", variant: "destructive" });
       return;
     }
 
-    const payload = {
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      specialization: formData.specialization,
-      highestDegree: formData.highestDegree,
-      teacherType: formData.teacherType,
-      teacherStatus: formData.teacherStatus,
-      departmentId: formData.departmentId ? parseInt(formData.departmentId) : null,
-      basicPay: formData.basicPay,
-      documents: formData.documents,
-    };
+    const payload = new FormData();
+    payload.append("name", formData.name);
+    payload.append("fatherName", formData.fatherName);
+    payload.append("cnic", formData.cnic || "");
+    payload.append("address", formData.address || "");
+    payload.append("email", formData.email);
+    payload.append("phone", formData.phone || "");
+    payload.append("specialization", formData.specialization);
+    payload.append("highestDegree", formData.highestDegree);
+    payload.append("teacherType", formData.teacherType);
+    payload.append("teacherStatus", formData.teacherStatus);
+    payload.append("departmentId", formData.departmentId ? formData.departmentId : "");
+    payload.append("basicPay", formData.basicPay || "");
+    payload.append("documents", JSON.stringify(formData.documents));
 
-    if (formData.password) payload.password = formData.password;
+    if (formData.password) payload.append("password", formData.password);
+    if (formData.photo) payload.append("photo", formData.photo);
 
     if (editingTeacher) {
       updateTeacherMutation.mutate({ id: editingTeacher.id, data: payload });
@@ -322,6 +367,48 @@ const Teachers = () => {
                       <Input
                         value={formData.name}
                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      />
+                    </div>
+
+                    {/* Photo */}
+                    <div>
+                      <Label>Photo</Label>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            setFormData({ ...formData, photo: e.target.files[0] });
+                          }
+                        }}
+                      />
+                    </div>
+
+                    {/* Father Name */}
+                    <div>
+                      <Label>Father Name <span className="text-red-500">*</span></Label>
+                      <Input
+                        value={formData.fatherName}
+                        onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })}
+                      />
+                    </div>
+
+                    {/* CNIC */}
+                    <div>
+                      <Label>CNIC</Label>
+                      <Input
+                        value={formData.cnic}
+                        onChange={(e) => setFormData({ ...formData, cnic: e.target.value })}
+                        placeholder="12345-1234567-1"
+                      />
+                    </div>
+
+                    {/* Address */}
+                    <div className="md:col-span-2">
+                      <Label>Address</Label>
+                      <Input
+                        value={formData.address}
+                        onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                       />
                     </div>
 
@@ -509,7 +596,15 @@ const Teachers = () => {
                   <TableBody>
                     {teachers.map((t) => (
                       <TableRow key={t.id}>
-                        <TableCell className="font-medium">{t.name}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <Avatar>
+                              <AvatarImage src={t.photo_url} alt={t.name} />
+                              <AvatarFallback>{t.name.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            {t.name}
+                          </div>
+                        </TableCell>
                         <TableCell>{t.email}</TableCell>
                         <TableCell>{t.phone || "-"}</TableCell>
                         <TableCell>{t.specialization || "-"}</TableCell>
@@ -538,6 +633,9 @@ const Teachers = () => {
                           <div className="flex gap-2">
                             <Button size="sm" variant="outline" onClick={() => { setViewTeacher(t); setDetailDialogOpen(true); }}>
                               <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleIDCardPreview(t)}>
+                              <IdCard className="h-4 w-4" />
                             </Button>
                             <Button size="sm" variant="outline" onClick={() => handleEdit(t)}>
                               <Edit className="h-4 w-4" />
@@ -685,11 +783,15 @@ const Teachers = () => {
 
                 <TabsContent value="info" className="space-y-6 pt-4">
                   <div className="flex items-start gap-6">
-                    <div className="h-24 w-24 rounded-full bg-primary/10 flex items-center justify-center text-3xl font-bold text-primary uppercase">
-                      {viewTeacher.name.charAt(0)}
-                    </div>
+                    <Avatar className="h-24 w-24 border-4 border-background">
+                      <AvatarImage src={viewTeacher.photo_url} alt={viewTeacher.name} />
+                      <AvatarFallback className="text-3xl font-bold bg-primary/10 text-primary uppercase">
+                        {viewTeacher.name.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
                     <div className="flex-1">
                       <h3 className="text-2xl font-bold">{viewTeacher.name}</h3>
+                      <p className="text-muted-foreground">{viewTeacher.fatherName ? `s/o ${viewTeacher.fatherName}` : ""}</p>
                       <p className="text-muted-foreground">{viewTeacher.email}</p>
                       <div className="flex flex-wrap gap-2 mt-2">
                         <Badge>{viewTeacher.teacherType}</Badge>
@@ -841,6 +943,74 @@ const Teachers = () => {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* ID Card Preview Dialog */}
+      <Dialog open={idCardDialog} onOpenChange={setIdCardDialog}>
+        <DialogContent className="max-w-fit max-h-[95vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Teacher ID Card Preview</DialogTitle>
+          </DialogHeader>
+          <div className="">
+            {selectedTeacherForCard && idCardTemplate && (
+              <div
+                className="id-card-print-area"
+                dangerouslySetInnerHTML={{
+                  __html: idCardTemplate
+                    .replace(/{{name}}/g, selectedTeacherForCard.name)
+                    .replace(/{{employeePhoto}}/g, selectedTeacherForCard.photo_url || "")
+                    .replace(/{{fatherName}}/g, selectedTeacherForCard.fatherName || "")
+                    .replace(/{{designation}}/g, selectedTeacherForCard.specialization || "TEACHER")
+                    .replace(/{{EmpOrTeacher}}/g, "TEACHER")
+                    .replace(/{{employeeId}}/g, selectedTeacherForCard.id)
+                    .replace(/{{phone}}/g, selectedTeacherForCard.phone || "")
+                    .replace(/{{email}}/g, selectedTeacherForCard.email || "")
+                    .replace(/{{department}}/g, selectedTeacherForCard.department?.name || "")
+                    .replace(/{{issueDate}}/g, new Date().toLocaleDateString())
+                    // .replace(/{{dob}}/g, "")
+                    .replace(/{{cnic}}/g, selectedTeacherForCard.cnic || "")
+                    // .replace(/{{bloodGroup}}/g, "")
+                    .replace(/{{address}}/g, selectedTeacherForCard.address || "")
+                }}
+              />
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIdCardDialog(false)}>
+              Close
+            </Button>
+            <Button
+              onClick={() => {
+                const printContent = document.querySelector('.id-card-print-area').innerHTML;
+                const printWindow = window.open('', '', 'height=800,width=800');
+
+                printWindow.document.write('<html><head><title>Print ID Card</title>');
+                // Copy styles/scripts if necessary or use specific print styles. 
+                // For safety, let's copy styles from the current document.
+                Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).forEach(style => {
+                  printWindow.document.head.appendChild(style.cloneNode(true));
+                });
+                printWindow.document.write(`
+                  <style>
+                    body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                  </style>
+                `);
+                printWindow.document.write('</head><body>');
+                printWindow.document.write(printContent);
+                printWindow.document.write('</body></html>');
+                printWindow.document.close();
+                printWindow.focus();
+                // Wait for images to load (heuristic)
+                setTimeout(() => {
+                  printWindow.print(); 
+                  // Close optionally or keep open based on user preference "open the design in new tab" 
+                  // We'll keep it open as requested "open the design in new tab" imply viewing it.
+                  // printWindow.close(); 
+                }, 1000);
+              }}>Print ID Card</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 };

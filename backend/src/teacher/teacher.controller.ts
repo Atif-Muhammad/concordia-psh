@@ -17,6 +17,9 @@ import type { Request } from 'express';
 import { AttendanceService } from 'src/attendance/attendance.service';
 import { StudentService } from 'src/student/student.service';
 import { AttendanceStatus } from '@prisma/client';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
+import { UploadedFile, UseInterceptors, ConflictException, BadRequestException } from '@nestjs/common';
 
 @Controller('teacher')
 export class TeacherController {
@@ -24,7 +27,8 @@ export class TeacherController {
     private readonly teacherService: TeacherService,
     private readonly attendanceService: AttendanceService,
     private readonly studentService: StudentService,
-  ) {}
+    private readonly cloudinaryService: CloudinaryService,
+  ) { }
   @Get('get/names')
   async getTeacherNames() {
     return await this.teacherService.getNames();
@@ -35,22 +39,79 @@ export class TeacherController {
   }
 
   @Post('create')
-  async createTeacher(@Body() payload: TeacherDto) {
-    return await this.teacherService.createTeacher(payload);
+  @UseInterceptors(FileInterceptor('photo'))
+  async createTeacher(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() payload: TeacherDto,
+  ) {
+    let url: string | null = null;
+    let public_id: string | null = null;
+
+    if (file) {
+      const uploaded = await this.cloudinaryService.uploadFile(file);
+      if (!uploaded?.url || !uploaded?.public_id) {
+        throw new ConflictException('Failed to upload teacher photo');
+      }
+      url = uploaded.url;
+      public_id = uploaded.public_id;
+    }
+
+    return await this.teacherService.createTeacher({
+      ...payload,
+      photo_url: url || undefined,
+      photo_public_id: public_id || undefined,
+    });
   }
   @Patch('update')
+  @UseInterceptors(FileInterceptor('photo'))
   async updateTeacher(
+    @UploadedFile() file: Express.Multer.File,
     @Query() teacherID: { teacherID: string },
     @Body() payload: Partial<TeacherDto>,
   ) {
-    return await this.teacherService.updateTeacher(
-      Number(teacherID.teacherID),
-      payload,
-    );
+    if (!teacherID.teacherID) {
+      throw new BadRequestException('teacherID is required');
+    }
+    const id = Number(teacherID.teacherID);
+    let photo_url: string | undefined;
+    let photo_public_id: string | undefined;
+
+    if (file) {
+      const existingTeacher = await this.teacherService.findOne(id);
+      if (existingTeacher && existingTeacher.photo_public_id) {
+        await this.cloudinaryService
+          .removeFile(existingTeacher.photo_public_id)
+          .catch(() => {
+            console.warn(`Failed to delete old photo: ${existingTeacher.photo_public_id}`);
+          });
+      }
+
+      const uploadResult = await this.cloudinaryService.uploadFile(file);
+      if (!uploadResult.url || !uploadResult.public_id) {
+        throw new ConflictException('Failed to upload teacher photo');
+      }
+      photo_url = uploadResult.url;
+      photo_public_id = uploadResult.public_id;
+    }
+
+    const updateData = { ...payload };
+    if (photo_url && photo_public_id) {
+      updateData.photo_url = photo_url;
+      updateData.photo_public_id = photo_public_id;
+    }
+
+    return await this.teacherService.updateTeacher(id, updateData);
   }
   @Delete('remove')
   async removeTeacher(@Query('teacherID') teacherID: string) {
-    // return await this.teacherService.removeTeacher(Number(teacherID))
+    const id = Number(teacherID);
+    const existingTeacher = await this.teacherService.findOne(id);
+    if (existingTeacher && existingTeacher.photo_public_id) {
+      await this.cloudinaryService.removeFile(existingTeacher.photo_public_id).catch(() => {
+        console.warn(`Failed to delete photo for teacher ${id}`);
+      });
+    }
+    return await this.teacherService.removeTeacher(id);
   }
 
   @Get('subjects')

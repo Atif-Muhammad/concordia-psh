@@ -59,6 +59,10 @@ import {
   createPayrollTemplate,
   updatePayrollTemplate,
   deletePayrollTemplate,
+  getStaffIDCardTemplates,
+  createStaffIDCardTemplate,
+  updateStaffIDCardTemplate,
+  deleteStaffIDCardTemplate
 } from "../../config/apis";
 import {
   AlertDialog,
@@ -518,6 +522,119 @@ const challanDesignTemplate = `
 </html>
 `;
 
+const teacherIdCardDesignTemplate = `
+<div class="id-card-container" style="font-family: 'Times New Roman', serif; display: flex; gap: 20px; padding: 20px;">
+    <!-- Front Side -->
+    <div style="width: 322px; height: 530px; background-image: url('https://placehold.co/322x530/orange/white?text=Background+Image'); background-size: cover; background-position: center; border: 1px solid #ccc; position: relative; overflow: hidden; color: #000; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+        
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; padding: 15px 15px 5px 15px; align-items: flex-start;">
+             <div style="display: flex; align-items: center;">
+                <img src="{{logoUrl}}" alt="Concordia" style="height: 40px; display: block;">
+             </div>
+             <div>
+                <img src="https://upload.wikimedia.org/wikipedia/en/thumb/3/3a/Beaconhouse_School_System_logo.svg/1200px-Beaconhouse_School_System_logo.svg.png" alt="Beaconhouse" style="height: 35px; display: block;">
+             </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 5px;">
+            <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #000; line-height: 1.1; font-family: 'Times New Roman', serif; text-shadow: 0px 0px 1px rgba(0,0,0,0.1);">CONCORDIA COLLEGE<br>PESHAWAR CAMPUS</h1>
+            <p style="margin: 5px 0 0; font-size: 16px; font-weight: bold; font-family: 'UnifrakturMaguntia', 'Gothic', serif; color: #000;">A Project of Beaconhouse</p>
+        </div>
+
+        <!-- Photo -->
+         <div style="display: flex; justify-content: center; margin-top: 25px;">
+            <div style="width: 150px; height: 150px; border-radius: 50%; border: 5px solid #F29200; overflow: hidden; background: #fff; display: flex; align-items: center; justify-content: center;">
+                {{employeePhoto}} 
+            </div>
+         </div>
+
+         <!-- Details -->
+         <div style="text-align: center; margin-top: 20px;">
+            <h2 style="margin: 0; font-size: 26px; font-weight: 900; color: #4a3b2b; text-transform: uppercase; font-family: Arial, sans-serif;">{{name}}</h2>
+             <div style="border-bottom: 2px solid #000; width: 85%; margin: 8px auto;"></div>
+            <p style="margin: 5px 0; font-size: 18px; font-weight: 900; color: #4a3b2b; text-transform: uppercase; letter-spacing: 0.5px; font-family: Arial, sans-serif;">{{designation}}</p>
+            <p style="margin: 15px 0; font-size: 18px; font-weight: 900; color: #4a3b2b; font-family: Arial, sans-serif;">EMPLOYEE ID: {{employeeId}}</p>
+         </div>
+
+         <!-- Footer -->
+         <div style="position: absolute; bottom: 0; width: 100%;">
+            <div style="padding: 5px 15px; font-size: 14px; font-weight: bold; color: #4a3b2b; display: flex; flex-direction: column;">
+                <span style="text-decoration: underline; font-weight: 900; font-size: 16px; font-family: Arial, sans-serif;">Issued</span>
+                <span style="font-family: Arial, sans-serif;">{{issueDate}}</span>
+            </div>
+            <div style="background-color: #F29200; color: #4a3b2b; text-align: center; padding: 8px 0; font-weight: 900; font-size: 22px; letter-spacing: 1px; font-family: 'Times New Roman', serif; text-transform: uppercase; border-top: 1px solid #da8300;">
+                EMPLOYEE
+            </div>
+         </div>
+    </div>
+
+    <!-- Back Side -->
+    <div style="width: 322px; height: 530px; background-image: url('https://placehold.co/322x530/orange/white?text=Background+Image'); background-size: cover; background-position: center; border: 1px solid #ccc; position: relative; overflow: hidden; color: #000; padding: 20px; box-sizing: border-box; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+        
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; margin-bottom: 25px; align-items: flex-start;">
+             <div style="display: flex; align-items: center;">
+                <img src="{{logoUrl}}" alt="Concordia" style="height: 40px; display: block;">
+             </div>
+             <div>
+                <img src="https://upload.wikimedia.org/wikipedia/en/thumb/3/3a/Beaconhouse_School_System_logo.svg/1200px-Beaconhouse_School_System_logo.svg.png" alt="Beaconhouse" style="height: 35px; display: block;">
+             </div>
+        </div>
+
+        <h3 style="color: #F29200; font-size: 18px; font-weight: 900; text-transform: uppercase; border-bottom: 2px solid #F29200; display: inline-block; padding-bottom: 2px; margin: 0 0 25px 0; font-family: 'Times New Roman', serif;">PERSONAL INFORMATION</h3>
+
+        <div style="font-size: 13px; font-weight: 900; line-height: 1.6; color: #4a3b2b; font-family: Arial, sans-serif;">
+            <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Father Name :</span>
+                <span style="flex: 1;">{{fatherName}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Contact Number :</span>
+                <span style="flex: 1;">{{phone}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">CNIC No:</span>
+                <span style="flex: 1;">{{cnic}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Date of Birth :</span>
+                <span style="flex: 1;">{{dob}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Email Address:</span>
+                <span style="flex: 1; word-break: break-all;">{{email}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Blood Group:</span>
+                <span style="flex: 1;">{{bloodGroup}}</span>
+            </div>
+             <div style="display: flex; margin-bottom: 5px;">
+                <span style="width: 130px; color: #4a3b2b;">Address :</span>
+                <span style="flex: 1; line-height: 1.2;">{{address}}</span>
+            </div>
+        </div>
+
+        <div style="border-bottom: 2px solid #000; margin: 25px 0;"></div>
+
+        <div style="text-align: center; font-size: 11px; font-weight: 900; color: #4a3b2b; line-height: 1.4; font-family: Arial, sans-serif;">
+            <p style="margin: 0;">This card is the Property of Concordia College Peshawar.</p>
+            <p style="margin: 0;">This Card is non-transferable and is valid for Concordia<br>College Peshawar Campus ONLY.</p>
+            
+            <p style="margin: 15px 0 5px 0;">If Found Please return to:</p>
+            <p style="margin: 5px 0; font-size: 11px;">Concordia College Peshawar<br>Address: 60-C University Road, University Town,<br>Peshawar, KPK, Pakistan</p>
+             <p style="margin: 10px 0;">Telephone: 091-5619915 &nbsp; WhatsApp: 0332-8581222</p>
+        </div>
+
+        <!-- Barcode Placeholder -->
+        <div style="position: absolute; bottom: 20px; width: 100%; text-align: center; left: 0;">
+             <div style="font-family: 'Code 39', sans-serif; font-size: 30px;">|| ||| || ||| || |||</div>
+        </div>
+
+    </div>
+</div>
+`;
+
 const Configuration = () => {
   const {
     config,
@@ -538,6 +655,7 @@ const Configuration = () => {
     addIDCardTemplate,
     updateIDCardTemplate,
     deleteIDCardTemplate,
+
   } = useData();
   const { toast } = useToast();
   const [dialog, setDialog] = useState({
@@ -588,6 +706,7 @@ const Configuration = () => {
   const [challanDialog, setChallanDialog] = useState(false);
   const [marksheetDialog, setMarksheetDialog] = useState(false);
   const [idCardDialog, setIdCardDialog] = useState(false);
+  const [teacherIdCardDialog, setTeacherIdCardDialog] = useState(false);
   const [challanForm, setChallanForm] = useState({
     name: "",
     htmlContent: "",
@@ -603,12 +722,19 @@ const Configuration = () => {
     htmlContent: "",
     isDefault: false,
   });
+  const [teacherIdCardForm, setTeacherIdCardForm] = useState({
+    name: "",
+    htmlContent: "",
+    isDefault: false,
+  });
   const [editingChallan, setEditingChallan] = useState(null);
   const [editingMarksheet, setEditingMarksheet] = useState(null);
   const [editingIdCard, setEditingIdCard] = useState(null);
+  const [editingTeacherIdCard, setEditingTeacherIdCard] = useState(null);
   const [previewChallan, setPreviewChallan] = useState(null);
   const [previewMarksheet, setPreviewMarksheet] = useState(null);
   const [previewIdCard, setPreviewIdCard] = useState(null);
+  const [previewTeacherIdCard, setPreviewTeacherIdCard] = useState(null);
 
   // Admins state for rendering - fetched directly from API in apis.js
   const [admins, setAdmins] = useState([]);
@@ -641,29 +767,37 @@ const Configuration = () => {
     loadAdmins();
   }, []); // Empty dependency array means it runs once on mount
 
-  // Report Card Templates state - managed directly in this component
-  const [marksheetTemplates, setMarksheetTemplates] = useState([]);
+  // Teacher ID Card State (Refactored to Backend)
+  const [teacherIdCardTemplates, setTeacherIdCardTemplates] = useState([]);
 
-  // Fetch Report Card Templates on component mount
+  // Marks Templates
+  const [marksheetTemplates, setMarksheetTemplates] = useState([]);
+  const [payrollTemplates, setPayrollTemplates] = useState([]);
+
   useEffect(() => {
-    const loadTemplates = async () => {
+    const fetchTemplates = async () => {
       try {
-        const templates = await getReportCardTemplates();
-        setMarksheetTemplates(templates);
+        const [marksheetData, payrollData, staffIdCardData] = await Promise.all([
+          getReportCardTemplates(),
+          getPayrollTemplates(),
+          getStaffIDCardTemplates()
+        ]);
+        setMarksheetTemplates(marksheetData);
+        setPayrollTemplates(payrollData);
+        setTeacherIdCardTemplates(staffIdCardData);
       } catch (error) {
-        console.error("Failed to fetch report card templates:", error);
+        console.error("Error fetching templates:", error);
         toast({
-          title: "Error",
-          description: error.message || "Failed to fetch report card templates",
+          title: "Error fetching templates",
+          description: "Please try again later",
           variant: "destructive",
         });
       }
     };
-    loadTemplates();
+    fetchTemplates();
   }, []);
 
   // Payroll Templates state
-  const [payrollTemplates, setPayrollTemplates] = useState([]);
   const [payrollDialog, setPayrollDialog] = useState(false);
   const [payrollForm, setPayrollForm] = useState({
     name: "",
@@ -1917,6 +2051,213 @@ const Configuration = () => {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
+                    <GraduationCap className="w-5 h-5" />
+                    Teacher & Employee ID Card Templates
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex justify-end mb-4">
+                    <Dialog open={teacherIdCardDialog} onOpenChange={setTeacherIdCardDialog}>
+                      <DialogTrigger asChild>
+                        <Button
+                          onClick={() => {
+                            setEditingTeacherIdCard(null);
+                            setTeacherIdCardForm({
+                              name: "",
+                              htmlContent: "",
+                              isDefault: false,
+                            });
+                          }}
+                        >
+                          <PlusCircle className="w-4 h-4 mr-2" />
+                          Add Template
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-3xl">
+                        <DialogHeader>
+                          <DialogTitle>
+                            {editingTeacherIdCard ? "Edit" : "Add"} Teacher ID Card Template
+                          </DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div>
+                            <Label>Template Name</Label>
+                            <Input
+                              value={teacherIdCardForm.name}
+                              onChange={(e) =>
+                                setTeacherIdCardForm({
+                                  ...teacherIdCardForm,
+                                  name: e.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between items-center mb-2">
+                              <Label>HTML Content</Label>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  setTeacherIdCardForm({
+                                    ...teacherIdCardForm,
+                                    htmlContent: teacherIdCardDesignTemplate,
+                                  })
+                                }
+                              >
+                                Load Standard Design
+                              </Button>
+                            </div>
+                            <Textarea
+                              rows={10}
+                              value={teacherIdCardForm.htmlContent}
+                              onChange={(e) =>
+                                setTeacherIdCardForm({
+                                  ...teacherIdCardForm,
+                                  htmlContent: e.target.value,
+                                })
+                              }
+                              placeholder="Enter HTML template with placeholders like {{name}}, {{designation}}, etc."
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={teacherIdCardForm.isDefault}
+                              onChange={(e) =>
+                                setTeacherIdCardForm({
+                                  ...teacherIdCardForm,
+                                  isDefault: e.target.checked,
+                                })
+                              }
+                            />
+                            <Label>Set as Default Template</Label>
+                          </div>
+                          <Button
+                            onClick={async () => {
+                              const payload = {
+                                name: teacherIdCardForm.name,
+                                htmlContent: teacherIdCardForm.htmlContent,
+                                isDefault: teacherIdCardForm.isDefault,
+                              };
+
+                              if (editingTeacherIdCard) {
+                                try {
+                                  const updated = await updateStaffIDCardTemplate(editingTeacherIdCard, payload);
+                                  setTeacherIdCardTemplates(prev => prev.map(t => t.id === editingTeacherIdCard ? updated : t));
+                                  toast({
+                                    title: "Template updated successfully",
+                                  });
+                                  setTeacherIdCardDialog(false);
+                                } catch (err) {
+                                  toast({
+                                    title: "Error updating template",
+                                    description: err.message,
+                                    variant: "destructive"
+                                  });
+                                }
+                              } else {
+                                try {
+                                  const newTemplate = await createStaffIDCardTemplate(payload);
+                                  setTeacherIdCardTemplates(prev => [...prev, newTemplate]);
+                                  toast({
+                                    title: "Template added successfully",
+                                  });
+                                  setTeacherIdCardDialog(false);
+                                } catch (err) {
+                                  toast({
+                                    title: "Error creating template",
+                                    description: err.message,
+                                    variant: "destructive"
+                                  });
+                                }
+                              }
+                            }}
+                            className="w-full"
+                          >
+                            {editingTeacherIdCard ? "Update" : "Add"}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Template Name</TableHead>
+                        <TableHead>Default</TableHead>
+                        <TableHead>Created Date</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {teacherIdCardTemplates && teacherIdCardTemplates.map((template) => (
+                        <TableRow key={template.id}>
+                          <TableCell>{template.name}</TableCell>
+                          <TableCell>
+                            {template.isDefault ? <Badge>Default</Badge> : "-"}
+                          </TableCell>
+                          <TableCell>
+                            {new Date(template.createdAt).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setEditingTeacherIdCard(template.id);
+                                  setTeacherIdCardForm(template);
+                                  setTeacherIdCardDialog(true);
+                                }}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  setPreviewTeacherIdCard(template.htmlContent)
+                                }
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                              {!template.isDefault && (
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={async () => {
+                                    try {
+                                      await deleteStaffIDCardTemplate(template.id);
+                                      setTeacherIdCardTemplates(prev => prev.filter(t => t.id !== template.id));
+                                      toast({
+                                        title: "Template deleted",
+                                      });
+                                    } catch (err) {
+                                      toast({
+                                        title: "Error deleting template",
+                                        description: err.message,
+                                        variant: "destructive"
+                                      });
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
                     <FileText className="w-5 h-5" />
                     Report Card Templates
                   </CardTitle>
@@ -2023,7 +2364,9 @@ const Configuration = () => {
                                   });
                                 } else {
                                   const newTemplate = await createReportCardTemplate({
-                                    ...marksheetForm,
+                                    name: marksheetForm.name,
+                                    htmlContent: marksheetForm.htmlContent,
+                                    isDefault: marksheetForm.isDefault,
                                   });
                                   setMarksheetTemplates([...marksheetTemplates, newTemplate]);
                                   toast({
@@ -2381,6 +2724,22 @@ const Configuration = () => {
             <div
               dangerouslySetInnerHTML={{
                 __html: previewIdCard || "",
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={!!previewTeacherIdCard}
+          onOpenChange={() => setPreviewTeacherIdCard(null)}
+        >
+          <DialogContent className="max-w-fit max-h-[90vh] overflow-auto">
+            <DialogHeader>
+              <DialogTitle>Teacher ID Card Template Preview</DialogTitle>
+            </DialogHeader>
+            <div
+              dangerouslySetInnerHTML={{
+                __html: previewTeacherIdCard || "",
               }}
             />
           </DialogContent>
