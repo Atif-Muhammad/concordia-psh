@@ -7,7 +7,7 @@ import { CreatePositionDto, UpdatePositionDto } from './dtos/position.dto';
 
 @Injectable()
 export class ExaminationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
   // exam
   create(dto: CreateExamDto) {
     const { schedule, ...examData } = dto;
@@ -18,13 +18,13 @@ export class ExaminationService {
         endDate: new Date(dto.endDate),
         schedules: schedule
           ? {
-              create: schedule.map((s) => ({
-                subjectId: Number(s.subjectId),
-                date: new Date(s.date),
-                startTime: s.startTime,
-                endTime: s.endTime,
-              })),
-            }
+            create: schedule.map((s) => ({
+              subjectId: Number(s.subjectId),
+              date: new Date(s.date),
+              startTime: s.startTime,
+              endTime: s.endTime,
+            })),
+          }
           : undefined,
       },
     });
@@ -91,15 +91,22 @@ export class ExaminationService {
       );
     }
 
-    return this.prisma.marks.create({
+    const mark = await this.prisma.marks.create({
       data: {
         ...dto,
         examId: Number(dto.examId),
         studentId: Number(dto.studentId),
         totalMarks: Number(dto.totalMarks),
         obtainedMarks: Number(dto.obtainedMarks),
+        isAbsent: dto.isAbsent || false,
       },
     });
+
+    // Auto-calculate results and positions
+    await this.generateResultsForExam(Number(dto.examId));
+    await this.generatePositionsForExam(Number(dto.examId));
+
+    return mark;
   }
 
   findAllMarks(examId?: number, sectionId?: number) {
@@ -114,8 +121,8 @@ export class ExaminationService {
     });
   }
 
-  updateMarks(id: string, dto: UpdateMarksDto) {
-    return this.prisma.marks.update({
+  async updateMarks(id: string, dto: UpdateMarksDto) {
+    const mark = await this.prisma.marks.update({
       where: { id },
       data: {
         ...dto,
@@ -123,8 +130,15 @@ export class ExaminationService {
         studentId: Number(dto.studentId),
         totalMarks: Number(dto.totalMarks),
         obtainedMarks: Number(dto.obtainedMarks),
+        isAbsent: dto.isAbsent || false,
       },
     });
+
+    // Auto-calculate results and positions
+    await this.generateResultsForExam(Number(dto.examId));
+    await this.generatePositionsForExam(Number(dto.examId));
+
+    return mark;
   }
 
   deleteMarks(id: string) {
@@ -307,6 +321,9 @@ export class ExaminationService {
           ? this.calculateGradeForUndergraduate(percentage)
           : this.calculateGradeForIntermediate(percentage);
 
+        // Calculate remarks
+        const remarks = this.calculateRemarks(percentage);
+
         // Check if result already exists
         const existingResult = await this.prisma.result.findFirst({
           where: { examId, studentId: Number(studentId) },
@@ -322,6 +339,7 @@ export class ExaminationService {
               percentage: parseFloat(percentage.toFixed(2)),
               gpa: parseFloat(gpa.toFixed(2)),
               grade,
+              remarks,
             },
           });
           results.push(updated);
@@ -336,6 +354,7 @@ export class ExaminationService {
               percentage: parseFloat(percentage.toFixed(2)),
               gpa: parseFloat(gpa.toFixed(2)),
               grade,
+              remarks,
             },
           });
           results.push(created);
@@ -465,5 +484,12 @@ export class ExaminationService {
 
   deletePosition(id: string) {
     return this.prisma.position.delete({ where: { id } });
+  }
+
+  private calculateRemarks(percentage: number): string {
+    if (percentage >= 80) return 'Excellent';
+    if (percentage >= 60) return 'Good';
+    if (percentage >= 50) return 'Average';
+    return 'Poor';
   }
 }

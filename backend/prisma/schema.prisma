@@ -632,6 +632,7 @@ model Marks {
   subject        String
   totalMarks     Int
   obtainedMarks  Int
+  isAbsent       Boolean @default(false)
   teacherRemarks String?
 
   exam    Exam    @relation(fields: [examId], references: [id])

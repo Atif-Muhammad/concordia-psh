@@ -13,6 +13,8 @@ export class CreateMarksDto {
   obtainedMarks: number;
   @IsOptional()
   teacherRemarks?: string;
+  @IsOptional()
+  isAbsent?: boolean;
 }
 
-export class UpdateMarksDto extends CreateMarksDto {}
+export class UpdateMarksDto extends CreateMarksDto { }

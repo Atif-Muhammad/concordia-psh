@@ -1,13 +1,17 @@
+import { useState, useEffect } from "react"; // Added imports
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input"; // Added Input
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FileUser, Printer } from "lucide-react";
+import { FileUser, Printer, Search } from "lucide-react"; // Added Search icon
+import { useQuery } from "@tanstack/react-query"; // Added useQuery
+import { getStudents, searchStudents } from "../../config/apis"; // Added APIs
 
 export const StudentResultsTab = ({
     programs,
-    students,
+    students, // We might not need this anymore, but keeping for props stability
     exams,
     studentResultProgram,
     setStudentResultProgram,
@@ -24,24 +28,55 @@ export const StudentResultsTab = ({
     printStudentResult,
     getFullName,
 }) => {
+    // Local State for Search
+    const [searchQuery, setSearchQuery] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
+
+    // Debounce Search
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
     // Get available classes based on selected program
     const availableClasses = programs?.find(p => p.id === Number(studentResultProgram))?.classes || [];
 
     // Get available sections based on selected class
     const availableSections = availableClasses?.find(c => c.id === Number(studentResultClass))?.sections || [];
 
-    // Get available students based on selected class and optional section
-    const availableStudents = students?.filter(s => {
-        if (!studentResultClass) return false;
-        const matchesClass = s.classId === Number(studentResultClass);
-        if (!studentResultSection || studentResultSection === "*") return matchesClass;
-        return matchesClass && s.sectionId === Number(studentResultSection);
-    }) || [];
+    // --- Data Fetching ---
+
+    // 1. Search Query
+    const { data: searchResults = [] } = useQuery({
+        queryKey: ["searchStudents", debouncedSearch],
+        queryFn: () => searchStudents(debouncedSearch),
+        enabled: !!debouncedSearch && debouncedSearch.length > 2, // Search only if > 2 chars
+    });
+
+    // 2. Class Students Query (Fix for "Selected Class isn't loading its students")
+    const { data: classStudents = [] } = useQuery({
+        queryKey: ["classStudentsResultTab", studentResultProgram, studentResultClass, studentResultSection],
+        queryFn: () => getStudents(
+            studentResultProgram || "",
+            studentResultClass || "",
+            (studentResultSection && studentResultSection !== "*") ? studentResultSection : "",
+            "" // No text search here
+        ),
+        enabled: !!studentResultClass && !debouncedSearch, // Only fetch if class selected AND not searching
+    });
+
+    // Determine which list to show
+    // If searching, show searchResults. Else if class selected, show classStudents. 
+    const displayStudents = debouncedSearch ? searchResults : classStudents;
+
 
     // Get available exams for selected student (only exams for their class)
     const availableExams = studentResultStudent
         ? exams?.filter(exam => {
-            const student = students?.find(s => s.id === Number(studentResultStudent));
+            // Find student details from our fetched list
+            const student = displayStudents?.find(s => s.id === Number(studentResultStudent));
+            // Or if not in list (e.g. cleared search), try to find in existing context if possible, 
+            // but relying on fetched list is safer.
             return student && exam.classId === student.classId;
         }) || []
         : [];
@@ -68,12 +103,27 @@ export const StudentResultsTab = ({
                 </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
+
+                {/* Search Bar */}
+                <div className="flex items-center space-x-2 bg-secondary/20 p-2 rounded-md border border-border">
+                    <Search className="w-4 h-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Search student by name or roll number..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="border-none shadow-none focus-visible:ring-0 bg-transparent"
+                    />
+                </div>
+
                 {/* Filters */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {/* Program Filter */}
                     <div className="space-y-2">
                         <Label>Select Program *</Label>
-                        <Select value={studentResultProgram} onValueChange={setStudentResultProgram}>
+                        <Select value={studentResultProgram} onValueChange={(v) => {
+                            setStudentResultProgram(v);
+                            setSearchQuery(""); // Clear search when filtering manually
+                        }}>
                             <SelectTrigger>
                                 <SelectValue placeholder="Select program" />
                             </SelectTrigger>
@@ -135,18 +185,30 @@ export const StudentResultsTab = ({
                         <Label>Select Student *</Label>
                         <Select
                             value={studentResultStudent}
-                            onValueChange={setStudentResultStudent}
-                            disabled={!studentResultClass}
+                            onValueChange={(v) => {
+                                setStudentResultStudent(v);
+                                // If student selected via search, we might want to auto-set program/class context if API returned it, 
+                                // but for now let's just select the student.
+                            }}
+                            disabled={displayStudents.length === 0}
                         >
                             <SelectTrigger>
-                                <SelectValue placeholder={studentResultClass ? "Select student" : "First select class"} />
+                                <SelectValue placeholder={
+                                    debouncedSearch
+                                        ? "Select from search results"
+                                        : (studentResultClass ? "Select student" : "Select class or search")
+                                } />
                             </SelectTrigger>
                             <SelectContent>
-                                {availableStudents.map((student) => (
-                                    <SelectItem key={student.id} value={student.id.toString()}>
-                                        {getFullName(student)} ({student.rollNumber})
-                                    </SelectItem>
-                                ))}
+                                {displayStudents.length > 0 ? (
+                                    displayStudents.map((student) => (
+                                        <SelectItem key={student.id} value={student.id.toString()}>
+                                            {getFullName(student)} ({student.rollNumber})
+                                        </SelectItem>
+                                    ))
+                                ) : (
+                                    <SelectItem disabled>No students found</SelectItem>
+                                )}
                             </SelectContent>
                         </Select>
                     </div>

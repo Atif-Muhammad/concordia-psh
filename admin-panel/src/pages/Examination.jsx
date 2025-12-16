@@ -3,6 +3,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -202,6 +203,7 @@ const Examination = () => {
     totalMarks: "",
     obtainedMarks: "",
     teacherRemarks: "",
+    isAbsent: false,
   });
 
   const [resultForm, setResultForm] = useState({
@@ -537,8 +539,9 @@ const Examination = () => {
       studentId: Number(marksForm.studentId),
       subject: marksForm.subject,
       totalMarks: Number(marksForm.totalMarks),
-      obtainedMarks: Number(marksForm.obtainedMarks),
+      obtainedMarks: marksForm.isAbsent ? 0 : Number(marksForm.obtainedMarks),
       teacherRemarks: marksForm.teacherRemarks,
+      isAbsent: marksForm.isAbsent,
     };
 
     if (editingMarks) {
@@ -609,6 +612,7 @@ const Examination = () => {
       totalMarks: marksData.totalMarks.toString(),
       obtainedMarks: marksData.obtainedMarks.toString(),
       teacherRemarks: marksData.teacherRemarks || "",
+      isAbsent: marksData.isAbsent || false,
     });
     setMarksDialog(true);
   };
@@ -692,6 +696,7 @@ const Examination = () => {
     }
 
     const { student, exam, marks, result, position } = studentResultData;
+    console.log("Printing Result:", { student, exam, result }); // Debug log
 
     try {
       // Fetch the default template
@@ -713,45 +718,77 @@ const Examination = () => {
         obtainedMarks: mark.obtainedMarks,
         percentage: ((mark.obtainedMarks / mark.totalMarks) * 100).toFixed(2),
         grade: calculateGrade((mark.obtainedMarks / mark.totalMarks) * 100).grade,
+        isAbsent: mark.isAbsent || false,
       }));
 
       // Check if program year <= 2 to conditionally hide GPA
       const programYear = exam.program?.year || exam.class?.year || 3; // Default to 3 if not found
       const showGPA = programYear > 2;
 
+      // Generate Marks Rows HTML
+      // Generate Marks Rows HTML
+      const marksRowsHtml = subjectsData.map((subject, index) => `
+        <tr style="border-bottom: 1px solid #000;">
+          <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${index + 1}</td>
+          <td style="border-right: 1px solid #000; padding: 4px;">${subject.name}</td>
+          <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${subject.totalMarks}</td>
+          <td style="text-align: center; border-right: 1px solid #000; padding: 4px; ${subject.isAbsent ? 'background-color: #fee2e2; color: #dc2626; font-weight: bold;' : ''}">${subject.isAbsent ? 'Absent' : subject.obtainedMarks}</td>
+          <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${subject.percentage}%</td>
+          <td style="text-align: center; padding: 4px;">${subject.grade}</td>
+        </tr>
+      `).join("");
+
       // Start with the template
       let filledTemplate = template.htmlContent;
+      const printDate = new Date().toLocaleString();
 
-      // Handle {{#each subjects}} loop FIRST before global replacements
-      const eachRegex = /{{#each subjects}}([\s\S]*?){{\/each}}/g;
-      filledTemplate = filledTemplate.replace(eachRegex, (match, templateRow) => {
-        return subjectsData.map(subject => {
-          return templateRow
-            .replace(/{{name}}/g, subject.name)
-            .replace(/{{totalMarks}}/g, subject.totalMarks)
-            .replace(/{{obtainedMarks}}/g, subject.obtainedMarks)
-            .replace(/{{percentage}}/g, subject.percentage)
-            .replace(/{{grade}}/g, subject.grade);
-        }).join('');
-      });
-
-      // Now replace simple placeholders globally
+      // Replace placeholers
       filledTemplate = filledTemplate
+        // Institutional Info
         .replace(/{{instituteName}}/g, 'Concordia College')
-        .replace(/{{instituteAddress}}/g, 'Lahore, Pakistan')
-        .replace(/{{examName}}/g, exam.examName)
-        .replace(/{{session}}/g, exam.session)
+        .replace(/{{instituteAddress}}/g, 'Peshawar, Pakistan')
+
+        // Exam Info
+        .replace(/{{examType}}/g, exam.type || exam.examName || '') // Used in title
+        .replace(/{{examName}}/g, exam.examName || '')
+        .replace(/{{session}}/g, exam.session || '')
+        .replace(/{{printDate}}/g, printDate)
+
+        // Student Info
         .replace(/{{studentName}}/g, getFullName(student))
-        .replace(/{{rollNumber}}/g, student.rollNumber)
-        .replace(/{{fatherName}}/g, student.fatherName || 'N/A')
-        .replace(/{{class}}/g, exam.class.name)
+        .replace(/{{fatherName}}/g, student.fatherOrguardian || 'N/A')
+        .replace(/{{rollNo}}/g, student.rollNumber || 'N/A')
+        .replace(/{{regNo}}/g, student.rollNumber || 'N/A')
+        .replace(/{{admNo}}/g, student.id || 'N/A')
+        .replace(/{{class}}/g, exam.class?.name + (exam?.program?.name ? ` (${exam?.program?.name})` : '') || (student.class ? student.class.name : '') + (exam?.program?.name ? ` (${exam?.program?.name})` : ''))
+        .replace(/{{section}}/g, student.section ? student.section.name : '')
+        .replace(/{{sectionVisibilityClass}}/g, student.section ? '' : 'hidden-section')
+
+        // Photo
+        .replace(
+          /{{studentPhotoOrPlaceholder}}/g,
+          student.photo_url
+            ? `<img src="${student.photo_url}" alt="Student Photo" style="width: 100%; height: 100%; object-fit: cover;" />`
+            : `<div class="student-photo-placeholder" style="font-size: 10px; color: #666;">No Photo</div>`
+        )
+        .replace(/{{studentPhoto}}/g, student.photo_url || '')
+
+        // Marks Table
+        .replace(/{{marksRows}}/g, marksRowsHtml)
+
+        // Totals & Results
         .replace(/{{totalMarks}}/g, result.totalMarks)
         .replace(/{{obtainedMarks}}/g, result.obtainedMarks)
         .replace(/{{percentage}}/g, result.percentage.toFixed(2))
         .replace(/{{grade}}/g, result.grade)
-        .replace(/{{gpa}}/g, showGPA ? result.gpa.toFixed(2) : '')
+        .replace(/{{gradeColor}}/g, result.grade === 'F' ? '#dc2626' : '#059669')
+        .replace(/{{gpa}}/g, showGPA ? result.gpa.toFixed(2) : 'N/A')
         .replace(/{{position}}/g, position || 'N/A')
+        .replace(/{{status}}/g, result.grade === 'F' ? 'FAIL' : 'PASS')
         .replace(/{{remarks}}/g, result.remarks || '');
+
+      // Final Cleanup: Remove any remaining {{variable}} placeholders if data wasn't found
+      filledTemplate = filledTemplate.replace(/{{[^{}]+}}/g, '');
 
       // Open print window
       const printWin = window.open("", "_blank");
@@ -768,6 +805,37 @@ const Examination = () => {
     }
   };
 
+  useEffect(() => {
+    if (marksForm.subject && marksForm.examId) {
+      // Find the exam to get its classId
+      const selectedExam = exams.find(e => e.id === Number(marksForm.examId));
+      if (selectedExam) {
+        // Find the subject in the subjects list for the selected class
+        const subjectDetails = subjects.find(s => s.name === marksForm.subject && s.classId === selectedExam.classId);
+        if (subjectDetails && subjectDetails.totalMarks) {
+          setMarksForm(prev => ({ ...prev, totalMarks: subjectDetails.totalMarks.toString() }));
+        } else {
+          // Default to 100 if subject not found or totalMarks not set
+          setMarksForm(prev => ({ ...prev, totalMarks: "100" }));
+        }
+      } else {
+        // If no exam selected, default totalMarks to 100
+        setMarksForm(prev => ({ ...prev, totalMarks: "100" }));
+      }
+    } else {
+      // If no subject or exam selected, default totalMarks to 100
+      setMarksForm(prev => ({ ...prev, totalMarks: "100" }));
+    }
+  }, [marksForm.subject, marksForm.examId, exams, subjects]);
+
+  const handleAbsentChange = (checked) => {
+    setMarksForm(prev => ({
+      ...prev,
+      isAbsent: checked,
+      obtainedMarks: checked ? "0" : prev.obtainedMarks
+    }));
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
@@ -779,11 +847,11 @@ const Examination = () => {
         </div>
 
         <Tabs defaultValue="exams" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto gap-1">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 h-auto gap-1">
             <TabsTrigger value="exams">Exams</TabsTrigger>
             <TabsTrigger value="marks">Marks Entry</TabsTrigger>
             <TabsTrigger value="results">Results</TabsTrigger>
-            <TabsTrigger value="positions">Positions</TabsTrigger>
+            {/* <TabsTrigger value="positions">Positions</TabsTrigger> */}
           </TabsList>
           {/* exams */}
           <TabsContent value="exams">
@@ -1248,7 +1316,7 @@ const Examination = () => {
                     <DialogTrigger asChild>
                       <Button onClick={() => {
                         setEditingMarks(null);
-                        setMarksForm({ examId: "", studentId: "", subject: "", totalMarks: "", obtainedMarks: "", teacherRemarks: "" });
+                        setMarksForm({ examId: "", studentId: "", subject: "", totalMarks: "", obtainedMarks: "", teacherRemarks: "", isAbsent: false });
                       }}>
                         <PlusCircle className="w-4 h-4 mr-2" />
                         Add Marks
@@ -1343,9 +1411,12 @@ const Examination = () => {
 
                         <div className="grid grid-cols-2 gap-4">
                           <div><Label>Total Marks</Label><Input type="number" value={marksForm.totalMarks} onChange={(e) => setMarksForm({ ...marksForm, totalMarks: e.target.value })} /></div>
-                          <div><Label>Obtained Marks</Label><Input type="number" value={marksForm.obtainedMarks} onChange={(e) => setMarksForm({ ...marksForm, obtainedMarks: e.target.value })} /></div>
+                          <div><Label>Obtained Marks *</Label><Input type="number" value={marksForm.obtainedMarks} onChange={(e) => setMarksForm({ ...marksForm, obtainedMarks: e.target.value })} disabled={marksForm.isAbsent} /></div>
                         </div>
-
+                        <div className="flex items-center space-x-2 pt-6">
+                          <Checkbox id="isAbsent" checked={marksForm.isAbsent} onCheckedChange={handleAbsentChange} />
+                          <Label htmlFor="isAbsent">Mark as Absent</Label>
+                        </div>
                         <div><Label>Teacher Remarks (Optional)</Label><Input value={marksForm.teacherRemarks} onChange={(e) => setMarksForm({ ...marksForm, teacherRemarks: e.target.value })} /></div>
 
                         <Button onClick={handleMarksSubmit} className="w-full">
@@ -1382,7 +1453,7 @@ const Examination = () => {
                           <TableCell>{mark?.student ? `${getFullName(mark.student)} (${mark.student.rollNumber})` : "Unknown"}</TableCell>
                           <TableCell>{mark.subject}</TableCell>
                           <TableCell>{mark.totalMarks}</TableCell>
-                          <TableCell>{mark.obtainedMarks}</TableCell>
+                          <TableCell>{mark.isAbsent ? "Absent" : mark.obtainedMarks}</TableCell>
                           <TableCell>{percentage}%</TableCell>
                           <TableCell>
                             <div className="flex gap-2">

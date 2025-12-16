@@ -259,8 +259,8 @@ const reportCardDesignTemplate = `
        <p style="margin: 2px 0 0 0; font-size: 14px; font-weight: bold;">091-5619915 | 0332-8581222</p>
     </div>
     <div style="width: 100px; display: flex; justify-content: flex-end;">
-       <div style="width: 90px; height: 110px; border: 2px solid #ccc; border-radius: 10px; overflow: hidden;">
-          <img src="{{studentPhoto}}" alt="Student" style="width: 100%; height: 100%; object-fit: cover;">
+       <div style="width: 90px; height: 110px; border: 2px solid #ccc; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+          {{studentPhotoOrPlaceholder}}
        </div>
     </div>
   </div>
@@ -448,73 +448,70 @@ const challanDesignTemplate = `
     </div>
 
     <!-- Student Details -->
-    <div class="details-grid">
-      <div class="grid-row"><div class="grid-label">Challan Number</div><div class="grid-value">{{challanNo}}</div></div>
-      <div class="grid-row"><div class="grid-label">Issue Date</div><div class="grid-value">{{issueDate}}</div></div>
-      <div class="grid-row"><div class="grid-label">Valid Date</div><div class="grid-value">{{dueDate}}</div></div>
-      <div class="grid-row" style="border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px"><div class="grid-label">Student Name</div><div class="grid-value">{{studentName}}</div></div>
-      <div class="grid-row"><div class="grid-label">Father Name</div><div class="grid-value">{{fatherName}}</div></div>
-      <div class="grid-row"><div class="grid-label">Student Id</div><div class="grid-value">{{rollNo}}</div></div>
-      <div class="grid-row"><div class="grid-label">Class / Section</div><div class="grid-value">{{class}} / {{section}}</div></div>
+    <div class="info-grid">
+    <div>
+      <div class="info-row"><span class="label">Student Name:</span> {{studentName}}</div>
+      <div class="info-row"><span class="label">Father Name:</span> {{fatherName}}</div>
+      <div class="info-row"><span class="label">Roll Number:</span> {{rollNo}}</div>
+      <div class="info-row"><span class="label">Class:</span> {{className}}</div>
     </div>
-
-    <!-- Fees -->
-    <table class="fee-table">
-      <thead>
-        <tr>
-          <th>Particulars</th>
-          <th>Amount (PKR)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{feeHeadsRows}}
-        
-        <tr><td>Tuition Fee</td><td>{{Tuition Fee}}</td></tr>
-        
-        <tr>
-          <td>Arrears</td>
-          <td>{{arrears}}</td>
-        </tr>
-        <tr>
-          <td>Discount</td>
-          <td>{{discount}}</td>
-        </tr>
-        <tr class="total-row">
-          <td>Total Payable within due date</td>
-          <td>{{totalPayable}}</td>
-        </tr>
-        <tr class="late-fee-row">
-          <td>Late Fee Fine after due date</td>
-          <td>Rs. 150 Per Day</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <!-- Instructions -->
-    <div class="instructions">
-      <h3>Instructions:</h3>
-      <ol>
-        <li>Dues once paid are non refundable non transferable.</li>
-        <li>Rs. 100/- will be charged in case of Re-Issuance of Challan.</li>
-        <li>Scholarship/Concession will be cancelled if a student dont maintain minimum 70% Attendance and 80% academic record.</li>
-        <li>Fines will be calculated as per policy.</li>
-        <li>Rs. 150/- per day late fee will be charged on the challan after due date.</li>
-      </ol>
+    <div>
+      <div class="info-row"><span class="label">Registration No:</span> {{regNo}}</div>
+      <div class="info-row"><span class="label">Track/Group:</span> {{group}}</div>
+      <div class="info-row"><span class="label">Session:</span> {{session}}</div>
+      <div class="info-row"><span class="label">Section:</span> {{sectionName}}</div>
     </div>
-
-    <!-- Footer -->
-    <div class="signatures">
-      <div class="sig-box">
-        <div class="sig-line"></div>
-        <div class="sig-label">Bank/Account Officer Signature</div>
-      </div>
-      <div class="sig-box">
-        <div class="sig-line"></div>
-        <div class="sig-label">Depositor Signature</div>
-      </div>
-    </div>
-    <div class="footer-label">${copyName}</div>
   </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th class="subject-col">Subject</th>
+        <th>Total Marks</th>
+        <th>Obtained Marks</th>
+        <th>Percentage</th>
+        <th>Grade</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{marksRows}}
+    </tbody>
+    <tfoot>
+      <tr style="font-weight: bold; background: #f0f0f0;">
+        <td class="subject-col">Grand Total</td>
+        <td>{{totalMarks}}</td>
+        <td>{{obtainedMarks}}</td>
+        <td>{{percentage}}%</td>
+        <td>{{grade}}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="summary">
+    <div class="summary-item">
+      <span class="big-text">{{percentage}}%</span>
+      Percentage
+    </div>
+    <div class="summary-item">
+      <span class="big-text" style="color: {{gradeColor}}">{{grade}}</span>
+      Grade
+    </div>
+    <div class="summary-item">
+      <span class="big-text">{{gpa}}</span>
+      GPA
+    </div>
+    <div class="summary-item">
+      <span class="big-text">{{position}}</span>
+      Position
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="signature">Controller of Exams</div>
+    <div class="signature">Principal</div>
+  </div>
+</body>
+</html>
   `).join('')}
 </div>
 </body>
@@ -2012,7 +2009,9 @@ const Configuration = () => {
                               try {
                                 if (editingMarksheet) {
                                   const updatedTemplate = await updateReportCardTemplate(editingMarksheet, {
-                                    ...marksheetForm,
+                                    name: marksheetForm.name,
+                                    htmlContent: marksheetForm.htmlContent,
+                                    isDefault: marksheetForm.isDefault,
                                   });
                                   setMarksheetTemplates(
                                     marksheetTemplates.map((t) =>
