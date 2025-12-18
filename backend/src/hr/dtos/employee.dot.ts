@@ -55,4 +55,8 @@ export class EmployeeDto {
   joinDate: string;
   @IsOptional()
   leaveDate?: string;
+  @IsOptional()
+  photo_url?: string;
+  @IsOptional()
+  photo_public_id?: string;
 }

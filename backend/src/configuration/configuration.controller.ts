@@ -12,6 +12,8 @@ import { CreateReportCardTemplateDto } from './dtos/create-report-card-template.
 import { UpdateReportCardTemplateDto } from './dtos/update-report-card-template.dto';
 import { CreateStaffIDCardTemplateDto } from './dtos/create-staff-id-card-template.dto';
 import { UpdateStaffIDCardTemplateDto } from './dtos/update-staff-id-card-template.dto';
+import { CreateStudentIDCardTemplateDto } from './dtos/create-student-id-card-template.dto';
+import { UpdateStudentIDCardTemplateDto } from './dtos/update-student-id-card-template.dto';
 
 @Controller('configuration')
 export class ConfigurationController {
@@ -97,5 +99,40 @@ export class ConfigurationController {
   @Delete('staff-id-card-templates/:id')
   removeStaffTemplate(@Param('id') id: string) {
     return this.configService.removeStaffIDCardTemplate(Number(id));
+  }
+
+  // ==================== STUDENT ID CARD TEMPLATES ====================
+
+  @Post('student-id-card-templates')
+  createStudentTemplate(@Body() createDto: CreateStudentIDCardTemplateDto) {
+    return this.configService.createStudentIDCardTemplate(createDto);
+  }
+
+  @Get('student-id-card-templates/default')
+  getDefaultStudentTemplate() {
+    return this.configService.findDefaultStudentIDCardTemplate();
+  }
+
+  @Get('student-id-card-templates')
+  findAllStudentTemplates() {
+    return this.configService.findAllStudentIDCardTemplates();
+  }
+
+  @Get('student-id-card-templates/:id')
+  findOneStudentTemplate(@Param('id') id: string) {
+    return this.configService.findOneStudentIDCardTemplate(Number(id));
+  }
+
+  @Patch('student-id-card-templates/:id')
+  updateStudentTemplate(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateStudentIDCardTemplateDto,
+  ) {
+    return this.configService.updateStudentIDCardTemplate(Number(id), updateDto);
+  }
+
+  @Delete('student-id-card-templates/:id')
+  removeStudentTemplate(@Param('id') id: string) {
+    return this.configService.removeStudentIDCardTemplate(Number(id));
   }
 }

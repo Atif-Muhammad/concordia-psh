@@ -215,6 +215,7 @@ model Student {
   rollNumber            String    @unique @db.VarChar(50)
   parentOrGuardianEmail String?   @db.VarChar(50)
   parentOrGuardianPhone String?   @db.VarChar(20)
+  address               String?   @db.VarChar(255)
   gender                String?   @db.VarChar(10)
   dob                   DateTime?
   documents             Json      @default("{}")
@@ -463,6 +464,9 @@ model Employee {
   joinDate       DateTime?          @default(now())
   leaveDate      DateTime?
   documents      Json               @default("{}")
+
+  photo_url       String?
+  photo_public_id String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1181,6 +1185,16 @@ model FeeChallanTemplate {
 }
 
 model StaffIDCardTemplate {
+  id          Int      @id @default(autoincrement())
+  name        String
+  htmlContent String   @db.Text
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?
+}
+
+model StudentIDCardTemplate {
   id          Int      @id @default(autoincrement())
   name        String
   htmlContent String   @db.Text

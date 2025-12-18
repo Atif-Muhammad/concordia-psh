@@ -9,19 +9,25 @@ import {
 
 @Injectable()
 export class HrService {
-  constructor(private prismService: PrismaService) {}
+  constructor(private prismService: PrismaService) { }
+
+  async findOne(id: number) {
+    return await this.prismService.employee.findUnique({
+      where: { id },
+    });
+  }
 
   async fetchEmpls(dept: string) {
     return dept
       ? await this.prismService.employee.findMany({
-          where: {
-            empDepartment: dept as EmployeeDepartment,
-          },
-          orderBy: { name: 'asc' },
-        })
+        where: {
+          empDepartment: dept as EmployeeDepartment,
+        },
+        orderBy: { name: 'asc' },
+      })
       : await this.prismService.employee.findMany({
-          orderBy: { name: 'asc' },
-        });
+        orderBy: { name: 'asc' },
+      });
   }
 
   async createEmp(payload: EmployeeDto) {
@@ -40,6 +46,8 @@ export class HrService {
         phone: payload.contactNumber,
         joinDate: new Date(payload.joinDate),
         leaveDate: payload.leaveDate ? new Date(payload.leaveDate) : null,
+        photo_url: payload.photo_url,
+        photo_public_id: payload.photo_public_id,
       },
     });
   }
@@ -61,7 +69,15 @@ export class HrService {
         phone: payload.contactNumber,
         joinDate: new Date(payload.joinDate),
         leaveDate: payload.leaveDate ? new Date(payload.leaveDate) : null,
+        photo_url: payload.photo_url,
+        photo_public_id: payload.photo_public_id,
       },
+    });
+  }
+
+  async deleteEmp(id: number) {
+    return await this.prismService.employee.delete({
+      where: { id },
     });
   }
 

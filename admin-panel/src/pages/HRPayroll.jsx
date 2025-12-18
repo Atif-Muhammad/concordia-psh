@@ -19,7 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, getEmployeeAttendance, markEmployeeAttendance, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate } from "../../config/apis";
+import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, getEmployeeAttendance, markEmployeeAttendance, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate } from "../../config/apis";
 import { Loader2 } from "lucide-react";
 
 const HRPayroll = () => {
@@ -47,7 +47,19 @@ const HRPayroll = () => {
       setSelectedEmployee(employee);
       const template = await getDefaultStaffIDCardTemplate();
       if (template) {
-        setIdCardTemplate(template.htmlContent);
+        setIdCardTemplate(template.htmlContent
+          .replace(/{{employeePhoto}}/g, employee.photo_url || "")
+          .replace(/{{name}}/g, employee.name)
+          .replace(/{{fatherName}}/g, employee.fatherName || "")
+          .replace(/{{designation}}/g, employee.designation || "")
+          .replace(/{{department}}/g, employee.empDepartment || "")
+          .replace(/{{EmpOrTeacher}}/g, "EMPLOYEE")
+          .replace(/{{phone}}/g, employee.contactNumber || "")
+          .replace(/{{cnic}}/g, employee.cnic || "")
+          .replace(/{{address}}/g, employee.address || "")
+          .replace(/{{employeeId}}/g, employee.id)
+          .replace(/{{issueDate}}/g, new Date().toLocaleDateString())
+        );
         setIdCardOpen(true);
       } else {
         toast({
@@ -155,9 +167,9 @@ const HRPayroll = () => {
     empDepartment: "",
     employmentType: "PERMANENT",
     status: "ACTIVE",
-    basicPay: null,
     joinDate: new Date().toISOString().split("T")[0],
     leaveDate: "",
+    photo: null,
   });
 
   const [advanceFormData, setAdvanceFormData] = useState({
@@ -328,13 +340,15 @@ const HRPayroll = () => {
         cnic: "",
         contactNumber: "",
         email: "",
+        address: "",
         designation: "",
         empDepartment: "",
         employmentType: "PERMANENT",
         status: "ACTIVE",
         basicPay: 0,
         joinDate: new Date().toISOString().split("T")[0],
-        leaveDate: ""
+        leaveDate: "",
+        photo: null
       });
     },
     onError: (err) => toast({ title: err.message })
@@ -358,10 +372,26 @@ const HRPayroll = () => {
         status: "ACTIVE",
         basicPay: 0,
         joinDate: new Date().toISOString().split("T")[0],
-        leaveDate: ""
+        leaveDate: "",
+        photo: null
       });
     },
   });
+
+  const deleteEmployeeMutation = useMutation({
+    mutationFn: deleteEmp,
+    onSuccess: () => {
+      queryClient.invalidateQueries(["employees"]);
+      toast({ title: "Employee deleted successfully" });
+    },
+    onError: (err) => toast({ title: err.message, variant: "destructive" })
+  });
+
+  const deleteEmployee = (id) => {
+    if (confirm("Are you sure you want to delete this employee?")) {
+      deleteEmployeeMutation.mutate(id);
+    }
+  };
 
   const handleAddEmployee = () => {
     const required = ["name", "fatherName", "cnic", "contactNumber"];
@@ -370,13 +400,22 @@ const HRPayroll = () => {
       return;
     }
 
-    const payload = {
-      ...employeeFormData,
-      basicPay: Number(employeeFormData.basicPay),
-      joinDate: employeeFormData.joinDate || null,
-      leaveDate: employeeFormData.leaveDate || null,
-      status: editingEmployee?.status || "ACTIVE",
-    };
+    const payload = new FormData();
+    payload.append("name", employeeFormData.name);
+    payload.append("fatherName", employeeFormData.fatherName);
+    payload.append("cnic", employeeFormData.cnic);
+    payload.append("contactNumber", employeeFormData.contactNumber);
+    payload.append("email", employeeFormData.email || "");
+    payload.append("address", employeeFormData.address || "");
+    payload.append("designation", employeeFormData.designation);
+    payload.append("empDepartment", employeeFormData.empDepartment);
+    payload.append("employmentType", employeeFormData.employmentType);
+    payload.append("status", editingEmployee?.status || "ACTIVE");
+    payload.append("basicPay", employeeFormData.basicPay);
+    payload.append("joinDate", employeeFormData.joinDate || "");
+    if (employeeFormData.leaveDate) payload.append("leaveDate", employeeFormData.leaveDate);
+    if (employeeFormData.photo) payload.append("photo", employeeFormData.photo);
+
 
     if (editingEmployee) {
       updateEmployee.mutate({ id: editingEmployee.id, payload });
@@ -387,11 +426,10 @@ const HRPayroll = () => {
 
     setEmployeeOpen(false);
     setEditingEmployee(null);
-    // Reset form
     setEmployeeFormData({
       name: "", fatherName: "", cnic: "", contactNumber: "", email: "", address: "",
       designation: "", empDepartment: "", employmentType: "PERMANENT", status: "ACTIVE",
-      basicPay: 0, joinDate: new Date().toISOString().split("T")[0], leaveDate: ""
+      basicPay: 0, joinDate: new Date().toISOString().split("T")[0], leaveDate: "", photo: null
     });
   };
 
@@ -753,7 +791,15 @@ const HRPayroll = () => {
                     <TableBody>
                       {employees?.map(employee => (
                         <TableRow key={employee.id}>
-                          <TableCell className="font-medium">{employee.name}</TableCell>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              <Avatar>
+                                <AvatarImage className="object-cover" src={employee.photo_url} alt={employee.name} />
+                                <AvatarFallback>{employee.name.charAt(0)}</AvatarFallback>
+                              </Avatar>
+                              {employee.name}
+                            </div>
+                          </TableCell>
                           <TableCell>{employee.cnic}</TableCell>
                           <TableCell>{employee.fatherName}</TableCell>
                           <TableCell>{employee.designation}</TableCell>
@@ -1106,6 +1152,20 @@ const HRPayroll = () => {
                 value={employeeFormData.name}
                 onChange={(e) => setEmployeeFormData({ ...employeeFormData, name: e.target.value })}
                 placeholder="John Doe"
+              />
+            </div>
+
+            {/* Photo */}
+            <div>
+              <Label>Photo</Label>
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    setEmployeeFormData({ ...employeeFormData, photo: e.target.files[0] });
+                  }
+                }}
               />
             </div>
 
@@ -1694,6 +1754,12 @@ const HRPayroll = () => {
               Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).forEach(style => {
                 printWindow.document.head.appendChild(style.cloneNode(true));
               });
+              printWindow.document.write(`
+            <style>
+              * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+              body {margin: 0; padding: 0; }
+            </style>
+            `);
               printWindow.document.write('</head><body>');
               printWindow.document.write(printContent);
               printWindow.document.write('</body></html>');
@@ -1708,7 +1774,7 @@ const HRPayroll = () => {
           </div>
         </DialogContent>
       </Dialog>
-    </DashboardLayout>
+    </DashboardLayout >
   );
 };
 

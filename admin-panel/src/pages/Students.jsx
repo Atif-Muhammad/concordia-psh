@@ -48,7 +48,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getStudents,
   createStudent,
@@ -62,7 +62,8 @@ import {
   getStudentFeeHistory,
   getStudentAttendance,
   getStudentResults,
-  searchStudents
+  searchStudents,
+  getDefaultStudentIDCardTemplate
 } from "../../config/apis";
 import {
   UserPlus,
@@ -109,6 +110,10 @@ const Students = () => {
   const [showPassedOut, setShowPassedOut] = useState(false);
   const [selectedFeeSession, setSelectedFeeSession] = useState("current");
   const [selectedStudent, setSelectedStudent] = useState({})
+
+  // ID Card State
+  const [defaultIdCardTemplate, setDefaultIdCardTemplate] = useState("");
+  const [generatedIdCard, setGeneratedIdCard] = useState("");
 
   // Challan Details State
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
@@ -311,6 +316,55 @@ const Students = () => {
   };
 
 
+  // ID Card Generation Helper
+  const generateIdCardHtml = (template, student) => {
+    if (!template || !student) return "";
+    let html = template;
+    const programName = programData.find(p => p.id === student.programId)?.name || "";
+    // Default logo if not in config (you might want to fetch this from config in a real app)
+    const logoUrl = "/logo.png";
+
+    const replacements = {
+      "{{logoUrl}}": logoUrl,
+      "{{studentPhoto}}": student.photo_url || "https://placehold.co/150",
+      "{{name}}": `${student.fName} ${student.mName || ""} ${student.lName || ""}`,
+      "{{admissionNo}}": student.rollNumber,
+      "{{classGroup}}": `${programName}`,
+      "{{issueDate}}": new Date().toLocaleDateString(),
+      "{{expiryDate}}": new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toLocaleDateString(),
+      "{{fatherName}}": student.fatherOrguardian || "",
+      "{{phone}}": student.parentOrGuardianPhone || "",
+      "{{fatherContact}}": student.parentOrGuardianPhone || "",
+      "{{dob}}": student.dob ? new Date(student.dob).toLocaleDateString() : "",
+      "{{address}}": student.address || "",
+    };
+
+    for (const [key, value] of Object.entries(replacements)) {
+      html = html.replace(new RegExp(key, "g"), value);
+    }
+    return html;
+  };
+
+  useEffect(() => {
+    if (idCardOpen && viewStudent) {
+      const fetchTemplate = async () => {
+        try {
+          const template = await getDefaultStudentIDCardTemplate();
+          if (template && template.htmlContent) {
+            setDefaultIdCardTemplate(template.htmlContent);
+            setGeneratedIdCard(generateIdCardHtml(template.htmlContent, viewStudent));
+          } else {
+            toast({ title: "No default template found", description: "Please set a default Student ID Card template in Configuration", variant: "destructive" });
+          }
+        } catch (error) {
+          console.error(error);
+          // toast({ title: "Error fetching default template", variant: "destructive" });
+        }
+      };
+      fetchTemplate();
+    }
+  }, [idCardOpen, viewStudent]);
+
   // Form
   const [formData, setFormData] = useState({
     fName: "",
@@ -321,6 +375,7 @@ const Students = () => {
     parentOrGuardianEmail: "",
     parentOrGuardianPhone: "",
     gender: "",
+    address: "",
     dob: "",
     programId: "",
     classId: "",
@@ -365,6 +420,7 @@ const Students = () => {
       parentOrGuardianEmail: "",
       parentOrGuardianPhone: "",
       gender: "",
+      address: "",
       dob: "",
       programId: "",
       classId: "",
@@ -396,6 +452,7 @@ const Students = () => {
       parentOrGuardianEmail: student.parentOrGuardianEmail || "",
       parentOrGuardianPhone: student.parentOrGuardianPhone || "",
       gender: student.gender || "",
+      address: student.address || "",
       dob: student.dob ? new Date(student.dob).toISOString().split("T")[0] : "",
       programId: student.programId?.toString() || "",
       classId: student.classId.toString(),
@@ -470,6 +527,7 @@ const Students = () => {
     if (formData.parentOrGuardianEmail) fd.append("parentOrGuardianEmail", formData.parentOrGuardianEmail);
     if (formData.parentOrGuardianPhone) fd.append("parentOrGuardianPhone", formData.parentOrGuardianPhone);
     if (formData.gender) fd.append("gender", formData.gender);
+    if (formData.address) fd.append("address", formData.address);
     if (formData.dob) fd.append("dob", formData.dob);
     if (formData.sectionId) fd.append("sectionId", formData.sectionId);
     fd.append("photo", imageFile);
@@ -1091,6 +1149,15 @@ const Students = () => {
                   type="date"
                   value={formData.dob}
                   onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
+                />
+              </div>
+
+              <div className="col-span-3">
+                <Label>Address</Label>
+                <Input
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  placeholder="Full address..."
                 />
               </div>
             </div>
@@ -1849,40 +1916,57 @@ const Students = () => {
         </Dialog>
 
         {/* ID Card Dialog */}
+        {/* ID Card Dialog */}
         <Dialog open={idCardOpen} onOpenChange={setIdCardOpen}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-3xl bg-white overflow-y-auto max-h-[95vh]">
             <DialogHeader>
               <DialogTitle>Student ID Card</DialogTitle>
             </DialogHeader>
-            {viewStudent && (
-              <div id="id-card-print" className="border-2 border-primary rounded-xl p-6 bg-gradient-primary text-primary-foreground">
-                <div className="text-center space-y-4">
-                  <Avatar className="w-24 h-24 mx-auto border-4 border-background">
-                    <AvatarImage src={viewStudent.photo_url} />
-                    <AvatarFallback>{viewStudent.fName}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <h3 className="text-xl font-bold">Concordia College</h3>
-                    <p className="text-sm opacity-90">Student ID Card</p>
-                  </div>
-                  <div className="bg-background/10 rounded-lg p-4 space-y-2 text-left">
-                    <div className="flex justify-between"><span className="opacity-90">Name:</span> <span className="font-semibold">{viewStudent.fName} {viewStudent.lName}</span></div>
-                    <div className="flex justify-between"><span className="opacity-90">Roll:</span> <span className="font-semibold">{viewStudent.rollNumber}</span></div>
-                    <div className="flex justify-between"><span className="opacity-90">Program:</span> <span className="font-semibold">{programData.find(p => p.id === viewStudent.programId)?.name}</span></div>
-                    <div className="flex justify-between"><span className="opacity-90">Class:</span> <span className="font-semibold">{programData.flatMap(p => p.classes).find(c => c.id === viewStudent.classId)?.name}</span></div>
-                  </div>
-                </div>
+
+            {viewStudent && generatedIdCard ? (
+              <div
+                id="id-card-print"
+                dangerouslySetInnerHTML={{ __html: generatedIdCard }}
+                className="flex flex-col items-center gap-4"
+              />
+            ) : (
+              <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
+                {defaultIdCardTemplate ? "Generating card..." : "No default ID card template found. Please set one in Configuration."}
               </div>
             )}
-            <Button onClick={() => {
-              const el = document.getElementById("id-card-print");
-              if (el) {
-                const win = window.open("", "", "width=800,height=600");
-                win?.document.write(`<html><head><title>ID Card</title></head><body style="margin:0;padding:20px">${el.innerHTML}<script>window.print();setTimeout(()=>{window.close()},100)</script></body></html>`);
-              }
-            }}>
-              Print ID Card
-            </Button>
+
+            <div className="flex justify-end gap-2 border-t pt-4">
+              <Button onClick={() => setIdCardOpen(false)} variant="outline">Close</Button>
+              <Button disabled={!generatedIdCard} onClick={() => {
+                const el = document.getElementById("id-card-print");
+                if (el) {
+                  const win = window.open("", "", "width=800,height=600");
+                  win?.document.write(`
+                    <html>
+                      <head>
+                        <title>ID Card - ${viewStudent?.fName}</title>
+                        <style>
+                          body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+                          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                        </style>
+                      </head>
+                      <body>
+                        ${el.innerHTML}
+                        <script>
+                          setTimeout(() => {
+                            window.print();
+                            window.close();
+                          }, 500);
+                        </script>
+                      </body>
+                    </html>
+                  `);
+                  win?.document.close();
+                }
+              }}>
+                <FileText className="w-4 h-4 mr-2" /> Print ID Card
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
 

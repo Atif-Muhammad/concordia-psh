@@ -24,7 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { GraduationCap, PlusCircle, Edit, Trash2, UserCheck, CheckCircle2, XCircle, Clock, CalendarIcon, Eye, IdCard } from "lucide-react";
+import { GraduationCap, PlusCircle, Edit, Trash2, UserCheck, CheckCircle2, XCircle, Clock, CalendarIcon, Eye, IdCard, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -45,6 +45,15 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+const TEACHER_DOCUMENTS = [
+  { key: "bsDegree", label: "BS/BSc Degree" },
+  { key: "msDegree", label: "MS/MSc Degree" },
+  { key: "phd", label: "PhD" },
+  { key: "postDoc", label: "Postdoc" },
+  { key: "experienceLetter", label: "Experience Letter" },
+  { key: "cv", label: "CV" },
+];
 
 const Teachers = () => {
   const { toast } = useToast();
@@ -103,14 +112,7 @@ const Teachers = () => {
     teacherStatus: "ACTIVE",
     departmentId: "",
     basicPay: "",
-    documents: {
-      bsDegree: false,
-      msDegree: false,
-      phd: false,
-      postDoc: false,
-      experienceLetter: false,
-      cv: false,
-    },
+    documents: TEACHER_DOCUMENTS.reduce((acc, doc) => ({ ...acc, [doc.key]: false }), {}),
     photo: null,
   });
 
@@ -229,14 +231,7 @@ const Teachers = () => {
       teacherStatus: "ACTIVE",
       departmentId: "",
       basicPay: "",
-      documents: {
-        bsDegree: false,
-        msDegree: false,
-        phd: false,
-        postDoc: false,
-        experienceLetter: false,
-        cv: false,
-      },
+      documents: TEACHER_DOCUMENTS.reduce((acc, doc) => ({ ...acc, [doc.key]: false }), {}),
     });
     setEditingTeacher(null);
   };
@@ -257,14 +252,7 @@ const Teachers = () => {
       teacherStatus: teacher.teacherStatus || "ACTIVE",
       departmentId: teacher.departmentId?.toString() || "",
       basicPay: teacher.basicPay?.toString() || "",
-      documents: teacher.documents || {
-        bsDegree: false,
-        msDegree: false,
-        phd: false,
-        postDoc: false,
-        experienceLetter: false,
-        cv: false,
-      },
+      documents: teacher.documents || TEACHER_DOCUMENTS.reduce((acc, doc) => ({ ...acc, [doc.key]: false }), {}),
       photo: null,
     });
     setOpen(true);
@@ -543,14 +531,7 @@ const Teachers = () => {
                   <div className="mt-6">
                     <Label>Documents</Label>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-2">
-                      {[
-                        { key: "bsDegree", label: "BS/BSc" },
-                        { key: "msDegree", label: "MS/MSc" },
-                        { key: "phd", label: "PhD" },
-                        { key: "postDoc", label: "Postdoc" },
-                        { key: "experienceLetter", label: "Experience" },
-                        { key: "cv", label: "CV" },
-                      ].map((doc) => (
+                      {TEACHER_DOCUMENTS.map((doc) => (
                         <div
                           key={doc.key}
                           onClick={() => toggleDocument(doc.key)}
@@ -567,7 +548,10 @@ const Teachers = () => {
 
                   <div className="flex justify-end gap-3 mt-6">
                     <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-                    <Button onClick={handleSubmit}>
+                    <Button onClick={handleSubmit} disabled={createTeacherMutation.isPending || updateTeacherMutation.isPending}>
+                      {(createTeacherMutation.isPending || updateTeacherMutation.isPending) && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
                       {editingTeacher ? "Update" : "Add"} Teacher
                     </Button>
                   </div>
@@ -599,7 +583,7 @@ const Teachers = () => {
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
                             <Avatar>
-                              <AvatarImage src={t.photo_url} alt={t.name} />
+                              <AvatarImage className="object-cover" src={t.photo_url} alt={t.name} />
                               <AvatarFallback>{t.name.charAt(0)}</AvatarFallback>
                             </Avatar>
                             {t.name}
@@ -762,7 +746,10 @@ const Teachers = () => {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+              <AlertDialogAction onClick={confirmDelete} disabled={deleteTeacherMutation.isPending}>
+                {deleteTeacherMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Delete
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -784,7 +771,7 @@ const Teachers = () => {
                 <TabsContent value="info" className="space-y-6 pt-4">
                   <div className="flex items-start gap-6">
                     <Avatar className="h-24 w-24 border-4 border-background">
-                      <AvatarImage src={viewTeacher.photo_url} alt={viewTeacher.name} />
+                      <AvatarImage className="object-cover" src={viewTeacher.photo_url} alt={viewTeacher.name} />
                       <AvatarFallback className="text-3xl font-bold bg-primary/10 text-primary uppercase">
                         {viewTeacher.name.charAt(0)}
                       </AvatarFallback>
@@ -793,6 +780,8 @@ const Teachers = () => {
                       <h3 className="text-2xl font-bold">{viewTeacher.name}</h3>
                       <p className="text-muted-foreground">{viewTeacher.fatherName ? `s/o ${viewTeacher.fatherName}` : ""}</p>
                       <p className="text-muted-foreground">{viewTeacher.email}</p>
+                      <p className="text-muted-foreground">{viewTeacher.address}</p>
+                      <p className="text-muted-foreground">CNIC: {viewTeacher.cnic}</p>
                       <div className="flex flex-wrap gap-2 mt-2">
                         <Badge>{viewTeacher.teacherType}</Badge>
                         <Badge variant={viewTeacher.teacherStatus === "ACTIVE" ? "default" : "destructive"}>
@@ -824,12 +813,15 @@ const Teachers = () => {
                   <div className="space-y-3">
                     <h4 className="font-semibold text-sm text-muted-foreground">Documents Status</h4>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {Object.entries(viewTeacher.documents || {}).map(([key, present]) => (
-                        <div key={key} className={`flex items-center gap-2 p-2 rounded border ${present ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
-                          {present ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                          <span className="text-sm capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
-                        </div>
-                      ))}
+                      {TEACHER_DOCUMENTS.map((doc) => {
+                        const isPresent = viewTeacher.documents?.[doc.key];
+                        return (
+                          <div key={doc.key} className={`flex items-center gap-2 p-2 rounded border ${isPresent ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
+                            {isPresent ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                            <span className="text-sm font-medium">{doc.label}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </TabsContent>
@@ -1002,7 +994,7 @@ const Teachers = () => {
                 printWindow.focus();
                 // Wait for images to load (heuristic)
                 setTimeout(() => {
-                  printWindow.print(); 
+                  printWindow.print();
                   // Close optionally or keep open based on user preference "open the design in new tab" 
                   // We'll keep it open as requested "open the design in new tab" imply viewing it.
                   // printWindow.close(); 

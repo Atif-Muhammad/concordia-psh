@@ -1145,7 +1145,7 @@ const Academics = () => {
                           <TableCell>{dept?.name ?? "—"}</TableCell>
                           <TableCell>
                             {p.level === "INTERMEDIATE" && "Intermediate"}
-                            {p.level === "UNDERGRADUATE" && "BS (4 Years)"}
+                            {p.level === "UNDERGRADUATE" && "BS"}
                             {p.level === "DIPLOMA" && "Diploma"}
                             {p.level === "COACHING" && "Coaching"}
                             {p.level === "SHORT_COURSE" && "Short Course"}

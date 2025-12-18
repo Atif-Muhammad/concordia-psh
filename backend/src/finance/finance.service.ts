@@ -8,7 +8,7 @@ import { CreateClosingDto } from './dto/create-closing.dto';
 
 @Injectable()
 export class FinanceService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   // ==================== INCOME ====================
   async createIncome(createIncomeDto: CreateIncomeDto) {
@@ -238,9 +238,9 @@ export class FinanceService {
         return {
           id: `payroll-${p.id}`,
           date: p.paymentDate || p.createdAt,
-          category: 'Payroll',
+          category: 'Salaries',
           description: `Salary payment for ${staffName} (${staffType}) - ${p.month}`,
-          amount: p.netSalary,
+          amount: Number(p.netSalary),
           createdAt: p.createdAt,
           updatedAt: p.updatedAt,
           source: 'payroll',
@@ -249,8 +249,102 @@ export class FinanceService {
       });
     }
 
+    // Fetch Hostel Expenses
+    let hostelExpenses: any[] = [];
+    if (
+      !filters?.category ||
+      filters.category === 'all' ||
+      filters.category === 'Hostel'
+    ) {
+      const hostelWhere: any = {};
+      if (filters?.dateFrom || filters?.dateTo) {
+        hostelWhere.date = {};
+        if (filters.dateFrom) hostelWhere.date.gte = new Date(filters.dateFrom);
+        if (filters.dateTo) hostelWhere.date.lte = new Date(filters.dateTo);
+      }
+      const hostelRecs = await this.prisma.hostelExpense.findMany({
+        where: hostelWhere,
+        orderBy: { date: 'desc' },
+      });
+      hostelExpenses = hostelRecs.map((h) => ({
+        id: `hostel-${h.id}`,
+        date: h.date,
+        category: 'Hostel',
+        description: `${h.expenseTitle} (${h.remarks || ''})`,
+        amount: Number(h.amount),
+        createdAt: h.createdAt,
+        updatedAt: h.updatedAt,
+        source: 'hostel',
+        sourceId: h.id,
+      }));
+    }
+
+    // Fetch Inventory Expenses (Purchases + Maintenance)
+    let inventoryExpenses: any[] = [];
+    if (
+      !filters?.category ||
+      filters.category === 'all' ||
+      filters.category === 'Inventory'
+    ) {
+      // 1. SchoolInventory (Purchases)
+      const invPurchaseWhere: any = {};
+      if (filters?.dateFrom || filters?.dateTo) {
+        invPurchaseWhere.purchaseDate = {};
+        if (filters.dateFrom) invPurchaseWhere.purchaseDate.gte = new Date(filters.dateFrom);
+        if (filters.dateTo) invPurchaseWhere.purchaseDate.lte = new Date(filters.dateTo);
+      }
+      const purchases = await this.prisma.schoolInventory.findMany({
+        where: invPurchaseWhere,
+        orderBy: { purchaseDate: 'desc' },
+      });
+
+      // 2. InventoryExpense (Maintenance)
+      const invMaintWhere: any = {};
+      if (filters?.dateFrom || filters?.dateTo) {
+        invMaintWhere.date = {};
+        if (filters.dateFrom) invMaintWhere.date.gte = new Date(filters.dateFrom);
+        if (filters.dateTo) invMaintWhere.date.lte = new Date(filters.dateTo);
+      }
+      const maintenances = await this.prisma.inventoryExpense.findMany({
+        where: invMaintWhere,
+        include: { inventoryItem: true },
+        orderBy: { date: 'desc' },
+      });
+
+      const mappedPurchases = purchases.map((p) => ({
+        id: `inv-buy-${p.id}`,
+        date: p.purchaseDate,
+        category: 'Inventory',
+        description: `Purchase: ${p.itemName} (${p.category})`,
+        amount: Number(p.totalValue), // assuming totalValue is the cost
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+        source: 'inventory-purchase',
+        sourceId: p.id,
+      }));
+
+      const mappedMaintenance = maintenances.map((m) => ({
+        id: `inv-maint-${m.id}`,
+        date: m.date,
+        category: 'Inventory',
+        description: `Maintenance: ${m.inventoryItem?.itemName || 'Item'} - ${m.expenseType}`,
+        amount: Number(m.amount),
+        createdAt: m.createdAt,
+        updatedAt: m.updatedAt,
+        source: 'inventory-maintenance',
+        sourceId: m.id,
+      }));
+
+      inventoryExpenses = [...mappedPurchases, ...mappedMaintenance];
+    }
+
     // Combine and sort by date
-    const allExpenses = [...manualExpenses, ...payrolls].sort(
+    const allExpenses = [
+      ...manualExpenses,
+      ...payrolls,
+      ...hostelExpenses,
+      ...inventoryExpenses
+    ].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
     );
 

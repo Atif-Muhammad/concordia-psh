@@ -4,6 +4,10 @@ import { UpdateReportCardTemplateDto } from './dtos/update-report-card-template.
 import { CreateInstituteSettingsDto } from './dtos/create-institute-settings.dto';
 import { UpdateInstituteSettingsDto } from './dtos/update-institute-settings.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { CreateStaffIDCardTemplateDto } from './dtos/create-staff-id-card-template.dto';
+import { UpdateStaffIDCardTemplateDto } from './dtos/update-staff-id-card-template.dto';
+import { CreateStudentIDCardTemplateDto } from './dtos/create-student-id-card-template.dto';
+import { UpdateStudentIDCardTemplateDto } from './dtos/update-student-id-card-template.dto';
 
 @Injectable()
 export class ConfigurationService {
@@ -104,6 +108,51 @@ export class ConfigurationService {
 
   async findDefaultStaffIDCardTemplate() {
     return this.prisma.staffIDCardTemplate.findFirst({
+      where: { isDefault: true },
+    });
+  }
+
+  // ==================== STUDENT ID CARD TEMPLATES ====================
+
+  async createStudentIDCardTemplate(data: CreateStudentIDCardTemplateDto) {
+    if (data.isDefault) {
+      await this.prisma.studentIDCardTemplate.updateMany({
+        where: { isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+    return this.prisma.studentIDCardTemplate.create({ data });
+  }
+
+  async findAllStudentIDCardTemplates() {
+    return this.prisma.studentIDCardTemplate.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findOneStudentIDCardTemplate(id: number) {
+    return this.prisma.studentIDCardTemplate.findUnique({ where: { id } });
+  }
+
+  async updateStudentIDCardTemplate(id: number, data: UpdateStudentIDCardTemplateDto) {
+    if (data.isDefault) {
+      await this.prisma.studentIDCardTemplate.updateMany({
+        where: { isDefault: true, id: { not: id } },
+        data: { isDefault: false },
+      });
+    }
+    return this.prisma.studentIDCardTemplate.update({
+      where: { id },
+      data,
+    });
+  }
+
+  async removeStudentIDCardTemplate(id: number) {
+    return this.prisma.studentIDCardTemplate.delete({ where: { id } });
+  }
+
+  async findDefaultStudentIDCardTemplate() {
+    return this.prisma.studentIDCardTemplate.findFirst({
       where: { isDefault: true },
     });
   }

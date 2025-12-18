@@ -56,6 +56,14 @@ export class TeacherController {
       public_id = uploaded.public_id;
     }
 
+    if (payload.documents && typeof payload.documents === 'string') {
+      try {
+        payload.documents = JSON.parse(payload.documents);
+      } catch (error) {
+        throw new BadRequestException('Invalid JSON format for documents');
+      }
+    }
+
     return await this.teacherService.createTeacher({
       ...payload,
       photo_url: url || undefined,
@@ -98,6 +106,14 @@ export class TeacherController {
     if (photo_url && photo_public_id) {
       updateData.photo_url = photo_url;
       updateData.photo_public_id = photo_public_id;
+    }
+
+    if (updateData.documents && typeof updateData.documents === 'string') {
+      try {
+        updateData.documents = JSON.parse(updateData.documents);
+      } catch (error) {
+        throw new BadRequestException('Invalid JSON format for documents');
+      }
     }
 
     return await this.teacherService.updateTeacher(id, updateData);

@@ -287,6 +287,24 @@ export const getDepartmentNames = async () => {
     throw { message, status: error.response?.status || 500 };
   }
 };
+export const deleteEmp = async (id) => {
+  try {
+    const response = await axios.delete(
+      `${base_url}/hr/delete/employee?id=${id}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 export const getDepartments = async () => {
   try {
     const response = await axios.get(`${base_url}/department/get`, {
@@ -3581,9 +3599,10 @@ export const deleteFinanceClosing = async (id) => {
 
 
 
-export const getDashboardStats = async () => {
+export const getDashboardStats = async (filters) => {
   try {
-    const response = await axios.get(`${base_url}/dashboard/stats`, {
+    const params = new URLSearchParams(filters).toString();
+    const response = await axios.get(`${base_url}/dashboard/stats?${params}`, {
       withCredentials: true,
     });
     return response.data;
@@ -3758,6 +3777,104 @@ export const deleteStaffIDCardTemplate = async (id) => {
   try {
     const { data } = await axios.delete(
       `${base_url}/configuration/staff-id-card-templates/${id}`,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// Student ID Card Templates
+export const getDefaultStudentIDCardTemplate = async () => {
+  try {
+    const { data } = await axios.get(
+      `${base_url}/configuration/student-id-card-templates/default`,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getStudentIDCardTemplates = async () => {
+  try {
+    const { data } = await axios.get(
+      `${base_url}/configuration/student-id-card-templates`,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const createStudentIDCardTemplate = async (payload) => {
+  try {
+    const { data } = await axios.post(
+      `${base_url}/configuration/student-id-card-templates`,
+      payload,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateStudentIDCardTemplate = async (id, payload) => {
+  try {
+    const { data } = await axios.patch(
+      `${base_url}/configuration/student-id-card-templates/${id}`,
+      payload,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteStudentIDCardTemplate = async (id) => {
+  try {
+    const { data } = await axios.delete(
+      `${base_url}/configuration/student-id-card-templates/${id}`,
       {
         withCredentials: true,
       }

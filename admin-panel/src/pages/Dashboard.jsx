@@ -1,18 +1,25 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, CartesianGrid, XAxis, YAxis, Legend, ResponsiveContainer } from "recharts";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useQuery } from "@tanstack/react-query";
 import { getDashboardStats } from "../../config/apis";
 import { cn } from "@/lib/utils";
 import { Users, DollarSign, TrendingUp, ClipboardCheck, UserPlus, FileText, BookOpen, GraduationCap, Building, Package, Briefcase, Loader2 } from "lucide-react";
 
 const Dashboard = () => {
+  const [selectedMonth, setSelectedMonth] = React.useState("overall");
+  const [selectedYear, setSelectedYear] = React.useState(new Date().getFullYear().toString());
+
+  const queryFilters = selectedMonth === "overall" ? {} : { month: selectedMonth, year: selectedYear };
+
   // Fetch dashboard statistics from backend
   const { data: dashboardData, isLoading, isError } = useQuery({
-    queryKey: ['dashboardStats'],
-    queryFn: getDashboardStats,
-    refetchInterval: 60000, // Refetch every minute
+    queryKey: ['dashboardStats', selectedMonth, selectedYear],
+    queryFn: () => getDashboardStats(queryFilters),
+    refetchInterval: 60000,
   });
 
   if (isLoading) {
@@ -51,6 +58,7 @@ const Dashboard = () => {
     staff,
     exams,
     finance,
+    charts,
   } = dashboardData;
 
   // Calculate stats from API data
@@ -59,7 +67,7 @@ const Dashboard = () => {
   const totalFeeAmount = fees.totalAmount;
   const paidFees = fees.paidAmount;
   const pendingFees = fees.pendingAmount;
-  const collectionRate = fees.collectionRate;
+  const collectionRate = fees.collectionRate > 100 ? 100 : fees.collectionRate;
   const presentToday = attendance.today.present;
   const attendanceRate = attendance.today.rate;
   const totalInventoryValue = inventory.totalValue;
@@ -68,35 +76,46 @@ const Dashboard = () => {
   const pendingInquiries = 0; // Not tracked in current API
 
   // Program distribution
-  const hsscCount = students.byProgram.hssc;
+  const intermediateCount = students.byProgram.intermediate;
   const diplomaCount = students.byProgram.diploma;
   const bsCount = students.byProgram.bs;
+  const shortCourseCount = students.byProgram.shortCourse;
+  const coachingCount = students.byProgram.coaching;
 
   const stats = [{
     title: "Total Students",
     value: totalStudents.toString(),
     change: `${activeStudents} active`,
     icon: Users,
-    color: "text-primary"
+    color: "text-primary",
+    bgColor: "bg-primary/10",
+    borderColor: "border-primary/20",
   }, {
     title: "Fee Collection (Month)",
     value: `PKR ${(paidFees / 1000).toFixed(0)}K`,
     change: `${collectionRate}% collected`,
     icon: DollarSign,
-    color: "text-success"
+    color: "text-success",
+    bgColor: "bg-success/10",
+    borderColor: "border-success/20",
   }, {
     title: "Attendance Today",
     value: `${attendanceRate}%`,
     change: `${presentToday} present`,
     icon: ClipboardCheck,
-    color: "text-secondary"
+    color: "text-secondary",
+    bgColor: "bg-secondary/10",
+    borderColor: "border-secondary/20",
   }, {
     title: "Finance Balance",
     value: `PKR ${(finance.netBalance / 1000).toFixed(0)}K`,
     change: "This month",
     icon: UserPlus,
-    color: "text-accent"
+    color: "text-accent",
+    bgColor: "bg-accent/10",
+    borderColor: "border-accent/20",
   }];
+
   const recentActivity = [{
     action: "Dashboard loaded",
     student: `${totalStudents} total students`,
@@ -125,63 +144,55 @@ const Dashboard = () => {
   }];
 
   const quickStats = [{
-    label: "HSSC Students",
-    value: hsscCount.toString(),
-    icon: BookOpen
+    label: "Intermediate",
+    value: intermediateCount?.toString() || "0",
+    icon: BookOpen,
+    color: "text-blue-500",
+    bg: "bg-blue-500/10"
   }, {
-    label: "Diploma Students",
+    label: "Diploma",
     value: diplomaCount.toString(),
-    icon: GraduationCap
+    icon: GraduationCap,
+    color: "text-purple-500",
+    bg: "bg-purple-500/10"
   }, {
-    label: "BS Students",
+    label: "BS Programs",
     value: bsCount.toString(),
-    icon: FileText
+    icon: FileText,
+    color: "text-pink-500",
+    bg: "bg-pink-500/10"
   }, {
-    label: "Staff Members",
-    value: staff.total.toString(),
-    icon: Users
+    label: "Short Courses",
+    value: shortCourseCount?.toString() || "0",
+    icon: Users,
+    color: "text-orange-500",
+    bg: "bg-orange-500/10"
   }];
 
   // Chart data
   const studentDistribution = [{
-    name: "HSSC",
-    value: hsscCount,
+    name: "Intermediate",
+    value: intermediateCount || 0,
     fill: "hsl(var(--primary))"
   }, {
     name: "Diploma",
-    value: diplomaCount,
+    value: diplomaCount || 0,
     fill: "hsl(var(--secondary))"
   }, {
     name: "BS",
-    value: bsCount,
+    value: bsCount || 0,
     fill: "hsl(var(--accent))"
+  }, {
+    name: "Short Course",
+    value: shortCourseCount || 0,
+    fill: "hsl(var(--warning))"
+  }, {
+    name: "Coaching",
+    value: coachingCount || 0,
+    fill: "hsl(var(--destructive))"
   }];
 
-  const monthlyFeeCollection = [{
-    month: "Jan",
-    collected: paidFees / 1000000,
-    pending: pendingFees / 1000000
-  }, {
-    month: "Feb",
-    collected: 2.5,
-    pending: 0.3
-  }, {
-    month: "Mar",
-    collected: 2.4,
-    pending: 0.5
-  }, {
-    month: "Apr",
-    collected: 2.6,
-    pending: 0.4
-  }, {
-    month: "May",
-    collected: 2.5,
-    pending: 0.45
-  }, {
-    month: "Jun",
-    collected: 2.7,
-    pending: 0.3
-  }];
+  const monthlyFeeCollection = charts?.monthlyFeeCollection || [];
 
   const attendanceTrend = [{
     day: "Mon",
@@ -242,6 +253,7 @@ const Dashboard = () => {
     value: attendance.byStatus.leave,
     fill: "hsl(var(--warning))"
   }];
+
   const chartConfig = {
     collected: {
       label: "Collected",
@@ -256,266 +268,331 @@ const Dashboard = () => {
       color: "hsl(var(--primary))"
     }
   };
-  return <DashboardLayout>
-    <div className="space-y-6 max-w-full overflow-x-hidden">
-      {/* Welcome Section */}
-      <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium">
-        <h2 className="text-2xl font-bold mb-2">Welcome to Concordia College</h2>
-        <p className="text-primary-foreground/90">
-          Management Dashboard - Track and manage all college operations
-        </p>
-      </div>
 
-      {/* Main Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map(stat => {
-          const Icon = stat.icon;
-          return <Card key={stat.title} className="shadow-soft hover:shadow-medium transition-shadow">
-            <CardContent className="pt-6">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-muted-foreground">{stat.title}</p>
-                  <h3 className="text-3xl font-bold text-foreground">{stat.value}</h3>
-                  <p className="text-xs text-muted-foreground">{stat.change}</p>
-                </div>
-                <div className={cn("p-3 rounded-xl bg-muted", stat.color)}>
-                  <Icon className="w-6 h-6" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>;
-        })}
-      </div>
-
-      {/* Quick Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {quickStats.map(stat => {
-          const Icon = stat.icon;
-          return <Card key={stat.label} className="shadow-soft">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Icon className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">{stat.value}</p>
-                  <p className="text-xs text-muted-foreground">{stat.label}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>;
-        })}
-      </div>
-
-      {/* Analytics Charts */}
-      <div className="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Student Distribution Pie Chart */}
-        <Card className="shadow-soft">
-          <CardHeader>
-            <CardTitle>Student Distribution</CardTitle>
-          </CardHeader>
-          <CardContent className="p-6">
-            <div className="w-full h-[250px]">
-              <ChartContainer config={chartConfig} className="w-full h-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={studentDistribution} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                      {studentDistribution.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
-                    </Pie>
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Fee Collection Bar Chart */}
-        <Card className="shadow-soft lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Monthly Fee Collection (PKR Millions)</CardTitle>
-          </CardHeader>
-          <CardContent className="p-6">
-            <div className="w-full h-[250px]">
-              <ChartContainer config={chartConfig} className="w-full h-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={monthlyFeeCollection}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="month" />
-                    <YAxis />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Legend />
-                    <Bar dataKey="collected" fill="hsl(var(--success))" name="Collected" radius={[8, 8, 0, 0]} />
-                    <Bar dataKey="pending" fill="hsl(var(--warning))" name="Pending" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Attendance Trend Line Chart */}
-      <Card className="shadow-soft">
-        <CardHeader>
-          <CardTitle>Weekly Attendance Trend</CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="w-full h-[300px]">
-            <ChartContainer config={chartConfig} className="w-full h-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={attendanceTrend}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis dataKey="day" />
-                  <YAxis domain={[85, 100]} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Line type="monotone" dataKey="rate" stroke="hsl(var(--primary))" strokeWidth={3} dot={{
-                    fill: "hsl(var(--primary))",
-                    r: 5
-                  }} name="Attendance %" />
-                </LineChart>
-              </ResponsiveContainer>
-            </ChartContainer>
+  return (
+    <DashboardLayout>
+      <div className="space-y-6 max-w-full overflow-x-hidden">
+        {/* Welcome Section */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-r from-primary/90 to-primary/70 rounded-2xl p-8 text-white shadow-lg relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none" />
+          <div className="relative z-10">
+            <h2 className="text-3xl font-bold mb-2">Welcome to Concordia College</h2>
+            <p className="text-white/90 text-lg">
+              Management Dashboard - Track and manage all college operations
+            </p>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Module State Charts */}
-      <div>
-        <h3 className="text-xl font-bold mb-4">Module Status Overview</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Student Status */}
-          <Card className="shadow-soft">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Users className="w-4 h-4" />
-                Student Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4">
-              <div className="w-full h-[180px]">
-                <ChartContainer config={chartConfig} className="w-full h-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={studentStatusData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={3} dataKey="value">
-                        {studentStatusData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
-                      </Pie>
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
+          <div className="relative z-10 flex gap-2">
+            <Select value={selectedYear} onValueChange={setSelectedYear}>
+              <SelectTrigger className="w-[100px] bg-white/10 text-white border-white/20">
+                <SelectValue placeholder="Year" />
+              </SelectTrigger>
+              <SelectContent>
+                {[...Array(5)].map((_, i) => {
+                  const year = (new Date().getFullYear() - i).toString();
+                  return <SelectItem key={year} value={year}>{year}</SelectItem>
+                })}
+              </SelectContent>
+            </Select>
+            <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+              <SelectTrigger className="w-[140px] bg-white/10 text-white border-white/20">
+                <SelectValue placeholder="Month" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="overall">Overall</SelectItem>
+                {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m) => (
+                  <SelectItem key={m} value={m}>{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Main Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {stats.map((stat, index) => {
+            const Icon = stat.icon;
+            return (
+              <div key={stat.title}>
+                <Card className={cn("shadow-sm hover:shadow-md transition-all duration-300 border-l-4", stat.borderColor)}>
+                  <CardContent className="pt-6">
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-muted-foreground">{stat.title}</p>
+                        <h3 className="text-3xl font-bold text-foreground">{stat.value}</h3>
+                        <p className="text-xs text-muted-foreground font-medium">{stat.change}</p>
+                      </div>
+                      <div className={cn("p-3 rounded-xl", stat.bgColor, stat.color)}>
+                        <Icon className="w-6 h-6" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </CardContent>
-          </Card>
+            );
+          })}
+        </div>
 
-          {/* Fee Status */}
-          <Card className="shadow-soft">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <DollarSign className="w-4 h-4" />
-                Fee Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4">
-              <div className="w-full h-[180px]">
-                <ChartContainer config={chartConfig} className="w-full h-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={feeStatusData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={3} dataKey="value">
-                        {feeStatusData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
-                      </Pie>
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
+        {/* Quick Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {quickStats.map((stat, index) => {
+            const Icon = stat.icon;
+            return (
+              <div key={stat.label}>
+                <Card className="shadow-sm hover:shadow-md transition-all bg-card/50 backdrop-blur-sm border-muted/50">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                      <div className={cn("p-2 rounded-lg", stat.bg)}>
+                        <Icon className={cn("w-5 h-5", stat.color)} />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-foreground">{stat.value}</p>
+                        <p className="text-xs text-muted-foreground">{stat.label}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </CardContent>
-          </Card>
+            );
+          })}
+        </div>
 
-          {/* Attendance Status */}
-          <Card className="shadow-soft">
+        {/* Analytics Charts */}
+        <div className="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Student Distribution Pie Chart */}
+          <div className="h-full">
+            <Card className="shadow-sm hover:shadow-md transition-all h-full">
+              <CardHeader>
+                <CardTitle>Student Distribution</CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="w-full h-[250px]">
+                  <ChartContainer config={chartConfig} className="w-full h-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={studentDistribution} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                          {studentDistribution.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                        </Pie>
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Legend verticalAlign="bottom" height={36} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Fee Collection Bar Chart */}
+          <div className="lg:col-span-2 h-full">
+            <Card className="shadow-sm hover:shadow-md transition-all h-full">
+              <CardHeader>
+                <CardTitle>Monthly Fee Collection (PKR)</CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="w-full h-[250px]">
+                  <ChartContainer config={chartConfig} className="w-full h-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={monthlyFeeCollection} barGap={8}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
+                        <XAxis dataKey="month" axisLine={false} tickLine={false} tickMargin={10} />
+                        <YAxis axisLine={false} tickLine={false} />
+                        <ChartTooltip content={<ChartTooltipContent indicator="dashed" />} cursor={{ fill: 'transparent' }} />
+                        <Legend verticalAlign="top" align="right" height={36} iconType="circle" />
+                        <Bar dataKey="collected" fill="hsl(var(--success))" name="Collected" radius={[6, 6, 0, 0]} maxBarSize={50} />
+                        <Bar dataKey="pending" fill="hsl(var(--warning))" name="Pending" radius={[6, 6, 0, 0]} maxBarSize={50} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* Attendance Trend Line Chart */}
+        <div>
+          <Card className="shadow-sm hover:shadow-md transition-all">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ClipboardCheck className="w-4 h-4" />
-                Today's Attendance
-              </CardTitle>
+              <CardTitle>Weekly Attendance Trend</CardTitle>
             </CardHeader>
-            <CardContent className="p-4">
-              <div className="w-full h-[180px]">
+            <CardContent className="p-6">
+              <div className="w-full h-[300px]">
                 <ChartContainer config={chartConfig} className="w-full h-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={attendanceStatusData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={3} dataKey="value">
-                        {attendanceStatusData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
-                      </Pie>
+                    <LineChart data={attendanceTrend}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
+                      <XAxis dataKey="day" axisLine={false} tickLine={false} tickMargin={10} />
+                      <YAxis domain={[80, 100]} axisLine={false} tickLine={false} />
                       <ChartTooltip content={<ChartTooltipContent />} />
-                      <Legend />
-                    </PieChart>
+                      <Line
+                        type="monotone"
+                        dataKey="rate"
+                        stroke="hsl(var(--primary))"
+                        strokeWidth={4}
+                        dot={{ fill: "hsl(var(--primary))", r: 6, strokeWidth: 2, stroke: "white" }}
+                        activeDot={{ r: 8, strokeWidth: 0 }}
+                        name="Attendance %"
+                      />
+                    </LineChart>
                   </ResponsiveContainer>
                 </ChartContainer>
               </div>
             </CardContent>
           </Card>
         </div>
-      </div>
 
-      {/* System Metrics Summary */}
-      <div>
-        {/* Recent Activity */}
-        <Card className="shadow-soft">
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {recentActivity.map((activity, index) => <div key={index} className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors">
-                <div className="w-2 h-2 rounded-full bg-primary mt-2" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">{activity.action}</p>
-                  <p className="text-sm text-muted-foreground">{activity.student}</p>
+        {/* Module State Charts */}
+        <div>
+          <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+            <Briefcase className="w-5 h-5 text-primary" />
+            Module Status Overview
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Student Status */}
+            <Card className="shadow-sm hover:shadow-md transition-all">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base font-medium text-muted-foreground">
+                  <Users className="w-4 h-4" />
+                  Student Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="w-full h-[180px]">
+                  <ChartContainer config={chartConfig} className="w-full h-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={studentStatusData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={3} dataKey="value">
+                          {studentStatusData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                        </Pie>
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Legend verticalAlign="bottom" height={24} iconSize={8} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
                 </div>
-                <p className="text-xs text-muted-foreground whitespace-nowrap">{activity.time}</p>
-              </div>)}
-            </div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
 
-        {/* Financial Overview */}
-        <Card className="shadow-soft">
-          <CardHeader>
-            <CardTitle>Financial Overview</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-lg bg-success/10">
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Received</p>
-                  <p className="text-2xl font-bold text-success">PKR {(paidFees / 1000).toFixed(0)}K</p>
+            {/* Fee Status */}
+            <Card className="shadow-sm hover:shadow-md transition-all">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base font-medium text-muted-foreground">
+                  <DollarSign className="w-4 h-4" />
+                  Fee Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="w-full h-[180px]">
+                  <ChartContainer config={chartConfig} className="w-full h-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={feeStatusData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={3} dataKey="value">
+                          {feeStatusData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                        </Pie>
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Legend verticalAlign="bottom" height={24} iconSize={8} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
                 </div>
-                <TrendingUp className="w-8 h-8 text-success" />
-              </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-warning/10">
-                <div>
-                  <p className="text-sm text-muted-foreground">Receivable</p>
-                  <p className="text-2xl font-bold text-warning">PKR {(pendingFees / 1000).toFixed(0)}K</p>
+              </CardContent>
+            </Card>
+
+            {/* Attendance Status */}
+            <Card className="shadow-sm hover:shadow-md transition-all">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base font-medium text-muted-foreground">
+                  <ClipboardCheck className="w-4 h-4" />
+                  Today's Attendance
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="w-full h-[180px]">
+                  <ChartContainer config={chartConfig} className="w-full h-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={attendanceStatusData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={3} dataKey="value">
+                          {attendanceStatusData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                        </Pie>
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Legend verticalAlign="bottom" height={24} iconSize={8} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
                 </div>
-                <DollarSign className="w-8 h-8 text-warning" />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* System Metrics Summary (Grid Layout) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Recent Activity */}
+          <Card className="shadow-sm hover:shadow-md transition-all">
+            <CardHeader>
+              <CardTitle>Recent Activity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {recentActivity.map((activity, index) => (
+                  <div
+                    key={index}
+                    className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors border border-transparent hover:border-muted"
+                  >
+                    <div className="w-2 h-2 rounded-full bg-primary mt-2 shadow-[0_0_8px_hsl(var(--primary))]" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">{activity.action}</p>
+                      <p className="text-sm text-muted-foreground">{activity.student}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground whitespace-nowrap bg-muted px-2 py-1 rounded-full">{activity.time}</p>
+                  </div>
+                ))}
               </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-accent/10">
-                <div>
-                  <p className="text-sm text-muted-foreground">Monthly Expenses</p>
-                  <p className="text-2xl font-bold text-accent">PKR 1.2M</p>
+            </CardContent>
+          </Card>
+
+          {/* Financial Overview */}
+          <Card className="shadow-sm hover:shadow-md transition-all">
+            <CardHeader>
+              <CardTitle>Financial Overview</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-5 rounded-xl bg-gradient-to-r from-success/10 to-transparent border border-success/10 hover:scale-102 transition-transform duration-200">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Received</p>
+                    <p className="text-2xl font-bold text-success">PKR {(paidFees / 1000).toFixed(0)}K</p>
+                  </div>
+                  <div className="p-3 bg-success/20 rounded-full">
+                    <TrendingUp className="w-6 h-6 text-success" />
+                  </div>
                 </div>
-                <FileText className="w-8 h-8 text-accent" />
+                <div className="flex items-center justify-between p-5 rounded-xl bg-gradient-to-r from-warning/10 to-transparent border border-warning/10 hover:scale-102 transition-transform duration-200">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Receivable (Pending)</p>
+                    <p className="text-2xl font-bold text-warning">PKR {(finance.totalReceivable / 1000).toFixed(0)}K</p>
+                  </div>
+                  <div className="p-3 bg-warning/20 rounded-full">
+                    <DollarSign className="w-6 h-6 text-warning" />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between p-5 rounded-xl bg-gradient-to-r from-accent/10 to-transparent border border-accent/10 hover:scale-102 transition-transform duration-200">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Monthly Expenses</p>
+                    <p className="text-2xl font-bold text-accent">PKR {(finance.monthlyExpense / 1000).toFixed(0)}K</p>
+                  </div>
+                  <div className="p-3 bg-accent/20 rounded-full">
+                    <FileText className="w-6 h-6 text-accent" />
+                  </div>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
-    </div>
-  </DashboardLayout>;
+    </DashboardLayout>
+  );
 };
 export default Dashboard;

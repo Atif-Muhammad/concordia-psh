@@ -13,7 +13,7 @@ import React, { useState, useMemo } from "react";
 import { TrendingUp, TrendingDown, DollarSign, FileText, Trash2, Info, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from "recharts";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Cell } from "recharts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getFinanceIncomes,
@@ -106,9 +106,13 @@ const Finance = () => {
       // Current month
       dateFrom = new Date(now.getFullYear(), now.getMonth(), 1);
       dateTo = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    } else { // yearly
+    } else if (dashboardPeriod === 'yearly') { // yearly
       // Current year
       dateFrom = new Date(now.getFullYear(), 0, 1);
+      dateTo = new Date(now.getFullYear(), 11, 31);
+    } else { // overall
+      // Last 5 years
+      dateFrom = new Date(now.getFullYear() - 4, 0, 1);
       dateTo = new Date(now.getFullYear(), 11, 31);
     }
 
@@ -382,7 +386,9 @@ const Finance = () => {
       }
       return days;
 
-    } else if (dashboardPeriod === 'yearly') {
+      return days;
+
+    } else if (dashboardPeriod === 'overall') {
       // Last 5 years
       const years = [];
       const currentYear = new Date().getFullYear();
@@ -404,8 +410,34 @@ const Finance = () => {
       }
       return years;
 
+    } else if (dashboardPeriod === 'monthly') {
+      // Daily breakdown for current month
+      const days = [];
+      const now = new Date();
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+
+      for (let i = 1; i <= daysInMonth; i++) {
+        const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+        const dayLabel = String(i);
+
+        const dayIncome = dashboardIncomeData
+          .filter(item => item.date === dateStr)
+          .reduce((sum, item) => sum + Number(item.amount), 0);
+        const dayExpense = dashboardExpenseData
+          .filter(item => item.date === dateStr)
+          .reduce((sum, item) => sum + Number(item.amount), 0);
+
+        days.push({
+          month: dayLabel,
+          income: dayIncome,
+          expense: dayExpense,
+          balance: dayIncome - dayExpense
+        });
+      }
+      return days;
+
     } else {
-      // Monthly (12 months of current year)
+      // Yearly (12 months of current year)
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       const currentYear = new Date().getFullYear();
       return months.map((month, index) => {
@@ -439,6 +471,7 @@ const Finance = () => {
     { name: "Inventory", amount: dashboardExpenseData.filter(e => e.category === "Inventory").reduce((sum, e) => sum + Number(e.amount), 0) },
     { name: "Utility Bills", amount: dashboardExpenseData.filter(e => e.category === "Utility Bills").reduce((sum, e) => sum + Number(e.amount), 0) },
     { name: "Salaries", amount: dashboardExpenseData.filter(e => e.category === "Salaries").reduce((sum, e) => sum + Number(e.amount), 0) },
+    { name: "Hostel", amount: dashboardExpenseData.filter(e => e.category === "Hostel").reduce((sum, e) => sum + Number(e.amount), 0) },
     { name: "Maintenance", amount: dashboardExpenseData.filter(e => e.category === "Maintenance").reduce((sum, e) => sum + Number(e.amount), 0) },
     { name: "Supplies", amount: dashboardExpenseData.filter(e => e.category === "Supplies").reduce((sum, e) => sum + Number(e.amount), 0) },
     { name: "Other", amount: dashboardExpenseData.filter(e => e.category === "Other").reduce((sum, e) => sum + Number(e.amount), 0) }
@@ -485,6 +518,7 @@ const Finance = () => {
                 <SelectItem value="weekly">Weekly</SelectItem>
                 <SelectItem value="monthly">Monthly</SelectItem>
                 <SelectItem value="yearly">Yearly</SelectItem>
+                <SelectItem value="overall">Overall</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -574,7 +608,11 @@ const Finance = () => {
                     <XAxis dataKey="month" />
                     <YAxis />
                     <RechartsTooltip />
-                    <Bar dataKey="balance" fill="hsl(var(--primary))" name="Balance" />
+                    <Bar dataKey="balance" name="Balance">
+                      {monthlyData?.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.balance >= 0 ? "hsl(var(--success))" : "hsl(var(--destructive))"} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -749,6 +787,7 @@ const Finance = () => {
                       <SelectItem value="Inventory">Inventory</SelectItem>
                       <SelectItem value="Utility Bills">Utility Bills</SelectItem>
                       <SelectItem value="Salaries">Salaries</SelectItem>
+                      <SelectItem value="Hostel">Hostel</SelectItem>
                       <SelectItem value="Maintenance">Maintenance</SelectItem>
                       <SelectItem value="Supplies">Supplies</SelectItem>
                       <SelectItem value="Other">Other</SelectItem>
