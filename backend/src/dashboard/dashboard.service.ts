@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { FinanceService } from '../finance/finance.service';
 
 @Injectable()
 export class DashboardService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService, private financeService: FinanceService) { }
   async getDashboardStats(filters?: { month?: string; year?: string }) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -14,17 +15,41 @@ export class DashboardService {
     let monthEnd: Date;
     let isOverall = true;
 
-    if (filters?.month && filters?.year) {
+    if (filters?.year) {
       isOverall = false;
       const year = parseInt(filters.year);
-      const monthIndex = new Date(Date.parse(`${filters.month} 1, ${filters.year}`)).getMonth();
-      monthStart = new Date(year, monthIndex, 1);
-      monthEnd = new Date(year, monthIndex + 1, 0);
+
+      if (filters.month) {
+        // Specific Month
+        const monthIndex = new Date(Date.parse(`${filters.month} 1, ${filters.year}`)).getMonth();
+        monthStart = new Date(year, monthIndex, 1);
+        monthEnd = new Date(year, monthIndex + 1, 0);
+      } else {
+        // Whole Year
+        monthStart = new Date(year, 0, 1);
+        monthEnd = new Date(year, 11, 31);
+      }
     } else {
       // Default to current month
       monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
       monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
     }
+
+    // Helper to format date as YYYY-MM-DD for FinanceService
+    const formatDate = (d: Date) => d.toISOString().split('T')[0];
+    const dateFrom = formatDate(monthStart);
+    const dateTo = formatDate(monthEnd);
+
+    // Call FinanceService to get Income and Expense (Exactly as Finance Page does)
+    const [financeIncomes, financeExpenses] = await Promise.all([
+      this.financeService.getIncomes({ dateFrom, dateTo }),
+      this.financeService.getExpenses({ dateFrom, dateTo })
+    ]);
+
+    // Calculate Totals using FinanceService data
+    const monthlyIncome = financeIncomes.reduce((sum: number, item: any) => sum + Number(item.amount), 0);
+    const monthlyExpense = financeExpenses.reduce((sum: number, item: any) => sum + Number(item.amount), 0);
+
 
     // Parallel queries for efficiency
     const [
@@ -36,13 +61,9 @@ export class DashboardService {
       teachers,
       employees,
       exams,
-      financeIncome,
-      financeExpense,
       paidHistoryData,
       issuedHistoryData,
       receivablesAgg,
-      teacherSalaries,
-      employeeSalaries
     ] = await Promise.all([
       // Students
       this.prisma.student.findMany({
@@ -129,31 +150,7 @@ export class DashboardService {
         },
       }),
 
-      // Finance Income (selected month)
-      this.prisma.financeIncome.findMany({
-        where: {
-          date: {
-            gte: monthStart,
-            lte: monthEnd,
-          },
-        },
-        select: {
-          amount: true,
-        },
-      }),
 
-      // Finance Expense (selected month)
-      this.prisma.financeExpense.findMany({
-        where: {
-          date: {
-            gte: monthStart,
-            lte: monthEnd,
-          },
-        },
-        select: {
-          amount: true,
-        },
-      }),
 
       // Fee History - Collected (Based on Paid Date - Cash Flow)
       this.prisma.feeChallan.findMany({
@@ -205,35 +202,7 @@ export class DashboardService {
         },
       }),
 
-      // Payroll - Teachers (Paid in selected month)
-      this.prisma.payroll.findMany({
-        where: {
-          teacherId: { not: null },
-          status: 'PAID',
-          paymentDate: {
-            gte: monthStart,
-            lte: monthEnd,
-          }
-        },
-        select: {
-          netSalary: true
-        }
-      }),
 
-      // Payroll - Employees (Paid in selected month)
-      this.prisma.payroll.findMany({
-        where: {
-          employeeId: { not: null },
-          status: 'PAID',
-          paymentDate: {
-            gte: monthStart,
-            lte: monthEnd,
-          }
-        },
-        select: {
-          netSalary: true
-        }
-      }),
     ]);
 
     // Calculate student statistics
@@ -250,20 +219,68 @@ export class DashboardService {
       passedOut: students.filter((s) => s.passedOut).length,
     };
 
-    // Calculate fee statistics
-    const totalFeeAmount = feeChallan.reduce(
-      (sum, f) => sum + Number(f.amount),
-      0,
-    );
+
+
+    // Calculate Expected vs Collected Tuition
+    // 1. Expected: Sum of Tuition Fee for ALL Active Students (Standardized per Class)
+    const allActiveStudents = await this.prisma.student.findMany({
+      where: { passedOut: false },
+      select: { programId: true, classId: true }
+    });
+
+    const feeStructures = await this.prisma.feeStructure.findMany({
+      include: { feeHeads: { include: { feeHead: true } } }
+    });
+
+    let totalExpectedTuition = 0;
+
+    // Create lookup for structure tuition amount
+    const structureTuitionMap = new Map<string, number>(); // key: "progId-classId"
+    feeStructures.forEach(fs => {
+      const tuition = fs.feeHeads
+        .filter(fh => fh.feeHead.isTuition)
+        .reduce((sum, fh) => sum + (fh.amount || fh.feeHead.amount), 0);
+      structureTuitionMap.set(`${fs.programId}-${fs.classId}`, tuition);
+    });
+
+    allActiveStudents.forEach(stu => {
+      const tuition = structureTuitionMap.get(`${stu.programId}-${stu.classId}`) || 0;
+      totalExpectedTuition += tuition;
+    });
+
+    // 2. Collected: Sum of tuitionPaid for Paid/Partial Challans in period
+    const collectionWhere: any = {
+      status: { in: ['PAID', 'PARTIAL'] }
+    };
+    if (!isOverall) {
+      collectionWhere.paidDate = {
+        gte: monthStart,
+        lte: monthEnd
+      };
+    }
+
+    const collectedChallans = await this.prisma.feeChallan.findMany({
+      where: collectionWhere,
+      select: { tuitionPaid: true }
+    });
+
+    const totalCollectedTuition = collectedChallans.reduce((sum, c) => sum + (c.tuitionPaid || 0), 0);
+
+    // Calculate collection rate (max 100%)
+    const feeCollectionRate = totalExpectedTuition > 0
+      ? Math.min(Math.round((totalCollectedTuition / totalExpectedTuition) * 100), 100)
+      : 0;
+
+    // Fees Stats for Dashboard
+    const totalFeeAmount = feeChallan.reduce((sum, f) => sum + Number(f.amount), 0);
     const paidFees = feeChallan.reduce((sum, f) => sum + Number(f.paidAmount), 0);
     const pendingFees = totalFeeAmount - paidFees;
-    const collectionRate =
-      totalFeeAmount > 0 ? (paidFees / totalFeeAmount) * 100 : 0;
 
     const feesByStatus = {
       paid: feeChallan.filter((f) => f.status === 'PAID').length,
       pending: feeChallan.filter((f) => f.status === 'PENDING').length,
       overdue: feeChallan.filter((f) => f.status === 'OVERDUE').length,
+      collectionRate: feeCollectionRate,
     };
 
     // Calculate monthly fee history
@@ -358,21 +375,7 @@ export class DashboardService {
     };
 
     // Calculate finance statistics
-    const monthlyIncome = financeIncome.reduce(
-      (sum, i) => sum + Number(i.amount),
-      0,
-    );
 
-    const expenseFromFinance = financeExpense.reduce(
-      (sum, e) => sum + Number(e.amount),
-      0,
-    );
-
-    const salaryExpense =
-      teacherSalaries.reduce((sum, s) => sum + Number(s.netSalary), 0) +
-      employeeSalaries.reduce((sum, s) => sum + Number(s.netSalary), 0);
-
-    const monthlyExpense = expenseFromFinance + salaryExpense;
 
     return {
       students: {
@@ -391,7 +394,7 @@ export class DashboardService {
         totalAmount: totalFeeAmount,
         paidAmount: paidFees,
         pendingAmount: pendingFees,
-        collectionRate: Math.round(collectionRate),
+        collectionRate: feeCollectionRate,
         byStatus: feesByStatus,
       },
       attendance: {

@@ -13,7 +13,10 @@ const Dashboard = () => {
   const [selectedMonth, setSelectedMonth] = React.useState("overall");
   const [selectedYear, setSelectedYear] = React.useState(new Date().getFullYear().toString());
 
-  const queryFilters = selectedMonth === "overall" ? {} : { month: selectedMonth, year: selectedYear };
+  const queryFilters = {
+    year: selectedYear,
+    ...(selectedMonth !== "overall" && { month: selectedMonth })
+  };
 
   // Fetch dashboard statistics from backend
   const { data: dashboardData, isLoading, isError } = useQuery({
@@ -91,9 +94,9 @@ const Dashboard = () => {
     bgColor: "bg-primary/10",
     borderColor: "border-primary/20",
   }, {
-    title: "Fee Collection (Month)",
+    title: `Fee Collection (${selectedMonth === 'overall' ? 'Year' : 'Month'})`,
     value: `PKR ${(paidFees / 1000).toFixed(0)}K`,
-    change: `${collectionRate}% collected`,
+    change: selectedMonth === 'overall' ? "This Year" : "Month to date",
     icon: DollarSign,
     color: "text-success",
     bgColor: "bg-success/10",
@@ -109,7 +112,7 @@ const Dashboard = () => {
   }, {
     title: "Finance Balance",
     value: `PKR ${(finance.netBalance / 1000).toFixed(0)}K`,
-    change: "This month",
+    change: selectedMonth === 'overall' ? "This Year" : "This Month",
     icon: UserPlus,
     color: "text-accent",
     bgColor: "bg-accent/10",

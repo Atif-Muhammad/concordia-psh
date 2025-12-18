@@ -371,10 +371,10 @@ const Finance = () => {
         const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
 
         const dayIncome = dashboardIncomeData
-          .filter(item => item.date === dateStr)
+          .filter(item => item.date.toString().split('T')[0] === dateStr)
           .reduce((sum, item) => sum + Number(item.amount), 0);
         const dayExpense = dashboardExpenseData
-          .filter(item => item.date === dateStr)
+          .filter(item => item.date.toString().split('T')[0] === dateStr)
           .reduce((sum, item) => sum + Number(item.amount), 0);
 
         days.push({
@@ -421,10 +421,10 @@ const Finance = () => {
         const dayLabel = String(i);
 
         const dayIncome = dashboardIncomeData
-          .filter(item => item.date === dateStr)
+          .filter(item => item.date.toString().split('T')[0] === dateStr)
           .reduce((sum, item) => sum + Number(item.amount), 0);
         const dayExpense = dashboardExpenseData
-          .filter(item => item.date === dateStr)
+          .filter(item => item.date.toString().split('T')[0] === dateStr)
           .reduce((sum, item) => sum + Number(item.amount), 0);
 
         days.push({
@@ -459,23 +459,117 @@ const Finance = () => {
   }, [dashboardIncomeData, dashboardExpenseData, dashboardPeriod]);
 
 
-  const categoryIncomeData = [
-    { name: "Fee", amount: dashboardIncomeData.filter(i => i.category === "Fee").reduce((sum, i) => sum + Number(i.amount), 0) },
-    { name: "Donation", amount: dashboardIncomeData.filter(i => i.category === "Donation").reduce((sum, i) => sum + Number(i.amount), 0) },
-    { name: "Funding", amount: dashboardIncomeData.filter(i => i.category === "Funding").reduce((sum, i) => sum + Number(i.amount), 0) },
-    { name: "Revenue", amount: dashboardIncomeData.filter(i => i.category === "Revenue").reduce((sum, i) => sum + Number(i.amount), 0) },
-    { name: "Investments", amount: dashboardIncomeData.filter(i => i.category === "Investments").reduce((sum, i) => sum + Number(i.amount), 0) }
-  ];
+  // Stacked Chart Data - Aggregates by Date AND Category
+  const stackedChartData = useMemo(() => {
+    const getDateKey = (date, period) => {
+      const d = new Date(date);
+      if (period === 'weekly' || period === 'monthly') return d.toISOString().split('T')[0];
+      if (period === 'yearly') return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      return d.getFullYear().toString();
+    };
 
-  const categoryExpenseData = [
-    { name: "Inventory", amount: dashboardExpenseData.filter(e => e.category === "Inventory").reduce((sum, e) => sum + Number(e.amount), 0) },
-    { name: "Utility Bills", amount: dashboardExpenseData.filter(e => e.category === "Utility Bills").reduce((sum, e) => sum + Number(e.amount), 0) },
-    { name: "Salaries", amount: dashboardExpenseData.filter(e => e.category === "Salaries").reduce((sum, e) => sum + Number(e.amount), 0) },
-    { name: "Hostel", amount: dashboardExpenseData.filter(e => e.category === "Hostel").reduce((sum, e) => sum + Number(e.amount), 0) },
-    { name: "Maintenance", amount: dashboardExpenseData.filter(e => e.category === "Maintenance").reduce((sum, e) => sum + Number(e.amount), 0) },
-    { name: "Supplies", amount: dashboardExpenseData.filter(e => e.category === "Supplies").reduce((sum, e) => sum + Number(e.amount), 0) },
-    { name: "Other", amount: dashboardExpenseData.filter(e => e.category === "Other").reduce((sum, e) => sum + Number(e.amount), 0) }
-  ];
+    const getLabel = (dateStr, period) => {
+      // Logic mirrors monthlyData logic somewhat but generalized
+      if (period === 'weekly' || period === 'monthly') {
+        // dateStr is YYYY-MM-DD. For weekly/monthly we want Day number or label.
+        // In monthlyData 'weekly' used Day Name (Mon), 'monthly' used Day Number (1).
+        // We'll stick to Day Number/Name based on logic below or simplify.
+        const d = new Date(dateStr);
+        if (period === 'weekly') return d.toLocaleDateString('en-US', { weekday: 'short' });
+        return d.getDate().toString();
+      }
+      if (period === 'yearly') {
+        // dateStr is YYYY-MM. Return Month Name.
+        const [y, m] = dateStr.split('-');
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        return months[parseInt(m) - 1];
+      }
+      return dateStr; // yearly (YYYY)
+    };
+
+    // Helper to generate periods (Days/Months/Years) similar to monthlyData
+    let periods = [];
+    const now = new Date();
+
+    if (dashboardPeriod === 'weekly') {
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now.getTime() - i * 86400000);
+        periods.push(getDateKey(d, 'weekly'));
+      }
+    } else if (dashboardPeriod === 'monthly') {
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      for (let i = 1; i <= daysInMonth; i++) {
+        periods.push(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`);
+      }
+    } else if (dashboardPeriod === 'yearly') {
+      for (let i = 0; i < 12; i++) {
+        periods.push(`${now.getFullYear()}-${String(i + 1).padStart(2, '0')}`);
+      }
+    } else { // overall
+      const currentYear = now.getFullYear();
+      for (let i = 4; i >= 0; i--) {
+        periods.push((currentYear - i).toString());
+      }
+    }
+
+    // Initialize data structure
+    const data = periods.map(p => ({
+      name: getLabel(p, dashboardPeriod),
+      // Incomes
+      Fee: 0, Donation: 0, Funding: 0, Revenue: 0, Investments: 0,
+      // Expenses
+      Inventory: 0, 'Utility Bills': 0, Salaries: 0, Hostel: 0, Maintenance: 0, Supplies: 0, Other: 0
+    }));
+
+    // Fill Data
+    const fillData = (sourceData, type) => {
+      sourceData.forEach(item => {
+        // Handle Date Parsing for ISO strings (paidDate etc)
+        // item.date is full ISO. 
+        let itemKey;
+        try {
+          // We need to match the period generated keys
+          if (dashboardPeriod === 'weekly' || dashboardPeriod === 'monthly') {
+            itemKey = item.date.toString().split('T')[0];
+          } else if (dashboardPeriod === 'yearly') {
+            itemKey = item.date.toString().slice(0, 7); // YYYY-MM
+          } else {
+            itemKey = item.date.toString().slice(0, 4); // YYYY
+          }
+        } catch (e) { return; }
+
+        const periodIndex = periods.indexOf(itemKey);
+        if (periodIndex !== -1) {
+          if (data[periodIndex][item.category] !== undefined) {
+            data[periodIndex][item.category] += Number(item.amount);
+          }
+        }
+      });
+    };
+
+    fillData(dashboardIncomeData, 'income');
+    fillData(dashboardExpenseData, 'expense');
+
+    return data;
+  }, [dashboardIncomeData, dashboardExpenseData, dashboardPeriod]);
+
+  const incomeColors = {
+    Fee: "hsl(var(--primary))",
+    Donation: "#10b981", // emerald-500
+    Funding: "#3b82f6", // blue-500
+    Revenue: "#f59e0b", // amber-500
+    Investments: "#8b5cf6" // violet-500
+  };
+
+  const expenseColors = {
+    Inventory: "#f97316", // orange-500
+    "Utility Bills": "#ef4444", // red-500
+    Salaries: "#3b82f6", // blue-500
+    Hostel: "#8b5cf6", // violet-500
+    Maintenance: "#10b981", // emerald-500
+    Supplies: "#f59e0b", // amber-500
+    Other: "#6b7280" // gray-500
+  };
 
   // Reports tab calculations (separate from dashboard)
   const reportsTotalIncome = useMemo(() => reportsIncomeData.reduce((sum, item) => sum + Number(item.amount), 0), [reportsIncomeData]);
@@ -624,12 +718,15 @@ const Finance = () => {
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={categoryIncomeData}>
+                  <BarChart data={stackedChartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
                     <YAxis />
                     <RechartsTooltip />
-                    <Bar dataKey="amount" fill="hsl(var(--success))" />
+                    <Legend />
+                    {Object.keys(incomeColors).map(key => (
+                      <Bar key={key} dataKey={key} stackId="a" fill={incomeColors[key]} />
+                    ))}
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -641,12 +738,15 @@ const Finance = () => {
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={categoryExpenseData}>
+                  <BarChart data={stackedChartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
                     <YAxis />
                     <RechartsTooltip />
-                    <Bar dataKey="amount" fill="hsl(var(--destructive))" />
+                    <Legend />
+                    {Object.keys(expenseColors).map(key => (
+                      <Bar key={key} dataKey={key} stackId="a" fill={expenseColors[key]} />
+                    ))}
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>

@@ -119,7 +119,7 @@ export class FinanceService {
 
           return {
             id: `fee-${monthKey}`,
-            date: data.date,
+            date: data.date, // already aggregated by month object
             category: 'Fee',
             description: `Fee payments from ${monthName} (${data.count} payments)`,
             amount: data.total,
@@ -131,6 +131,11 @@ export class FinanceService {
         },
       );
     }
+
+    // Map individual fee challans if needed (logic below handles if not aggregated) - BUT wait, the code above aggregated them if filtered. 
+    // Actually, looking at lines 417-425 in getDashboardStats, it maps individual ones.
+    // getIncomes does aggregation for "Fee" category? 
+    // Let's check lines 110-132. It returns aggregated.
 
     // Combine and sort by date
     const allIncomes = [...manualIncomes, ...feeChallans].sort(
@@ -513,7 +518,7 @@ export class FinanceService {
         date: c.paidDate || c.createdAt,
         category: 'Fee',
         description: `Fee payment from ${c.student.fName} ${c.student.lName || ''}`,
-        amount: c.paidAmount,
+        amount: Number(c.paidAmount),
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
       })),
@@ -524,9 +529,9 @@ export class FinanceService {
       ...paidPayrolls.map((p) => ({
         id: `payroll-${p.id}`,
         date: p.paymentDate || p.createdAt,
-        category: 'Payroll',
+        category: 'Salaries', // Mapped to Salaries
         description: `Salary - ${p.month}`,
-        amount: p.netSalary,
+        amount: Number(p.netSalary),
         createdAt: p.createdAt,
         updatedAt: p.updatedAt,
       })),
