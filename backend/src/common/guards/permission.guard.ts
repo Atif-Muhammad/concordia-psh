@@ -27,7 +27,7 @@ export class PermissionsGuard implements CanActivate {
     // Check if user has *any* of the required permissions
     return (
       requiredPermissions.some((permission) =>
-        user.permissions.modules.includes(permission),
+        user.permissions?.modules?.includes(permission),
       ) || user?.role === 'SUPER_ADMIN'
     );
   }

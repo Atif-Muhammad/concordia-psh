@@ -29,7 +29,17 @@ const menuItems = [
 
 const DashboardLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    const saved = localStorage.getItem("sidebarCollapsed");
+    return saved ? JSON.parse(saved) : false;
+  });
+
+  // Persist sidebar state
+  const toggleSidebar = () => {
+    const newState = !sidebarCollapsed;
+    setSidebarCollapsed(newState);
+    localStorage.setItem("sidebarCollapsed", JSON.stringify(newState));
+  };
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -165,7 +175,7 @@ const DashboardLayout = ({ children }) => {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              onClick={toggleSidebar}
               className={cn(
                 "w-full justify-center hover:bg-sidebar-accent text-white bg-amber-700",
                 sidebarCollapsed && "px-2"

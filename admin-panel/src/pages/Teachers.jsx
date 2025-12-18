@@ -187,8 +187,10 @@ const Teachers = () => {
   const markAttendanceMutation = useMutation({
     mutationFn: ({ id, status, date }) => markTeacherAttendance(id, status, date),
     onSuccess: () => {
+      // toast({ title: "Attendance marked" });
       queryClient.invalidateQueries(["teacherAttendance"]);
     },
+    onError: (err) => toast({ title: err.message, variant: "destructive" }),
   });
 
   // Handlers
@@ -705,21 +707,21 @@ const Teachers = () => {
                               <Button
                                 size="sm"
                                 variant={record?.status === "PRESENT" ? "default" : "outline"}
-                                onClick={() => handleMarkAttendance(record.id, "PRESENT")}
+                                onClick={() => handleMarkAttendance(teacher.id, "PRESENT")}
                               >
                                 <CheckCircle2 className="h-4 w-4" />
                               </Button>
                               <Button
                                 size="sm"
                                 variant={record?.status === "ABSENT" ? "destructive" : "outline"}
-                                onClick={() => handleMarkAttendance(record.id, "ABSENT")}
+                                onClick={() => handleMarkAttendance(teacher.id, "ABSENT")}
                               >
                                 <XCircle className="h-4 w-4" />
                               </Button>
                               <Button
                                 size="sm"
                                 variant={record?.status === "LEAVE" ? "secondary" : "outline"}
-                                onClick={() => handleMarkAttendance(record.id, "LEAVE")}
+                                onClick={() => handleMarkAttendance(teacher.id, "LEAVE")}
                               >
                                 <Clock className="h-4 w-4" />
                               </Button>

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { EmployeeDto } from './dtos/employee.dot';
 import {
@@ -10,6 +10,48 @@ import {
 @Injectable()
 export class HrService {
   constructor(private prismService: PrismaService) { }
+
+
+
+  /**
+   * Check if a date is a non-working day (weekend or holiday)
+   * Copied from AttendanceService to verify dates in HR module
+   */
+  async isNonWorkingDay(date: Date): Promise<{ isBlocked: boolean; reason?: string }> {
+    const dayOfWeek = date.getUTCDay();
+
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      return { isBlocked: true, reason: 'Weekend' };
+    }
+
+    const dateOnly = new Date(date);
+    dateOnly.setUTCHours(0, 0, 0, 0);
+
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+
+    if (dateOnly.getTime() > today.getTime()) {
+      return { isBlocked: true, reason: 'Cannot mark attendance for future dates' };
+    }
+
+    const holidays = await this.prismService.holiday.findMany();
+    for (const holiday of holidays) {
+      const holidayDate = new Date(holiday.date);
+      holidayDate.setUTCHours(0, 0, 0, 0);
+
+      if (holidayDate.getTime() === dateOnly.getTime()) {
+        return { isBlocked: true, reason: `Holiday: ${holiday.title}` };
+      }
+      if (
+        holiday.repeatYearly &&
+        holidayDate.getUTCMonth() === dateOnly.getUTCMonth() &&
+        holidayDate.getUTCDate() === dateOnly.getUTCDate()
+      ) {
+        return { isBlocked: true, reason: `Holiday: ${holiday.title}` };
+      }
+    }
+    return { isBlocked: false };
+  }
 
   async findOne(id: number) {
     return await this.prismService.employee.findUnique({
@@ -695,6 +737,14 @@ export class HrService {
 
   async markEmployeeAttendance(data: any) {
     const formattedDate = new Date(data.date).toISOString().split('T')[0];
+    const targetDate = new Date(formattedDate);
+    targetDate.setUTCHours(0, 0, 0, 0);
+
+    // Check for Non-Working Day
+    const dateCheck = await this.isNonWorkingDay(targetDate);
+    if (dateCheck.isBlocked) {
+      throw new BadRequestException(`Cannot mark attendance: ${dateCheck.reason}`);
+    }
 
     // Check if attendance already exists
     const existing = await this.prismService.employeeAttendance.findUnique({
