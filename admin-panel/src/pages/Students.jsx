@@ -1916,9 +1916,8 @@ const Students = () => {
         </Dialog>
 
         {/* ID Card Dialog */}
-        {/* ID Card Dialog */}
         <Dialog open={idCardOpen} onOpenChange={setIdCardOpen}>
-          <DialogContent className="max-w-3xl bg-white overflow-y-auto max-h-[95vh]">
+          <DialogContent className="max-w-3xl bg-white overflow-y-auto max-h-[95vh] text-black">
             <DialogHeader>
               <DialogTitle>Student ID Card</DialogTitle>
             </DialogHeader>
@@ -1927,7 +1926,7 @@ const Students = () => {
               <div
                 id="id-card-print"
                 dangerouslySetInnerHTML={{ __html: generatedIdCard }}
-                className="flex flex-col items-center gap-4"
+                className="flex flex-col items-center gap-4 text-black"
               />
             ) : (
               <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
@@ -1935,7 +1934,7 @@ const Students = () => {
               </div>
             )}
 
-            <div className="flex justify-end gap-2 border-t pt-4">
+            <div className="flex justify-end gap-2 border-t pt-4 text-black">
               <Button onClick={() => setIdCardOpen(false)} variant="outline">Close</Button>
               <Button disabled={!generatedIdCard} onClick={() => {
                 const el = document.getElementById("id-card-print");

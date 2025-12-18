@@ -412,16 +412,6 @@ const Teachers = () => {
                       />
                     </div>
 
-                    {/* Password */}
-                    {!editingTeacher && (
-                      <div>
-                        <Label>Password <span className="text-red-500">*</span></Label>
-                        <PasswordInput
-                          value={formData.password}
-                          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                        />
-                      </div>
-                    )}
 
                     {/* Phone */}
                     <div>
@@ -429,6 +419,14 @@ const Teachers = () => {
                       <Input
                         value={formData.phone}
                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      />
+                    </div>
+                    {/* Password */}
+                    <div>
+                      <Label>Password {editingTeacher ? "(Leave blank to keep same)" : <span className="text-red-500">*</span>}</Label>
+                      <PasswordInput
+                        value={formData.password}
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                       />
                     </div>
 
@@ -947,7 +945,7 @@ const Teachers = () => {
           <div className="">
             {selectedTeacherForCard && idCardTemplate && (
               <div
-                className="id-card-print-area"
+                className="id-card-print-area text-black"
                 dangerouslySetInnerHTML={{
                   __html: idCardTemplate
                     .replace(/{{name}}/g, selectedTeacherForCard.name)

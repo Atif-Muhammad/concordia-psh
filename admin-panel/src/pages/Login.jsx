@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { loginAdmin } from "../../config/apis";
+import logo from "../assets/logo-full.png"
 
 
 const Login = () => {
@@ -25,7 +26,8 @@ const Login = () => {
         description: `Welcome back!`,
       });
       queryClient.invalidateQueries(["currentUser"])
-      navigate("/dashboard");
+      const target = res?.user?.role === "Teacher" ? "/attendance" : "/dashboard";
+      navigate(target);
     },
     onError: (error) => {
       toast({
@@ -42,17 +44,14 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-hero flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-[#F57200] via-[#2a2a2a] to-[#1e1e1e] bg-[length:200%_200%] animate-gradient flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="bg-card rounded-2xl shadow-strong p-8 space-y-6">
           {/* Logo & Title */}
           <div className="text-center space-y-2">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-2xl mb-4">
-              <GraduationCap className="w-8 h-8 text-primary-foreground" />
+            <div className="inline-flex items-center justify-center w-1/2 mb-4">
+              <img src={logo} alt="logo" />
             </div>
-            <h1 className="text-3xl font-bold text-foreground">
-              Concordia College
-            </h1>
             <p className="text-muted-foreground">Management System</p>
           </div>
 
@@ -65,7 +64,7 @@ const Login = () => {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="admin@concordia.edu"
+                  placeholder="Enter your email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="pl-10"
@@ -98,9 +97,9 @@ const Login = () => {
             </Button>
           </form>
 
-          <div className="text-center text-sm text-muted-foreground">
-            <p>Demo: concordiasuper1@gmail.com / superAdmin123</p>
-          </div>
+          {/* <div className="text-center text-sm text-muted-foreground">
+            <p>Demo: concordiasuper1@gmail.com / 123</p>
+          </div> */}
         </div>
 
         {/* Footer */}

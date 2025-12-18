@@ -24,7 +24,7 @@ import { RolesEnum } from 'src/common/constants/roles.enum';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Post('create/super-admin')
   async createSuperAdmin(@Body() payload: CreateAdminDto) {
@@ -49,7 +49,13 @@ export class AuthController {
       sameSite: true,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
-    return res.status(200).json({ message: 'Login successful' });
+    return res.status(200).json({
+      message: 'Login successful',
+      user: {
+        ...admin,
+        role: admin.role || 'Teacher'
+      }
+    });
   }
 
   @Post('logout')

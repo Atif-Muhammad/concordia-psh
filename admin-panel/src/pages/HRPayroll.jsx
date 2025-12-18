@@ -1721,7 +1721,7 @@ const HRPayroll = () => {
           <div className="">
             {selectedEmployee && idCardTemplate && (
               <div
-                className="id-card-print-area"
+                className="id-card-print-area text-black"
                 dangerouslySetInnerHTML={{
                   __html: idCardTemplate
                     .replace(/{{name}}/g, selectedEmployee.name)

@@ -29,7 +29,7 @@ export class TeacherService {
     return await this.prismaService.teacher.findUnique({
       where: { id },
     });
-  } 
+  }
   async getAll() {
     return await this.prismaService.teacher.findMany({
       include: {
@@ -72,6 +72,10 @@ export class TeacherService {
     }
   }
   async updateTeacher(teacherID: number, payload: Partial<TeacherDto>) {
+    let hashedPass: string | undefined;
+    if (payload.password) {
+      hashedPass = await bcrypt.hash(payload.password, 10);
+    }
     try {
       return await this.prismaService.teacher.update({
         where: { id: teacherID },
@@ -79,6 +83,7 @@ export class TeacherService {
           name: payload.name,
           fatherName: payload.fatherName,
           email: payload.email,
+          ...(hashedPass && { password: hashedPass }),
           phone: payload.phone,
           cnic: payload.cnic,
           address: payload.address,

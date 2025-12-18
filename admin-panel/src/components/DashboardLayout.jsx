@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { logout, userWho, refreshTokens } from "../../config/apis";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
+import logo from "../assets/logo.png"
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -110,8 +111,8 @@ const DashboardLayout = ({ children }) => {
               sidebarCollapsed && "px-3 justify-center"
             )}
           >
-            <div className="w-10 h-10 bg-sidebar-primary rounded-xl flex items-center justify-center shrink-0">
-              <GraduationCap className="w-6 h-6 text-sidebar-primary-foreground" />
+            <div className="w-12 h-12 bg-sidebar-primary rounded-xl flex items-center justify-center shrink-0">
+              <img src={logo} alt="Logo" className="w-full h-full object-contain p-1" />
             </div>
             {!sidebarCollapsed && (
               <div className="animate-fade-in">
@@ -289,9 +290,9 @@ const DashboardLayout = ({ children }) => {
             </div>
             <div className="flex items-center gap-2">
               <ThemeToggle />
-              <Button variant="ghost" size="icon">
+              {/* <Button variant="ghost" size="icon">
                 <Bell className="w-5 h-5" />
-              </Button>
+              </Button> */}
               <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-2">
                 <LogOut className="w-4 h-4" />
                 <span className="hidden sm:inline">Logout</span>

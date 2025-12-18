@@ -49,9 +49,10 @@ const menuOrder = [
 // Get default landing path
 // ──────────────────────────────────────────────────────────────
 const getDefaultPath = (user) => {
+  if (user?.role === "Teacher") return "/attendance";
+
   const modules = user?.permissions?.modules ?? [];
   const hasModules = Array.isArray(modules) && modules.length > 0;
-  const isTeacher = user?.role === "Teacher";
 
   if (hasModules) {
     // Return first allowed module in menu order
@@ -78,7 +79,7 @@ const getDefaultPath = (user) => {
   }
 
   // No modules → fallback
-  return isTeacher ? "/attendance" : "/dashboard";
+  return "/dashboard";
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -146,13 +147,13 @@ function PermissionRoute({ children, moduleName }) {
     return <>{children}</>;
   }
 
-  const modulePermissions = currentUser?.permissions?.modules ?? [];
-  const hasModuleList = Array.isArray(modulePermissions) && modulePermissions.length > 0;
-  const isTeacher = currentUser?.role === "Teacher";
-
-  const canAccess = hasModuleList
-    ? modulePermissions.includes(moduleName)
-    : isTeacher && ["Attendance", "Examination"].includes(moduleName);
+  let canAccess = false;
+  if (currentUser?.role === "Teacher") {
+    canAccess = ["Attendance", "Examination"].includes(moduleName);
+  } else {
+    const modulePermissions = currentUser?.permissions?.modules ?? [];
+    canAccess = Array.isArray(modulePermissions) && modulePermissions.includes(moduleName);
+  }
 
   if (!canAccess) {
     return <Navigate to={getDefaultPath(currentUser)} replace />;
@@ -232,7 +233,7 @@ function App() {
                 path="/academics"
                 element={
                   <PermissionRoute moduleName="Academics">
-                    <Academics/>
+                    <Academics />
                   </PermissionRoute>
                 }
               />
