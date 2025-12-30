@@ -11,7 +11,8 @@ import {
   getTeacherIDCardTemplates,
   createTeacherIDCardTemplate,
   updateTeacherIDCardTemplate,
-  deleteTeacherIDCardTemplate
+  deleteTeacherIDCardTemplate,
+  getInstituteSettings
 } from "../../config/apis";
 
 
@@ -340,40 +341,9 @@ const initialAssignments = [{
   dueDate: "2025-02-15",
   description: "Solve problems on Newton's three laws"
 }];
-const initialConfig = {
-  id: "1",
-  instituteName: "Concordia College",
-  logo: "/logo.png",
-  email: "info@concordia.edu.pk",
-  phone: "+92 300 0000000",
-  address: "Main Campus, Lahore",
-  facebook: "https://facebook.com/concordia",
-  instagram: "https://instagram.com/concordia"
-};
-const initialBranches = [{
-  id: "1",
-  name: "Main Campus",
-  city: "Lahore",
-  address: "Model Town, Lahore"
-}, {
-  id: "2",
-  name: "Johar Town Branch",
-  city: "Lahore",
-  address: "Johar Town, Lahore"
-}];
-const initialRoles = [{
-  id: "1",
-  role: "Super Admin",
-  permissions: ["all"]
-}, {
-  id: "2",
-  role: "Principal",
-  permissions: ["view_reports", "approve_leaves", "manage_students"]
-}, {
-  id: "3",
-  role: "Teacher",
-  permissions: ["mark_attendance", "enter_marks"]
-}];
+const initialConfig = {};
+const initialBranches = [];
+const initialRoles = [];
 const initialAdmins = [{
   id: "1",
   name: "Ali Raza",
@@ -1612,7 +1582,7 @@ export const DataProvider = ({
   const [teacherClassMapping, setTeacherClassMapping] = useState(initialTeacherClassMapping);
   const [timetable, setTimetable] = useState(initialTimetable);
   const [assignments, setAssignments] = useState(initialAssignments);
-  const [config, setConfig] = useState(initialConfig);
+  // config removed - now fetched directly via backend/react-query
   const [branches, setBranches] = useState(initialBranches);
   const [roles, setRoles] = useState(initialRoles);
   const [admins, setAdmins] = useState(initialAdmins);
@@ -1659,8 +1629,14 @@ export const DataProvider = ({
         if (teacherIdCardData && teacherIdCardData.length > 0) {
           setTeacherIdCardTemplates(teacherIdCardData);
         }
+
+        // Fetch Institute Settings
+        const settings = await getInstituteSettings();
+        if (settings) {
+          // setConfig(settings); // Removed
+        }
       } catch (error) {
-        console.error("Error fetching templates:", error);
+        console.error("Error fetching data:", error);
       }
     };
     fetchTemplates();
@@ -1930,12 +1906,8 @@ export const DataProvider = ({
   const deleteAssignment = id => {
     setAssignments(assignments.filter(a => a.id !== id));
   };
-  const updateConfig = configData => {
-    setConfig({
-      ...config,
-      ...configData
-    });
-  };
+  // updateConfig removed - components should use getInstituteSettings API or useQuery
+
   const addBranch = branch => {
     const newBranch = {
       ...branch,
@@ -2305,7 +2277,7 @@ export const DataProvider = ({
     teacherClassMapping,
     timetable,
     assignments,
-    config,
+    // config: config, // Removed
     branches,
     roles,
     admins,
@@ -2383,7 +2355,7 @@ export const DataProvider = ({
     addAssignment,
     updateAssignment,
     deleteAssignment,
-    updateConfig,
+    // updateConfig, // Removed
     addBranch,
     updateBranch,
     deleteBranch,

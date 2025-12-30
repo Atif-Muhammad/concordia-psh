@@ -9,6 +9,7 @@ async function bootstrap() {
     return this.toString();
   };
   app.use(cookieParser());
+  app.setGlobalPrefix("api")
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -17,9 +18,9 @@ async function bootstrap() {
     }),
   );
   app.enableCors({
-    origin: ['http://localhost:5173'],
+    origin: ['http://localhost:5174', process.env.ALLOWED_IP],
     credentials: true,
   });
-  await app.listen(process.env.PORT ?? 3003);
+  await app.listen(process.env.PORT!);
 }
 bootstrap();

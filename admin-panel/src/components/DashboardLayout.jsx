@@ -8,7 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { logout, userWho, refreshTokens } from "../../config/apis";
+import { logout, userWho, refreshTokens, getInstituteSettings } from "../../config/apis";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import logo from "../assets/logo.png"
 
@@ -66,6 +66,13 @@ const DashboardLayout = ({ children }) => {
     retry: false,
   });
 
+  // Fetch institute settings
+  const { data: settings } = useQuery({
+    queryKey: ["instituteSettings"],
+    queryFn: getInstituteSettings,
+    staleTime: 1000 * 60 * 10, // 10 minutes
+  });
+
   // Determine allowed modules
   const modulePermissions = currentUser?.permissions?.modules ?? [];
   const hasModulePermissions = Array.isArray(modulePermissions) && modulePermissions.length > 0;
@@ -111,13 +118,21 @@ const DashboardLayout = ({ children }) => {
               sidebarCollapsed && "px-3 justify-center"
             )}
           >
-            <div className="w-12 h-12 bg-sidebar-primary rounded-xl flex items-center justify-center shrink-0">
-              <img src={logo} alt="Logo" className="w-full h-full object-contain p-1" />
+            <div className="w-12 h-12 bg-sidebar-primary rounded-xl flex items-center justify-center shrink-0 overflow-hidden">
+              <img
+                src={settings?.logo || logo}
+                alt="Logo"
+                className="w-full h-full object-contain p-1"
+              />
             </div>
             {!sidebarCollapsed && (
               <div className="animate-fade-in">
-                <h2 className="font-bold text-sidebar-foreground text-lg">Concordia</h2>
-                <p className="text-xs text-sidebar-foreground/70">College CMS</p>
+                <h2 className="font-bold text-sidebar-foreground text-base line-clamp-1">
+                  {settings?.instituteName || "College CMS"}
+                </h2>
+                <p className="text-xs text-sidebar-foreground/70">
+                  {settings?.phone || "Administration"}
+                </p>
               </div>
             )}
           </div>

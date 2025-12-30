@@ -1,0 +1,49 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: concordia
+    command: --lower_case_table_names=1
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: backend
+    restart: always
+    ports:
+      - "3003:3003"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      NODE_ENV: "development"
+      DATABASE_URL: "mysql://root:root@mysql:3306/concordia"
+      JWT_ACCESS_SECRET: "asdaskdpanqweqejlsadnasnd"
+      JWT_REFRESH_SECRET: "09190199219jjkdjasjdnasnd"
+      
+      CLOUDINARY_URL: "cloudinary://973774315816455:EV1VsJ4edk6mLdx1baGVJpa3dMc@dldigpb7f"
+      CLOUD_NAME: "dldigpb7f"
+      CLOUDINARY_API_KEY: "973774315816455"
+      CLOUDINARY_API_SECRET: "EV1VsJ4edk6mLdx1baGVJpa3dMc"
+
+  admin-panel:
+    build:
+      context: ./admin-panel
+    container_name: admin-panel
+    restart: always
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:

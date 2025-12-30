@@ -43,7 +43,8 @@ import {
   Check,
 } from "lucide-react";
 import { useData } from "@/contexts/DataContext";
-import { useToast } from "@/hooks/use-toast";
+import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   getAdmins,
   createAdmin as createAdminAPI,
@@ -801,7 +802,7 @@ const Configuration = () => {
     roles,
     challanTemplates,
     idCardTemplates,
-    updateConfig,
+    // updateConfig removed as per user request to use backend only for institute
     addBranch,
     updateBranch,
     deleteBranch,
@@ -824,12 +825,22 @@ const Configuration = () => {
   const [editing, setEditing] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [configForm, setConfigForm] = useState(config);
+  const [configForm, setConfigForm] = useState({
+    instituteName: "",
+    email: "",
+    phone: "",
+    address: "",
+    facebook: "",
+    instagram: "",
+    logo: "",
+  });
   const [branchForm, setBranchForm] = useState({
     name: "",
     city: "",
     address: "",
   });
+
+  const queryClient = useQueryClient();
   const [roleForm, setRoleForm] = useState({
     role: "",
     permissions: [],
@@ -1024,7 +1035,9 @@ const Configuration = () => {
 
   const handleConfigUpdate = async () => {
     try {
-      await updateInstituteSettings(configForm);
+      const updated = await updateInstituteSettings(configForm);
+      // Invalidate the query to refresh header/sidebar logo and name
+      queryClient.invalidateQueries({ queryKey: ["instituteSettings"] });
       toast({
         title: "Configuration updated successfully",
       });
@@ -1311,7 +1324,7 @@ const Configuration = () => {
         </div>
 
         <Tabs defaultValue="institute" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 h-auto gap-1">
+          <TabsList className="mb-8">
             <TabsTrigger value="institute">Institute</TabsTrigger>
             {/* <TabsTrigger value="branches">Branches</TabsTrigger> */}
             {/* <TabsTrigger value="roles">Roles</TabsTrigger> */}
@@ -1406,7 +1419,7 @@ const Configuration = () => {
             </Card>
           </TabsContent>
 
-          <TabsContent value="branches">
+          {/* <TabsContent value="branches">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
@@ -1535,9 +1548,9 @@ const Configuration = () => {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
+          </TabsContent> */}
 
-          <TabsContent value="roles">
+          {/* <TabsContent value="roles">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
@@ -1612,7 +1625,7 @@ const Configuration = () => {
                   <TableHeader>
                     <TableRow>
                       {/* <TableHead>Role</TableHead> */}
-                      <TableHead>Permissions</TableHead>
+          {/* <TableHead>Permissions</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1651,7 +1664,7 @@ const Configuration = () => {
                 </Table>
               </CardContent>
             </Card>
-          </TabsContent>
+          </TabsContent> */}
 
           <TabsContent value="admins">
             <Card>

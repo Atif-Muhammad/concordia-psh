@@ -161,23 +161,7 @@ export class ConfigurationService {
 
   // Get institute settings or create default if none exist
   async getInstituteSettings() {
-    let settings = await this.prisma.instituteSettings.findFirst();
-
-    // If no settings exist, create default settings
-    if (!settings) {
-      settings = await this.prisma.instituteSettings.create({
-        data: {
-          instituteName: 'Concordia College',
-          email: 'info@concordia.edu.pk',
-          phone: '+92 300 0000000',
-          address: 'Main Campus, Lahore',
-          facebook: 'https://facebook.com/concordia',
-          instagram: 'https://instagram.com/concordia',
-        },
-      });
-    }
-
-    return settings;
+    return this.prisma.instituteSettings.findFirst();
   }
 
   // Update institute settings (or create if doesn't exist)
