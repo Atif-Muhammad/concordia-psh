@@ -29,6 +29,7 @@ services:
       DATABASE_URL: "mysql://root:root@mysql:3306/concordia"
       JWT_ACCESS_SECRET: "asdaskdpanqweqejlsadnasnd"
       JWT_REFRESH_SECRET: "09190199219jjkdjasjdnasnd"
+      PORT: "3003"
       ALLOWED_IP: "http://69.62.117.175:8080"
       CLOUDINARY_URL: "cloudinary://973774315816455:EV1VsJ4edk6mLdx1baGVJpa3dMc@dldigpb7f"
       CLOUD_NAME: "dldigpb7f"
