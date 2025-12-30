@@ -220,7 +220,6 @@ const Teachers = () => {
   const resetForm = () => {
     setFormData({
       name: "",
-      name: "",
       fatherName: "",
       cnic: "",
       address: "",
