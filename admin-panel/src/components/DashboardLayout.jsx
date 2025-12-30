@@ -128,7 +128,7 @@ const DashboardLayout = ({ children }) => {
             {!sidebarCollapsed && (
               <div className="animate-fade-in">
                 <h2 className="font-bold text-sidebar-foreground text-base line-clamp-1">
-                  {settings?.instituteName || "College CMS"}
+                  {settings?.instituteName}
                 </h2>
                 <p className="text-xs text-sidebar-foreground/70">
                   {settings?.phone || "Administration"}
