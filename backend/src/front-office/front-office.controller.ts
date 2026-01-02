@@ -15,7 +15,7 @@ import { ContactDto } from './dtos/Contact.dto';
 
 @Controller('front-office')
 export class FrontOfficeController {
-  constructor(private readonly frontOfficeService: FrontOfficeService) {}
+  constructor(private readonly frontOfficeService: FrontOfficeService) { }
 
   // inquiries
   @Get('get/inquiries')
@@ -66,8 +66,12 @@ export class FrontOfficeController {
     return await this.frontOfficeService.createComplaint(payload);
   }
   @Get('get/complaints')
-  async getComplaints(@Query('date') date?: string) {
-    return this.frontOfficeService.getComplaints(date);
+  async getComplaints(
+    @Query('date') date?: string,
+    @Query('start') start?: string,
+    @Query('end') end?: string,
+  ) {
+    return this.frontOfficeService.getComplaints(date, start, end);
   }
   @Patch('update/complaint')
   async updateComplaint(

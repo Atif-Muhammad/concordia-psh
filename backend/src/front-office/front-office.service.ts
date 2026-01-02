@@ -166,17 +166,30 @@ export class FrontOfficeService {
     });
   }
 
-  async getComplaints(date?: string) {
+  async getComplaints(date?: string, start?: string, end?: string) {
+    if (start && end) {
+      return await this.prismaService.complaint.findMany({
+        where: {
+          createdAt: {
+            gte: new Date(start),
+            lte: new Date(end),
+          },
+        },
+        include: { assignedTo: true },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
     if (date) {
-      const start = new Date(date);
-      const end = new Date(date);
-      end.setHours(23, 59, 59);
+      const s = new Date(date);
+      const e = new Date(date);
+      e.setHours(23, 59, 59);
 
       return await this.prismaService.complaint.findMany({
         where: {
           createdAt: {
-            gte: start,
-            lte: end,
+            gte: s,
+            lte: e,
           },
         },
         include: { assignedTo: true },

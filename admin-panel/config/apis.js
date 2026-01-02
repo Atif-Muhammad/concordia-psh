@@ -2107,8 +2107,11 @@ export const getComplaints = async (date) => {
   try {
     let url = `${base_url}/front-office/get/complaints`;
     if (date) {
-      const localDate = formatLocalDate(date);
-      url += `?date=${localDate.split("T")[0]}`;
+      const start = new Date(date);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(date);
+      end.setHours(23, 59, 59, 999);
+      url += `?start=${start.toISOString()}&end=${end.toISOString()}`;
     }
     const { data } = await axios.get(
       url,

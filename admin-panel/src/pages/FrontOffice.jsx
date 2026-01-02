@@ -349,7 +349,7 @@ const FrontOffice = () => {
 
 
   // complaints
-  const [dateFilter, setDateFilter] = useState(new Date());
+  const [dateFilter, setDateFilter] = useState();
   const { data: complaints } = useQuery({
     queryKey: ["complaints", dateFilter?.toDateString()],
     queryFn: () => getComplaints(dateFilter),
