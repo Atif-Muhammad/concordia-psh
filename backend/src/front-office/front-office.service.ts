@@ -8,7 +8,7 @@ import { ContactDto } from './dtos/Contact.dto';
 
 @Injectable()
 export class FrontOfficeService {
-  constructor(private prismaService: PrismaService) {}
+  constructor(private prismaService: PrismaService) { }
 
   // inquiries
   async createInquiry(payload: InquiryDto) {
@@ -106,8 +106,8 @@ export class FrontOfficeService {
     );
     const outTime = payload.outTime
       ? new Date(
-          `${new Date().toISOString().split('T')[0]}T${payload.outTime}:00`,
-        )
+        `${new Date().toISOString().split('T')[0]}T${payload.outTime}:00`,
+      )
       : null;
     return await this.prismaService.visitor.create({
       data: {
@@ -129,8 +129,8 @@ export class FrontOfficeService {
     );
     const outTime = payload.outTime
       ? new Date(
-          `${new Date().toISOString().split('T')[0]}T${payload.outTime}:00`,
-        )
+        `${new Date().toISOString().split('T')[0]}T${payload.outTime}:00`,
+      )
       : null;
     return await this.prismaService.visitor.update({
       where: { id },
@@ -161,6 +161,7 @@ export class FrontOfficeService {
         contact: payload.contact,
         subject: payload.subject,
         description: payload.details,
+        assignedToId: payload.assignedToId ? Number(payload.assignedToId) : undefined,
       },
     });
   }
@@ -178,11 +179,13 @@ export class FrontOfficeService {
             lte: end,
           },
         },
+        include: { assignedTo: true },
         orderBy: { createdAt: 'desc' },
       });
     }
 
     return await this.prismaService.complaint.findMany({
+      include: { assignedTo: true },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -191,10 +194,13 @@ export class FrontOfficeService {
     return await this.prismaService.complaint.update({
       where: { id },
       data: {
-        ...payload,
+        complainantName: payload.complainantName,
+        contact: payload.contact,
+        subject: payload.subject,
         description: payload.details,
         status: payload.status as ComplaintStatus,
         type: payload.type as ComplaintType,
+        assignedToId: payload.assignedToId ? Number(payload.assignedToId) : undefined,
       },
     });
   }

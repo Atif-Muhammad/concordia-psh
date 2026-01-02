@@ -24,8 +24,8 @@ export class HrController {
   constructor(private readonly hrService: HrService, private readonly cloudinaryService: CloudinaryService) { }
 
   @Get('get/employees')
-  async getEmployees(@Query('dept') dept: string) {
-    return await this.hrService.fetchEmpls(dept);
+  async getEmployees(@Query('dept') dept: string, @Query('search') search: string) {
+    return await this.hrService.fetchEmpls(dept, search);
   }
   @Post('create/employee')
   @UseInterceptors(FileInterceptor('photo'))

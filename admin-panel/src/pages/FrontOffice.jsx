@@ -93,8 +93,17 @@ import {
   getClasses,
   getSections,
   rollbackInquiry,
+  getEmployeesByDept,
 } from "../../config/apis";
 import { formatTime } from "../lib/utils";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 
 const FrontOffice = () => {
 
@@ -172,7 +181,7 @@ const FrontOffice = () => {
     details: "",
     subject: "",
     status: "Pending",
-
+    assignedToId: null,
   });
 
   const [contactForm, setContactForm] = useState({
@@ -201,6 +210,13 @@ const FrontOffice = () => {
   const { data: programs } = useQuery({
     queryKey: ["programs"],
     queryFn: getProgramNames,
+  });
+
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const { data: employees = [] } = useQuery({
+    queryKey: ["employees", employeeSearch],
+    queryFn: () => getEmployeesByDept("", employeeSearch),
+    enabled: true, // Always enable to allow searching
   });
 
   const { data: inquiries = [], isLoading: inquiriesLoading } = useQuery({
@@ -333,11 +349,11 @@ const FrontOffice = () => {
 
 
   // complaints
-  const [dateFilter, setDateFilter] = useState();
+  const [dateFilter, setDateFilter] = useState(new Date());
   const { data: complaints } = useQuery({
-    queryKey: ["complaints", dateFilter],
+    queryKey: ["complaints", dateFilter?.toDateString()],
     queryFn: () => getComplaints(dateFilter),
-    enabled: !!dateFilter
+    enabled: true
   });
 
   const { mutate: createComplaint } = useMutation({
@@ -403,20 +419,7 @@ const FrontOffice = () => {
     onSuccess: () => queryClient.invalidateQueries(["contacts"]),
   });
 
-  const handleDateSelect = (date) => {
-    if (!date) {
-      setDateFilter(undefined);
-      return;
-    }
 
-    const localDate = new Date(
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate()
-    );
-
-    setDateFilter(localDate);
-  };
 
 
   // === FORM RESET & DIALOG CONTROL ===
@@ -638,7 +641,7 @@ const FrontOffice = () => {
     }
 
     if (editingComplaint) {
-      updateComplaint(editingComplaint, complaintForm);
+      updateComplaint({ id: editingComplaint.id, payload: complaintForm });
     } else {
       createComplaint({
         ...complaintForm,
@@ -649,8 +652,16 @@ const FrontOffice = () => {
     closeComplaintDialog();
   };
 
+  const handleDateSelect = (date) => {
+    setDateFilter(date);
+  };
+
   const handleEditComplaint = (complaint) => {
-    setComplaintForm(complaint);
+    setComplaintForm({
+      ...complaint,
+      details: complaint.description || "",
+      assignedToId: complaint.assignedToId || null,
+    });
     setEditingComplaint(complaint);
     setComplaintDialog(true);
   };
@@ -1333,6 +1344,59 @@ const FrontOffice = () => {
                             onChange={e => setComplaintForm({ ...complaintForm, subject: e.target.value })}
                           />
                         </div>
+
+                        <div>
+                          <Label>Assign To Employee</Label>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                className="w-full justify-between mt-1"
+                              >
+                                {complaintForm.assignedToId
+                                  ? employees.find(
+                                    (employee) => employee.id === complaintForm.assignedToId
+                                  )?.name || "Select Employee"
+                                  : "Select Employee"}
+                                <Users className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[400px] p-0">
+                              <Command>
+                                <CommandInput
+                                  placeholder="Search employee..."
+                                  onValueChange={setEmployeeSearch}
+                                />
+                                <CommandList>
+                                  <CommandEmpty>No employee found.</CommandEmpty>
+                                  <CommandGroup>
+                                    {employees.map((employee) => (
+                                      <CommandItem
+                                        key={employee.id}
+                                        value={employee.name}
+                                        onSelect={() => {
+                                          setComplaintForm({
+                                            ...complaintForm,
+                                            assignedToId: employee.id,
+                                          });
+                                        }}
+                                      >
+                                        <Check
+                                          className={`mr-2 h-4 w-4 ${complaintForm.assignedToId === employee.id
+                                            ? "opacity-100"
+                                            : "opacity-0"
+                                            }`}
+                                        />
+                                        {employee.name} - {employee.empDepartment}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
                       </div>
 
                       <div>
@@ -1361,6 +1425,7 @@ const FrontOffice = () => {
                       <TableHead>Type</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Subject</TableHead>
+                      <TableHead>Assigned To</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -1371,6 +1436,16 @@ const FrontOffice = () => {
                       <TableCell>{complaint.type}</TableCell>
                       <TableCell className="font-medium">{complaint.complainantName}</TableCell>
                       <TableCell className="font-medium italic">{complaint.subject}</TableCell>
+                      <TableCell>
+                        {complaint.assignedTo ? (
+                          <div className="flex items-center gap-2">
+                            <Users className="w-3 h-3 text-muted-foreground" />
+                            <span>{complaint.assignedTo.name}</span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground italic text-xs">Unassigned</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Select
                           value={complaint.status}
@@ -1598,28 +1673,83 @@ const FrontOffice = () => {
             setViewDetailsDialog({ ...viewDetailsDialog, open })
           }
         >
-          <DialogContent className="max-h-[90vh] min-w-[80vw] overflow-y-auto">
+          <DialogContent className="max-h-[90vh] md:max-w-[600px] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Details</DialogTitle>
+              <DialogTitle className="text-xl font-semibold border-b pb-4">
+                {viewDetailsDialog.type ? viewDetailsDialog.type.charAt(0).toUpperCase() + viewDetailsDialog.type.slice(1) : "Details"} Information
+              </DialogTitle>
             </DialogHeader>
 
             {viewDetailsDialog.data && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 mt-2">
-                {Object.entries(viewDetailsDialog.data).map(([key, value]) => (
-                  <div
-                    key={key}
-                    className="flex items-start border-b pb-2 gap-x-2 overflow-hidden"
-                  >
-                    <span className="font-medium capitalize whitespace-nowrap flex-shrink-0">
-                      {key.replace(/([A-Z])/g, " $1").trim()}:
-                    </span>
-                    <span className="text-muted-foreground break-words text-left flex-1 min-w-0">
-                      {typeof value === "object" && value?.name
-                        ? value.name
-                        : String(value ?? "")}
-                    </span>
+              <div className="space-y-6 mt-4">
+                {/* Primary Info Section */}
+                <div className="grid grid-cols-2 gap-4">
+                  {Object.entries(viewDetailsDialog.data)
+                    .filter(([key]) => !["id", "assignedToId", "updatedAt", "description", "details", "documents"].includes(key))
+                    .map(([key, value]) => {
+                      // Formatting logic
+                      if (key === "assignedTo" && !value) return null;
+                      if (!value && value !== 0) return null;
+
+                      let displayValue = typeof value === "object" && value?.name ? value.name : String(value);
+                      let label = key.replace(/([A-Z])/g, " $1").trim();
+
+                      // Specific formatting
+                      if (key.toLowerCase().includes("date") || key === "createdAt") {
+                        if (value) displayValue = new Date(value).toLocaleDateString(undefined, {
+                          year: 'numeric', month: 'long', day: 'numeric'
+                        });
+                        label = key === "createdAt" ? "Date" : label;
+                      }
+
+                      // Status Badge-like look (simple text)
+                      if (key === "status") {
+                        displayValue = <span className={`px-2 py-0.5 rounded text-sm font-medium border ${value === 'Pending' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' :
+                          value === 'Resolved' || value === 'Approved' ? 'bg-green-50 border-green-200 text-green-700' :
+                            'bg-gray-50 border-gray-200 text-gray-700'
+                          }`}>{value}</span>
+                      }
+
+                      return (
+                        <div key={key} className="space-y-1">
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            {label}
+                          </h4>
+                          <div className="text-sm font-medium text-foreground">
+                            {displayValue}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+
+                {/* Full Width Sections (Description/Details) */}
+                {(viewDetailsDialog.data.description || viewDetailsDialog.data.details) && (
+                  <div className="space-y-2 pt-4 border-t">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      Details / Description
+                    </h4>
+                    <div className="bg-muted/30 p-4 rounded-md text-sm leading-relaxed whitespace-pre-wrap">
+                      {viewDetailsDialog.data.description || viewDetailsDialog.data.details}
+                    </div>
                   </div>
-                ))}
+                )}
+
+                {/* Assigned Employee Section Specifics */}
+                {viewDetailsDialog.data.assignedTo && (
+                  <div className="space-y-1 pt-4 border-t">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Assigned Employee</h4>
+                    <div className="flex items-center gap-2">
+                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                        {viewDetailsDialog.data.assignedTo.name?.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">{viewDetailsDialog.data.assignedTo.name}</p>
+                        <p className="text-xs text-muted-foreground">{viewDetailsDialog.data.assignedTo.empDepartment}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </DialogContent>

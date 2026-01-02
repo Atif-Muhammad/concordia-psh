@@ -1,4 +1,4 @@
-import { IsNotEmpty } from 'class-validator';
+import { IsNotEmpty, IsOptional } from 'class-validator';
 
 export class ComplaintDto {
   @IsNotEmpty({ message: 'complaint type must be provided' })
@@ -13,4 +13,6 @@ export class ComplaintDto {
   details: string;
   @IsNotEmpty({ message: 'complaint status must be provided' })
   status: string;
+  @IsOptional()
+  assignedToId?: number;
 }

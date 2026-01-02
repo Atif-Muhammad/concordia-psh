@@ -18,7 +18,7 @@ async function bootstrap() {
     }),
   );
   app.enableCors({
-    origin: ['http://localhost:5174', process.env.ALLOWED_IP],
+    origin: ['http://localhost:5173', process.env.ALLOWED_IP],
     credentials: true,
   });
   await app.listen(process.env.PORT!);

@@ -1,8 +1,8 @@
 import axios from "axios";
 import { formatLocalDate } from "../src/lib/utils";
 
-// const base_url = "http://localhost:3003/api";
-const base_url = "http://69.62.117.175:3003/api";
+const base_url = "http://localhost:3003/api";
+// const base_url = "http://69.62.117.175:3003/api";
 
 export const userWho = async () => {
   try {
@@ -139,9 +139,9 @@ export const deleteAdmin = async (adminID) => {
   }
 };
 
-export const getEmployeesByDept = async () => {
+export const getEmployeesByDept = async (dept, search) => {
   try {
-    const response = await axios.get(`${base_url}/hr/get/employees-by-dept`, {
+    const response = await axios.get(`${base_url}/hr/get/employees?dept=${dept || ''}&search=${search || ''}`, {
       withCredentials: true,
     });
     return response.data;
@@ -2105,9 +2105,13 @@ export const delComplaint = async (id) => {
 };
 export const getComplaints = async (date) => {
   try {
-    const localDate = formatLocalDate(date)
+    let url = `${base_url}/front-office/get/complaints`;
+    if (date) {
+      const localDate = formatLocalDate(date);
+      url += `?date=${localDate.split("T")[0]}`;
+    }
     const { data } = await axios.get(
-      `${base_url}/front-office/get/complaints?date=${localDate.split("T")[0]}`,
+      url,
       {
         withCredentials: true,
       }

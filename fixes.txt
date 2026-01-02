@@ -1,0 +1,76 @@
+1. admin details on screen prom.
+2. assing complaint resolver/employee.
+3. all inquiries fetch by default.
+4. format for roll number i.e., PSH-IN26-001
+	IN-----> intermediate
+
+5. custom name for class sections. --- imp ---
+6. custom fee allocation while creating student --- imp --- 
+	--> create challans per installment
+	--> prev challan arrears etc.
+	--> fine on date miss for payable date.
+	--> fix multiple installments in one challan.FD
+	--> fee settings.
+	--> challan payable fix.
+	--> detail in student should show full details.
+	--> seperate tuition vs additional charges.
+
+7. bulk challan.
+8. number for challan not alphanumeric. 12(max length)
+9. download csv for specific field(s), for teacher, student and employee.
+
+
+student:
+1. expell/struck off student
+
+
+attendance:
+1. late arrived.
+2. attendance should be marked for saturday.
+3. holiday -> multiple dates selection.
+
+teacher:
+1. contract duration.
+2. document must be non-empty object.
+
+examination:
+1. dates arent sync for exam creation.
+2. sendup exam, pre-board, monthly test.
+3. checkbox to only include in exam.
+4. marks entry for overall class.
+5. exam roll-number -- shuffling etc.
+
+
+class:
+1. add session for defined class
+2. section not picking class other than 2 and 4 year.
+3. promote to manual class/section.
+
+hr&payroll:
+1. paid/unpaid status fix.
+2. settings:
+	1. 45000 / 30 = 1500 <------ 1500 deduction
+	2. seperate for all teachers/employee
+	3. remove leave allowed.
+	
+	----> leave should be seperately defined for all employee.
+
+3. teacher and employee can be same.
+
+	
+
+Hostel:
+1. outsider also allowed
+2. teacher/employee already
+
+
+Finance:
+1. closing should be read only not editable.
+2. filters for finanace reports.
+3. remove k for thousand.
+
+
+
+
+configuration:
+1. granular access for modules.

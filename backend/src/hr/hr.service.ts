@@ -59,17 +59,28 @@ export class HrService {
     });
   }
 
-  async fetchEmpls(dept: string) {
-    return dept
-      ? await this.prismService.employee.findMany({
-        where: {
-          empDepartment: dept as EmployeeDepartment,
-        },
-        orderBy: { name: 'asc' },
-      })
-      : await this.prismService.employee.findMany({
-        orderBy: { name: 'asc' },
-      });
+  async fetchEmpls(dept: string, search?: string) {
+    const where: any = {};
+
+    if (dept) {
+      where.empDepartment = dept as EmployeeDepartment;
+    }
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search } },
+      ];
+      // Basic check if search string matches a department enum
+      const upperSearch = search.toUpperCase();
+      if (Object.values(EmployeeDepartment).includes(upperSearch as EmployeeDepartment)) {
+        where.OR.push({ empDepartment: upperSearch as EmployeeDepartment });
+      }
+    }
+
+    return await this.prismService.employee.findMany({
+      where,
+      orderBy: { name: 'asc' },
+    });
   }
 
   async createEmp(payload: EmployeeDto) {
