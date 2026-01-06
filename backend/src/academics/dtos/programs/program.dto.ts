@@ -18,4 +18,7 @@ export class ProgramDto {
   duration: string;
   @IsNotEmpty()
   hasSections: boolean | string;
+
+  @IsOptional()
+  rollPrefix?: string;
 }

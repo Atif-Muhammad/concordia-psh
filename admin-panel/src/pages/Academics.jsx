@@ -282,7 +282,7 @@ const Academics = () => {
     const defaults = {
       program: { name: "", description: "", level: "INTERMEDIATE", departmentId: "", duration: "2 years", customDuration: "" },
       class: { name: "", programId: "", year: "", semester: "", isSemester: false },
-      section: { sectionLetter: "A", shift: "Morning", classId: "", capacity: "", room: "" },
+      section: { sectionLetter: "A", shift: "Morning", classId: "", capacity: "", room: "", customName: "" },
       subject: { name: "", code: "", classId: "", creditHours: "", description: "" },
       mapping: { teacherId: "", subjectId: "" },
       classMapping: { teacherId: "", classId: "", sectionId: "" },
@@ -321,6 +321,7 @@ const Academics = () => {
         departmentId: Number(programForm.departmentId),
         duration: finalDuration,
         hasSections: parseDurationToYears(finalDuration) >= 2,
+        rollPrefix: programForm.rollPrefix || null,
       };
     }
 
@@ -331,13 +332,20 @@ const Academics = () => {
         year: classForm.year ? Number(classForm.year) : null,
         semester: classForm.semester ? Number(classForm.semester) : null,
         isSemester: Boolean(classForm.isSemester),
+        rollPrefix: classForm.rollPrefix || null,
       };
     }
 
     if (type === "section") {
-      const name = `${sectionForm.sectionLetter} ${sectionForm.shift}`.trim();
+      let name = "";
+      if (sectionForm.sectionLetter === "Custom") {
+        name = sectionForm.customName;
+      } else {
+        name = `${sectionForm.sectionLetter} ${sectionForm.shift}`.trim();
+      }
+
       if (!name || !sectionForm.classId) {
-        toast({ title: "Section letter, shift, and class are required", variant: "destructive" });
+        toast({ title: "Section name, shift, and class are required", variant: "destructive" });
         return;
       }
       data = {
@@ -449,6 +457,7 @@ const Academics = () => {
         level: item.level,
         departmentId: item.departmentId?.toString() || "",
         duration: item.duration,
+        rollPrefix: item.rollPrefix || "",
       });
     }
     if (type === "class") {
@@ -457,19 +466,31 @@ const Academics = () => {
         programId: item.programId.toString(),
         year: item.year?.toString() || "",
         semester: item.semester?.toString() || "",
-        isSemester: Boolean(item.isSemester)
+        semester: item.semester?.toString() || "",
+        isSemester: Boolean(item.isSemester),
+        rollPrefix: item.rollPrefix || ""
       });
     }
     if (type === "section") {
-      const [sectionLetter = "A", shift = "Morning"] = item.name.split(" ");
+      const parts = item.name.split(" ");
+      const shift = parts[parts.length - 1]; // Assume last part is shift
+      const possibleLetters = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
+      const possibleShifts = ["Morning", "Evening"];
+
+      const isStandard = possibleLetters.includes(parts[0]) && possibleShifts.includes(shift) && parts.length === 2;
+
       setSectionForm({
-        sectionLetter,
-        shift,
+        sectionLetter: isStandard ? parts[0] : "Custom",
+        shift: possibleShifts.includes(shift) ? shift : "Morning",
         classId: item.classId.toString(),
         capacity: item.capacity?.toString() || "",
         room: item.room || "",
+        customName: isStandard ? "" : item.name,
       });
     }
+
+
+
     if (type === "subject") {
       const cls = classes.find(c => c.id === item.classId);
       const prog = programs.find(p => p.id === cls?.programId);
@@ -1113,6 +1134,17 @@ const Academics = () => {
                           placeholder="Brief description"
                         />
                       </div>
+                      <div>
+                        <Label>Preceding Text (Roll No)</Label>
+                        <Input
+                          value={programForm.rollPrefix || ""}
+                          onChange={(e) => setProgramForm({ ...programForm, rollPrefix: e.target.value })}
+                          placeholder="e.g. PSH-ENG"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Prefix for student roll numbers in this program.
+                        </p>
+                      </div>
                       <Button
                         onClick={() => handleSubmit("program")}
                         className="w-full"
@@ -1219,6 +1251,7 @@ const Academics = () => {
                                 semester: isBS ? "1" : "",
                                 name: "",
                                 isSemester: isBS,
+                                rollPrefix: prog?.rollPrefix || classForm.rollPrefix
                               });
                             }}
                           >
@@ -1317,6 +1350,17 @@ const Academics = () => {
                         <div>
                           <Label>Name (Auto-generated)</Label>
                           <Input value={classForm.name} disabled className="bg-muted" />
+                        </div>
+                        <div>
+                          <Label>Preceding Text (Roll No)</Label>
+                          <Input
+                            value={classForm.rollPrefix || ""}
+                            onChange={(e) => setClassForm({ ...classForm, rollPrefix: e.target.value })}
+                            placeholder="e.g. PSH-ENG-1A"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Specific prefix for this class/semester.
+                          </p>
                         </div>
                         <Button
                           onClick={() => handleSubmit("class")}
@@ -1479,6 +1523,7 @@ const Academics = () => {
 
                 <div className="mb-4">
                   <Dialog
+
                     open={dialog.type === "section" && dialog.open}
                     onOpenChange={(open) => setDialog({ type: "section", open })}
                   >
@@ -1488,12 +1533,12 @@ const Academics = () => {
                       </Button>
                     </DialogTrigger>
 
-                    <DialogContent>
+                    <DialogContent className="w-[90vw] max-w-4xl max-h-[80vh] overflow-y-auto">
                       <DialogHeader>
                         <DialogTitle>{editing ? "Edit" : "Add"} Section</DialogTitle>
                       </DialogHeader>
 
-                      <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {/* CLASS */}
                         <div>
                           <Label>Class *</Label>
@@ -1517,6 +1562,8 @@ const Academics = () => {
                           </Select>
                         </div>
 
+
+
                         {/* SECTION LETTER */}
                         <div>
                           <Label>Section *</Label>
@@ -1529,9 +1576,22 @@ const Academics = () => {
                               {["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"].map((letter) => (
                                 <SelectItem key={letter} value={letter}>{letter}</SelectItem>
                               ))}
+                              <SelectItem value="Custom">Custom</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
+
+                        {/* CUSTOM NAME INPUT */}
+                        {sectionForm.sectionLetter === "Custom" && (
+                          <div>
+                            <Label>Custom Name *</Label>
+                            <Input
+                              value={sectionForm.customName}
+                              onChange={(e) => setSectionForm({ ...sectionForm, customName: e.target.value })}
+                              placeholder="e.g. Physics Lab"
+                            />
+                          </div>
+                        )}
 
                         {/* SHIFT */}
                         <div>
@@ -1550,9 +1610,12 @@ const Academics = () => {
 
                         {/* PREVIEW NAME */}
                         <div>
-                          <Label>Section Name (Auto)</Label>
+                          <Label>Display Name (Preview)</Label>
                           <Input
-                            value={`${sectionForm.sectionLetter} ${sectionForm.shift}`}
+                            value={sectionForm.sectionLetter === "Custom"
+                              ? sectionForm.customName
+                              : `${sectionForm.sectionLetter} ${sectionForm.shift}`
+                            }
                             disabled
                             className="bg-muted"
                           />

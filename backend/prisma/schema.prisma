@@ -66,6 +66,7 @@ model Program {
   level       ProgramLevel
   duration    String       @db.VarChar(50)
   hasSections Boolean      @default(false) // Auto: true if duration >= 2 years
+  rollPrefix  String?      @db.VarChar(50)
 
   departmentId Int?
   department   Department? @relation("DepartmentPrograms", fields: [departmentId], references: [id])
@@ -90,6 +91,7 @@ model Class {
   year       Int? // 11, 12, 1, 2, 3, 4
   semester   Int? // 1–8 (only for BS)
   isSemester Boolean @default(false) // true if BS
+  rollPrefix String? @db.VarChar(50)
 
   programId Int
   program   Program @relation("ProgramClasses", fields: [programId], references: [id])

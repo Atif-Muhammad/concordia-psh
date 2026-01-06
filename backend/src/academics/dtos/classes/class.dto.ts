@@ -18,4 +18,7 @@ export class ClassDto {
 
   @IsOptional()
   isSemester: boolean | null;
+
+  @IsOptional()
+  rollPrefix?: string;
 }

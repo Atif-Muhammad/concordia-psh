@@ -12,7 +12,7 @@ import { TcsmDto } from './dtos/tcms/tcm.dto';
 
 @Injectable()
 export class AcademicsService {
-  constructor(private prismaService: PrismaService) {}
+  constructor(private prismaService: PrismaService) { }
   levelMap: Record<Level, ProgramLevel> = {
     [Level.INTERMEDIATE]: ProgramLevel.INTERMEDIATE,
     [Level.UNDERGRADUATE]: ProgramLevel.UNDERGRADUATE,
@@ -28,6 +28,7 @@ export class AcademicsService {
         id: true,
         name: true,
         level: true,
+        rollPrefix: true,
         department: {
           select: { name: true },
         },
@@ -55,6 +56,7 @@ export class AcademicsService {
         level: this.levelMap[payload.level!],
         duration: payload.duration!,
         hasSections: Boolean(payload.hasSections),
+        rollPrefix: payload.rollPrefix,
         departmentId: Number(payload.departmentId),
       },
     });
@@ -68,6 +70,7 @@ export class AcademicsService {
         level: this.levelMap[payload.level!],
         duration: payload.duration!,
         hasSections: Boolean(payload.hasSections),
+        rollPrefix: payload.rollPrefix,
         departmentId: Number(payload.departmentId),
       },
     });
@@ -81,7 +84,7 @@ export class AcademicsService {
     return await this.prismaService.class.findMany({
       include: {
         sections: { select: { id: true, name: true } },
-        program: { select: { id: true, name: true, duration: true } },
+        program: { select: { id: true, name: true, duration: true, rollPrefix: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -94,6 +97,7 @@ export class AcademicsService {
         year: Number(payload.year) || null,
         semester: Number(payload.semester) || null,
         isSemester: Boolean(payload.isSemester),
+        rollPrefix: payload.rollPrefix,
         programId: Number(payload.programId),
       },
     });
@@ -107,6 +111,7 @@ export class AcademicsService {
         year: Number(payload.year) || null,
         semester: Number(payload.semester) || null,
         isSemester: Boolean(payload.isSemester),
+        rollPrefix: payload.rollPrefix,
       },
     });
   }

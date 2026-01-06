@@ -1,10 +1,10 @@
 1. admin details on screen prom.✔
 2. assing complaint resolver/employee. ✔
 3. all inquiries fetch by default.✔
-4. format for roll number i.e., PSH-IN26-001
+4. format for roll number i.e., PSH-IN26-001 ✔
 	IN-----> intermediate
 
-5. custom name for class sections. --- imp ---
+5. custom name for class sections. --- imp --- ✔
 6. custom fee allocation while creating student --- imp --- 
 	--> create challans per installment
 	--> prev challan arrears etc.
