@@ -19,8 +19,16 @@ export class FrontOfficeController {
 
   // inquiries
   @Get('get/inquiries')
-  async getInquiries(@Query('programId') programId: string) {
-    return await this.frontOfficeService.getInquiries(Number(programId));
+  async getInquiries(
+    @Query('programId') programId?: string,
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '10',
+  ) {
+    return await this.frontOfficeService.getInquiries(
+      programId ? Number(programId) : undefined,
+      Number(page),
+      Number(limit),
+    );
   }
   @Post('create/inquiry')
   async createInquiry(@Body() payload: InquiryDto) {

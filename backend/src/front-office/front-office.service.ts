@@ -20,17 +20,34 @@ export class FrontOfficeService {
       },
     });
   }
-  async getInquiries(programId: number) {
-    return await this.prismaService.inquiry.findMany({
-      where: { programInterest: programId },
-      include: {
-        program: {
-          select: {
-            name: true,
+  async getInquiries(programId?: number, page: number = 1, limit: number = 10) {
+    const skip = (page - 1) * limit;
+    const where = programId && !isNaN(programId) ? { programInterest: programId } : {};
+
+    const [inquiries, total] = await Promise.all([
+      this.prismaService.inquiry.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          program: {
+            select: {
+              name: true,
+            },
           },
         },
-      },
-    });
+      }),
+      this.prismaService.inquiry.count({ where }),
+    ]);
+
+    return {
+      data: inquiries,
+      total,
+      page,
+      limit,
+      hasMore: skip + inquiries.length < total,
+    };
   }
   async updateInquiry(id: number, payload: Partial<InquiryDto>) {
     return await this.prismaService.inquiry.update({

@@ -1747,10 +1747,10 @@ export const delInquiry = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getInquiries = async (programId) => {
+export const getInquiries = async (programId, page = 1, limit = 10) => {
   try {
     const { data } = await axios.get(
-      `${base_url}/front-office/get/inquiries?programId=${programId}`,
+      `${base_url}/front-office/get/inquiries?programId=${programId || ""}&page=${page}&limit=${limit}`,
       {
         withCredentials: true,
       }

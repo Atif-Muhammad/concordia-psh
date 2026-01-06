@@ -49,7 +49,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useState } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { format } from "date-fns"
 import {
@@ -68,7 +68,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import {
   createInquiry,
   getProgramNames,
@@ -219,10 +219,37 @@ const FrontOffice = () => {
     enabled: true, // Always enable to allow searching
   });
 
-  const { data: inquiries = [], isLoading: inquiriesLoading } = useQuery({
+  const {
+    data: inquiriesData,
+    isLoading: inquiriesLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ["inquiries", selectedProgram],
-    queryFn: () => getInquiries(selectedProgram || undefined),
+    queryFn: ({ pageParam = 1 }) => getInquiries(selectedProgram || undefined, pageParam, 15),
+    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
+    initialPageParam: 1,
   });
+
+  const inquiries = useMemo(() => {
+    return inquiriesData?.pages.flatMap((page) => page.data) || [];
+  }, [inquiriesData]);
+
+  const observer = useRef();
+  const lastInquiryElementRef = useCallback(
+    (node) => {
+      if (inquiriesLoading || isFetchingNextPage) return;
+      if (observer.current) observer.current.disconnect();
+      observer.current = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && hasNextPage) {
+          fetchNextPage();
+        }
+      });
+      if (node) observer.current.observe(node);
+    },
+    [inquiriesLoading, isFetchingNextPage, hasNextPage, fetchNextPage]
+  );
 
   const { data: visitors = [], isLoading: visitorsLoading } = useQuery({
     queryKey: ["visitors", visitorMonthFilter],
@@ -945,91 +972,108 @@ const FrontOffice = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {inquiries.map((inquiry) => (
-                        <TableRow key={inquiry.id}>
-                          <TableCell>{inquiry.createdAt.split("T")[0]}</TableCell>
-                          <TableCell className="font-medium">{inquiry.studentName}</TableCell>
-                          <TableCell>{inquiry.fatherName}</TableCell>
-                          <TableCell>{inquiry.contactNumber}</TableCell>
-                          <TableCell>{inquiry.program?.name}</TableCell>
-                          <TableCell>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(inquiry.status)}`}>
-                              {inquiry.status || "NEW"}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              {(inquiry.status === "NEW" || inquiry.status === "REJECTED" || !inquiry.status) && (
-                                <>
+                      {inquiries.length > 0 ? (
+                        <>
+                          {inquiries.map((inquiry, index) => (
+                            <TableRow
+                              key={inquiry.id}
+                              ref={index === inquiries.length - 1 ? lastInquiryElementRef : null}
+                            >
+                              <TableCell>{inquiry.createdAt.split("T")[0]}</TableCell>
+                              <TableCell className="font-medium">{inquiry.studentName}</TableCell>
+                              <TableCell>{inquiry.fatherName}</TableCell>
+                              <TableCell>{inquiry.contactNumber}</TableCell>
+                              <TableCell>{inquiry.program?.name}</TableCell>
+                              <TableCell>
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(inquiry.status)}`}>
+                                  {inquiry.status || "NEW"}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  {(inquiry.status === "NEW" || inquiry.status === "REJECTED" || !inquiry.status) && (
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                        onClick={() => handleAcceptInquiry(inquiry)}
+                                        title="Accept Inquiry"
+                                      >
+                                        <Check className="w-4 h-4" />
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                        onClick={() => handleRejectInquiry(inquiry)}
+                                        title={inquiry.status === "REJECTED" ? "Revert to NEW" : "Reject Inquiry"}
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </Button>
+                                    </>
+                                  )}
+                                  {inquiry.status === "APPROVED" && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                      onClick={() => handleRollbackInquiry(inquiry)}
+                                      title="Rollback (Delete Student & Revert to NEW)"
+                                    >
+                                      <Undo2 className="w-4 h-4" />
+                                    </Button>
+                                  )}
                                   <Button
                                     size="sm"
                                     variant="ghost"
-                                    className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                                    onClick={() => handleAcceptInquiry(inquiry)}
-                                    title="Accept Inquiry"
+                                    onClick={() =>
+                                      setViewDetailsDialog({
+                                        open: true,
+                                        type: "inquiry",
+                                        data: inquiry,
+                                      })
+                                    }
+                                    title="View Details"
                                   >
-                                    <Check className="w-4 h-4" />
+                                    <Eye className="w-4 h-4 text-blue-600" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleEditInquiry(inquiry)}
+                                    title="Edit Inquiry"
+                                  >
+                                    <Edit className="w-4 h-4 text-blue-600" />
                                   </Button>
                                   <Button
                                     size="sm"
                                     variant="ghost"
                                     className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                    onClick={() => handleRejectInquiry(inquiry)}
-                                    title={inquiry.status === "REJECTED" ? "Revert to NEW" : "Reject Inquiry"}
+                                    onClick={() => setDeleteDialog({ open: true, type: "inquiry", id: inquiry.id })}
+                                    title="Delete Inquiry"
                                   >
-                                    <X className="w-4 h-4" />
+                                    <Trash2 className="w-4 h-4" />
                                   </Button>
-                                </>
-                              )}
-                              {inquiry.status === "APPROVED" && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                                  onClick={() => handleRollbackInquiry(inquiry)}
-                                  title="Rollback (Delete Student & Revert to NEW)"
-                                >
-                                  <Undo2 className="w-4 h-4" />
-                                </Button>
-                              )}
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() =>
-                                  setViewDetailsDialog({
-                                    open: true,
-                                    type: "inquiry",
-                                    data: {
-                                      ...inquiry,
-                                      programInterest: inquiry.program?.name,
-                                      date: inquiry.createdAt.split("T")[0],
-                                    },
-                                  })
-                                }
-                              >
-                                <Eye className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleEditInquiry(inquiry)}
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() =>
-                                  setDeleteDialog({ open: true, type: "inquiry", id: inquiry.id })
-                                }
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-
-                            </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {isFetchingNextPage && (
+                            <TableRow>
+                              <TableCell colSpan={7} className="text-center py-4 text-muted-foreground animate-pulse">
+                                Loading more inquiries...
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </>
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                            No inquiries found.
                           </TableCell>
                         </TableRow>
-                      ))}
+                      )}
                     </TableBody>
                   </Table>
                 )}
