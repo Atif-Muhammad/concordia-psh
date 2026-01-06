@@ -10,10 +10,11 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-  ) {}
+  ) { }
 
   async generateTokens(payload: {
     id: number | string;
+    name: string;
     email: string;
     role?: string;
     permissions: any;
@@ -34,6 +35,7 @@ export class AuthService {
 
   async refreshTokens(payload: {
     id: number | string;
+    name: string;
     email: string;
     role?: string;
     permissions: any;
@@ -44,7 +46,7 @@ export class AuthService {
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   async createSuperAdmin(payload: CreateAdminDto) {
-    const { email, password, name } = payload;
+    const { email, password, name, role } = payload;
     // check if email exists
     const existingAdmin = await this.prisma.admin.findUnique({
       where: { email },
@@ -63,27 +65,11 @@ export class AuthService {
         email,
         name,
         permissions: { all: true },
-        role: 'SUPER_ADMIN',
+        role,
       },
     });
   }
 
-  async createAdmin(payload: CreateAdminDto) {
-    console.log(payload);
-    // const { name, email, password } = payload;
-    // const existingAdmin = await this.prisma.admin.findUnique({ where: { email: email } });
-    // if (existingAdmin) {
-    //     throw new HttpException("Admin with this email already exists", HttpStatus.BAD_REQUEST);
-    // }
-
-    // // hash pass
-    // const hashedPass = await bcrypt.hash(password, 10);
-    // return this.prisma.admin.create({
-    //     data: {
-    //         name, password: hashedPass, email, role: "ADMIN"
-    //     }
-    // })
-  }
 
   async updateAdmin(adminID: number, payload: Partial<CreateAdminDto>) {
     // const admin = await this.prisma.admin.findUnique({
@@ -125,13 +111,18 @@ export class AuthService {
     return admin;
   }
 
-  async loginMember(memberID: string, otp: number) {
-    // check otp against the memberID
-    // const matched = await this.prisma.member.findFirst({where: {Membership_No: String(memberID), otp}})
-    // if(!matched) {
-    //     throw new HttpException("OTP Didn't match", HttpStatus.NOT_ACCEPTABLE);
-    // }
-    // await this.prisma.member.update({where: {Membership_No: String(memberID)}, data: {otp: null}})
-    // return matched;
+  async findUserById(id: number | string) {
+    const numericId = typeof id === 'string' ? parseInt(id) : id;
+    if (isNaN(numericId)) return null;
+
+    const admin = await this.prisma.admin.findUnique({
+      where: { id: numericId },
+    });
+    if (admin) return admin;
+
+    const teacher = await this.prisma.teacher.findUnique({
+      where: { id: numericId },
+    });
+    return teacher;
   }
 }

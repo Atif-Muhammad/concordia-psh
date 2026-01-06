@@ -1242,6 +1242,23 @@ const FrontOffice = () => {
                                 <Button
                                   size="sm"
                                   variant="ghost"
+                                  onClick={() =>
+                                    setViewDetailsDialog({
+                                      open: true,
+                                      type: "visitor",
+                                      data: {
+                                        ...visitor,
+                                        inTime: formatTime(visitor.inTime),
+                                        outTime: formatTime(visitor.outTime),
+                                      },
+                                    })
+                                  }
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
                                   onClick={() => handleEditVisitor(visitor)}
                                 >
                                   <Edit className="w-4 h-4" />

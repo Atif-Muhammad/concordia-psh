@@ -45,7 +45,7 @@ import {
 } from "lucide-react";
 import { useData } from "@/contexts/DataContext";
 import { useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import {
   getAdmins,
   createAdmin as createAdminAPI,
@@ -94,6 +94,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "../lib/utils";
 
 const salarySlipTemplate = `
 <div style="display: flex; gap: 20px; font-family: Arial, sans-serif; font-size: 12px; min-width: 900px;">
@@ -850,6 +851,7 @@ const Configuration = () => {
     name: "",
     email: "",
     password: "",
+    role: "ADMIN",
   });
   const [passwordDialog, setPasswordDialog] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
@@ -915,36 +917,95 @@ const Configuration = () => {
   const [previewTeacherIdCard, setPreviewTeacherIdCard] = useState(null);
   const [previewStudentIdCard, setPreviewStudentIdCard] = useState(null);
 
-  // Admins state for rendering - fetched directly from API in apis.js
-  const [admins, setAdmins] = useState([]);
+
 
   // Helper function to map admin data from API response
   const mapAdminData = (admin) => ({
     id: admin.id,
     name: admin.name || admin.email.split("@")[0],
     email: admin.email,
+    role: admin.role,
     accessRights: admin.permissions?.modules || [],
   });
 
-  // Fetch admins on component mount using API from apis.js
-  useEffect(() => {
-    const loadAdmins = async () => {
-      try {
-        const adminsData = await getAdmins();
-        if (Array.isArray(adminsData)) {
-          setAdmins(adminsData.map(mapAdminData));
-        }
-      } catch (error) {
-        console.error("Failed to fetch admins:", error);
-        toast({
-          title: "Error",
-          description: error.message || "Failed to fetch admins",
-          variant: "destructive",
-        });
-      }
-    };
-    loadAdmins();
-  }, []); // Empty dependency array means it runs once on mount
+  // Fetch admins using React Query
+  const { data: adminsRaw = [], isLoading: adminsLoading } = useQuery({
+    queryKey: ["admins"],
+    queryFn: getAdmins,
+  });
+
+  const admins = Array.isArray(adminsRaw) ? adminsRaw.map(mapAdminData) : [];
+
+  // Mutations
+  const createAdminMutation = useMutation({
+    mutationFn: createAdminAPI,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admins"] });
+      toast({ title: "Admin created successfully" });
+      setDialog({ type: "", open: false });
+      setAdminForm({ name: "", email: "", password: "", role: "ADMIN" });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message || "Failed to create admin", variant: "destructive" });
+    },
+  });
+
+  const updateAdminMutation = useMutation({
+    mutationFn: ({ id, data }) => updateAdminAPI(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admins"] });
+      queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+      toast({ title: "Admin updated successfully" });
+      setDialog({ type: "", open: false });
+      setEditing(null);
+      setAdminForm({ name: "", email: "", password: "", role: "ADMIN" });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message || "Failed to update admin", variant: "destructive" });
+    },
+  });
+
+  const deleteAdminMutation = useMutation({
+    mutationFn: deleteAdminAPI,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admins"] });
+      queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+      toast({ title: "Admin deleted successfully" });
+      setDeleteDialog(false);
+      setDeleteTarget(null);
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message || "Failed to delete admin", variant: "destructive" });
+    },
+  });
+
+  const updatePasswordMutation = useMutation({
+    mutationFn: ({ id, data }) => updateAdminAPI(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admins"] });
+      toast({ title: "Password updated successfully" });
+      setPasswordDialog(false);
+      setPasswordForm({ adminId: "", newPassword: "", confirmPassword: "" });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message || "Failed to update password", variant: "destructive" });
+    },
+  });
+
+  const toggleAccessMutation = useMutation({
+    mutationFn: ({ id, data }) => updateAdminAPI(id, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["admins"] });
+      queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+      toast({
+        title: "Success",
+        description: `Access updated for ${variables.module}`,
+      });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message || "Failed to update access rights", variant: "destructive" });
+    },
+  });
 
   // Teacher ID Card State (Refactored to Backend)
   const [teacherIdCardTemplates, setTeacherIdCardTemplates] = useState([]);
@@ -1097,66 +1158,27 @@ const Configuration = () => {
     });
   };
   const handleAdminSubmit = async () => {
-    try {
-      // Map frontend data to backend format
-      // Role is always "ADMIN", access rights determine the role access
-      const adminData = {
-        name: adminForm.name,
-        email: adminForm.email,
-        password: adminForm.password,
-        role: "ADMIN", // Always ADMIN, access rights determine permissions
-        permissions: adminForm.accessRights
-          ? { modules: adminForm.accessRights }
-          : { modules: [] },
-      };
+    // Map frontend data to backend format
+    // Role is always "ADMIN", access rights determine the role access
+    const adminData = {
+      name: adminForm.name,
+      email: adminForm.email,
+      password: adminForm.password,
+      role: adminForm.role,
+      permissions: adminForm.accessRights
+        ? { modules: adminForm.accessRights }
+        : { modules: [] },
+    };
 
-      if (editing) {
-        // For update, don't send password if it's not being changed
-        const updateData = { ...adminData };
-        if (!adminForm.password) {
-          delete updateData.password;
-        }
-        await updateAdminAPI(editing.id, updateData);
-
-        // Refetch admins to get updated data using API from apis.js
-        const adminsData = await getAdmins();
-        if (Array.isArray(adminsData)) {
-          setAdmins(adminsData.map(mapAdminData));
-        }
-
-        toast({
-          title: "Admin updated successfully",
-        });
-      } else {
-        await createAdminAPI(adminData);
-
-        // Refetch admins to get updated data using API from apis.js
-        const adminsData = await getAdmins();
-        if (Array.isArray(adminsData)) {
-          setAdmins(adminsData.map(mapAdminData));
-        }
-
-        toast({
-          title: "Admin created successfully",
-        });
+    if (editing) {
+      // For update, don't send password if it's not being changed
+      const updateData = { ...adminData };
+      if (!adminForm.password) {
+        delete updateData.password;
       }
-
-      setDialog({
-        type: "",
-        open: false,
-      });
-      setEditing(null);
-      setAdminForm({
-        name: "",
-        email: "",
-        password: "",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to save admin",
-        variant: "destructive",
-      });
+      updateAdminMutation.mutate({ id: editing.id, data: updateData });
+    } else {
+      createAdminMutation.mutate(adminData);
     }
   };
   const toggleAccessRight = async (adminId, module) => {
@@ -1167,67 +1189,32 @@ const Configuration = () => {
       ? admin.accessRights.filter((m) => m !== module)
       : [...admin.accessRights, module];
 
-    try {
-      // Update only permissions, role remains "ADMIN"
-      const updateData = {
-        permissions: { modules: newAccessRights },
-      };
+    // Update only permissions, role remains "ADMIN"
+    const updateData = {
+      permissions: { modules: newAccessRights },
+    };
 
-      await updateAdminAPI(adminId, updateData);
-
-      // Refetch admins to get updated data using API from apis.js
-      const adminsData = await getAdmins();
-      if (Array.isArray(adminsData)) {
-        setAdmins(adminsData.map(mapAdminData));
-      }
-
-      toast({
-        title: "Success",
-        description: `Access ${hasAccess ? "removed" : "granted"
-          } for ${module}`,
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update access rights",
-        variant: "destructive",
-      });
-    }
+    toggleAccessMutation.mutate({ id: adminId, data: updateData, module });
   };
   const handleDelete = async () => {
     if (!deleteTarget) return;
 
-    try {
-      if (deleteTarget.type === "admin") {
-        await deleteAdminAPI(deleteTarget.id);
-        // Refetch admins to get updated data using API from apis.js
-        const adminsData = await getAdmins();
-        if (Array.isArray(adminsData)) {
-          setAdmins(adminsData.map(mapAdminData));
-        }
-        toast({
-          title: "Admin deleted successfully",
-        });
-      } else if (deleteTarget.type === "branch") {
-        deleteBranch(deleteTarget.id);
-        toast({
-          title: "Branch deleted successfully",
-        });
-      } else if (deleteTarget.type === "role") {
-        deleteRole(deleteTarget.id);
-        toast({
-          title: "Role deleted successfully",
-        });
-      }
-
+    if (deleteTarget.type === "admin") {
+      deleteAdminMutation.mutate(deleteTarget.id);
+    } else if (deleteTarget.type === "branch") {
+      deleteBranch(deleteTarget.id);
+      toast({
+        title: "Branch deleted successfully",
+      });
       setDeleteDialog(false);
       setDeleteTarget(null);
-    } catch (error) {
+    } else if (deleteTarget.type === "role") {
+      deleteRole(deleteTarget.id);
       toast({
-        title: "Error",
-        description: error.message || `Failed to delete ${deleteTarget.type} `,
-        variant: "destructive",
+        title: "Role deleted successfully",
       });
+      setDeleteDialog(false);
+      setDeleteTarget(null);
     }
   };
   const openEditBranch = (branch) => {
@@ -1253,6 +1240,7 @@ const Configuration = () => {
       name: admin.name || "",
       email: admin.email || "",
       password: "", // Don't set password when editing
+      role: admin.role || "ADMIN",
     });
     setDialog({
       type: "admin",
@@ -1276,35 +1264,11 @@ const Configuration = () => {
       return;
     }
 
-    try {
-      // Update password via API
-      const updateData = {
-        password: passwordForm.newPassword,
-      };
-      await updateAdminAPI(passwordForm.adminId, updateData);
-
-      // Refetch admins to get updated data using API from apis.js
-      const adminsData = await getAdmins();
-      if (Array.isArray(adminsData)) {
-        setAdmins(adminsData.map(mapAdminData));
-      }
-
-      toast({
-        title: "Password updated successfully",
-      });
-      setPasswordDialog(false);
-      setPasswordForm({
-        adminId: "",
-        newPassword: "",
-        confirmPassword: "",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update password",
-        variant: "destructive",
-      });
-    }
+    // Update password via mutation
+    const updateData = {
+      password: passwordForm.newPassword,
+    };
+    updatePasswordMutation.mutate({ id: passwordForm.adminId, data: updateData });
   };
   const openPasswordDialog = (adminId) => {
     setPasswordForm({
@@ -1691,6 +1655,7 @@ const Configuration = () => {
                           name: "",
                           email: "",
                           password: "",
+                          role: "ADMIN",
                         });
                       }}
                     >
@@ -1744,6 +1709,23 @@ const Configuration = () => {
                           />
                         </div>
                       )}
+                      <div>
+                        <Label>Role</Label>
+                        <Select
+                          value={adminForm.role}
+                          onValueChange={(val) =>
+                            setAdminForm({ ...adminForm, role: val })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select Role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ADMIN">ADMIN</SelectItem>
+                            <SelectItem value="SUPER_ADMIN">SUPER_ADMIN</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <Button onClick={handleAdminSubmit} className="w-full">
                         {editing ? "Update" : "Add"}
                       </Button>
@@ -1757,105 +1739,142 @@ const Configuration = () => {
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
-                      {/* <TableHead>Role</TableHead> */}
+                      <TableHead>Role</TableHead>
                       <TableHead>Access Rights</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {admins.map((admin) => {
-                      return (
-                        <TableRow key={admin.id}>
-                          <TableCell>{admin.name}</TableCell>
-                          <TableCell>{admin.email}</TableCell>
-                          <TableCell>ADMIN</TableCell>
-                          <TableCell>
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                  <MoreVertical className="h-4 w-4" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent
-                                className="w-full max-w-3xl p-4 bg-popover shadow-lg"
-                                align="start"
-                                sideOffset={5}
-                              >
-                                <div className="space-y-3">
-                                  <div className="px-2 py-1 text-sm font-semibold text-foreground">
-                                    Module Access
-                                  </div>
-
-                                  {/* HORIZONTAL GRID – 3 or 4 columns */}
-                                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                                    {allModules.map((module) => {
-                                      const hasAccess =
-                                        admin.accessRights.includes(module);
-                                      return (
-                                        <div
-                                          key={module}
-                                          onClick={() =>
-                                            toggleAccessRight(admin.id, module)
-                                          }
-                                          className={`
-              flex items - center justify - between
-px - 3 py - 2 text - sm rounded - md
-cursor - pointer transition - all duration - 200
-border
-              ${hasAccess
-                                              ? "bg-primary/10 text-primary border-primary/30 hover:bg-primary/20"
-                                              : "bg-background text-muted-foreground border-border hover:bg-accent hover:text-accent-foreground"
-                                            }
-`}
-                                        >
-                                          <span className="truncate">
-                                            {module}
-                                          </span>
-                                          {hasAccess && (
-                                            <Check className="h-4 w-4 ml-2 flex-shrink-0" />
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
+                    {adminsLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="h-24 text-center">
+                          Loading admins...
+                        </TableCell>
+                      </TableRow>
+                    ) : admins.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="h-24 text-center">
+                          No admins found.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      admins.map((admin) => {
+                        return (
+                          <TableRow key={admin.id}>
+                            <TableCell>{admin.name}</TableCell>
+                            <TableCell>{admin.email}</TableCell>
+                            <TableCell>
+                              <Badge variant={admin.role === "SUPER_ADMIN" ? "default" : "secondary"}>
+                                {admin.role}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {admin.role === "SUPER_ADMIN" ? (
+                                <div className="flex items-center gap-2 text-green-600 bg-green-50/50 px-3 py-1.5 rounded-full w-fit border border-green-100">
+                                  <Shield className="h-3.5 w-3.5" />
+                                  <span className="text-xs font-semibold uppercase tracking-wider">Full system Access</span>
                                 </div>
-                              </PopoverContent>
-                            </Popover>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2 justify-end">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openEditAdmin(admin)}
-                              >
-                                <Edit className="w-4" />
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openPasswordDialog(admin.id)}
-                              >
-                                <Shield className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => {
-                                  setDeleteTarget({
-                                    type: "admin",
-                                    id: admin.id,
-                                  });
-                                  setDeleteDialog(true);
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                              ) : (
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8 gap-2 border-dashed hover:border-primary hover:text-primary transition-colors"
+                                    >
+                                      <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                                      <span className="text-xs">Manage Permissions</span>
+                                      <Badge variant="secondary" className="h-5 px-1.5 text-[10px] ml-1">
+                                        {admin.accessRights.length}
+                                      </Badge>
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent
+                                    className="w-[450px] p-0 bg-popover shadow-2xl border-border rounded-xl overflow-hidden"
+                                    align="start"
+                                    sideOffset={8}
+                                  >
+                                    <div className="bg-muted/30 px-4 py-3 border-b flex items-center justify-between">
+                                      <div>
+                                        <h4 className="font-bold text-sm text-foreground">Module Access</h4>
+                                        <p className="text-[10px] text-muted-foreground">Toggle module permissions for this admin</p>
+                                      </div>
+                                      <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px]">
+                                        {admin.accessRights.length} Active
+                                      </Badge>
+                                    </div>
+
+                                    <div className="p-3 grid grid-cols-2 gap-2 max-h-[350px] overflow-y-auto">
+                                      {allModules.map((module) => {
+                                        const hasAccess = admin.accessRights.includes(module);
+                                        return (
+                                          <div
+                                            key={module}
+                                            onClick={() => toggleAccessRight(admin.id, module)}
+                                            className={cn(
+                                              "group flex items-center justify-between px-3 py-2.5 text-[11px] rounded-lg cursor-pointer transition-all border duration-200",
+                                              hasAccess
+                                                ? "bg-primary/5 text-primary border-primary/20 hover:bg-primary/10"
+                                                : "bg-background text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground"
+                                            )}
+                                          >
+                                            <span className="font-medium mr-2">{module}</span>
+                                            <div className={cn(
+                                              "h-4 w-4 rounded-full border flex items-center justify-center transition-colors",
+                                              hasAccess
+                                                ? "bg-primary border-primary"
+                                                : "border-muted-foreground/30 group-hover:border-muted-foreground/50"
+                                            )}>
+                                              {hasAccess && <Check className="h-2.5 w-2.5 text-white stroke-[3]" />}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                    <div className="bg-muted/10 px-4 py-2 border-t mt-1">
+                                      <p className="text-[9px] text-center text-muted-foreground uppercase tracking-widest font-semibold italic">
+                                        Changes are saved automatically
+                                      </p>
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2 justify-end">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openEditAdmin(admin)}
+                                >
+                                  <Edit className="w-4" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openPasswordDialog(admin.id)}
+                                >
+                                  <Shield className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => {
+                                    setDeleteTarget({
+                                      type: "admin",
+                                      id: admin.id,
+                                    });
+                                    setDeleteDialog(true);
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>

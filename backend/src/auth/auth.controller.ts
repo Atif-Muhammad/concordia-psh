@@ -72,14 +72,15 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const clientType = req.headers['client-type'] || 'web';
-    const { id, email, role, permissions } = req.user as {
+    const { id, name, email, role, permissions } = req.user as {
       id: string | number;
+      name: string;
       email: string;
       role: string;
       permissions: any;
     };
     const { access_token, refresh_token } =
-      await this.authService.refreshTokens({ id, email, role, permissions });
+      await this.authService.refreshTokens({ id, name, email, role, permissions });
     // for web
     if (clientType === 'web') {
       res.cookie('access_token', access_token, {
@@ -102,22 +103,17 @@ export class AuthController {
 
   @UseGuards(JwtAccGuard)
   @Get('user-who')
-  async userWho(
-    @Req()
-    req: {
-      user: {
-        id: number | string;
-        email: string;
-        role?: string;
-        permissions: any;
-      };
-    },
-  ) {
+  async userWho(@Req() req: any) {
+    const user = await this.authService.findUserById(req.user.id);
+    if (!user) {
+      throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+    }
     return {
-      id: req.user?.id,
-      role: req.user?.role,
-      email: req.user?.email,
-      permissions: req.user?.permissions,
+      id: user.id,
+      name: user.name,
+      role: (user as any).role || 'Teacher',
+      email: user.email,
+      permissions: (user as any).permissions || {},
     };
   }
 }

@@ -3,8 +3,17 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, DollarSign, ClipboardCheck, GraduationCap,
   BookOpen, Settings, BriefcaseBusiness, Home, FileText, TrendingUp,
-  Menu, X, LogOut, Bell, ChevronLeft, ChevronRight, Package, UserCircle, Lock
+  Menu, X, LogOut, Bell, ChevronLeft, ChevronRight, Package, UserCircle, Lock, User
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -300,7 +309,7 @@ const DashboardLayout = ({ children }) => {
                 <Menu className="w-5 h-5" />
               </Button>
               <h1 className="text-xl font-semibold text-foreground">
-                {menuItems.find((i) => i.path === location.pathname)?.label || "Dashboard"}
+                {settings?.instituteName}
               </h1>
             </div>
             <div className="flex items-center gap-2">
@@ -308,10 +317,37 @@ const DashboardLayout = ({ children }) => {
               {/* <Button variant="ghost" size="icon">
                 <Bell className="w-5 h-5" />
               </Button> */}
-              <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-2">
-                <LogOut className="w-4 h-4" />
-                <span className="hidden sm:inline">Logout</span>
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="flex items-center gap-2 pl-2 pr-1 h-10 rounded-full hover:bg-muted">
+                    <span className="hidden md:flex flex-col items-end mr-1 space-y-1 px-2">
+                      <span className="text-sm text-foreground font-semibold leading-none">{currentUser?.name}</span>
+                      <span className="text-xs text-muted-foreground leading-none">{currentUser?.role}</span>
+                    </span>
+                    <Avatar className="h-8 w-8 border border-border">
+                      <AvatarImage src="" alt={currentUser?.name} />
+                      <AvatarFallback className="bg-primary/10 text-primary">
+                        {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : <User className="h-4 w-4" />}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-56" align="end" forceMount>
+                  <DropdownMenuLabel className="font-normal md:hidden">
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium leading-none">{currentUser?.name || "Admin"}</p>
+                      <p className="text-xs leading-none text-muted-foreground">
+                        {currentUser?.email || currentUser?.role}
+                      </p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator className="md:hidden" />
+                  <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>Log out</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </header>
