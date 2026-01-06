@@ -30,8 +30,8 @@ attendance:
 3. holiday -> multiple dates selection.
 
 teacher:
-1. contract duration.
-2. document must be non-empty object.
+1. contract duration. ✔
+2. document must be non-empty object. ✔
 
 examination:
 1. dates arent sync for exam creation.
@@ -47,16 +47,13 @@ class:
 3. promote to manual class/section.
 
 hr&payroll:
-1. paid/unpaid status fix.
+1. paid/unpaid status fix. ✔
 2. settings:
 	1. 45000 / 30 = 1500 <------ 1500 deduction
 	2. seperate for all teachers/employee
 	3. remove leave allowed.
 	
 	----> leave should be seperately defined for all employee.
-
-3. teacher and employee can be same.
-
 	
 
 Hostel:
@@ -70,7 +67,8 @@ Finance:
 3. remove k for thousand.
 
 
-
+ ------ Phase 2 ------
 
 configuration:
 1. granular access for modules.
+2. teacher and employee can be same.

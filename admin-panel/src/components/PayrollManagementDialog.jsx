@@ -147,11 +147,23 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
   // Bulk mark as unpaid
   const handleBulkMarkUnpaid = () => {
     const newData = [...localData];
+    let updatedCount = 0;
     selectedRows.forEach((index) => {
-      newData[index].status = "UNPAID";
+      if (localData[index].status !== "PAID") {
+        newData[index].status = "UNPAID";
+        updatedCount++;
+      }
     });
     setLocalData(newData);
-    toast({ title: `${selectedRows.size} record(s) marked as UNPAID` });
+    if (updatedCount < selectedRows.size) {
+      toast({
+        title: "Bulk update partial",
+        description: `${updatedCount} records marked as UNPAID. ${selectedRows.size - updatedCount} PAID records skipped.`,
+        variant: "warning"
+      });
+    } else {
+      toast({ title: `${selectedRows.size} record(s) marked as UNPAID` });
+    }
   };
 
   // Preview state
@@ -663,6 +675,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.securityDeduction}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -677,6 +690,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.advanceDeduction}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -691,6 +705,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.absentDeduction}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -705,6 +720,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.leaveDeduction || 0}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -719,6 +735,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.otherDeduction}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -733,6 +750,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.incomeTax}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -747,6 +765,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.eobi}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -761,6 +780,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.lateArrivalDeduction}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -780,6 +800,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.extraAllowance}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -794,6 +815,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.travelAllowance}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -808,6 +830,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.otherAllowance}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -822,6 +845,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.houseRentAllowance}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -836,6 +860,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.medicalAllowance}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -850,6 +875,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         type="number"
                         className="h-8 w-20"
                         value={row.insuranceAllowance}
+                        disabled={row.status === "PAID"}
                         onChange={(e) =>
                           handleInputChange(
                             index,
@@ -871,8 +897,9 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                         variant={
                           row.status === "PAID" ? "default" : "destructive"
                         }
-                        className="cursor-pointer"
+                        className={row.status === "PAID" ? "opacity-80 shadow-none" : "cursor-pointer"}
                         onClick={() => {
+                          if (row.status === "PAID") return;
                           const newData = [...localData];
                           newData[index].status =
                             row.status === "PAID" ? "UNPAID" : "PAID";
