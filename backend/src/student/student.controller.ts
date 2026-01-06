@@ -23,7 +23,7 @@ export class StudentController {
   constructor(
     private readonly studentService: StudentService,
     private readonly cloudinaryService: CloudinaryService,
-  ) {}
+  ) { }
 
   @Get('get/all/passout')
   async getPassoutStudents(
@@ -69,7 +69,7 @@ export class StudentController {
   }
 
   @Post('create')
-  @UseInterceptors(FileInterceptor('photo'))
+  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
   async createStudent(
     @UploadedFile() file: Express.Multer.File,
     @Body() payload: StudentDto,
@@ -109,7 +109,7 @@ export class StudentController {
   }
 
   @Patch('update')
-  @UseInterceptors(FileInterceptor('photo'))
+  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
   async updateStudent(
     @UploadedFile() file: Express.Multer.File,
     @Query() studentID: { studentID: string },

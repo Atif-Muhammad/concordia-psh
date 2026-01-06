@@ -1,6 +1,6 @@
-1. admin details on screen prom.
-2. assing complaint resolver/employee.
-3. all inquiries fetch by default.
+1. admin details on screen prom.✔
+2. assing complaint resolver/employee. ✔
+3. all inquiries fetch by default.✔
 4. format for roll number i.e., PSH-IN26-001
 	IN-----> intermediate
 

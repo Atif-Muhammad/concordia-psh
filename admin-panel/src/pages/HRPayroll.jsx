@@ -21,6 +21,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, getEmployeeAttendance, markEmployeeAttendance, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate } from "../../config/apis";
 import { Loader2 } from "lucide-react";
+import { calculateDuration } from "../lib/dateUtils";
 
 const HRPayroll = () => {
   const {
@@ -41,6 +42,8 @@ const HRPayroll = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [editingAdvance, setEditingAdvance] = useState(null);
   const [idCardTemplate, setIdCardTemplate] = useState("");
+  const [viewEmployeeOpen, setViewEmployeeOpen] = useState(false);
+  const [viewEmployee, setViewEmployee] = useState(null);
 
   const handleIDCardPreview = async (employee) => {
     try {
@@ -169,6 +172,8 @@ const HRPayroll = () => {
     status: "ACTIVE",
     joinDate: new Date().toISOString().split("T")[0],
     leaveDate: "",
+    contractStart: "",
+    contractEnd: "",
     photo: null,
   });
 
@@ -348,6 +353,8 @@ const HRPayroll = () => {
         basicPay: 0,
         joinDate: new Date().toISOString().split("T")[0],
         leaveDate: "",
+        contractStart: "",
+        contractEnd: "",
         photo: null
       });
     },
@@ -373,6 +380,8 @@ const HRPayroll = () => {
         basicPay: 0,
         joinDate: new Date().toISOString().split("T")[0],
         leaveDate: "",
+        contractStart: "",
+        contractEnd: "",
         photo: null
       });
     },
@@ -413,6 +422,8 @@ const HRPayroll = () => {
     payload.append("status", editingEmployee?.status || "ACTIVE");
     payload.append("basicPay", employeeFormData.basicPay);
     payload.append("joinDate", employeeFormData.joinDate || "");
+    payload.append("contractStart", employeeFormData.contractStart || "");
+    payload.append("contractEnd", employeeFormData.contractEnd || "");
     if (employeeFormData.leaveDate) payload.append("leaveDate", employeeFormData.leaveDate);
     if (employeeFormData.photo) payload.append("photo", employeeFormData.photo);
 
@@ -429,7 +440,8 @@ const HRPayroll = () => {
     setEmployeeFormData({
       name: "", fatherName: "", cnic: "", contactNumber: "", email: "", address: "",
       designation: "", empDepartment: "", employmentType: "PERMANENT", status: "ACTIVE",
-      basicPay: 0, joinDate: new Date().toISOString().split("T")[0], leaveDate: "", photo: null
+      basicPay: 0, joinDate: new Date().toISOString().split("T")[0], leaveDate: "",
+      contractStart: "", contractEnd: "", photo: null
     });
   };
 
@@ -813,6 +825,12 @@ const HRPayroll = () => {
                           <TableCell>
                             <div className="flex gap-2">
                               <Button size="sm" variant="outline" onClick={() => {
+                                setViewEmployee(employee);
+                                setViewEmployeeOpen(true);
+                              }}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => {
                                 handleIDCardPreview(employee);
                               }}>
                                 <IdCard className="h-4 w-4" />
@@ -834,6 +852,8 @@ const HRPayroll = () => {
                                     basicPay: employee.basicPay,
                                     joinDate: employee.joinDate ? new Date(employee.joinDate).toISOString().split("T")[0] : "",
                                     leaveDate: employee.leaveDate ? new Date(employee.leaveDate).toISOString().split("T")[0] : "",
+                                    contractStart: employee.contractStart ? new Date(employee.contractStart).toISOString().split("T")[0] : "",
+                                    contractEnd: employee.contractEnd ? new Date(employee.contractEnd).toISOString().split("T")[0] : "",
                                   });
                                   setEmployeeOpen(true);
                                 }}>
@@ -1157,13 +1177,19 @@ const HRPayroll = () => {
 
             {/* Photo */}
             <div>
-              <Label>Photo</Label>
+              <Label>Photo (Max 5MB)</Label>
               <Input
                 type="file"
                 accept="image/*"
                 onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    setEmployeeFormData({ ...employeeFormData, photo: e.target.files[0] });
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    if (file.size > 5 * 1024 * 1024) {
+                      toast({ title: "File too large", description: "Max 5MB allowed", variant: "destructive" });
+                      e.target.value = null; // Clear input
+                      return;
+                    }
+                    setEmployeeFormData({ ...employeeFormData, photo: file });
                   }
                 }}
               />
@@ -1318,6 +1344,28 @@ const HRPayroll = () => {
                 onChange={(e) => setEmployeeFormData({ ...employeeFormData, joinDate: e.target.value })}
               />
             </div>
+
+            {/* Contract Dates - Only for CONTRACT staff */}
+            {employeeFormData.employmentType === "CONTRACT" && (
+              <>
+                <div>
+                  <Label>Contract Start Date</Label>
+                  <Input
+                    type="date"
+                    value={employeeFormData.contractStart}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, contractStart: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>Contract End Date</Label>
+                  <Input
+                    type="date"
+                    value={employeeFormData.contractEnd}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, contractEnd: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
 
             {/* Leave Date (Only if status is TERMINATED/RETIRED) */}
             {(employeeFormData.status === "TERMINATED" || employeeFormData.status === "RETIRED") && (
@@ -1713,6 +1761,124 @@ const HRPayroll = () => {
       </Dialog>
 
       {/* Employee ID Card Dialog */}
+      {/* Employee Details Dialog */}
+      <Dialog open={viewEmployeeOpen} onOpenChange={setViewEmployeeOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Employee Profile</DialogTitle>
+          </DialogHeader>
+          {viewEmployee && (
+            <div className="space-y-6">
+              <div className="flex items-start gap-6">
+                <Avatar className="h-24 w-24 border-4 border-background shadow-lg">
+                  <AvatarImage className="object-cover" src={viewEmployee.photo_url} alt={viewEmployee.name} />
+                  <AvatarFallback className="text-3xl font-bold bg-primary/10 text-primary uppercase">
+                    {viewEmployee.name.charAt(0)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-2xl font-bold">{viewEmployee.name}</h3>
+                      <p className="text-muted-foreground">{viewEmployee.fatherName ? `s/o ${viewEmployee.fatherName}` : ""}</p>
+                    </div>
+                    <Badge variant={viewEmployee.status === "ACTIVE" ? "default" : "destructive"}>
+                      {viewEmployee.status}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-sm">
+                    <p className="text-muted-foreground"><span className="font-medium text-foreground">Email:</span> {viewEmployee.email || "N/A"}</p>
+                    <p className="text-muted-foreground"><span className="font-medium text-foreground">CNIC:</span> {viewEmployee.cnic}</p>
+                    <p className="text-muted-foreground"><span className="font-medium text-foreground">Phone:</span> {viewEmployee.phone || viewEmployee.contactNumber || "N/A"}</p>
+                    <p className="text-muted-foreground"><span className="font-medium text-foreground">Department:</span> {viewEmployee.empDepartment}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card className="bg-muted/30">
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                      <Clock className="w-4 h-4" /> Employment Details
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 pt-0">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Type:</span>
+                      <span className="font-medium uppercase">{viewEmployee.employmentType}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Designation:</span>
+                      <span className="font-medium">{viewEmployee.designation}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Basic Pay:</span>
+                      <span className="font-medium">PKR {viewEmployee.basicPay ? parseFloat(viewEmployee.basicPay).toLocaleString() : "0"}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Join Date:</span>
+                      <span className="font-medium">{viewEmployee.joinDate ? format(new Date(viewEmployee.joinDate), "PPP") : "N/A"}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className={viewEmployee.employmentType === "CONTRACT" ? "bg-primary/5 border-primary/20" : "bg-green-50/30 border-green-100"}>
+                  <CardHeader className="py-3">
+                    <CardTitle className={`text-sm font-semibold flex items-center gap-2 ${viewEmployee.employmentType === "CONTRACT" ? "text-primary" : "text-green-700"}`}>
+                      {viewEmployee.employmentType === "CONTRACT" ? <CalendarIcon className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                      {viewEmployee.employmentType === "CONTRACT" ? "Contract Information" : "Tenure Information"}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 pt-0">
+                    {viewEmployee.employmentType === "CONTRACT" ? (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Start Date:</span>
+                          <span className="font-medium">{viewEmployee.contractStart ? format(new Date(viewEmployee.contractStart), "PPP") : "N/A"}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">End Date:</span>
+                          <span className="font-medium">{viewEmployee.contractEnd ? format(new Date(viewEmployee.contractEnd), "PPP") : "N/A"}</span>
+                        </div>
+                        <div className="pt-2 border-t border-primary/10 flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Contract Duration:</span>
+                          <span className="text-lg font-bold text-primary">
+                            {calculateDuration(viewEmployee.contractStart, viewEmployee.contractEnd)}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Join Date:</span>
+                          <span className="font-medium">{viewEmployee.joinDate ? format(new Date(viewEmployee.joinDate), "PPP") : "N/A"}</span>
+                        </div>
+                        <div className="pt-2 border-t border-green-100 flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Total Service:</span>
+                          <span className="text-lg font-bold text-green-700">
+                            {calculateDuration(viewEmployee.joinDate)}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="space-y-2 p-3 bg-muted/20 rounded-lg">
+                <h4 className="font-semibold text-sm text-muted-foreground flex items-center gap-2">
+                  <UserCheck className="w-4 h-4" /> Address
+                </h4>
+                <p className="text-sm">{viewEmployee.address || "No address provided."}</p>
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end mt-4">
+            <Button variant="outline" onClick={() => setViewEmployeeOpen(false)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={idCardOpen} onOpenChange={setIdCardOpen}>
         <DialogContent className="max-w-fit max-h-[95vh] overflow-y-auto">
           <DialogHeader>

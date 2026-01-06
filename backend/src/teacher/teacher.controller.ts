@@ -39,7 +39,7 @@ export class TeacherController {
   }
 
   @Post('create')
-  @UseInterceptors(FileInterceptor('photo'))
+  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
   async createTeacher(
     @UploadedFile() file: Express.Multer.File,
     @Body() payload: TeacherDto,
@@ -71,7 +71,7 @@ export class TeacherController {
     });
   }
   @Patch('update')
-  @UseInterceptors(FileInterceptor('photo'))
+  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
   async updateTeacher(
     @UploadedFile() file: Express.Multer.File,
     @Query() teacherID: { teacherID: string },

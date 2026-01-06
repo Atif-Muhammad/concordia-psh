@@ -166,7 +166,7 @@ model Teacher {
   teacherStatus TeacherStatus @default(ACTIVE)
 
   basicPay Decimal? @db.Decimal(10, 2)
-
+  joinDate DateTime? @default(now())
   departmentId Int?
   department   Department? @relation("DepartmentTeacher", fields: [departmentId], references: [id])
   headOf       Department? @relation("DepartmentHead")
@@ -180,6 +180,9 @@ model Teacher {
   payrolls             Payroll[]
   leaves               StaffLeave[]
   advanceSalaries      AdvanceSalary[]
+
+  contractStart DateTime?
+  contractEnd   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -467,6 +470,9 @@ model Employee {
 
   photo_url       String?
   photo_public_id String?
+
+  contractStart DateTime?
+  contractEnd   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -28,7 +28,7 @@ export class HrController {
     return await this.hrService.fetchEmpls(dept, search);
   }
   @Post('create/employee')
-  @UseInterceptors(FileInterceptor('photo'))
+  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
   async createEmpl(
     @UploadedFile() file: Express.Multer.File,
     @Body() payload: EmployeeDto,
@@ -53,7 +53,7 @@ export class HrController {
   }
 
   @Patch('update/employee')
-  @UseInterceptors(FileInterceptor('photo'))
+  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
   async updateEmpl(
     @UploadedFile() file: Express.Multer.File,
     @Query('id') id: string,

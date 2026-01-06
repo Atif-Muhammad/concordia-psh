@@ -45,6 +45,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { calculateDuration } from "../lib/dateUtils";
 
 const TEACHER_DOCUMENTS = [
   { key: "bsDegree", label: "BS/BSc Degree" },
@@ -114,6 +115,9 @@ const Teachers = () => {
     basicPay: "",
     documents: TEACHER_DOCUMENTS.reduce((acc, doc) => ({ ...acc, [doc.key]: false }), {}),
     photo: null,
+    contractStart: "",
+    contractEnd: "",
+    joinDate: "",
   });
 
   // Fetch Teachers
@@ -233,6 +237,9 @@ const Teachers = () => {
       departmentId: "",
       basicPay: "",
       documents: TEACHER_DOCUMENTS.reduce((acc, doc) => ({ ...acc, [doc.key]: false }), {}),
+      contractStart: "",
+      contractEnd: "",
+      joinDate: "",
     });
     setEditingTeacher(null);
   };
@@ -255,6 +262,9 @@ const Teachers = () => {
       basicPay: teacher.basicPay?.toString() || "",
       documents: teacher.documents || TEACHER_DOCUMENTS.reduce((acc, doc) => ({ ...acc, [doc.key]: false }), {}),
       photo: null,
+      contractStart: teacher.contractStart ? format(new Date(teacher.contractStart), "yyyy-MM-dd") : "",
+      contractEnd: teacher.contractEnd ? format(new Date(teacher.contractEnd), "yyyy-MM-dd") : "",
+      joinDate: teacher.joinDate ? format(new Date(teacher.joinDate), "yyyy-MM-dd") : "",
     });
     setOpen(true);
   };
@@ -279,6 +289,9 @@ const Teachers = () => {
     payload.append("departmentId", formData.departmentId ? formData.departmentId : "");
     payload.append("basicPay", formData.basicPay || "");
     payload.append("documents", JSON.stringify(formData.documents));
+    payload.append("contractStart", formData.contractStart || "");
+    payload.append("contractEnd", formData.contractEnd || "");
+    payload.append("joinDate", formData.joinDate || "");
 
     if (formData.password) payload.append("password", formData.password);
     if (formData.photo) payload.append("photo", formData.photo);
@@ -344,12 +357,12 @@ const Teachers = () => {
                     <PlusCircle className="w-4 h-4 mr-2" /> Add Teacher
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+                <DialogContent className="w-[95vw] max-w-6xl max-h-[85vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>{editingTeacher ? "Edit Teacher" : "Add Teacher"}</DialogTitle>
                   </DialogHeader>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
                     {/* Name */}
                     <div>
                       <Label>Name <span className="text-red-500">*</span></Label>
@@ -361,13 +374,19 @@ const Teachers = () => {
 
                     {/* Photo */}
                     <div>
-                      <Label>Photo</Label>
+                      <Label>Photo (Max 5MB)</Label>
                       <Input
                         type="file"
                         accept="image/*"
                         onChange={(e) => {
-                          if (e.target.files && e.target.files[0]) {
-                            setFormData({ ...formData, photo: e.target.files[0] });
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 5 * 1024 * 1024) {
+                              toast({ title: "File too large", description: "Max 5MB allowed", variant: "destructive" });
+                              e.target.value = null; // Clear input
+                              return;
+                            }
+                            setFormData({ ...formData, photo: file });
                           }
                         }}
                       />
@@ -522,6 +541,38 @@ const Teachers = () => {
                         placeholder="0"
                       />
                     </div>
+
+                    {/* Join Date */}
+                    <div>
+                      <Label>Join Date</Label>
+                      <Input
+                        type="date"
+                        value={formData.joinDate}
+                        onChange={(e) => setFormData({ ...formData, joinDate: e.target.value })}
+                      />
+                    </div>
+
+                    {/* Contract Dates - Only for CONTRACT staff */}
+                    {formData.teacherType === "CONTRACT" && (
+                      <>
+                        <div>
+                          <Label>Contract Start Date</Label>
+                          <Input
+                            type="date"
+                            value={formData.contractStart}
+                            onChange={(e) => setFormData({ ...formData, contractStart: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Contract End Date</Label>
+                          <Input
+                            type="date"
+                            value={formData.contractEnd}
+                            onChange={(e) => setFormData({ ...formData, contractEnd: e.target.value })}
+                          />
+                        </div>
+                      </>
+                    )}
 
 
                   </div>
@@ -775,11 +826,11 @@ const Teachers = () => {
                         {viewTeacher.name.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    <div className="flex-1">
+                    <div className="flex-1 overflow-x-hidden">
                       <h3 className="text-2xl font-bold">{viewTeacher.name}</h3>
                       <p className="text-muted-foreground">{viewTeacher.fatherName ? `s/o ${viewTeacher.fatherName}` : ""}</p>
                       <p className="text-muted-foreground">{viewTeacher.email}</p>
-                      <p className="text-muted-foreground">{viewTeacher.address}</p>
+                      <p className="text-muted-foreground break-words w-1/2">{viewTeacher.address}</p>
                       <p className="text-muted-foreground">CNIC: {viewTeacher.cnic}</p>
                       <div className="flex flex-wrap gap-2 mt-2">
                         <Badge>{viewTeacher.teacherType}</Badge>
@@ -807,6 +858,36 @@ const Teachers = () => {
                       <h4 className="font-semibold text-sm text-muted-foreground">Basic Pay</h4>
                       <p>PKR {viewTeacher.basicPay ? parseFloat(viewTeacher.basicPay).toLocaleString() : "0"}</p>
                     </div>
+                    <div className="space-y-1">
+                      <h4 className="font-semibold text-sm text-muted-foreground">Join Date</h4>
+                      <p>{viewTeacher.joinDate ? format(new Date(viewTeacher.joinDate), "PPP") : "N/A"}</p>
+                    </div>
+
+                    {viewTeacher.teacherType === "CONTRACT" ? (
+                      <>
+                        <div className="space-y-1">
+                          <h4 className="font-semibold text-sm text-muted-foreground">Contract Start</h4>
+                          <p>{viewTeacher.contractStart ? format(new Date(viewTeacher.contractStart), "PPP") : "N/A"}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="font-semibold text-sm text-muted-foreground">Contract End</h4>
+                          <p>{viewTeacher.contractEnd ? format(new Date(viewTeacher.contractEnd), "PPP") : "N/A"}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="font-semibold text-sm text-muted-foreground">Contract Duration</h4>
+                          <p className="font-bold text-primary">
+                            {calculateDuration(viewTeacher.contractStart, viewTeacher.contractEnd)}
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="space-y-1">
+                        <h4 className="font-semibold text-sm text-muted-foreground">Tenure (Total Service)</h4>
+                        <p className="font-bold text-primary">
+                          {calculateDuration(viewTeacher.joinDate)}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-3">

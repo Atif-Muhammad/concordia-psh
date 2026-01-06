@@ -21,25 +21,25 @@ export class TeacherDto {
   id?: string;
   @IsNotEmpty({ message: 'teacher name must be provided' })
   name: string;
-  @IsNotEmpty({ message: 'Father Name must be provided' })
-  fatherName: string;
+  @IsOptional()
+  fatherName?: string;
   @IsNotEmpty({ message: 'teacher email must be provided' })
   email: string;
   @IsNotEmpty({ message: 'teacher password must be given' })
   password: string;
-  @IsNotEmpty({ message: 'teacher phone must be provided' })
-  phone: string;
+  @IsOptional()
+  phone?: string;
   @IsOptional()
   cnic?: string;
   @IsOptional()
   address?: string;
-  @IsNotEmpty({ message: 'teacher specialization must be provided' })
-  specialization: string;
-  @IsNotEmpty({ message: "teacher's department must be provided" })
-  departmentId: string;
+  @IsOptional()
+  specialization?: string;
+  @IsOptional()
+  departmentId?: string;
   @IsNotEmpty({ message: 'teacher highest degree must be provided' })
   highestDegree: string;
-  @IsNotEmptyObject()
+  @IsOptional()
   documents: {
     bsDegree: boolean;
     msDegree: boolean;
@@ -57,7 +57,13 @@ export class TeacherDto {
   @IsOptional()
   basicPay?: string;
   @IsOptional()
+  joinDate?: string;
+  @IsOptional()
   photo_url?: string;
   @IsOptional()
   photo_public_id?: string;
+  @IsOptional()
+  contractStart?: string;
+  @IsOptional()
+  contractEnd?: string;
 }

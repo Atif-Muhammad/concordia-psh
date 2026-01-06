@@ -1008,8 +1008,19 @@ const Students = () => {
                 ) : (
                   <>
                     <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
-                    <p className="mt-2">Drag & drop or click to upload</p>
-                    <Input type="file" accept="image/*" className="mt-2" onChange={handleImageChange} />
+                    <p className="mt-2 text-sm text-muted-foreground">Drag & drop or click to upload</p>
+                    <Label className="text-sm font-medium mt-2">Photo (Max 5MB)</Label>
+                    <Input type="file" accept="image/*" className="mt-2" onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        if (file.size > 5 * 1024 * 1024) {
+                          toast({ title: "File too large", description: "Max 5MB allowed", variant: "destructive" });
+                          e.target.value = null; // Clear input
+                          return;
+                        }
+                        handleImageChange(e);
+                      }
+                    }} />
                   </>
                 )}
               </div>

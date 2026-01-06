@@ -35,8 +35,8 @@ export class EmployeeDto {
   contactNumber: string;
   @IsOptional()
   email?: string;
-  @IsNotEmpty({ message: 'Employee address must be provided' })
-  address: string;
+  @IsOptional()
+  address?: string;
 
   @IsNotEmpty({ message: 'Employee designation must be provided' })
   designation: string;
@@ -51,12 +51,16 @@ export class EmployeeDto {
   status: EmployeeStatus;
   @IsOptional()
   basicPay?: string;
-  @IsNotEmpty({ message: 'Employee join date must be provided' })
-  joinDate: string;
+  @IsOptional()
+  joinDate?: string;
   @IsOptional()
   leaveDate?: string;
   @IsOptional()
   photo_url?: string;
   @IsOptional()
   photo_public_id?: string;
+  @IsOptional()
+  contractStart?: string;
+  @IsOptional()
+  contractEnd?: string;
 }
