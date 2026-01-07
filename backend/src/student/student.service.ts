@@ -8,7 +8,7 @@ import { StudentDto } from './dtos/student.dto';
 
 @Injectable()
 export class StudentService {
-  constructor(private prismaService: PrismaService) {}
+  constructor(private prismaService: PrismaService) { }
 
   async findOne(id: number) {
     return await this.prismaService.student.findFirst({
@@ -16,38 +16,67 @@ export class StudentService {
       orderBy: { createdAt: 'desc' },
       include: {
         program: { select: { name: true, id: true } },
+        statusHistory: {
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
   }
 
-  async search(query: string, passedOut: boolean = false) {
-    return await this.prismaService.student.findMany({
-      where: {
-        passedOut: passedOut,
-        OR: [
-          { fName: { contains: query } },
-          { mName: { contains: query } },
-          { lName: { contains: query } },
-          { rollNumber: { contains: query } },
-        ],
-      },
-      orderBy: { createdAt: 'desc' },
+  async search(query: string, status?: string) {
+    const where: any = {
+      OR: [
+        { fName: { contains: query } },
+        { mName: { contains: query } },
+        { lName: { contains: query } },
+        { rollNumber: { contains: query } },
+      ],
+    };
+
+    if (status) {
+      where.status = status;
+    }
+
+    const students = await this.prismaService.student.findMany({
+      where,
+      orderBy: { statusDate: 'desc' },
       include: {
         program: { select: { name: true, id: true } },
         class: { select: { id: true, name: true } },
         section: { select: { id: true, name: true } },
       },
     });
+
+    return {
+      students,
+      total: students.length,
+      page: 1,
+      limit: students.length,
+      totalPages: 1,
+    };
   }
 
   async getAllStudents(filters?: {
     programId?: number | null;
     classId?: number | null;
     sectionId?: number | null;
+    status?: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+    page?: number;
+    limit?: number;
   }) {
-    const where: any = { passedOut: false };
+    const where: any = {};
+    const page = filters?.page || 1;
+    const limit = filters?.limit || 20;
+    const skip = (page - 1) * limit;
 
-    // Using optional chaining and nullish checks
+    if (filters?.status) {
+      where.status = filters.status;
+    } else {
+      where.status = 'ACTIVE';
+    }
+
     if (filters?.programId != null && filters.programId > 0) {
       where.programId = filters.programId;
     }
@@ -60,46 +89,35 @@ export class StudentService {
       where.sectionId = filters.sectionId;
     }
 
-    return await this.prismaService.student.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        program: { select: { name: true, id: true } },
-        class: { select: { id: true, name: true } },
-        section: { select: { id: true, name: true } },
-      },
-    });
-  }
-
-  async getPassedOutStudents(filters?: {
-    programId?: number | null;
-    classId?: number | null;
-    sectionId?: number | null;
-  }) {
-    const where: any = { passedOut: true };
-
-    // Add filters only if they have valid values
-    if (filters?.programId != null && filters.programId > 0) {
-      where.programId = filters.programId;
+    if (filters?.startDate && filters?.endDate) {
+      where.statusDate = {
+        gte: new Date(filters.startDate),
+        lte: new Date(filters.endDate),
+      };
     }
 
-    if (filters?.classId != null && filters.classId > 0) {
-      where.classId = filters.classId;
-    }
+    const [students, total] = await Promise.all([
+      this.prismaService.student.findMany({
+        where,
+        orderBy: { statusDate: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          program: { select: { name: true, id: true } },
+          class: { select: { id: true, name: true } },
+          section: { select: { id: true, name: true } },
+        },
+      }),
+      this.prismaService.student.count({ where }),
+    ]);
 
-    if (filters?.sectionId != null && filters.sectionId > 0) {
-      where.sectionId = filters.sectionId;
-    }
-
-    return await this.prismaService.student.findMany({
-      where,
-      orderBy: { updatedAt: 'desc' },
-      include: {
-        program: { select: { name: true, id: true } },
-        class: { select: { id: true, name: true } },
-        section: { select: { id: true, name: true } },
-      },
-    });
+    return {
+      students,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async createStudent(payload: StudentDto) {
@@ -111,6 +129,8 @@ export class StudentService {
         programId: Number(payload.programId),
         sectionId: Number(payload.sectionId),
         inquiryId: payload.inquiryId ? Number(payload.inquiryId) : null,
+        status: (payload.status as any) || 'ACTIVE',
+        statusDate: new Date(),
       },
     });
   }
@@ -167,8 +187,8 @@ export class StudentService {
             });
             throw new BadRequestException(
               `Cannot promote student. Outstanding fees for current class (${currentClass?.name || 'Unknown Class'}). ` +
-                `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
-                `Amount: ${totalPaid}/${currentFeeStructure.totalAmount}`,
+              `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
+              `Amount: ${totalPaid}/${currentFeeStructure.totalAmount}`,
             );
           }
         }
@@ -181,6 +201,10 @@ export class StudentService {
 
     // 2. Build clean data object
     const data: any = { ...rest };
+
+    if (payload.status) {
+      data.status = payload.status;
+    }
 
     // Handle DOB
     if (dob) {
@@ -547,11 +571,108 @@ export class StudentService {
     if (student.passedOut)
       throw new BadRequestException('Student already passed out');
 
-    return this.prismaService.student.update({
+    return this.prismaService.$transaction(async (tx) => {
+      await tx.studentStatusHistory.create({
+        data: {
+          studentId: id,
+          previousStatus: student.status,
+          newStatus: 'GRADUATED',
+          reason: 'Passed out / Graduated',
+        },
+      });
+
+      return tx.student.update({
+        where: { id },
+        data: {
+          passedOut: true,
+          status: 'GRADUATED',
+          statusDate: new Date(),
+        },
+      });
+    });
+  }
+
+  async expel(id: number, reason: string) {
+    const student = await this.prismaService.student.findUnique({
       where: { id },
-      data: {
-        passedOut: true,
-      },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
+    return this.prismaService.$transaction(async (tx) => {
+      await tx.studentStatusHistory.create({
+        data: {
+          studentId: id,
+          previousStatus: student.status,
+          newStatus: 'EXPELLED',
+          reason: reason,
+        },
+      });
+
+      return tx.student.update({
+        where: { id },
+        data: {
+          passedOut: true,
+          status: 'EXPELLED',
+          statusDate: new Date(),
+        },
+      });
+    });
+  }
+
+  async struckOff(id: number, reason: string) {
+    const student = await this.prismaService.student.findUnique({
+      where: { id },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
+    return this.prismaService.$transaction(async (tx) => {
+      await tx.studentStatusHistory.create({
+        data: {
+          studentId: id,
+          previousStatus: student.status,
+          newStatus: 'STRUCK_OFF',
+          reason: reason,
+        },
+      });
+
+      return tx.student.update({
+        where: { id },
+        data: {
+          passedOut: true,
+          status: 'STRUCK_OFF',
+          statusDate: new Date(),
+        },
+      });
+    });
+  }
+
+  async rejoin(id: number, reason: string) {
+    const student = await this.prismaService.student.findUnique({
+      where: { id },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+    if (student.status !== 'STRUCK_OFF') {
+      throw new BadRequestException('Only struck off students can re-join');
+    }
+
+    return this.prismaService.$transaction(async (tx) => {
+      await tx.studentStatusHistory.create({
+        data: {
+          studentId: id,
+          previousStatus: student.status,
+          newStatus: 'ACTIVE',
+          reason: reason,
+        },
+      });
+
+      return tx.student.update({
+        where: { id },
+        data: {
+          passedOut: false,
+          status: 'ACTIVE',
+          statusDate: new Date(),
+        },
+      });
     });
   }
 

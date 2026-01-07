@@ -466,7 +466,6 @@ const Academics = () => {
         programId: item.programId.toString(),
         year: item.year?.toString() || "",
         semester: item.semester?.toString() || "",
-        semester: item.semester?.toString() || "",
         isSemester: Boolean(item.isSemester),
         rollPrefix: item.rollPrefix || ""
       });

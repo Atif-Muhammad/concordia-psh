@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -47,8 +48,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import { format, startOfMonth, endOfMonth, parse } from "date-fns";
+import { useEffect, useRef, useState, useMemo } from "react";
 import {
   getStudents,
   createStudent,
@@ -63,7 +65,11 @@ import {
   getStudentAttendance,
   getStudentResults,
   searchStudents,
-  getDefaultStudentIDCardTemplate
+  expelStudents,
+  struckOffStudents,
+  rejoinStudent,
+  getDefaultStudentIDCardTemplate,
+  getStudentById
 } from "../../config/apis";
 import {
   UserPlus,
@@ -81,6 +87,9 @@ import {
   Search,
   Check,
   ChevronsUpDown,
+  UserX,
+  UserMinus,
+  RotateCcw,
 } from "lucide-react";
 
 const Students = () => {
@@ -107,7 +116,8 @@ const Students = () => {
     arrears: null
   });
   const [promotionAction, setPromotionAction] = useState("promote");
-  const [showPassedOut, setShowPassedOut] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState("ACTIVE");
+  const [promotionReason, setPromotionReason] = useState("");
   const [selectedFeeSession, setSelectedFeeSession] = useState("current");
   const [selectedStudent, setSelectedStudent] = useState({})
 
@@ -125,6 +135,7 @@ const Students = () => {
   const [filterProgram, setFilterProgram] = useState(null);
   const [filterClass, setFilterClass] = useState(null);
   const [filterSection, setFilterSection] = useState(null);
+  const [filterMonth, setFilterMonth] = useState(format(new Date(), "yyyy-MM"));
   const [showFilters, setShowFilters] = useState(false);
 
   const searchTimeoutRef = useRef(null);
@@ -140,38 +151,38 @@ const Students = () => {
 
 
   const {
-    data: passedOutStudents = [],
-    isLoading: loadingPassedOut,
-    refetch: refetchPassedOut,
-  } = useQuery({
-    queryKey: ["passedOutStudents", filterProgram, filterClass, filterSection, searchQuery],
-    queryFn: () => {
-      // Don't fetch if no filters are selected (except search)
-      if (!filterProgram && !filterClass && !filterSection && !searchQuery) {
-        return Promise.resolve([]);
-      }
-      // You need to update getPassedOutStudents to accept searchQuery parameter
-      return getPassedOutStudents(filterProgram, filterClass, filterSection, searchQuery);
-    },
-    enabled: showPassedOut,
-  });
-
-
-  const {
-    data: students = [],
+    data: infiniteStudentsData,
     isLoading: loadingStudents,
     refetch: refetchStudents,
-  } = useQuery({
-    queryKey: ["students", filterProgram, filterClass, filterSection, searchQuery],
-    queryFn: () => {
-      // Don't fetch if no filters are selected (except search)
-      if (!filterProgram && !filterClass && !filterSection && !searchQuery) {
-        return Promise.resolve([]);
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["students", filterProgram, filterClass, filterSection, searchQuery, selectedStatus, filterMonth],
+    queryFn: ({ pageParam = 1 }) => {
+      // Derive start and end of month from filterMonth
+      const monthDate = parse(filterMonth, "yyyy-MM", new Date());
+      const startDate = format(startOfMonth(monthDate), "yyyy-MM-dd");
+      const endDate = format(endOfMonth(monthDate), "yyyy-MM-dd");
+
+      if (selectedStatus === "ACTIVE") {
+        return getStudents(filterProgram, filterClass, filterSection, searchQuery, "ACTIVE", startDate, endDate, pageParam, 20);
+      } else {
+        return getPassedOutStudents(filterProgram, filterClass, filterSection, searchQuery, selectedStatus, startDate, endDate, pageParam, 20);
       }
-      return getStudents(filterProgram, filterClass, filterSection, searchQuery);
+    },
+    getNextPageParam: (lastPage) => {
+      if (lastPage.page < lastPage.totalPages) {
+        return lastPage.page + 1;
+      }
+      return undefined;
     },
     enabled: true,
-  });;
+  });
+
+  const studentsData = useMemo(() => {
+    return infiniteStudentsData?.pages.flatMap((page) => page?.students || []).filter(Boolean) || [];
+  }, [infiniteStudentsData]);
 
   // ──────────────────────────────────────────────────────────────
   // Mutations
@@ -182,6 +193,8 @@ const Students = () => {
     onSuccess: () => {
       queryClient.invalidateQueries(["students"]);
       toast({ title: "Student added successfully" });
+      setOpen(false);
+      resetForm();
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -191,6 +204,8 @@ const Students = () => {
     onSuccess: () => {
       queryClient.invalidateQueries(["students"]);
       toast({ title: "Student updated successfully" });
+      setOpen(false);
+      resetForm();
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -205,8 +220,8 @@ const Students = () => {
 
 
   const bulkPromotionMut = useMutation({
-    mutationFn: async ({ ids, action, forcePromote = false }) => {
-      console.log('📥 Mutation received:', { ids, action, forcePromote });
+    mutationFn: async ({ ids, action, reason, forcePromote = false }) => {
+      console.log('📥 Mutation received:', { ids, action, reason, forcePromote });
       console.log('📊 ids length:', ids?.length, 'forcePromote type:', typeof forcePromote);
 
       const fn =
@@ -214,7 +229,13 @@ const Students = () => {
           ? promoteStudents
           : action === "demote"
             ? demoteStudents
-            : passoutStudents;
+            : action === "passout"
+              ? passoutStudents
+              : action === "expel"
+                ? expelStudents
+                : action === "rejoin"
+                  ? rejoinStudent
+                  : struckOffStudents;
       // For promotion, check each student individually
       if (action === "promote" && !forcePromote) {
         console.log('🔄 Taking INITIAL promotion path (forcePromote is falsy)');
@@ -234,10 +255,10 @@ const Students = () => {
         }
         return { success: true, count: ids.length };
       }
-      // For force promote or demote/passout
+      // For force promote or demote/passout/expel/struck-off/rejoin
       console.log('🚀 Taking FORCE promotion path (forcePromote:', forcePromote, ')');
-      console.log('🔥 Calling promoteStudents with forcePromote =', forcePromote);
-      const promises = ids.map((id) => fn(id, forcePromote));
+      console.log('🔥 Calling fn with forcePromote =', forcePromote);
+      const promises = ids.map((id) => fn(id, reason || forcePromote));
       await Promise.all(promises);
       return { success: true, count: ids.length };
     },
@@ -255,6 +276,7 @@ const Students = () => {
         queryClient.invalidateQueries({ queryKey: ["students"] });
         toast({ title: `${result.count} student(s) ${promotionAction}d successfully` });
         setPromoteOpen(false);
+        setPromotionReason("");
         setSelectedForPromotion([]);
       }
     },
@@ -286,6 +308,13 @@ const Students = () => {
   const { data: studentResults = [], isLoading: resultsLoading } = useQuery({
     queryKey: ["studentResults", viewStudent?.id],
     queryFn: () => getStudentResults(viewStudent.id),
+    enabled: !!viewStudent?.id,
+  });
+
+  // Fetch full student details with statusHistory
+  const { data: studentDetails, isLoading: detailsLoading } = useQuery({
+    queryKey: ["studentDetails", viewStudent?.id],
+    queryFn: () => getStudentById(viewStudent.id),
     enabled: !!viewStudent?.id,
   });
 
@@ -402,13 +431,18 @@ const Students = () => {
   const availableSections = selectedClass?.sections || [];
   const hasSections = availableSections.length > 0;
 
-  const currentYear = new Date().getFullYear();
-  const generateRollNumber = () => {
-    const prefix = "PSH";
-    const year = currentYear.toString().slice(-2);
-    const randomNum = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0");
-    return `${prefix}/${year}-${randomNum}`;
-  };
+  const calculatedPrefix = useMemo(() => {
+    if (!formData.programId || !formData.classId) return "";
+    const pPrefix = programData.find((p) => p.id === Number(formData.programId))?.rollPrefix || "";
+    const cPrefix = selectedProgram?.classes.find((c) => c.id === Number(formData.classId))?.rollPrefix || "";
+    return `${pPrefix}${cPrefix}`;
+  }, [formData.programId, formData.classId, programData, selectedProgram]);
+
+  useEffect(() => {
+    if (!editingStudent && calculatedPrefix && !formData.rollNumber.startsWith(calculatedPrefix)) {
+      setFormData(prev => ({ ...prev, rollNumber: calculatedPrefix }));
+    }
+  }, [calculatedPrefix, editingStudent]);
 
   const resetForm = () => {
     setFormData({
@@ -416,7 +450,7 @@ const Students = () => {
       mName: "",
       lName: "",
       fatherOrguardian: "",
-      rollNumber: generateRollNumber(),
+      rollNumber: "",
       parentOrGuardianEmail: "",
       parentOrGuardianPhone: "",
       gender: "",
@@ -538,9 +572,6 @@ const Students = () => {
     } else {
       createMut.mutate(fd);
     }
-
-    setOpen(false);
-    resetForm();
   };
 
   const handleDelete = () => {
@@ -570,17 +601,9 @@ const Students = () => {
   // ──────────────────────────────────────────────────────────────
   // Filtered Students
   // ──────────────────────────────────────────────────────────────
-  const getFilteredStudents = () => {
-    return students.filter((s) => {
-      if (listFilterProgram !== "all" && s.programId !== Number(listFilterProgram)) return false;
-      if (listFilterClass !== "all" && s.classId !== Number(listFilterClass)) return false;
-      if (listFilterSection !== "all" && s.sectionId !== Number(listFilterSection)) return false;
-      return true;
-    });
-  };
 
   const getFilteredStudentsForMerit = () => {
-    return students
+    return (studentsData || [])
       .filter((s) => {
         if (filterProgram !== "all" && s.programId !== Number(filterProgram)) return false;
         if (filterClass !== "all" && s.classId !== Number(filterClass)) return false;
@@ -706,9 +729,15 @@ const Students = () => {
       return;
     }
 
+    if ((promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && !promotionReason) {
+      toast({ title: "Reason is required for this action", variant: "destructive" });
+      return;
+    }
+
     bulkPromotionMut.mutate({
       ids: selectedForPromotion,
       action: promotionAction,
+      reason: promotionReason,
     });
   };
 
@@ -745,11 +774,13 @@ const Students = () => {
     setFilterProgram(null);
     setFilterClass(null);
     setFilterSection(null);
+    setFilterMonth(format(new Date(), "yyyy-MM"));
+    setSearchQuery("");
     setShowFilters(false);
   };
 
 
-  const currentStudents = showPassedOut ? passedOutStudents : students;
+  const currentStudents = studentsData;
 
   // ──────────────────────────────────────────────────────────────
   // Render
@@ -763,18 +794,9 @@ const Students = () => {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h2 className="text-2xl font-bold mb-2">Student Management</h2>
-              <p>Total Students: {students?.length || 0}</p>
+              <p>Total Students: {studentsData?.length || 0}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant={showPassedOut ? "default" : "outline"}
-                onClick={() => setShowPassedOut(!showPassedOut)}
-                className="gap-2"
-              >
-                <GraduationCap className="w-4 h-4" />
-                {showPassedOut ? "All Students" : "Passed Out"}
-              </Button>
 
               {/* <Button size="sm" onClick={() => setMeritOpen(true)} variant="outline" className="gap-2">
                 <Award className="w-4 h-4" /> Merit List
@@ -849,27 +871,34 @@ const Students = () => {
               </div>
 
               <div>
-                <Label>Section</Label>
+                <Label>Status</Label>
                 <Select
-                  value={filterSection || ""}
-                  onValueChange={(value) => setFilterSection(value || null)}
-                  disabled={!filterClass}
+                  value={selectedStatus}
+                  onValueChange={(value) => setSelectedStatus(value)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder={filterClass ? "Select Section" : "Select Class First"} />
+                    <SelectValue placeholder="Select Status" />
                   </SelectTrigger>
                   <SelectContent>
-                    {getSectionsForClass(filterProgram, filterClass).map((s) => (
-                      <SelectItem key={s.id} value={s.id.toString()}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="GRADUATED">Graduated</SelectItem>
+                    <SelectItem value="EXPELLED">Expelled</SelectItem>
+                    <SelectItem value="STRUCK_OFF">Struck Off</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="flex items-end w-fit">
-                <Button onClick={clearFilters} variant="outline">
+              <div>
+                <Label>Month</Label>
+                <Input
+                  type="month"
+                  value={filterMonth}
+                  onChange={(e) => setFilterMonth(e.target.value)}
+                />
+              </div>
+
+              <div className="flex items-end">
+                <Button onClick={clearFilters} variant="outline" className="w-full md:w-auto">
                   Clear
                 </Button>
               </div>
@@ -882,12 +911,21 @@ const Students = () => {
 
         {/* Main Table */}
         <Card className="shadow-soft">
-          <CardHeader>
-            <CardTitle>
-              {showPassedOut ? "Passed Out Students" : "Active Students"}
-              {(loadingPassedOut && showPassedOut) && " (Loading...)"}
-              {(loadingStudents && !showPassedOut) && " (Loading...)"}
-            </CardTitle>
+          <CardHeader className="pb-2">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <CardTitle>
+                {selectedStatus === "ACTIVE" ? "Active Students" : `${selectedStatus.charAt(0) + selectedStatus.slice(1).toLowerCase().replace('_', ' ')} Students`}
+                {loadingStudents && " (Loading...)"}
+              </CardTitle>
+              <Tabs value={selectedStatus} onValueChange={setSelectedStatus} className="w-full md:w-auto">
+                <TabsList className="grid grid-cols-4 w-full md:w-[600px]">
+                  <TabsTrigger value="ACTIVE">Active</TabsTrigger>
+                  <TabsTrigger value="GRADUATED">Graduated</TabsTrigger>
+                  <TabsTrigger value="EXPELLED">Expelled</TabsTrigger>
+                  <TabsTrigger value="STRUCK_OFF">Struck Off</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
           </CardHeader>
           <CardContent>
             <Table>
@@ -897,20 +935,21 @@ const Students = () => {
                   <TableHead>Roll No</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Program</TableHead>
-                  <TableHead>{showPassedOut ? "Last Class" : "Class"}</TableHead>
+                  <TableHead>{selectedStatus === "ACTIVE" ? "Class" : "Last Class"}</TableHead>
                   <TableHead>Section</TableHead>
-                  {!showPassedOut && <TableHead>Actions</TableHead>}
+                  <TableHead>Status</TableHead>
+                  {selectedStatus !== "GRADUATED" && <TableHead>Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {currentStudents?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={showPassedOut ? 6 : 7} className="text-center py-8">
+                    <TableCell colSpan={selectedStatus === "ACTIVE" ? 7 : 6} className="text-center py-8">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <p className="text-muted-foreground">
-                          {showPassedOut
-                            ? "No passed out students found"
-                            : "No students found. Try adjusting your filters or add a new student."}
+                          {selectedStatus === "ACTIVE"
+                            ? "No students found. Try adjusting your filters or add a new student."
+                            : `No ${selectedStatus.toLowerCase().replace('_', ' ')} students found`}
                         </p>
                         {(filterProgram || filterClass || filterSection) && (
                           <Button
@@ -943,237 +982,385 @@ const Students = () => {
                         <TableCell>{student.fName} {student.mName} {student.lName}</TableCell>
                         <TableCell><Badge variant="outline">{prog?.name || "-"}</Badge></TableCell>
                         <TableCell>
-                          {showPassedOut ? (
-                            <Badge variant="secondary">Passed Out</Badge>
-                          ) : (
-                            cls?.name || "-"
-                          )}
+                          {cls?.name || "-"}
                         </TableCell>
                         <TableCell>{sec?.name || <span className="text-muted-foreground">N/A</span>}</TableCell>
-                        {!showPassedOut && (
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setViewOpen(true); }}>
-                                <Eye className="w-4 h-4" />
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => openEdit(student)}>
+                        <TableCell>
+                          <Badge variant={
+                            student.status === "ACTIVE" ? "default" :
+                              student.status === "GRADUATED" ? "secondary" :
+                                "destructive"
+                          }>
+                            {student.status || "ACTIVE"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setViewOpen(true); }} title="View Profile">
+                              <Eye className="w-4 h-4" />
+                            </Button>
+
+                            {selectedStatus === "ACTIVE" && (
+                              <Button size="sm" variant="outline" onClick={() => openEdit(student)} title="Edit Student">
                                 <Edit className="w-4 h-4" />
                               </Button>
-                              <Button size="sm" variant="outline" onClick={() => { setStudentToDelete(student.id); setDeleteDialogOpen(true); }}>
+                            )}
+
+                            {(selectedStatus === "EXPELLED" || selectedStatus === "STRUCK_OFF") && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                                onClick={() => {
+                                  setPromotionAction("rejoin");
+                                  setSelectedForPromotion([student.id]);
+                                  setPromoteOpen(true);
+                                }}
+                                title="Re-join Student"
+                              >
+                                <RotateCcw className="w-4 h-4 mr-1" /> Re-join
+                              </Button>
+                            )}
+
+                            {selectedStatus === "ACTIVE" && (
+                              <Button size="sm" variant="outline" onClick={() => { setStudentToDelete(student.id); setDeleteDialogOpen(true); }} title="Delete Student">
                                 <Trash2 className="w-4 h-4" />
                               </Button>
-                              <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setIdCardOpen(true); }}>
-                                <IdCard className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        )}
+                            )}
+
+                            <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setIdCardOpen(true); }} title="Generate ID Card">
+                              <IdCard className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     );
                   })
                 )}
               </TableBody>
             </Table>
+            {hasNextPage && (
+              <div className="mt-4 flex justify-center">
+                <Button
+                  onClick={() => fetchNextPage()}
+                  disabled={isFetchingNextPage}
+                  variant="outline"
+                  className="gap-2"
+                >
+                  {isFetchingNextPage ? "Loading..." : "Load More"}
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
-
         {/* Add/Edit Dialog */}
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingStudent ? "Edit" : "Add"} Student</DialogTitle>
-              <DialogDescription>All fields marked * are required</DialogDescription>
+              <DialogDescription>
+                All fields marked * are required
+              </DialogDescription>
             </DialogHeader>
 
-            {/* Photo */}
-            <div className="space-y-2">
-              <Label>Photo *</Label>
-              <div
-                className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleImageDrop}
-              >
-                {imagePreview ? (
-                  <div className="relative inline-block">
-                    <img src={imagePreview} alt="preview" className="h-32 w-32 rounded-full object-cover mx-auto" />
-                    <Button
-                      size="icon"
-                      variant="destructive"
-                      className="absolute top-0 right-0"
-                      onClick={() => { setImagePreview(""); setImageFile(null); }}
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <>
-                    <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
-                    <p className="mt-2 text-sm text-muted-foreground">Drag & drop or click to upload</p>
-                    <Label className="text-sm font-medium mt-2">Photo (Max 5MB)</Label>
-                    <Input type="file" accept="image/*" className="mt-2" onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        if (file.size > 5 * 1024 * 1024) {
-                          toast({ title: "File too large", description: "Max 5MB allowed", variant: "destructive" });
-                          e.target.value = null; // Clear input
-                          return;
-                        }
-                        handleImageChange(e);
+            {/* MAIN HORIZONTAL WRAPPER */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+
+              {/* LEFT — PHOTO */}
+              <div className="md:col-span-1 space-y-2">
+                <Label>Photo *</Label>
+                <div
+                  className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleImageDrop}
+                >
+                  {imagePreview ? (
+                    <div className="relative inline-block">
+                      <img
+                        src={imagePreview}
+                        alt="preview"
+                        className="h-32 w-32 rounded-full object-cover mx-auto"
+                      />
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="absolute top-0 right-0"
+                        onClick={() => {
+                          setImagePreview("");
+                          setImageFile(null);
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Drag & drop or click to upload
+                      </p>
+                      <Label className="text-sm font-medium mt-2">
+                        Photo (Max 5MB)
+                      </Label>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        className="mt-2"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+
+                          if (file.size > 5 * 1024 * 1024) {
+                            toast({
+                              title: "File too large",
+                              description: "Max 5MB allowed",
+                              variant: "destructive",
+                            });
+                            e.target.value = null;
+                            return;
+                          }
+
+                          handleImageChange(e);
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* RIGHT — FORM (UNCHANGED FIELDS) */}
+              <div className="md:col-span-3">
+                <div className="grid grid-cols-3 gap-4">
+
+                  {/* Names */}
+                  <div>
+                    <Label>First Name *</Label>
+                    <Input
+                      value={formData.fName}
+                      onChange={(e) =>
+                        setFormData({ ...formData, fName: e.target.value })
                       }
-                    }} />
-                  </>
-                )}
+                      placeholder="John"
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Middle Name</Label>
+                    <Input
+                      value={formData.mName}
+                      onChange={(e) =>
+                        setFormData({ ...formData, mName: e.target.value })
+                      }
+                      placeholder="Michael"
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Last Name</Label>
+                    <Input
+                      value={formData.lName}
+                      onChange={(e) =>
+                        setFormData({ ...formData, lName: e.target.value })
+                      }
+                      placeholder="Doe"
+                    />
+                  </div>
+
+                  {/* Guardian + Roll */}
+                  <div>
+                    <Label>Father/Guardian</Label>
+                    <Input
+                      value={formData.fatherOrguardian}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          fatherOrguardian: e.target.value,
+                        })
+                      }
+                      placeholder="father or guardian name..."
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Roll Number *</Label>
+                    <Input
+                      value={formData.rollNumber}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.startsWith(calculatedPrefix)) {
+                          setFormData({ ...formData, rollNumber: val });
+                        }
+                      }}
+                      placeholder={calculatedPrefix || "PSH/25-001"}
+                    />
+                  </div>
+
+                  {/* Program */}
+                  <div>
+                    <Label>Program *</Label>
+                    <Select
+                      value={formData.programId}
+                      onValueChange={(v) =>
+                        setFormData({
+                          ...formData,
+                          programId: v,
+                          classId: "",
+                          sectionId: "",
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Program" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {programData.map((p) => (
+                          <SelectItem key={p.id} value={p.id.toString()}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Class */}
+                  <div>
+                    <Label>Class *</Label>
+                    <Select
+                      value={formData.classId}
+                      onValueChange={(v) =>
+                        setFormData({
+                          ...formData,
+                          classId: v,
+                          sectionId: "",
+                        })
+                      }
+                      disabled={!formData.programId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            formData.programId
+                              ? "Select Class"
+                              : "Pick Program First"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {selectedProgram?.classes.map((c) => (
+                          <SelectItem key={c.id} value={c.id.toString()}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Section */}
+                  <div>
+                    <Label>Section {hasSections ? "*" : ""}</Label>
+                    <Select
+                      value={formData.sectionId}
+                      onValueChange={(v) =>
+                        setFormData({ ...formData, sectionId: v })
+                      }
+                      disabled={!formData.classId || !hasSections}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            formData.classId
+                              ? hasSections
+                                ? "Select Section"
+                                : "No sections"
+                              : "Pick Class First"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableSections.map((s) => (
+                          <SelectItem key={s.id} value={s.id.toString()}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Parent Contact */}
+                  <div>
+                    <Label>Parent Email</Label>
+                    <Input
+                      type="email"
+                      value={formData.parentOrGuardianEmail}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          parentOrGuardianEmail: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Parent Phone</Label>
+                    <Input
+                      value={formData.parentOrGuardianPhone}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          parentOrGuardianPhone: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  {/* Gender */}
+                  <div>
+                    <Label>Gender</Label>
+                    <Select
+                      value={formData.gender}
+                      onValueChange={(v) =>
+                        setFormData({ ...formData, gender: v })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Male">Male</SelectItem>
+                        <SelectItem value="Female">Female</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* DOB */}
+                  <div>
+                    <Label>Date of Birth</Label>
+                    <Input
+                      type="date"
+                      value={formData.dob}
+                      onChange={(e) =>
+                        setFormData({ ...formData, dob: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  {/* Address */}
+                  <div className="col-span-3">
+                    <Label>Address</Label>
+                    <Input
+                      value={formData.address}
+                      onChange={(e) =>
+                        setFormData({ ...formData, address: e.target.value })
+                      }
+                      placeholder="Full address..."
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <Label>First Name *</Label>
-                <Input
-                  value={formData.fName}
-                  onChange={(e) => setFormData({ ...formData, fName: e.target.value })}
-                  placeholder="John"
-                />
-              </div>
-              <div>
-                <Label>Middle Name</Label>
-                <Input
-                  value={formData.mName}
-                  onChange={(e) => setFormData({ ...formData, mName: e.target.value })}
-                  placeholder="Michael"
-                />
-              </div>
-              <div>
-                <Label>Last Name</Label>
-                <Input
-                  value={formData.lName}
-                  onChange={(e) => setFormData({ ...formData, lName: e.target.value })}
-                  placeholder="Doe"
-                />
-              </div>
-
-              <div>
-                <Label>Father/Guardian</Label>
-                <Input
-                  value={formData.fatherOrguardian}
-                  onChange={(e) => setFormData({ ...formData, fatherOrguardian: e.target.value })}
-                  placeholder="father or guardian name..."
-                />
-              </div>
-              <div>
-                <Label>Roll Number *</Label>
-                <Input
-                  value={formData.rollNumber}
-                  onChange={(e) => setFormData({ ...formData, rollNumber: e.target.value })}
-                  placeholder="PSH/25-001"
-                />
-              </div>
-
-              <div>
-                <Label>Program *</Label>
-                <Select
-                  value={formData.programId}
-                  onValueChange={(v) => setFormData({ ...formData, programId: v, classId: "", sectionId: "" })}
-                >
-                  <SelectTrigger><SelectValue placeholder="Select Program" /></SelectTrigger>
-                  <SelectContent>
-                    {programData.map((p) => (
-                      <SelectItem key={p.id} value={p.id.toString()}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>Class *</Label>
-                <Select
-                  value={formData.classId}
-                  onValueChange={(v) => setFormData({ ...formData, classId: v, sectionId: "" })}
-                  disabled={!formData.programId}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={formData.programId ? "Select Class" : "Pick Program First"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {selectedProgram?.classes.map((c) => (
-                      <SelectItem key={c.id} value={c.id.toString()}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>Section {hasSections ? "*" : ""}</Label>
-                <Select
-                  value={formData.sectionId}
-                  onValueChange={(v) => setFormData({ ...formData, sectionId: v })}
-                  disabled={!formData.classId || !hasSections}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={formData.classId ? (hasSections ? "Select Section" : "No sections") : "Pick Class First"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableSections.map((s) => (
-                      <SelectItem key={s.id} value={s.id.toString()}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>Parent Email</Label>
-                <Input
-                  type="email"
-                  value={formData.parentOrGuardianEmail}
-                  onChange={(e) => setFormData({ ...formData, parentOrGuardianEmail: e.target.value })}
-                />
-              </div>
-
-              <div>
-                <Label>Parent Phone</Label>
-                <Input
-                  value={formData.parentOrGuardianPhone}
-                  onChange={(e) => setFormData({ ...formData, parentOrGuardianPhone: e.target.value })}
-                />
-              </div>
-
-              <div>
-                <Label>Gender</Label>
-                <Select value={formData.gender} onValueChange={(v) => setFormData({ ...formData, gender: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Male">Male</SelectItem>
-                    <SelectItem value="Female">Female</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>Date of Birth</Label>
-                <Input
-                  type="date"
-                  value={formData.dob}
-                  onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-                />
-              </div>
-
-              <div className="col-span-3">
-                <Label>Address</Label>
-                <Input
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  placeholder="Full address..."
-                />
-              </div>
-            </div>
-
-            {/* Documents */}
+            {/* DOCUMENTS — UNCHANGED */}
             <div className="mt-6">
               <Label>Required Documents</Label>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2">
@@ -1201,16 +1388,24 @@ const Students = () => {
               </div>
             </div>
 
+            {/* ACTIONS */}
             <div className="flex justify-end gap-2 mt-6">
-              <Button variant="outline" onClick={() => { setOpen(false); resetForm(); }}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setOpen(false);
+                  resetForm();
+                }}
+              >
                 Cancel
               </Button>
-              <Button onClick={handleSubmit}>
-                {editingStudent ? "Update" : "Add"} Student
+              <Button onClick={handleSubmit} disabled={createMut.isPending || updateMut.isPending}>
+                {createMut.isPending || updateMut.isPending ? "Saving..." : (editingStudent ? "Update" : "Add")} Student
               </Button>
             </div>
           </DialogContent>
         </Dialog>
+
 
         {/* View / Profile Dialog */}
         <Dialog open={viewOpen} onOpenChange={setViewOpen}>
@@ -1221,11 +1416,12 @@ const Students = () => {
             </DialogHeader>
             {viewStudent && (
               <Tabs defaultValue="info" className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-5">
                   <TabsTrigger value="info">Info</TabsTrigger>
                   <TabsTrigger value="fees">Fees</TabsTrigger>
                   <TabsTrigger value="attendance">Attendance</TabsTrigger>
                   <TabsTrigger value="results">Results</TabsTrigger>
+                  <TabsTrigger value="history">Status History</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="info" className="space-y-4">
@@ -1736,6 +1932,44 @@ const Students = () => {
                     </div>
                   )}
                 </TabsContent>
+                <TabsContent value="history" className="flex-1 overflow-y-auto">
+                  {detailsLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <p className="text-muted-foreground">Loading status history...</p>
+                    </div>
+                  ) : studentDetails?.statusHistory && studentDetails.statusHistory.length > 0 ? (
+                    <div className="space-y-4">
+                      {studentDetails.statusHistory.map((history, idx) => (
+                        <div key={history.id} className="relative pl-6 pb-6 border-l-2 last:border-0 border-primary/20">
+                          <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full bg-primary" />
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                              <Badge variant={history.newStatus === "ACTIVE" ? "default" : "destructive"}>
+                                {history.newStatus}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(history.createdAt).toLocaleString()}
+                              </span>
+                            </div>
+                            <p className="text-sm font-medium mt-1">
+                              {history.previousStatus ? `${history.previousStatus} → ` : ""}{history.newStatus}
+                            </p>
+                            {history.reason && (
+                              <p className="text-sm text-muted-foreground italic bg-muted/50 p-2 rounded mt-1">
+                                "{history.reason}"
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <p className="text-lg text-muted-foreground mb-2">No status history found</p>
+                      <p className="text-sm text-muted-foreground">This student has no recorded status changes yet.</p>
+                    </div>
+                  )}
+                </TabsContent>
               </Tabs>
             )}
           </DialogContent>
@@ -1796,6 +2030,15 @@ const Students = () => {
                 <Button variant={promotionAction === "passout" ? "default" : "outline"} onClick={() => setPromotionAction("passout")}>
                   <GraduationCap className="w-4 h-4 mr-2" /> Pass Out
                 </Button>
+                <Button variant={promotionAction === "expel" ? "destructive" : "outline"} onClick={() => setPromotionAction("expel")}>
+                  <UserX className="w-4 h-4 mr-2" /> Expel
+                </Button>
+                <Button variant={promotionAction === "struck-off" ? "destructive" : "outline"} onClick={() => setPromotionAction("struck-off")}>
+                  <UserMinus className="w-4 h-4 mr-2" /> Struck Off
+                </Button>
+                <Button variant={promotionAction === "rejoin" ? "default" : "outline"} onClick={() => setPromotionAction("rejoin")}>
+                  <RotateCcw className="w-4 h-4 mr-2" /> Re-join
+                </Button>
               </div>
 
               <Table>
@@ -1809,7 +2052,7 @@ const Students = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {students?.map(s => (
+                  {studentsData?.map(s => (
                     <TableRow key={s.id}>
                       <TableCell>
                         <input
@@ -1834,12 +2077,31 @@ const Students = () => {
                 </TableBody>
               </Table>
 
+              {/* Reason input for expel, struck-off, rejoin */}
+              {(promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && (
+                <div className="space-y-2">
+                  <Label>Reason (Required)</Label>
+                  <Textarea
+                    placeholder={`Enter reason for ${promotionAction === "expel" ? "expulsion" : promotionAction === "struck-off" ? "striking off" : "re-joining"}...`}
+                    value={promotionReason}
+                    onChange={(e) => setPromotionReason(e.target.value)}
+                    rows={3}
+                  />
+                </div>
+              )}
+
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => { setPromoteOpen(false); setSelectedForPromotion([]); }}>
+                <Button variant="outline" onClick={() => { setPromoteOpen(false); setSelectedForPromotion([]); setPromotionReason(""); }}>
                   Cancel
                 </Button>
-                <Button onClick={handlePromoteStudents}>
-                  Apply
+                <Button
+                  onClick={handlePromoteStudents}
+                  disabled={
+                    selectedForPromotion.length === 0 ||
+                    ((promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && !promotionReason.trim())
+                  }
+                >
+                  Apply ({selectedForPromotion.length} selected)
                 </Button>
               </div>
             </div>
@@ -1922,6 +2184,18 @@ const Students = () => {
                   ))}
                 </TableBody>
               </Table>
+
+              {(promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && (
+                <div className="space-y-2 mt-4">
+                  <Label>Reason *</Label>
+                  <Textarea
+                    placeholder={`Enter reason for student ${promotionAction === 'rejoin' ? 're-joining' : promotionAction + 'sion'}...`}
+                    value={promotionReason}
+                    onChange={(e) => setPromotionReason(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Reason is required to proceed with this action.</p>
+                </div>
+              )}
             </div>
           </DialogContent>
         </Dialog>
@@ -2199,7 +2473,7 @@ const Students = () => {
           </DialogContent>
         </Dialog>
       </div>
-    </DashboardLayout>
+    </DashboardLayout >
   );
 };
 

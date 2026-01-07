@@ -225,6 +225,8 @@ model Student {
   dob                   DateTime?
   documents             Json      @default("{}")
   passedOut             Boolean   @default(false)
+  status                StudentStatus @default(ACTIVE)
+  statusDate            DateTime? @default(now())
 
   departmentId Int?
   department   Department? @relation("DepartmentStudents", fields: [departmentId], references: [id])
@@ -253,10 +255,28 @@ model Student {
   roomAllocations     RoomAllocation[]
   challans            FeeChallan[]
   studentArrears      StudentArrear[]
+  statusHistory       StudentStatusHistory[]
 
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum StudentStatus {
+  ACTIVE
+  EXPELLED
+  STRUCK_OFF
+  GRADUATED
+}
+
+model StudentStatusHistory {
+  id             Int           @id @default(autoincrement())
+  studentId      Int
+  student        Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  previousStatus StudentStatus?
+  newStatus      StudentStatus
+  reason         String?       @db.Text
+  createdAt      DateTime      @default(now())
 }
 
 // ──────────────────────────────────────────────────────────────

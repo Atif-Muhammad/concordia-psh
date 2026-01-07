@@ -1219,9 +1219,9 @@ export const deleteAssignment = async (assID) => {
 
 ///////////////////////////////////////////////////////////////////////////
 // students //
-export const getPassedOutStudents = async (programId, classId, sectionId) => {
+export const getStudentById = async (studentId) => {
   try {
-    const response = await axios.get(`${base_url}/student/get/all/passout?programId=${programId}&classId=${classId}&sectionId=${sectionId}`, {
+    const response = await axios.get(`${base_url}/student/${studentId}`, {
       withCredentials: true,
     });
     return response.data;
@@ -1235,9 +1235,25 @@ export const getPassedOutStudents = async (programId, classId, sectionId) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getStudents = async (programId, classId, sectionId, searchQuery) => {
+export const getPassedOutStudents = async (programId, classId, sectionId, searchQuery, status, startDate, endDate, page, limit) => {
   try {
-    const response = await axios.get(`${base_url}/student/get/all?programId=${programId}&classId=${classId}&sectionId=${sectionId}&searchQuery=${searchQuery}`, {
+    const response = await axios.get(`${base_url}/student/get/all/passout?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&startDate=${startDate || ''}&endDate=${endDate || ''}&page=${page || 1}&limit=${limit || 20}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+export const getStudents = async (programId, classId, sectionId, searchQuery, status, startDate, endDate, page, limit) => {
+  try {
+    const response = await axios.get(`${base_url}/student/get/all?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&startDate=${startDate || ''}&endDate=${endDate || ''}&page=${page || 1}&limit=${limit || 20}`, {
       withCredentials: true,
     });
     return response.data;
@@ -1347,6 +1363,66 @@ export const passoutStudents = async (studentID) => {
     const response = await axios.patch(
       `${base_url}/student/passout?studentID=${studentID}`,
       {},
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// expel
+export const expelStudents = async (studentID, reason) => {
+  try {
+    const response = await axios.patch(
+      `${base_url}/student/expel?studentID=${studentID}`,
+      { reason },
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// struck-off
+export const struckOffStudents = async (studentID, reason) => {
+  try {
+    const response = await axios.patch(
+      `${base_url}/student/struck-off?studentID=${studentID}`,
+      { reason },
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// rejoin
+export const rejoinStudent = async (studentID, reason) => {
+  try {
+    const response = await axios.patch(
+      `${base_url}/student/rejoin?studentID=${studentID}`,
+      { reason },
       { withCredentials: true }
     );
     return response.data;

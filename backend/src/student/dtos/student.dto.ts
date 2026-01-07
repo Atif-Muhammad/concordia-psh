@@ -38,4 +38,6 @@ export class StudentDto {
   documents: string;
   @IsOptional()
   inquiryId?: string;
+  @IsOptional()
+  status?: string;
 }

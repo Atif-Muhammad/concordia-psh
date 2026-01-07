@@ -149,6 +149,31 @@ const FrontOffice = () => {
     documents: "{}",
   });
 
+  const calculatedPrefix = useMemo(() => {
+    if (!selectedInquiryForAccept || !studentFormData.classId) return "";
+    const pId =
+      selectedInquiryForAccept.programInterest ||
+      selectedInquiryForAccept.program?.id;
+    const pPrefix =
+      programs?.find((p) => p.id === Number(pId))?.rollPrefix || "";
+    const cPrefix =
+      classes?.find((c) => c.id === Number(studentFormData.classId))
+        ?.rollPrefix || "";
+    return `${pPrefix}${cPrefix}`;
+  }, [selectedInquiryForAccept, studentFormData.classId, programs, classes]);
+
+  useEffect(() => {
+    if (
+      calculatedPrefix &&
+      !studentFormData.rollNumber.startsWith(calculatedPrefix)
+    ) {
+      setStudentFormData((prev) => ({
+        ...prev,
+        rollNumber: calculatedPrefix,
+      }));
+    }
+  }, [calculatedPrefix]);
+
   // === FORM STATES ===
   const [inquiryForm, setInquiryForm] = useState({
     studentName: "",
@@ -1842,8 +1867,13 @@ const FrontOffice = () => {
                       <Label>Roll Number *</Label>
                       <Input
                         value={studentFormData.rollNumber}
-                        onChange={(e) => setStudentFormData({ ...studentFormData, rollNumber: e.target.value })}
-                        placeholder="e.g., PSH/25-XXX"
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val.startsWith(calculatedPrefix)) {
+                            setStudentFormData({ ...studentFormData, rollNumber: val });
+                          }
+                        }}
+                        placeholder={calculatedPrefix || "e.g., PSH/25-XXX"}
                       />
                     </div>
                     <div className="space-y-2">

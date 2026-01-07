@@ -31,17 +31,29 @@ export class StudentController {
     @Query('classId') classId?: string,
     @Query('sectionId') sectionId?: string,
     @Query('searchQuery') searchQuery?: string,
+    @Query('status') status?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    if (!programId && !classId && !sectionId && !searchQuery) return [];
+    if (!programId && !classId && !sectionId && !searchQuery && !status) return [];
+
+    const effectiveStatus = status || 'GRADUATED'; // default or specific
 
     if (searchQuery && searchQuery.trim() !== '') {
-      return await this.studentService.search(searchQuery, true);
+      return await this.studentService.search(searchQuery, effectiveStatus);
     }
 
-    return await this.studentService.getPassedOutStudents({
+    return await this.studentService.getAllStudents({
       programId: (programId && Number(programId)) || null,
       classId: (classId && Number(classId)) || null,
       sectionId: (sectionId && Number(sectionId)) || null,
+      status: effectiveStatus,
+      startDate,
+      endDate,
+      page: (page && Number(page)) || 1,
+      limit: (limit && Number(limit)) || 20,
     });
   }
   @Get('get/all')
@@ -50,17 +62,38 @@ export class StudentController {
     @Query('classId') classId?: string,
     @Query('sectionId') sectionId?: string,
     @Query('searchQuery') searchQuery?: string,
+    @Query('status') status?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    if (!programId && !classId && !sectionId) return [];
+    if (!programId && !classId && !sectionId && !searchQuery) return [];
+
+    const effectiveStatus = status || 'ACTIVE';
 
     if (searchQuery && searchQuery.trim() !== '') {
-      return await this.studentService.search(searchQuery, false);
+      return await this.studentService.search(searchQuery, effectiveStatus);
     }
     return await this.studentService.getAllStudents({
       programId: (programId && Number(programId)) || null,
       classId: (classId && Number(classId)) || null,
       sectionId: (sectionId && Number(sectionId)) || null,
+      status: effectiveStatus,
+      startDate,
+      endDate,
+      page: (page && Number(page)) || 1,
+      limit: (limit && Number(limit)) || 20,
     });
+  }
+
+  @Get(':id')
+  async getStudentById(@Param('id') id: string) {
+    const student = await this.studentService.findOne(Number(id));
+    if (!student) {
+      throw new NotFoundException(`Student with ID ${id} not found`);
+    }
+    return student;
   }
 
   @Get('search')
@@ -211,6 +244,27 @@ export class StudentController {
   @Patch('passout')
   async passoutStudents(@Query('studentID') studentID: string) {
     return await this.studentService.passout(Number(studentID));
+  }
+  @Patch('expel')
+  async expelStudents(
+    @Query('studentID') studentID: string,
+    @Body('reason') reason: string,
+  ) {
+    return await this.studentService.expel(Number(studentID), reason);
+  }
+  @Patch('struck-off')
+  async struckOffStudents(
+    @Query('studentID') studentID: string,
+    @Body('reason') reason: string,
+  ) {
+    return await this.studentService.struckOff(Number(studentID), reason);
+  }
+  @Patch('rejoin')
+  async rejoinStudent(
+    @Query('studentID') studentID: string,
+    @Body('reason') reason: string,
+  ) {
+    return await this.studentService.rejoin(Number(studentID), reason);
   }
 
   // Get attendance records for a specific student
