@@ -5,6 +5,7 @@
 	IN-----> intermediate
 
 5. custom name for class sections. --- imp --- ✔
+
 6. custom fee allocation while creating student --- imp --- 
 	--> create challans per installment
 	--> prev challan arrears etc.
@@ -21,13 +22,12 @@
 
 
 student:
-1. expell/struck off student
+1. expell/struck off student✔
 
 
 attendance:
-1. late arrived.
-2. attendance should be marked for saturday.
-3. holiday -> multiple dates selection.
+1. attendance should be marked for saturday.✔
+2. holiday -> multiple dates selection. ✔
 
 teacher:
 1. contract duration. ✔
@@ -42,9 +42,8 @@ examination:
 
 
 class:
-1. add session for defined class
-2. section not picking class other than 2 and 4 year.
-3. promote to manual class/section.
+1. section not picking class other than 2 and 4 year. ✔
+2. promote to manual class/section.
 
 hr&payroll:
 1. paid/unpaid status fix. ✔
@@ -72,3 +71,4 @@ Finance:
 configuration:
 1. granular access for modules.
 2. teacher and employee can be same.
+3. late arrived attendance.

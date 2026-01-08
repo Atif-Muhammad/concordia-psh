@@ -35,7 +35,8 @@ const Attendance = () => {
   const currentUser = queryClient.getQueryData(["currentUser"]);
   const isTeacher = currentUser?.role === "TEACHER" || currentUser?.role === "Teacher";
   const isSuperAdmin = currentUser?.role === "SUPER_ADMIN";
-  const hasAttendancePermission = currentUser?.permissions?.attendance === true;
+  // Allow if teacher, super admin, or explicitly has permission
+  const canMarkAttendance = isTeacher || isSuperAdmin || hasAttendancePermission;
   const canViewAllReports = isSuperAdmin || hasAttendancePermission;
 
   const [markDate, setMarkDate] = useState(new Date().toISOString().split("T")[0]);
@@ -99,9 +100,9 @@ const Attendance = () => {
     enabled: false
   });
 
-  useEffect(()=>{
+  useEffect(() => {
     console.log(attendanceData)
-    if(!isFetching && attendanceData) setFetchedStudents(attendanceData.attendance)
+    if (!isFetching && attendanceData) setFetchedStudents(attendanceData.attendance)
 
   }, [isFetching])
 
@@ -162,9 +163,18 @@ const Attendance = () => {
       refetchLeaves();
     }
   })
-  // const allSections = allClassesWithProgram.flatMap(c =>
-  //   (c.sections || []).map(s => ({ ...s, classId: c.id }))
-  // );
+  const allSections = programs.flatMap(p =>
+    (p.classes || []).flatMap(c =>
+      (c.sections || []).map(s => ({ ...s, classId: c.id }))
+    )
+  );
+
+  const allClasses = programs.flatMap(p =>
+    (p.classes || []).map(c => ({
+      ...c,
+      programName: p.name
+    }))
+  );
 
   const teacherClasses = isTeacher
     ? teacherClassMappings.map(mapping => ({
@@ -177,21 +187,22 @@ const Attendance = () => {
     arr.findIndex(x => x.id === c.id) === idx
   );
 
-  const filteredClasses = isTeacher ? uniqueTeacherClasses : []
+  const filteredClasses = isTeacher ? uniqueTeacherClasses : allClasses;
 
-  const reportFilteredClasses = uniqueTeacherClasses;
+  const reportFilteredClasses = isTeacher ? uniqueTeacherClasses : allClasses;
 
   const filteredSections = isTeacher
-    && teacherClassMappings
+    ? teacherClassMappings
       .filter(mapping => mapping.class?.id === Number(selectedClassId))
       .map(mapping => mapping.section)
       .filter(Boolean)
+    : allSections.filter(s => s.classId === Number(selectedClassId));
 
   useEffect(() => {
-    if (selectedClassId && isTeacher) {
+    if (selectedClassId) {
       refetchSubjects();
     }
-  }, [selectedClassId, isTeacher, refetchSubjects]);
+  }, [selectedClassId, refetchSubjects]);
 
   useEffect(() => {
     // Reset section when class changes in reports tab
@@ -284,7 +295,7 @@ const Attendance = () => {
       classId: Number(selectedClassId),
       sectionId: sectionParam,
       subjectId: Number(selectedSubjectId),
-      teacherId: currentUser?.id || null,
+      teacherId: isTeacher ? (currentUser?.id || null) : null,
       date: markDate,
       students: Object.entries(attendanceChanges).map(([studentId, status]) => ({
         studentId,
@@ -436,7 +447,7 @@ const Attendance = () => {
           </TabsList >
 
           <TabsContent value="mark" className="space-y-6">
-            {!isTeacher ? (
+            {!canMarkAttendance ? (
               <Card className="shadow-soft">
                 <CardContent className="pt-12 pb-12">
                   <div className="flex flex-col items-center justify-center text-center space-y-4">
@@ -444,7 +455,7 @@ const Attendance = () => {
                     <div>
                       <h3 className="text-xl font-semibold text-foreground">Permission Denied</h3>
                       <p className="text-muted-foreground mt-2">
-                        Only teachers can mark attendance.
+                        You do not have permission to mark attendance.
                       </p>
                     </div>
                   </div>

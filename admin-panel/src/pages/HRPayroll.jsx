@@ -215,10 +215,18 @@ const HRPayroll = () => {
     description: ""
   });
 
+  // Holiday Management
+  const [holidayFilter, setHolidayFilter] = useState({
+    year: new Date().getFullYear(),
+    month: ""
+  });
   const [holidayOpen, setHolidayOpen] = useState(false);
   const [holidayFormData, setHolidayFormData] = useState({
     title: "",
-    date: new Date(),
+    date: {
+      from: new Date(),
+      to: new Date()
+    },
     type: "National",
     repeatYearly: false,
     description: ""
@@ -226,8 +234,14 @@ const HRPayroll = () => {
 
   // Holiday Queries
   const { data: holidays = [] } = useQuery({
-    queryKey: ["holidays"],
-    queryFn: getHolidays,
+    queryKey: ["holidays", holidayFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (holidayFilter.year) params.append("year", holidayFilter.year);
+      if (holidayFilter.month) params.append("month", holidayFilter.month);
+      const res = await api.get(`/hr/holidays?${params.toString()}`);
+      return res.data;
+    },
   });
 
   const createHolidayMutation = useMutation({
@@ -238,7 +252,10 @@ const HRPayroll = () => {
       setHolidayOpen(false);
       setHolidayFormData({
         title: "",
-        date: new Date(),
+        date: {
+          from: new Date(),
+          to: new Date()
+        },
         type: "National",
         repeatYearly: false,
         description: ""
@@ -258,7 +275,16 @@ const HRPayroll = () => {
 
   const handleCreateHoliday = (e) => {
     e.preventDefault();
-    createHolidayMutation.mutate(holidayFormData);
+    if (!holidayFormData.date?.from) {
+      toast({ title: "Please select a date", variant: "destructive" });
+      return;
+    }
+    const payload = {
+      ...holidayFormData,
+      date: holidayFormData.date.from,
+      endDate: holidayFormData.date.to || holidayFormData.date.from
+    };
+    createHolidayMutation.mutate(payload);
   };
 
   // fetch employees
@@ -1134,6 +1160,36 @@ const HRPayroll = () => {
                 </div>
               </CardHeader>
               <CardContent>
+                <div className="flex gap-4 mb-4">
+                  <div className="w-32">
+                    <Label>Year</Label>
+                    <Input
+                      type="number"
+                      value={holidayFilter.year}
+                      onChange={(e) => setHolidayFilter({ ...holidayFilter, year: e.target.value })}
+                      placeholder="Year"
+                    />
+                  </div>
+                  <div className="w-48">
+                    <Label>Month</Label>
+                    <Select
+                      value={holidayFilter.month.toString()}
+                      onValueChange={(val) => setHolidayFilter({ ...holidayFilter, month: val })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Months" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">All Months</SelectItem>
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                          <SelectItem key={m} value={m.toString()}>
+                            {format(new Date(0, m - 1), "MMMM")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -1665,14 +1721,25 @@ const HRPayroll = () => {
                 <PopoverTrigger asChild>
                   <Button variant="outline" className="w-full justify-start text-left font-normal">
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {holidayFormData.date ? format(holidayFormData.date, "PPP") : <span>Pick a date</span>}
+                    {holidayFormData.date?.from ? (
+                      holidayFormData.date.to ? (
+                        <>
+                          {format(holidayFormData.date.from, "PPP")} -{" "}
+                          {format(holidayFormData.date.to, "PPP")}
+                        </>
+                      ) : (
+                        format(holidayFormData.date.from, "PPP")
+                      )
+                    ) : (
+                      <span>Pick a date range</span>
+                    )}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0">
                   <Calendar
-                    mode="single"
+                    mode="range"
                     selected={holidayFormData.date}
-                    onSelect={date => date && setHolidayFormData({ ...holidayFormData, date })}
+                    onSelect={date => setHolidayFormData({ ...holidayFormData, date })}
                     initialFocus
                   />
                 </PopoverContent>

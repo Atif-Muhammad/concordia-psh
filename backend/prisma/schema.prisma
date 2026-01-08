@@ -65,7 +65,6 @@ model Program {
   description String?      @db.VarChar(300)
   level       ProgramLevel
   duration    String       @db.VarChar(50)
-  hasSections Boolean      @default(false) // Auto: true if duration >= 2 years
   rollPrefix  String?      @db.VarChar(50)
 
   departmentId Int?

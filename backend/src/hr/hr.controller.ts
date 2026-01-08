@@ -176,8 +176,11 @@ export class HrController {
   }
 
   @Get('holidays')
-  async getHolidays() {
-    return await this.hrService.getHolidays();
+  async getHolidays(
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+  ) {
+    return await this.hrService.getHolidays(year ? Number(year) : undefined, month ? Number(month) : undefined);
   }
 
   @Delete('holidays')

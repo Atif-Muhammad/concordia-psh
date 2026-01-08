@@ -801,19 +801,48 @@ export class HrService {
 
   // Holiday Management
   async createHoliday(data: any) {
-    return await this.prismService.holiday.create({
-      data: {
+    const startDate = new Date(data.date);
+    const endDate = data.endDate ? new Date(data.endDate) : startDate;
+
+    const holidaysToCreate: any[] = [];
+    const currentDate = new Date(startDate);
+    // Normalize time to avoid infinite loop due to time component issues
+    currentDate.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(0, 0, 0, 0);
+
+    while (currentDate.getTime() <= end.getTime()) {
+      holidaysToCreate.push({
         title: data.title,
-        date: new Date(data.date),
+        date: new Date(currentDate), // Create a copy
         type: data.type,
         repeatYearly: data.repeatYearly,
         description: data.description,
-      },
+      });
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    return await this.prismService.holiday.createMany({
+      data: holidaysToCreate,
     });
   }
 
-  async getHolidays() {
+  async getHolidays(year?: number, month?: number) {
+    const where: any = {};
+
+    if (year) {
+      const startDate = new Date(year, month ? month - 1 : 0, 1);
+      const endDate = new Date(year, month ? month : 12, 0);
+      endDate.setHours(23, 59, 59, 999);
+
+      where.date = {
+        gte: startDate,
+        lte: endDate,
+      };
+    }
+
     return await this.prismService.holiday.findMany({
+      where,
       orderBy: { date: 'asc' },
     });
   }

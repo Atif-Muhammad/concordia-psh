@@ -12,19 +12,14 @@ import { LeaveDto } from './dtos/leave.dto';
 export class AttendanceService {
   constructor(private prismaService: PrismaService) { }
 
-  /**
-   * Check if a date is a non-working day (weekend or holiday)
-   * @param date The date to check
-   * @returns Object with isBlocked flag and optional reason
-   */
   async isNonWorkingDay(
     date: Date,
   ): Promise<{ isBlocked: boolean; reason?: string }> {
-    // Check weekend (Sunday = 0, Saturday = 6)
+    // Check weekend (Sunday = 0)
     // Use UTC to avoid timezone issues when date is created from string
     const dayOfWeek = date.getUTCDay();
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      return { isBlocked: true, reason: 'Weekend' };
+    if (dayOfWeek === 0) {
+      return { isBlocked: true, reason: 'Sunday' };
     }
 
     // Check for Future Date

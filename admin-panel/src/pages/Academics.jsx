@@ -320,7 +320,7 @@ const Academics = () => {
         level: programForm.level,
         departmentId: Number(programForm.departmentId),
         duration: finalDuration,
-        hasSections: parseDurationToYears(finalDuration) >= 2,
+        duration: finalDuration,
         rollPrefix: programForm.rollPrefix || null,
       };
     }
@@ -1487,7 +1487,6 @@ const Academics = () => {
                       <SelectContent>
                         <SelectItem value="all">All Programs</SelectItem>
                         {programs
-                          .filter((p) => p.hasSections)
                           .map((p) => (
                             <SelectItem key={p.id} value={p.id.toString()}>
                               {p.name}
@@ -1508,7 +1507,7 @@ const Academics = () => {
                             return (
                               sectionFilterProgram === "all" ||
                               c.programId === Number(sectionFilterProgram)
-                            ) && prog?.hasSections;
+                            );
                           })
                           .map((c) => (
                             <SelectItem key={c.id} value={c.id.toString()}>
@@ -1550,7 +1549,7 @@ const Academics = () => {
                               {classes
                                 .filter((c) => {
                                   const prog = programs.find((p) => p.id === c.programId);
-                                  return prog?.hasSections === true;
+                                  return true;
                                 })
                                 .map((c) => (
                                   <SelectItem key={c.id} value={c.id.toString()}>
@@ -1672,7 +1671,7 @@ const Academics = () => {
                         if (sectionFilterClass !== "all" && s.classId !== Number(sectionFilterClass))
                           return false;
                         const prog = programs.find((p) => p.id === cls.programId);
-                        return prog?.hasSections === true;
+                        return true;
                       })
                       .map((s) => {
                         const cls = classes.find((c) => c.id === s.classId);
