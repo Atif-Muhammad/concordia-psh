@@ -87,6 +87,11 @@ export class StudentController {
     });
   }
 
+  @Get('search')
+  async searchStudent(@Query('searchFor') searchFor: string) {
+    return await this.studentService.search(searchFor);
+  }
+
   @Get(':id')
   async getStudentById(@Param('id') id: string) {
     const student = await this.studentService.findOne(Number(id));
@@ -96,10 +101,7 @@ export class StudentController {
     return student;
   }
 
-  @Get('search')
-  async searchStudent(@Query('searchFor') searchFor: string) {
-    return await this.studentService.search(searchFor);
-  }
+  
 
   @Post('create')
   @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))

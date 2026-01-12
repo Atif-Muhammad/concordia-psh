@@ -653,6 +653,7 @@ model ExamSchedule {
   date      DateTime @db.Date // The specific date for this subject's paper
   startTime String   @db.VarChar(10) // e.g. "09:00"
   endTime   String   @db.VarChar(10) // e.g. "12:00"
+  totalMarks Int      @default(100)
   room      String?  @db.VarChar(50) // Optional: assign a room
 
   createdAt DateTime @default(now())
@@ -676,6 +677,8 @@ model Marks {
 
   exam    Exam    @relation(fields: [examId], references: [id])
   student Student @relation(fields: [studentId], references: [id])
+
+  @@unique([studentId, examId, subject])
 }
 
 model Result {

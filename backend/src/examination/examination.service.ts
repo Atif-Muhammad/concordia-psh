@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateExamDto, UpdateExamDto } from './dtos/exam.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { CreateMarksDto, UpdateMarksDto } from './dtos/marks.dto';
+import { CreateMarksDto, UpdateMarksDto, BulkCreateMarksDto } from './dtos/marks.dto';
 import { CreateResultDto, UpdateResultDto } from './dtos/result.dto';
 import { CreatePositionDto, UpdatePositionDto } from './dtos/position.dto';
 
@@ -23,6 +23,7 @@ export class ExaminationService {
               date: new Date(s.date),
               startTime: s.startTime,
               endTime: s.endTime,
+              totalMarks: Number(s.totalMarks || 100),
             })),
           }
           : undefined,
@@ -60,6 +61,7 @@ export class ExaminationService {
           date: new Date(s.date),
           startTime: s.startTime,
           endTime: s.endTime,
+          totalMarks: Number(s.totalMarks || 100),
         })),
       };
     }
@@ -107,6 +109,63 @@ export class ExaminationService {
     await this.generatePositionsForExam(Number(dto.examId));
 
     return mark;
+  }
+
+  async bulkCreateMarks(dto: BulkCreateMarksDto) {
+    const { marks } = dto;
+    if (!marks || marks.length === 0) return [];
+
+    const examId = Number(marks[0].examId);
+
+    // We'll process these one by one in a transaction to ensure results/positions are consistent
+    // and we handle existing records correctly.
+    const results = await this.prisma.$transaction(async (tx) => {
+      const savedMarks: any[] = [];
+      for (const m of marks) {
+        const studentId = Number(m.studentId);
+        const mExamId = Number(m.examId);
+
+        const existing = await tx.marks.findFirst({
+          where: {
+            studentId,
+            examId: mExamId,
+            subject: m.subject,
+          },
+        });
+
+        if (existing) {
+          const updated = await tx.marks.update({
+            where: { id: existing.id },
+            data: {
+              totalMarks: Number(m.totalMarks),
+              obtainedMarks: Number(m.obtainedMarks),
+              teacherRemarks: m.teacherRemarks,
+              isAbsent: m.isAbsent || false,
+            },
+          });
+          savedMarks.push(updated);
+        } else {
+          const created = await tx.marks.create({
+            data: {
+              ...m,
+              studentId,
+              examId: mExamId,
+              totalMarks: Number(m.totalMarks),
+              obtainedMarks: Number(m.obtainedMarks),
+              isAbsent: m.isAbsent || false,
+            },
+          });
+          savedMarks.push(created);
+        }
+      }
+      return savedMarks;
+    });
+
+    // Auto-calculate results and positions ONCE after bulk operation
+    await this.generateResultsForExam(examId);
+    await this.generatePositionsForExam(examId);
+
+    return results;
   }
 
   findAllMarks(examId?: number, sectionId?: number) {

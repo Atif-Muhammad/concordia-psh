@@ -26,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -37,7 +38,11 @@ import {
   Trash2,
   Trophy,
   Printer,
+  Eye,
+  LayoutGrid,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { StudentResultsTab } from "./StudentResultsTab";
 import {
@@ -66,6 +71,7 @@ import {
   delResult,
   getResults,
   getStudents,
+  bulkCreateMarks,
   getSubjects, // ← Add this in your apis.js
   generateResults,
   getPositions,
@@ -83,12 +89,12 @@ const Examination = () => {
   const [examDateFilter, setExamDateFilter] = useState("");
   const [examTimeFilter, setExamTimeFilter] = useState("");
   const [examDialog, setExamDialog] = useState(false);
-  const [marksDialog, setMarksDialog] = useState(false);
   const [resultDialog, setResultDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [editingExam, setEditingExam] = useState(null);
-  const [editingMarks, setEditingMarks] = useState(null);
   const [editingResult, setEditingResult] = useState(null);
+  const [viewingExam, setViewingExam] = useState(null);
+  const [viewExamDialog, setViewExamDialog] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   const [examForm, setExamForm] = useState({
@@ -136,10 +142,6 @@ const Examination = () => {
   }, [marksFilterClass]);
 
   useEffect(() => {
-    setMarksFilterSection("");
-  }, [marksFilterExam]);
-
-  useEffect(() => {
     setResultFilterClass("");
     setResultFilterSection("");
   }, [resultFilterProgram]);
@@ -148,7 +150,12 @@ const Examination = () => {
     setResultFilterSection("");
   }, [resultFilterClass]);
 
-  const [marksExamDate, setMarksExamDate] = useState("");
+  // Bulk Marks Entry States
+  const [bulkMarksDialog, setBulkMarksDialog] = useState(false);
+  const [bulkExamId, setBulkExamId] = useState("");
+  const [bulkSectionId, setBulkSectionId] = useState("");
+  const [bulkMarksData, setBulkMarksData] = useState({}); // { studentId: { subjectId: obtainedMarks } }
+  const [bulkAbsentees, setBulkAbsentees] = useState({}); // { studentId: { subjectId: isAbsent } }
 
   useEffect(() => {
     setPositionsFilterClass("");
@@ -196,15 +203,6 @@ const Examination = () => {
     setStudentResultData(null);
   }, [studentResultExam]);
 
-  const [marksForm, setMarksForm] = useState({
-    examId: "",
-    studentId: "",
-    subject: "",
-    totalMarks: "",
-    obtainedMarks: "",
-    teacherRemarks: "",
-    isAbsent: false,
-  });
 
   const [resultForm, setResultForm] = useState({
     studentId: "",
@@ -232,18 +230,46 @@ const Examination = () => {
     enabled: !!(marksFilterExam && marksFilterExam !== "*") || !!(marksFilterSection && marksFilterSection !== "*") // Only fetch when at least one filter is selected
   });
 
-  // Specific student fetch for "Add Marks" dialog
-  const selectedExamForMarks = exams.find(e => e.id.toString() === marksForm.examId);
-  const { data: studentsForMarksEntry = [] } = useQuery({
-    queryKey: ["students", "marks-entry", selectedExamForMarks?.id],
+  const selectedExamForMarks = exams.find(e => e.id.toString() === (bulkExamId || marksFilterExam));
+  const { data: studentsForMarksEntry = [], isLoading: isLoadingStudents } = useQuery({
+    queryKey: ["students", "marks-entry", selectedExamForMarks?.id, bulkSectionId],
     queryFn: () => getStudents(
       selectedExamForMarks?.programId,
       selectedExamForMarks?.classId,
+      bulkSectionId && bulkSectionId !== "*" ? bulkSectionId : "",
       "",
-      ""
+      "ACTIVE",
+      "",
+      "",
+      1,
+      1000 // Large limit to fetch all students
     ),
-    enabled: !!selectedExamForMarks, // Only fetch when exam is selected in the dialog
+    enabled: !!selectedExamForMarks,
   });
+
+  const { data: existingMarksForBulk = [], isLoading: isLoadingExistingMarks } = useQuery({
+    queryKey: ["marks", "bulk-entry", bulkExamId, bulkSectionId],
+    queryFn: () => getMarks(bulkExamId, bulkSectionId),
+    enabled: bulkMarksDialog && !!bulkExamId && !!bulkSectionId,
+  });
+
+  useEffect(() => {
+    if (bulkMarksDialog && existingMarksForBulk.length > 0) {
+      const marksData = {};
+      const absenteesData = {};
+      existingMarksForBulk.forEach(mark => {
+        if (!marksData[mark.studentId]) marksData[mark.studentId] = {};
+        if (!absenteesData[mark.studentId]) absenteesData[mark.studentId] = {};
+
+        // Match by subject name (from ExamSchedule subjectId)
+        marksData[mark.studentId][mark.subject] = mark.obtainedMarks.toString();
+        absenteesData[mark.studentId][mark.subject] = mark.isAbsent;
+      });
+      setBulkMarksData(marksData);
+      setBulkAbsentees(absenteesData);
+    }
+  }, [existingMarksForBulk, bulkMarksDialog]);
+
   const { data: results = [] } = useQuery({
     queryKey: ["results", resultFilterProgram],
     queryFn: getResults,
@@ -428,6 +454,24 @@ const Examination = () => {
     },
   });
 
+  const bulkMarksMutation = useMutation({
+    mutationFn: bulkCreateMarks,
+    onSuccess: () => {
+      queryClient.invalidateQueries(["marks"]);
+      queryClient.invalidateQueries(["results"]);
+      queryClient.invalidateQueries(["positions"]);
+      toast({ title: "Marks updated successfully" });
+      setBulkMarksDialog(false);
+    },
+    onError: (error) => {
+      toast({
+        title: "Error saving marks",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const studentResultMutation = useMutation({
     mutationFn: () => getStudentResult(studentResultStudent, studentResultExam),
     onSuccess: (data) => {
@@ -467,7 +511,7 @@ const Examination = () => {
       endDate: new Date(examForm.endDate).toISOString(),
       type: examForm.type || "Final",
       description: examForm.description,
-      schedule: examForm.schedule?.filter(s => s.date && s.startTime && s.endTime), // Only send complete entries
+      schedule: examForm.schedule?.filter(s => s.included && s.date && s.startTime && s.endTime), // Only send complete and included entries
     };
 
     if (editingExam) {
@@ -475,6 +519,100 @@ const Examination = () => {
     } else {
       createExam.mutate(payload);
     }
+  };
+
+  const handlePrintDateSheet = (exam) => {
+    const printWindow = window.open("", "_blank");
+    const programName = exam.program?.name || "N/A";
+    const className = exam.class?.name || "N/A";
+
+    const scheduleRows = (exam.schedules || []).map(s => {
+      const subject = subjects.find(sub => sub.id === s.subjectId);
+      return `
+        <tr>
+          <td style="padding: 12px; border: 1px solid #ccc; font-weight: bold; color: #ed7d31;">${subject?.name || "Unknown"}</td>
+          <td style="padding: 12px; border: 1px solid #ccc;">${s.date ? new Date(s.date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : "N/A"}</td>
+          <td style="padding: 12px; border: 1px solid #ccc; text-align: center;">${s.startTime}</td>
+          <td style="padding: 12px; border: 1px solid #ccc; text-align: center;">${s.endTime}</td>
+        </tr>
+      `;
+    }).join("");
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Date Sheet - ${exam.examName}</title>
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+          body { font-family: 'Roboto', sans-serif; margin: 0; padding: 40px; -webkit-print-color-adjust: exact; color: #333; }
+          .header { display: flex; align-items: center; justify-content: center; gap: 20px; margin-bottom: 30px; border-bottom: 2px solid #ed7d31; padding-bottom: 20px; }
+          .logo { width: 80px; height: auto; }
+          .institute-info { text-align: center; }
+          .institute-info h1 { margin: 0; font-size: 28px; font-weight: bold; color: #000; text-transform: uppercase; }
+          .institute-info p { margin: 5px 0; font-size: 14px; color: #555; font-weight: 500; }
+          .title-bar { background-color: #ed7d31; color: white; text-align: center; padding: 12px; font-weight: bold; font-size: 18px; margin-bottom: 30px; border-radius: 4px; text-transform: uppercase; letter-spacing: 1px; }
+          .details-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 40px; background: #fffaf7; padding: 20px; border: 1px solid #ffe8d9; border-radius: 8px; }
+          .detail-item { display: flex; border-bottom: 1px solid #eee; padding: 8px 0; }
+          .detail-label { font-weight: bold; width: 140px; color: #ed7d31; font-size: 13px; text-transform: uppercase; }
+          .detail-value { font-size: 14px; color: #000; font-weight: 500; }
+          .schedule-table { width: 100%; border-collapse: collapse; margin-top: 20px; border: 1px solid #ccc; }
+          .schedule-table th { background-color: #ed7d31; color: white; padding: 12px 15px; text-align: left; font-size: 13px; font-weight: bold; text-transform: uppercase; border: 1px solid #ed7d31; }
+          .schedule-table td { padding: 12px 15px; border: 1px solid #ccc; font-size: 14px; color: #333; }
+          .schedule-table tr:nth-child(even) { background-color: #f9f9f9; }
+          .description-box { margin-top: 30px; padding: 20px; background: #f9f9f9; border-left: 4px solid #ed7d31; font-style: italic; font-size: 13px; line-height: 1.6; }
+          .signatures { display: flex; justify-content: space-between; margin-top: 80px; }
+          .sig-box { text-align: center; width: 220px; }
+          .sig-line { border-top: 2px solid #000; margin-bottom: 10px; }
+          .sig-label { font-size: 12px; font-weight: bold; text-transform: uppercase; color: #555; }
+          @media print { body { padding: 0; } .no-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <img class="logo" src="https://res.cloudinary.com/dldigpb7f/image/upload/v1765717856/logo_pstlvy.png" />
+          <div class="institute-info">
+            <h1>Concordia College Peshawar</h1>
+            <p>60-C, Near NCS School, University Town Peshawar</p>
+            <p>091-5619915 | 0332-8581222</p>
+          </div>
+        </div>
+        <div class="title-bar">EXAMINATION DATE SHEET - ${exam.examName}</div>
+        <div class="details-container">
+          <div class="left-col">
+            <div class="detail-item"><div class="detail-label">Exam Type:</div><div class="detail-value">${exam.type}</div></div>
+            <div class="detail-item"><div class="detail-label">Session:</div><div class="detail-value">${exam.session}</div></div>
+            <div class="detail-item"><div class="detail-label">Program:</div><div class="detail-value">${programName}</div></div>
+          </div>
+          <div class="right-col">
+            <div class="detail-item"><div class="detail-label">Class:</div><div class="detail-value">${className}</div></div>
+            <div class="detail-item"><div class="detail-label">Start Date:</div><div class="detail-value">${new Date(exam.startDate).toLocaleDateString(undefined, { dateStyle: 'long' })}</div></div>
+            <div class="detail-item"><div class="detail-label">End Date:</div><div class="detail-value">${new Date(exam.endDate).toLocaleDateString(undefined, { dateStyle: 'long' })}</div></div>
+          </div>
+        </div>
+        <table class="schedule-table">
+          <thead>
+            <tr>
+              <th>Subject</th>
+              <th>Date</th>
+              <th style="text-align: center;">Start Time</th>
+              <th style="text-align: center;">End Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${scheduleRows || '<tr><td colspan="4" style="text-align: center; padding: 30px; color: #999;">No schedule entries found for this exam.</td></tr>'}
+          </tbody>
+        </table>
+        ${exam.description ? `<div class="description-box"><strong>Important Notes:</strong><br/>${exam.description}</div>` : ''}
+        <div class="signatures">
+          <div class="sig-box"><div class="sig-line"></div><div class="sig-label">Exam Controller</div></div>
+          <div class="sig-box"><div class="sig-line"></div><div class="sig-label">Principal Signature</div></div>
+        </div>
+        <script>window.onload = () => { window.print(); };</script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   const openEditExam = (exam) => {
@@ -492,7 +630,9 @@ const Examination = () => {
         subjectId: s.subjectId,
         date: s.date ? s.date.split("T")[0] : "",
         startTime: s.startTime,
-        endTime: s.endTime
+        endTime: s.endTime,
+        totalMarks: s.totalMarks || 100,
+        included: true
       })) || [],
     });
     setExamDialog(true);
@@ -517,56 +657,54 @@ const Examination = () => {
 
     const printWin = window.open("", "_blank");
     printWin?.document.write(`
-      <!DOCTYPE html><html><head><title>${exam.examName}</title>
-      <style>body{font-family:Arial;padding:40px;text-align:center}
-      table{width:100%;border-collapse:collapse;margin:20px 0}
-      th,td{border:1px solid #000;padding:10px}</style></head>
-      <body><h1>${exam.examName} - Results</h1><h2>Session: ${exam.session}</h2>
-      <table><tr><th>Pos</th><th>Name</th><th>Roll No</th><th>Total</th><th>Obtained</th><th>%</th><th>Grade</th></tr>
-      ${filtered.map((r, i) => {
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${exam.examName}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; text-align: center; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          th, td { border: 1px solid #000; padding: 10px; }
+          th { background-color: #f2f2f2; }
+        </style>
+      </head>
+      <body>
+        <h1>${exam.examName} - Results</h1>
+        <h2>Session: ${exam.session}</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Pos</th>
+              <th>Name</th>
+              <th>Roll No</th>
+              <th>Total</th>
+              <th>Obtained</th>
+              <th>%</th>
+              <th>Grade</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map((r, i) => {
       const s = r.student;
-      return `<tr><td>${i + 1}</td><td>${s?.name || "N/A"}</td><td>${s?.rollNumber || "N/A"}</td>
-                <td>${r.totalMarks}</td><td>${r.obtainedMarks}</td><td>${r.percentage.toFixed(2)}%</td><td>${r.grade}</td></tr>`;
+      return `
+                <tr>
+                  <td>${i + 1}</td>
+                  <td>${getFullName(s) || "N/A"}</td>
+                  <td>${s?.rollNumber || "N/A"}</td>
+                  <td>${r.totalMarks}</td>
+                  <td>${r.obtainedMarks}</td>
+                  <td>${r.percentage.toFixed(2)}%</td>
+                  <td>${r.grade}</td>
+                </tr>
+              `;
     }).join("")}
-      </table></body></html>
+          </tbody>
+        </table>
+      </body>
+      </html>
     `);
     printWin?.document.close();
     printWin?.print();
-  };
-  const handleMarksSubmit = () => {
-    const marksData = {
-      examId: Number(marksForm.examId),
-      studentId: Number(marksForm.studentId),
-      subject: marksForm.subject,
-      totalMarks: Number(marksForm.totalMarks),
-      obtainedMarks: marksForm.isAbsent ? 0 : Number(marksForm.obtainedMarks),
-      teacherRemarks: marksForm.teacherRemarks,
-      isAbsent: marksForm.isAbsent,
-    };
-
-    if (editingMarks) {
-      updateMarksMutation({ id: editingMarks.id, payload: marksData });
-    } else {
-      // Check for duplicate marks in frontend
-      const isDuplicate = marks.some(
-        (mark) =>
-          mark.examId === marksData.examId &&
-          mark.studentId === marksData.studentId &&
-          mark.subject === marksData.subject
-      );
-
-      if (isDuplicate) {
-        toast({
-          title: "Duplicate Entry",
-          description: "Marks already exist for this student in this subject for this exam.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      createMarksMutation(marksData);
-    }
-
   };
   const handleResultSubmit = () => {
     const percentage = Number(resultForm.percentage);
@@ -603,19 +741,6 @@ const Examination = () => {
     });
   };
 
-  const openEditMarks = (marksData) => {
-    setEditingMarks(marksData);
-    setMarksForm({
-      examId: marksData.examId,
-      studentId: marksData.studentId,
-      subject: marksData.subject,
-      totalMarks: marksData.totalMarks.toString(),
-      obtainedMarks: marksData.obtainedMarks.toString(),
-      teacherRemarks: marksData.teacherRemarks || "",
-      isAbsent: marksData.isAbsent || false,
-    });
-    setMarksDialog(true);
-  };
   const openEditResult = (result) => {
     setEditingResult(result);
     setResultForm({
@@ -651,39 +776,58 @@ const Examination = () => {
 
     const printWin = window.open("", "_blank");
     printWin?.document.write(`
-      <!DOCTYPE html><html><head><title>Student Rankings</title>
-      <style>body{font-family:Arial;padding:40px;text-align:center}
-      table{width:100%;border-collapse:collapse;margin:20px 0}
-      th,td{border:1px solid #000;padding:10px}
-      h1,h2,h3{margin:10px 0}
-      .page-break{page-break-after:always}
-      </style></head>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Student Rankings</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; text-align: center; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          th, td { border: 1px solid #000; padding: 10px; }
+          h1, h2, h3 { margin: 10px 0; }
+          .page-break { page-break-after: always; }
+          th { background-color: #f2f2f2; }
+        </style>
+      </head>
       <body>
-      <h1>Student Rankings</h1>
-      ${Object.entries(groupedPositions).map(([examName, classes]) => `
-        <div class="exam-section">
-          <h2>${examName}</h2>
-          ${Object.entries(classes).map(([className, classPositions]) => `
-            <h3>Class: ${className}</h3>
-            <table>
-              <tr><th>Pos</th><th>Name</th><th>Roll No</th><th>Total</th><th>Obtained</th><th>%</th><th>Grade</th></tr>
-              ${classPositions.map((pos) => `
-                <tr>
-                  <td>${pos.position} ${pos.position === 1 ? '🥇' : pos.position === 2 ? '🥈' : pos.position === 3 ? '🥉' : ''}</td>
-                  <td>${getFullName(pos.student)}</td>
-                  <td>${pos.student.rollNumber}</td>
-                  <td>${pos.totalMarks}</td>
-                  <td>${pos.obtainedMarks}</td>
-                  <td>${pos.percentage.toFixed(2)}%</td>
-                  <td>${pos.grade}</td>
-                </tr>
-              `).join("")}
-            </table>
-          `).join("")}
-          <div class="page-break"></div>
-        </div>
-      `).join("")}
-      </body></html>
+        <h1>Student Rankings</h1>
+        ${Object.entries(groupedPositions).map(([examName, classes]) => `
+          <div class="exam-section">
+            <h2>${examName}</h2>
+            ${Object.entries(classes).map(([className, classPositions]) => `
+              <h3>Class: ${className}</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pos</th>
+                    <th>Name</th>
+                    <th>Roll No</th>
+                    <th>Total</th>
+                    <th>Obtained</th>
+                    <th>%</th>
+                    <th>Grade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${classPositions.map((pos) => `
+                    <tr>
+                      <td>${pos.position} ${pos.position === 1 ? '🥇' : pos.position === 2 ? '🥈' : pos.position === 3 ? '🥉' : ''}</td>
+                      <td>${getFullName(pos.student)}</td>
+                      <td>${pos.student.rollNumber}</td>
+                      <td>${pos.totalMarks}</td>
+                      <td>${pos.obtainedMarks}</td>
+                      <td>${pos.percentage.toFixed(2)}%</td>
+                      <td>${pos.grade}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            `).join("")}
+            <div class="page-break"></div>
+          </div>
+        `).join("")}
+      </body>
+      </html>
     `);
     printWin?.document.close();
     printWin?.print();
@@ -728,15 +872,15 @@ const Examination = () => {
       // Generate Marks Rows HTML
       // Generate Marks Rows HTML
       const marksRowsHtml = subjectsData.map((subject, index) => `
-        <tr style="border-bottom: 1px solid #000;">
+      < tr style = "border-bottom: 1px solid #000;" >
           <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${index + 1}</td>
           <td style="border-right: 1px solid #000; padding: 4px;">${subject.name}</td>
           <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${subject.totalMarks}</td>
           <td style="text-align: center; border-right: 1px solid #000; padding: 4px; ${subject.isAbsent ? 'background-color: #fee2e2; color: #dc2626; font-weight: bold;' : ''}">${subject.isAbsent ? 'Absent' : subject.obtainedMarks}</td>
           <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${subject.percentage}%</td>
           <td style="text-align: center; padding: 4px;">${subject.grade}</td>
-        </tr>
-      `).join("");
+        </tr >
+  `).join("");
 
       // Start with the template
       let filledTemplate = template.htmlContent;
@@ -760,7 +904,7 @@ const Examination = () => {
         .replace(/{{rollNo}}/g, student.rollNumber || 'N/A')
         .replace(/{{regNo}}/g, student.rollNumber || 'N/A')
         .replace(/{{admNo}}/g, student.id || 'N/A')
-        .replace(/{{class}}/g, exam.class?.name + (exam?.program?.name ? ` (${exam?.program?.name})` : '') || (student.class ? student.class.name : '') + (exam?.program?.name ? ` (${exam?.program?.name})` : ''))
+        .replace(/{{class}}/g, exam.class?.name + (exam?.program?.name ? ` (${exam?.program?.name})` : '') || (student.class ? student.class.name : '') + (exam?.program?.name ? `(${exam?.program?.name})` : ''))
         .replace(/{{section}}/g, student.section ? student.section.name : '')
         .replace(/{{sectionVisibilityClass}}/g, student.section ? '' : 'hidden-section')
 
@@ -768,8 +912,8 @@ const Examination = () => {
         .replace(
           /{{studentPhotoOrPlaceholder}}/g,
           student.photo_url
-            ? `<img src="${student.photo_url}" alt="Student Photo" style="width: 100%; height: 100%; object-fit: cover;" />`
-            : `<div class="student-photo-placeholder" style="font-size: 10px; color: #666;">No Photo</div>`
+            ? `< img src = "${student.photo_url}" alt = "Student Photo" style = "width: 100%; height: 100%; object-fit: cover;" /> `
+            : `< div class="student-photo-placeholder" style = "font-size: 10px; color: #666;" > No Photo</div > `
         )
         .replace(/{{studentPhoto}}/g, student.photo_url || '')
 
@@ -805,36 +949,6 @@ const Examination = () => {
     }
   };
 
-  useEffect(() => {
-    if (marksForm.subject && marksForm.examId) {
-      // Find the exam to get its classId
-      const selectedExam = exams.find(e => e.id === Number(marksForm.examId));
-      if (selectedExam) {
-        // Find the subject in the subjects list for the selected class
-        const subjectDetails = subjects.find(s => s.name === marksForm.subject && s.classId === selectedExam.classId);
-        if (subjectDetails && subjectDetails.totalMarks) {
-          setMarksForm(prev => ({ ...prev, totalMarks: subjectDetails.totalMarks.toString() }));
-        } else {
-          // Default to 100 if subject not found or totalMarks not set
-          setMarksForm(prev => ({ ...prev, totalMarks: "100" }));
-        }
-      } else {
-        // If no exam selected, default totalMarks to 100
-        setMarksForm(prev => ({ ...prev, totalMarks: "100" }));
-      }
-    } else {
-      // If no subject or exam selected, default totalMarks to 100
-      setMarksForm(prev => ({ ...prev, totalMarks: "100" }));
-    }
-  }, [marksForm.subject, marksForm.examId, exams, subjects]);
-
-  const handleAbsentChange = (checked) => {
-    setMarksForm(prev => ({
-      ...prev,
-      isAbsent: checked,
-      obtainedMarks: checked ? "0" : prev.obtainedMarks
-    }));
-  };
 
   return (
     <DashboardLayout>
@@ -970,6 +1084,9 @@ const Examination = () => {
                             <SelectItem value="Midterm">Midterm</SelectItem>
                             <SelectItem value="Final">Final</SelectItem>
                             <SelectItem value="Quiz">Quiz</SelectItem>
+                            <SelectItem value="Sendup Exam">Sendup Exam</SelectItem>
+                            <SelectItem value="Pre-Board">Pre-Board</SelectItem>
+                            <SelectItem value="Monthly Test">Monthly Test</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -1015,10 +1132,12 @@ const Examination = () => {
                             <Table>
                               <TableHeader>
                                 <TableRow>
+                                  <TableHead className="w-[50px]">Include</TableHead>
                                   <TableHead>Subject</TableHead>
                                   <TableHead>Date</TableHead>
                                   <TableHead>Start Time</TableHead>
                                   <TableHead>End Time</TableHead>
+                                  <TableHead className="w-[100px]">Total Marks</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -1028,18 +1147,36 @@ const Examination = () => {
 
                                   return (
                                     <TableRow key={subject.id}>
+                                      <TableCell>
+                                        <Checkbox
+                                          checked={scheduleEntry.included || false}
+                                          onCheckedChange={(checked) => {
+                                            const newSchedule = [...(examForm.schedule || [])];
+                                            const index = newSchedule.findIndex(s => s.subjectId === subject.id);
+                                            if (index > -1) {
+                                              newSchedule[index] = { ...newSchedule[index], included: !!checked };
+                                            } else {
+                                              newSchedule.push({ subjectId: subject.id, included: !!checked, date: "", startTime: "", endTime: "", totalMarks: 100 });
+                                            }
+                                            setExamForm({ ...examForm, schedule: newSchedule });
+                                          }}
+                                        />
+                                      </TableCell>
                                       <TableCell className="font-medium">{subject.name}</TableCell>
                                       <TableCell>
                                         <Input
                                           type="date"
                                           value={scheduleEntry.date || ""}
+                                          min={examForm.startDate}
+                                          max={examForm.endDate}
+                                          disabled={!scheduleEntry.included}
                                           onChange={(e) => {
                                             const newSchedule = [...(examForm.schedule || [])];
                                             const index = newSchedule.findIndex(s => s.subjectId === subject.id);
                                             if (index > -1) {
                                               newSchedule[index] = { ...newSchedule[index], date: e.target.value };
                                             } else {
-                                              newSchedule.push({ subjectId: subject.id, date: e.target.value, startTime: "", endTime: "" });
+                                              newSchedule.push({ subjectId: subject.id, date: e.target.value, startTime: "", endTime: "", included: true, totalMarks: 100 });
                                             }
                                             setExamForm({ ...examForm, schedule: newSchedule });
                                           }}
@@ -1049,13 +1186,14 @@ const Examination = () => {
                                         <Input
                                           type="time"
                                           value={scheduleEntry.startTime || ""}
+                                          disabled={!scheduleEntry.included}
                                           onChange={(e) => {
                                             const newSchedule = [...(examForm.schedule || [])];
                                             const index = newSchedule.findIndex(s => s.subjectId === subject.id);
                                             if (index > -1) {
                                               newSchedule[index] = { ...newSchedule[index], startTime: e.target.value };
                                             } else {
-                                              newSchedule.push({ subjectId: subject.id, date: "", startTime: e.target.value, endTime: "" });
+                                              newSchedule.push({ subjectId: subject.id, date: "", startTime: e.target.value, endTime: "", included: true, totalMarks: 100 });
                                             }
                                             setExamForm({ ...examForm, schedule: newSchedule });
                                           }}
@@ -1065,13 +1203,31 @@ const Examination = () => {
                                         <Input
                                           type="time"
                                           value={scheduleEntry.endTime || ""}
+                                          disabled={!scheduleEntry.included}
                                           onChange={(e) => {
                                             const newSchedule = [...(examForm.schedule || [])];
                                             const index = newSchedule.findIndex(s => s.subjectId === subject.id);
                                             if (index > -1) {
                                               newSchedule[index] = { ...newSchedule[index], endTime: e.target.value };
                                             } else {
-                                              newSchedule.push({ subjectId: subject.id, date: "", startTime: "", endTime: e.target.value });
+                                              newSchedule.push({ subjectId: subject.id, date: "", startTime: "", endTime: e.target.value, included: true, totalMarks: 100 });
+                                            }
+                                            setExamForm({ ...examForm, schedule: newSchedule });
+                                          }}
+                                        />
+                                      </TableCell>
+                                      <TableCell>
+                                        <Input
+                                          type="number"
+                                          value={scheduleEntry.totalMarks || ""}
+                                          disabled={!scheduleEntry.included}
+                                          onChange={(e) => {
+                                            const newSchedule = [...(examForm.schedule || [])];
+                                            const index = newSchedule.findIndex(s => s.subjectId === subject.id);
+                                            if (index > -1) {
+                                              newSchedule[index] = { ...newSchedule[index], totalMarks: Number(e.target.value) };
+                                            } else {
+                                              newSchedule.push({ subjectId: subject.id, date: "", startTime: "", endTime: "", included: true, totalMarks: Number(e.target.value) });
                                             }
                                             setExamForm({ ...examForm, schedule: newSchedule });
                                           }}
@@ -1098,6 +1254,162 @@ const Examination = () => {
                         </Button>
                       </div>
                     </div>
+                  </DialogContent>
+                </Dialog>
+
+                {/* View Exam Details Dialog */}
+                <Dialog open={viewExamDialog} onOpenChange={setViewExamDialog}>
+                  <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+                    <DialogHeader className="px-6 pt-6 pb-4 border-b">
+                      <div className="flex justify-between items-center w-full">
+                        <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+                          <BookOpen className="w-6 h-6 text-primary" />
+                          Exam Details
+                        </DialogTitle>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex items-center gap-2 text-primary border-primary/20 hover:bg-primary/5"
+                          onClick={() => handlePrintDateSheet(viewingExam)}
+                        >
+                          <Printer className="w-4 h-4" />
+                          Print Date Sheet
+                        </Button>
+                      </div>
+                    </DialogHeader>
+
+                    {viewingExam && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-0 overflow-hidden h-full">
+                        {/* Left Column: General Info & Description */}
+                        <div className="md:col-span-1 border-r p-6 space-y-6 overflow-y-auto bg-muted/5">
+                          {/* Header Info */}
+                          <div className="space-y-4">
+                            <div>
+                              <Badge variant="outline" className="mb-2 text-primary border-primary/20 bg-primary/5">
+                                {viewingExam.type}
+                              </Badge>
+                              <h3 className="text-2xl font-bold text-primary">{viewingExam.examName}</h3>
+                              <p className="text-sm font-medium text-muted-foreground">{viewingExam.session} Session</p>
+                            </div>
+
+                            <Separator />
+
+                            {/* Info Grid */}
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-1 gap-4">
+                                <div className="space-y-1">
+                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Program</p>
+                                  <p className="font-medium">{viewingExam.program?.name || "N/A"}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Class</p>
+                                  <p className="font-medium">{viewingExam.class?.name || "N/A"}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Duration</p>
+                                  <div className="flex flex-col text-sm">
+                                    <span className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-green-500" />
+                                      Starts: {new Date(viewingExam.startDate).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                                    </span>
+                                    <span className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-red-500" />
+                                      Ends: {new Date(viewingExam.endDate).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Description */}
+                            {viewingExam.description && (
+                              <>
+                                <Separator />
+                                <div className="space-y-2">
+                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Description</p>
+                                  <p className="text-sm text-muted-foreground leading-relaxed italic">
+                                    "{viewingExam.description}"
+                                  </p>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Right Column: Date Sheet Table */}
+                        <div className="md:col-span-2 p-6 overflow-y-auto h-full flex flex-col">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-lg font-bold flex items-center gap-2">
+                              <FileText className="w-5 h-5 text-primary" />
+                              Date Sheet (Schedule)
+                            </h4>
+                            <Badge variant="secondary" className="font-normal font-mono">
+                              {viewingExam.schedules?.length || 0} Subjects
+                            </Badge>
+                          </div>
+
+                          <div className="border rounded-xl overflow-hidden shadow-sm">
+                            <Table>
+                              <TableHeader className="bg-muted/50">
+                                <TableRow>
+                                  <TableHead className="font-bold">Subject</TableHead>
+                                  <TableHead className="font-bold">Exam Date</TableHead>
+                                  <TableHead className="font-bold">Start Time</TableHead>
+                                  <TableHead className="font-bold">End Time</TableHead>
+                                  <TableHead className="font-bold">Total Marks</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {viewingExam.schedules?.length > 0 ? (
+                                  viewingExam.schedules.map((s, index) => {
+                                    const subject = subjects.find(sub => sub.id === s.subjectId);
+                                    return (
+                                      <TableRow key={index} className="hover:bg-muted/30 transition-colors">
+                                        <TableCell className="font-semibold text-primary">
+                                          {subject?.name || "Unknown"}
+                                        </TableCell>
+                                        <TableCell>
+                                          <div className="flex flex-col">
+                                            <span className="font-medium">
+                                              {s.date ? new Date(s.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : "N/A"}
+                                            </span>
+                                            {s.date && <span className="text-xs text-muted-foreground">{new Date(s.date).getFullYear()}</span>}
+                                          </div>
+                                        </TableCell>
+                                        <TableCell>
+                                          <Badge variant="outline" className="font-normal bg-green-50/50 text-green-700 border-green-200">
+                                            {s.startTime}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                          <Badge variant="outline" className="font-normal bg-red-50/50 text-red-700 border-red-200">
+                                            {s.endTime}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                          <Badge variant="secondary" className="font-normal">
+                                            {s.totalMarks || 100}
+                                          </Badge>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })
+                                ) : (
+                                  <TableRow>
+                                    <TableCell colSpan={5} className="text-center py-12">
+                                      <div className="flex flex-col items-center justify-center text-muted-foreground gap-2">
+                                        <FileText className="w-8 h-8 opacity-20" />
+                                        <p>No schedule defined for this exam.</p>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </DialogContent>
                 </Dialog>
               </CardHeader>
@@ -1169,6 +1481,16 @@ const Examination = () => {
                             <TableCell className="whitespace-nowrap">{new Date(exam.endDate).toLocaleDateString()}</TableCell>
                             <TableCell>
                               <div className="flex gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setViewingExam(exam);
+                                    setViewExamDialog(true);
+                                  }}
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </Button>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1312,117 +1634,258 @@ const Examination = () => {
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <Dialog open={marksDialog} onOpenChange={setMarksDialog}>
-                    <DialogTrigger asChild>
-                      <Button onClick={() => {
-                        setEditingMarks(null);
-                        setMarksForm({ examId: "", studentId: "", subject: "", totalMarks: "", obtainedMarks: "", teacherRemarks: "", isAbsent: false });
-                      }}>
-                        <PlusCircle className="w-4 h-4 mr-2" />
-                        Add Marks
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl">
-                      <DialogHeader>
-                        <DialogTitle>{editingMarks ? "Edit Marks" : "Add Marks"}</DialogTitle>
+                  <Button
+                    variant="outline"
+                    className="ml-2"
+                    onClick={() => {
+                      setBulkExamId(marksFilterExam !== "*" ? marksFilterExam : "");
+                      setBulkSectionId(marksFilterSection !== "*" ? marksFilterSection : "");
+                      setBulkMarksData({});
+                      setBulkAbsentees({});
+                      setBulkMarksDialog(true);
+                    }}
+                  >
+                    <LayoutGrid className="w-4 h-4 mr-2" />
+                    Bulk Marks Entry
+                  </Button>
+
+                  <Dialog open={bulkMarksDialog} onOpenChange={setBulkMarksDialog}>
+                    <DialogContent className="max-w-7xl h-[95vh] flex flex-col p-0">
+                      <DialogHeader className="p-6 border-bottom">
+                        <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+                          <LayoutGrid className="w-6 h-6 text-orange-600" />
+                          Bulk Marks Entry
+                        </DialogTitle>
+                        <p className="text-sm text-muted-foreground">Select exam and class/section to enter marks for all students at once.</p>
                       </DialogHeader>
-                      <div className="space-y-4">
-                        {/* Filter Exam by Date */}
-                        <div className="mb-2">
-                          <Label>Filter Exam by Date</Label>
-                          <Input
-                            type="date"
-                            value={marksExamDate}
-                            onChange={(e) => setMarksExamDate(e.target.value)}
-                          />
-                        </div>
-
-                        {/* Exam Select */}
-                        <div>
-                          <Label>Exam</Label>
-                          <Select value={marksForm.examId} onValueChange={(v) => setMarksForm({ ...marksForm, examId: v, studentId: "", subject: "" })}>
-                            <SelectTrigger><SelectValue placeholder="Select exam" /></SelectTrigger>
-                            <SelectContent>
-                              {exams
-                                .filter(exam => !marksExamDate || new Date(exam.startDate).toISOString().startsWith(marksExamDate))
-                                .map((exam) => (
-                                  <SelectItem key={exam.id} value={exam.id.toString()}>{exam.examName} - {formatDateTimeDisplay(exam.startDate)}</SelectItem>
+                      <div className="flex-1 overflow-hidden flex flex-col">
+                        <div className="p-6 bg-muted/30 border-y grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Select Exam</Label>
+                            <Select value={bulkExamId} onValueChange={(v) => {
+                              setBulkExamId(v);
+                              setBulkSectionId("*"); // Reset section when exam changes
+                              // Reset data when exam changes
+                              setBulkMarksData({});
+                              setBulkAbsentees({});
+                            }}>
+                              <SelectTrigger><SelectValue placeholder="Select examination" /></SelectTrigger>
+                              <SelectContent>
+                                {exams?.map((exam) => (
+                                  <SelectItem key={exam.id} value={exam.id.toString()}>
+                                    {exam.examName} - {exam.session} ({exam.class?.name})
+                                  </SelectItem>
                                 ))}
-                            </SelectContent>
-                          </Select>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Select Section</Label>
+                            <Select value={bulkSectionId} onValueChange={(v) => {
+                              setBulkSectionId(v);
+                              setBulkMarksData({});
+                              setBulkAbsentees({});
+                            }}>
+                              <SelectTrigger><SelectValue placeholder="Select section (optional)" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="*">All Sections</SelectItem>
+                                {(() => {
+                                  const exam = exams?.find(e => e.id === Number(bulkExamId));
+                                  return exam?.class?.sections?.map(s => (
+                                    <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
+                                  ));
+                                })()}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
 
-                        {/* Student Select */}
-                        <div>
-                          <Label>Student</Label>
-                          <Select
-                            value={marksForm.studentId}
-                            onValueChange={(v) => setMarksForm({ ...marksForm, studentId: v, subject: "" })}
-                            disabled={!marksForm.examId}
-                          >
-                            <SelectTrigger><SelectValue placeholder={marksForm.examId ? "Select student" : "First select exam"} /></SelectTrigger>
-                            <SelectContent>
-                              {(() => {
-                                // Use the dedicated "studentsForMarksEntry" which is already filtered by exam's class
-                                return studentsForMarksEntry.length > 0 ? (
-                                  studentsForMarksEntry.map((s) => (
-                                    <SelectItem key={s.id} value={s.id.toString()}>
-                                      {getFullName(s)} ({s.rollNumber})
-                                    </SelectItem>
-                                  ))
-                                ) : (
-                                  <SelectItem disabled>No students found for this exam's class</SelectItem>
-                                );
-                              })()}
-                            </SelectContent>
-                          </Select>
+                        <div className="flex-1 overflow-auto p-0 flex flex-col">
+                          {isLoadingStudents || isLoadingExistingMarks ? (
+                            <div className="flex-1 flex items-center justify-center">
+                              <div className="flex flex-col items-center gap-2 py-20">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+                                <p className="text-sm text-muted-foreground">Fetching student list and marks...</p>
+                              </div>
+                            </div>
+                          ) : bulkExamId ? (() => {
+                            const exam = exams.find(e => e.id === Number(bulkExamId));
+                            if (!exam) return null;
+
+                            const studentsList = Array.isArray(studentsForMarksEntry) ? studentsForMarksEntry : (studentsForMarksEntry?.students || []);
+                            const sectionStudents = studentsList
+                              .filter(s => s && s.status === "ACTIVE")
+                              .sort((a, b) => (a.rollNumber || "").localeCompare(b.rollNumber || ""));
+
+                            const examSubjects = (exam.schedules || []).map(s => {
+                              const sub = subjects.find(sub => sub.id === s.subjectId);
+                              return { ...s, name: sub?.name || "Unknown" };
+                            });
+
+                            if (sectionStudents.length === 0) {
+                              return <div className="p-12 text-center text-muted-foreground">No students found for this class/section.</div>;
+                            }
+
+                            if (examSubjects.length === 0) {
+                              return <div className="p-12 text-center text-muted-foreground">No subjects defined in this exam's schedule.</div>;
+                            }
+
+                            return (
+                              <Table className="border-collapse">
+                                <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
+                                  <TableRow className="hover:bg-transparent">
+                                    <TableHead className="w-[200px] border-r">Student Name (Roll No)</TableHead>
+                                    {examSubjects.map((s) => (
+                                      <TableHead key={s.id} className="text-center min-w-[120px] border-r bg-muted/5">
+                                        <div className="font-bold text-orange-700">{s.name}</div>
+                                        <div className="text-[10px] text-muted-foreground">Total: {s.totalMarks}</div>
+                                      </TableHead>
+                                    ))}
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {sectionStudents.map((student) => (
+                                    <TableRow key={student.id} className="hover:bg-orange-50/30 transition-colors">
+                                      <TableCell className="font-medium border-r sticky left-0 bg-white z-[5]">
+                                        <div className="text-sm">{getFullName(student)}</div>
+                                        <div className="text-[10px] text-muted-foreground font-mono">{student.rollNumber}</div>
+                                      </TableCell>
+                                      {examSubjects.map((s) => {
+                                        const subjectKey = `${student.id}-${s.name}`;
+                                        const marksValue = bulkMarksData[student.id]?.[s.name] ?? "";
+                                        const isAbsent = bulkAbsentees[student.id]?.[s.name] ?? false;
+
+                                        // Try to pre-fill from existing marks on first render or when data changes
+                                        if (marksValue === "" && marks.length > 0) {
+                                          const existingMark = marks.find(m =>
+                                            m.studentId === student.id &&
+                                            m.examId === exam.id &&
+                                            m.subject === s.name
+                                          );
+                                          if (existingMark) {
+                                            setTimeout(() => {
+                                              setBulkMarksData(prev => ({
+                                                ...prev,
+                                                [student.id]: { ...(prev[student.id] || {}), [s.name]: existingMark.obtainedMarks }
+                                              }));
+                                              setBulkAbsentees(prev => ({
+                                                ...prev,
+                                                [student.id]: { ...(prev[student.id] || {}), [s.name]: existingMark.isAbsent }
+                                              }));
+                                            }, 0);
+                                          }
+                                        }
+
+                                        return (
+                                          <TableCell key={s.id} className={`p-2 border-r text-center ${isAbsent ? 'bg-red-50/50' : ''}`}>
+                                            <div className="flex flex-col gap-2 items-center">
+                                              <Input
+                                                type="number"
+                                                className={`h-8 w-20 text-center ${isAbsent ? 'opacity-30' : ''}`}
+                                                placeholder="0"
+                                                value={marksValue}
+                                                disabled={isAbsent}
+                                                max={s.totalMarks || 100}
+                                                onChange={(e) => {
+                                                  const val = e.target.value;
+                                                  setBulkMarksData(prev => ({
+                                                    ...prev,
+                                                    [student.id]: { ...(prev[student.id] || {}), [s.name]: val }
+                                                  }));
+                                                }}
+                                              />
+                                              <div className="flex items-center gap-1">
+                                                <Checkbox
+                                                  id={`absent-${subjectKey}`}
+                                                  checked={isAbsent}
+                                                  className="h-3 w-3"
+                                                  onCheckedChange={(checked) => {
+                                                    setBulkAbsentees(prev => ({
+                                                      ...prev,
+                                                      [student.id]: { ...(prev[student.id] || {}), [s.name]: !!checked }
+                                                    }));
+                                                    if (checked) {
+                                                      setBulkMarksData(prev => ({
+                                                        ...prev,
+                                                        [student.id]: { ...(prev[student.id] || {}), [s.name]: "0" }
+                                                      }));
+                                                    }
+                                                  }}
+                                                />
+                                                <label htmlFor={`absent-${subjectKey}`} className="text-[10px] text-muted-foreground cursor-pointer uppercase font-bold">Abs</label>
+                                              </div>
+                                            </div>
+                                          </TableCell>
+                                        );
+                                      })}
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            );
+                          })() : (
+                            <div className="p-20 text-center text-muted-foreground flex flex-col items-center gap-4">
+                              <LayoutGrid className="w-12 h-12 opacity-10" />
+                              <p>Select an exam to load the marks entry grid.</p>
+                            </div>
+                          )}
                         </div>
-
-
-                        {/* Subject Select - Only from Student's Class */}
-                        <div>
-                          <Label>Subject</Label>
-                          <Select
-                            value={marksForm.subject}
-                            onValueChange={(v) => setMarksForm({ ...marksForm, subject: v })}
-                            disabled={!marksForm.studentId}
-                          >
-                            <SelectTrigger><SelectValue placeholder={marksForm.studentId ? "Select subject" : "First select student"} /></SelectTrigger>
-                            <SelectContent>
-                              {(() => {
-                                // Find student in studentsForMarksEntry
-                                const student = studentsForMarksEntry.find(s => s.id === Number(marksForm.studentId));
-                                if (!student) return <SelectItem disabled>No student selected</SelectItem>;
-
-                                const classSubjects = subjects.filter(sub => Number(sub.classId) === Number(student.classId));
-                                return classSubjects.length > 0 ? (
-                                  classSubjects.map((sub) => (
-                                    <SelectItem key={sub.id} value={sub.name}>
-                                      {sub.name}
-                                    </SelectItem>
-                                  ))
-                                ) : (
-                                  <SelectItem disabled>No subjects for this class</SelectItem>
-                                );
-                              })()}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div><Label>Total Marks</Label><Input type="number" value={marksForm.totalMarks} onChange={(e) => setMarksForm({ ...marksForm, totalMarks: e.target.value })} /></div>
-                          <div><Label>Obtained Marks *</Label><Input type="number" value={marksForm.obtainedMarks} onChange={(e) => setMarksForm({ ...marksForm, obtainedMarks: e.target.value })} disabled={marksForm.isAbsent} /></div>
-                        </div>
-                        <div className="flex items-center space-x-2 pt-6">
-                          <Checkbox id="isAbsent" checked={marksForm.isAbsent} onCheckedChange={handleAbsentChange} />
-                          <Label htmlFor="isAbsent">Mark as Absent</Label>
-                        </div>
-                        <div><Label>Teacher Remarks (Optional)</Label><Input value={marksForm.teacherRemarks} onChange={(e) => setMarksForm({ ...marksForm, teacherRemarks: e.target.value })} /></div>
-
-                        <Button onClick={handleMarksSubmit} className="w-full">
-                          {editingMarks ? "Update" : "Add"} Marks
-                        </Button>
                       </div>
+                      <DialogFooter className="p-6 border-t bg-muted/20">
+                        <Button variant="ghost" onClick={() => setBulkMarksDialog(false)}>Cancel</Button>
+                        <Button
+                          disabled={!bulkExamId || bulkMarksMutation.isPending}
+                          onClick={() => {
+                            const exam = exams.find(e => e.id === Number(bulkExamId));
+                            const examSubjects = (exam.schedules || []).map(s => {
+                              const sub = subjects.find(sub => sub.id === s.subjectId);
+                              return { ...s, name: sub?.name || "Unknown", totalMarks: s.totalMarks };
+                            });
+
+                            const payload = [];
+                            Object.entries(bulkMarksData).forEach(([studentId, subjectMarks]) => {
+                              Object.entries(subjectMarks).forEach(([subjectName, marks]) => {
+                                const subj = examSubjects.find(es => es.name === subjectName);
+                                const isAbs = bulkAbsentees[studentId]?.[subjectName] || false;
+                                payload.push({
+                                  examId: bulkExamId,
+                                  studentId,
+                                  subject: subjectName,
+                                  totalMarks: subj?.totalMarks,
+                                  obtainedMarks: isAbs ? 0 : Number(marks),
+                                  isAbsent: isAbs
+                                });
+                              });
+                            });
+
+                            // Add absentees that might not have marks entered
+                            Object.entries(bulkAbsentees).forEach(([studentId, subjectAbs]) => {
+                              Object.entries(subjectAbs).forEach(([subjectName, isAbsent]) => {
+                                if (isAbsent && !payload.find(p => p.studentId === studentId && p.subject === subjectName)) {
+                                  const subj = examSubjects.find(es => es.name === subjectName);
+                                  payload.push({
+                                    examId: bulkExamId,
+                                    studentId,
+                                    subject: subjectName,
+                                    totalMarks: subj?.totalMarks,
+                                    obtainedMarks: 0,
+                                    isAbsent: true
+                                  });
+                                }
+                              });
+                            });
+
+                            if (payload.length === 0) {
+                              toast({ title: "No marks entered", variant: "destructive" });
+                              return;
+                            }
+
+                            bulkMarksMutation.mutate({ marks: payload });
+                          }}
+                        >
+                          {bulkMarksMutation.isPending ? "Saving..." : "Save All Marks"}
+                        </Button>
+                      </DialogFooter>
                     </DialogContent>
                   </Dialog>
                 </div>
@@ -1457,7 +1920,6 @@ const Examination = () => {
                           <TableCell>{percentage}%</TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button variant="outline" size="sm" onClick={() => openEditMarks(mark)}><Edit className="w-4 h-4" /></Button>
                               <Button variant="destructive" size="sm" onClick={() => { setDeleteTarget({ type: "marks", id: mark.id }); setDeleteDialog(true); }}>
                                 <Trash2 className="w-4 h-4" />
                               </Button>
@@ -1571,7 +2033,7 @@ const Examination = () => {
                             <SelectItem value="*">All Programs</SelectItem>
                             {programs?.map((p) => (
                               <SelectItem key={p.id} value={p.id}>
-                                {p.name} {p.department?.name ? `— ${p.department.name}` : ''}
+                                {p.name} {p.department?.name ? `— ${p.department.name} ` : ''}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1855,7 +2317,7 @@ const Examination = () => {
                     {(() => {
                       // Group positions by exam and class
                       const groupedPositions = positions.reduce((acc, pos) => {
-                        const examKey = `${pos.exam.examName} - ${pos.exam.session}`;
+                        const examKey = `${pos.exam.examName} - ${pos.exam.session} `;
                         const classKey = pos.class.name;
 
                         if (!acc[examKey]) acc[examKey] = {};

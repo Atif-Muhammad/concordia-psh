@@ -34,11 +34,10 @@ teacher:
 2. document must be non-empty object. ✔
 
 examination:
-1. dates arent sync for exam creation.
-2. sendup exam, pre-board, monthly test.
-3. checkbox to only include in exam.
-4. marks entry for overall class.
-5. exam roll-number -- shuffling etc.
+1. dates arent sync for exam creation. ✔
+2. sendup exam, pre-board, monthly test.✔
+3. checkbox to only include in exam.✔
+4. marks entry for overall class.✔
 
 
 class:
@@ -71,4 +70,5 @@ Finance:
 configuration:
 1. granular access for modules.
 2. teacher and employee can be same.
-3. late arrived attendance.
+3. late arrived attendance(maybe implemented with biometric)
+4. exam roll-number -- shuffling etc.

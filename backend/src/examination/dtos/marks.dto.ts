@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsOptional } from 'class-validator';
+import { IsArray, IsNotEmpty, IsOptional, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateMarksDto {
   @IsNotEmpty({ message: 'exam must be selected' })
@@ -18,3 +19,10 @@ export class CreateMarksDto {
 }
 
 export class UpdateMarksDto extends CreateMarksDto { }
+
+export class BulkCreateMarksDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateMarksDto)
+  marks: CreateMarksDto[];
+}

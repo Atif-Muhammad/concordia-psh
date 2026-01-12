@@ -23,7 +23,8 @@ export class CreateExamDto {
     date: string;
     startTime: string;
     endTime: string;
+    totalMarks: number;
   }[];
 }
 
-export class UpdateExamDto extends CreateExamDto {}
+export class UpdateExamDto extends CreateExamDto { }

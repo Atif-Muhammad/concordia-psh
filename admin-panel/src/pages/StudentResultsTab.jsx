@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FileUser, Printer, Search } from "lucide-react"; // Added Search icon
 import { useQuery } from "@tanstack/react-query"; // Added useQuery
-import { getStudents, searchStudents } from "../../config/apis"; // Added APIs
+import { getStudents, searchStudent } from "../../config/apis"; // Added APIs
 
 export const StudentResultsTab = ({
     programs,
@@ -47,27 +47,34 @@ export const StudentResultsTab = ({
     // --- Data Fetching ---
 
     // 1. Search Query
-    const { data: searchResults = [] } = useQuery({
-        queryKey: ["searchStudents", debouncedSearch],
-        queryFn: () => searchStudents(debouncedSearch),
+    const { data: searchResultsData, isLoading: isSearching } = useQuery({
+        queryKey: ["searchStudent", debouncedSearch],
+        queryFn: () => searchStudent(debouncedSearch),
         enabled: !!debouncedSearch && debouncedSearch.length > 2, // Search only if > 2 chars
     });
 
     // 2. Class Students Query (Fix for "Selected Class isn't loading its students")
-    const { data: classStudents = [] } = useQuery({
+    const { data: classStudentsData } = useQuery({
         queryKey: ["classStudentsResultTab", studentResultProgram, studentResultClass, studentResultSection],
         queryFn: () => getStudents(
             studentResultProgram || "",
             studentResultClass || "",
             (studentResultSection && studentResultSection !== "*") ? studentResultSection : "",
-            "" // No text search here
+            "", // No text search here
+            "ACTIVE",
+            "",
+            "",
+            1,
+            1000 // Large limit to show all students in dropdown
         ),
         enabled: !!studentResultClass && !debouncedSearch, // Only fetch if class selected AND not searching
     });
 
     // Determine which list to show
-    // If searching, show searchResults. Else if class selected, show classStudents. 
-    const displayStudents = debouncedSearch ? searchResults : classStudents;
+    // If searching (and has enough chars), show searchResultsData. Else if class selected, show classStudentsData. 
+    const displayStudents = (debouncedSearch && debouncedSearch.length > 2)
+        ? (Array.isArray(searchResultsData) ? searchResultsData : (searchResultsData?.students || []))
+        : (Array.isArray(classStudentsData) ? classStudentsData : (classStudentsData?.students || []));
 
 
     // Get available exams for selected student (only exams for their class)

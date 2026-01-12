@@ -10,13 +10,13 @@ import {
 } from '@nestjs/common';
 import { CreateExamDto } from './dtos/exam.dto';
 import { ExaminationService } from './examination.service';
-import { CreateMarksDto, UpdateMarksDto } from './dtos/marks.dto';
+import { CreateMarksDto, UpdateMarksDto, BulkCreateMarksDto } from './dtos/marks.dto';
 import { CreateResultDto, UpdateResultDto } from './dtos/result.dto';
 import { CreatePositionDto, UpdatePositionDto } from './dtos/position.dto';
 
 @Controller('exams')
 export class ExaminationController {
-  constructor(private readonly examService: ExaminationService) {}
+  constructor(private readonly examService: ExaminationService) { }
   // exams
   @Post('create')
   create(@Body() dto: CreateExamDto) {
@@ -42,6 +42,11 @@ export class ExaminationController {
   @Post('marks/create')
   createMarks(@Body() dto: CreateMarksDto) {
     return this.examService.createMarks(dto);
+  }
+
+  @Post('marks/bulk-create')
+  createMarksBulk(@Body() dto: BulkCreateMarksDto) {
+    return this.examService.bulkCreateMarks(dto);
   }
 
   @Get('marks/all')

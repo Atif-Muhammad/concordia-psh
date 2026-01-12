@@ -36,6 +36,7 @@ export class AcademicsService {
           select: {
             name: true,
             id: true,
+            rollPrefix: true,
             sections: { select: { name: true, id: true } },
           },
         },

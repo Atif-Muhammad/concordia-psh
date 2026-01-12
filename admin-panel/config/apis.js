@@ -1621,6 +1621,7 @@ export const deleteLeave = async (id) => {
 
 // search student
 export const searchStudent = async (searchQuery) => {
+  console.log(searchQuery)
   try {
     const { data } = await axios.get(
       `${base_url}/student/search?searchFor=${searchQuery}`,
@@ -2367,6 +2368,25 @@ export const createMarks = async (payload) => {
   try {
     const { data } = await axios.post(
       `${base_url}/exams/marks/create`,
+      payload,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+export const bulkCreateMarks = async (payload) => {
+  try {
+    const { data } = await axios.post(
+      `${base_url}/exams/marks/bulk-create`,
       payload,
       {
         withCredentials: true,

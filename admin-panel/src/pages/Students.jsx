@@ -435,14 +435,49 @@ const Students = () => {
     if (!formData.programId || !formData.classId) return "";
     const pPrefix = programData.find((p) => p.id === Number(formData.programId))?.rollPrefix || "";
     const cPrefix = selectedProgram?.classes.find((c) => c.id === Number(formData.classId))?.rollPrefix || "";
+
+    // If class prefix already includes program prefix, don't combine them
+    if (pPrefix && cPrefix && cPrefix.startsWith(pPrefix)) {
+      return cPrefix;
+    }
     return `${pPrefix}${cPrefix}`;
   }, [formData.programId, formData.classId, programData, selectedProgram]);
 
-  useEffect(() => {
-    if (!editingStudent && calculatedPrefix && !formData.rollNumber.startsWith(calculatedPrefix)) {
-      setFormData(prev => ({ ...prev, rollNumber: calculatedPrefix }));
+  const rollNumberSuffix = useMemo(() => {
+    if (calculatedPrefix && formData.rollNumber.startsWith(calculatedPrefix)) {
+      return formData.rollNumber.slice(calculatedPrefix.length);
     }
-  }, [calculatedPrefix, editingStudent]);
+    return formData.rollNumber;
+  }, [formData.rollNumber, calculatedPrefix]);
+
+  const prevPrefixRef = useRef("");
+
+  // Reset tracking when dialog opens/closes to ensure correct prefix syncing for fresh edits
+  useEffect(() => {
+    if (!open) {
+      prevPrefixRef.current = "";
+    }
+  }, [open]);
+
+  useEffect(() => {
+    const prevPrefix = prevPrefixRef.current;
+    if (calculatedPrefix !== prevPrefix) {
+      setFormData(prev => {
+        const currentRoll = prev.rollNumber || "";
+        // If current roll starts with the previous prefix, replace it with the new prefix
+        if (prevPrefix && currentRoll.startsWith(prevPrefix)) {
+          const numericPart = currentRoll.slice(prevPrefix.length);
+          return { ...prev, rollNumber: `${calculatedPrefix}${numericPart}` };
+        }
+        // If it was empty or didn't start with prev prefix, and currentRoll is empty, just set prefix
+        if (!currentRoll || currentRoll === prevPrefix) {
+          return { ...prev, rollNumber: calculatedPrefix };
+        }
+        return prev;
+      });
+      prevPrefixRef.current = calculatedPrefix;
+    }
+  }, [calculatedPrefix]);
 
   const resetForm = () => {
     setFormData({
@@ -1183,16 +1218,27 @@ const Students = () => {
 
                   <div>
                     <Label>Roll Number *</Label>
-                    <Input
-                      value={formData.rollNumber}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val.startsWith(calculatedPrefix)) {
-                          setFormData({ ...formData, rollNumber: val });
-                        }
-                      }}
-                      placeholder={calculatedPrefix || "PSH/25-001"}
-                    />
+                    <div className="flex items-center">
+                      {calculatedPrefix && (
+                        <div className="bg-muted px-3 py-2 border border-r-0 rounded-l-md text-xs font-mono text-muted-foreground h-10 flex items-center whitespace-nowrap">
+                          {calculatedPrefix}
+                        </div>
+                      )}
+                      <Input
+                        className={calculatedPrefix ? "rounded-l-none" : ""}
+                        value={rollNumberSuffix}
+                        onChange={(e) => {
+                          const suffix = e.target.value;
+                          setFormData({ ...formData, rollNumber: `${calculatedPrefix}${suffix}` });
+                        }}
+                        placeholder="e.g. 26-001"
+                      />
+                    </div>
+                    {calculatedPrefix && (
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        Full Roll: <span className="font-mono font-bold text-primary">{formData.rollNumber}</span>
+                      </p>
+                    )}
                   </div>
 
                   {/* Program */}
