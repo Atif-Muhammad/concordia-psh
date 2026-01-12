@@ -67,7 +67,6 @@ Finance:
 
  ------ Phase 2 ------
 
-configuration:
 1. granular access for modules.
 2. teacher and employee can be same.
 3. late arrived attendance(maybe implemented with biometric)
