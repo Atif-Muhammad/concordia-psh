@@ -60,9 +60,9 @@ Hostel:
 
 
 Finance:
-1. closing should be read only not editable.
-2. filters for finanace reports.
-3. remove k for thousand.
+1. closing should be read only not editable.✔
+2. filters for finanace reports.✔
+3. remove k for thousand.✔
 
 
  ------ Phase 2 ------

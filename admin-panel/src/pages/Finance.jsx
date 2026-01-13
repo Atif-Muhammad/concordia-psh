@@ -80,8 +80,19 @@ const Finance = () => {
   const [closingFilterMonth, setClosingFilterMonth] = useState("");
 
   // Reports filter - month string or empty for overall
-  const [reportsFilterMonth, setReportsFilterMonth] = useState(""); // Empty = overall, or month string like "2024-12"
+  // Reports filter
+  const [reportsDateFrom, setReportsDateFrom] = useState("");
+  const [reportsDateTo, setReportsDateTo] = useState("");
+  const [appliedReportsFilter, setAppliedReportsFilter] = useState({ dateFrom: "", dateTo: "" });
 
+
+  // Helper to format date as YYYY-MM-DD in local time
+  const toLocalDateString = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
   // Helper to convert month to date range
   const getMonthDateRange = (month) => {
@@ -117,8 +128,8 @@ const Finance = () => {
     }
 
     return {
-      dateFrom: dateFrom.toISOString().split('T')[0],
-      dateTo: dateTo.toISOString().split('T')[0]
+      dateFrom: toLocalDateString(dateFrom),
+      dateTo: toLocalDateString(dateTo)
     };
   };
 
@@ -160,25 +171,14 @@ const Finance = () => {
   });
 
   // Queries for Reports tab - separate data fetch
-  const reportsMonthRange = reportsFilterMonth ? getMonthDateRange(reportsFilterMonth) : {};
   const { data: reportsIncomeData = [] } = useQuery({
-    queryKey: ['reportsIncome', reportsFilterMonth],
-    queryFn: () => {
-      if (!reportsFilterMonth) {
-        return getFinanceIncomes({}); // No date filter = all time
-      }
-      return getFinanceIncomes({ dateFrom: reportsMonthRange.dateFrom, dateTo: reportsMonthRange.dateTo });
-    }
+    queryKey: ['reportsIncome', appliedReportsFilter.dateFrom, appliedReportsFilter.dateTo],
+    queryFn: () => getFinanceIncomes({ dateFrom: appliedReportsFilter.dateFrom, dateTo: appliedReportsFilter.dateTo })
   });
 
   const { data: reportsExpenseData = [] } = useQuery({
-    queryKey: ['reportsExpense', reportsFilterMonth],
-    queryFn: () => {
-      if (!reportsFilterMonth) {
-        return getFinanceExpenses({}); // No date filter = all time
-      }
-      return getFinanceExpenses({ dateFrom: reportsMonthRange.dateFrom, dateTo: reportsMonthRange.dateTo });
-    }
+    queryKey: ['reportsExpense', appliedReportsFilter.dateFrom, appliedReportsFilter.dateTo],
+    queryFn: () => getFinanceExpenses({ dateFrom: appliedReportsFilter.dateFrom, dateTo: appliedReportsFilter.dateTo })
   });
 
   // Mutations
@@ -321,16 +321,16 @@ const Finance = () => {
 
     if (closingType === 'daily') {
       // Today
-      dateFrom = dateTo = now.toISOString().split('T')[0];
+      dateFrom = dateTo = toLocalDateString(now);
     } else if (closingType === 'monthly') {
       // Current month
-      dateFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      dateTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+      dateFrom = toLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1));
+      dateTo = toLocalDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0));
     } else { // quarterly
       // Current quarter
       const quarter = Math.floor(now.getMonth() / 3);
-      dateFrom = new Date(now.getFullYear(), quarter * 3, 1).toISOString().split('T')[0];
-      dateTo = new Date(now.getFullYear(), (quarter + 1) * 3, 0).toISOString().split('T')[0];
+      dateFrom = toLocalDateString(new Date(now.getFullYear(), quarter * 3, 1));
+      dateTo = toLocalDateString(new Date(now.getFullYear(), (quarter + 1) * 3, 0));
     }
 
     try {
@@ -672,7 +672,7 @@ const Finance = () => {
                   <LineChart data={monthlyData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" />
-                    <YAxis />
+                    <YAxis tickFormatter={(value) => value.toLocaleString()} />
                     <RechartsTooltip />
                     <Legend />
                     <Line type="monotone" dataKey="income" stroke="hsl(var(--success))" name="Income" />
@@ -700,7 +700,7 @@ const Finance = () => {
                   <BarChart data={monthlyData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" />
-                    <YAxis />
+                    <YAxis tickFormatter={(value) => value.toLocaleString()} />
                     <RechartsTooltip />
                     <Bar dataKey="balance" name="Balance">
                       {monthlyData?.map((entry, index) => (
@@ -721,7 +721,7 @@ const Finance = () => {
                   <BarChart data={stackedChartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
-                    <YAxis />
+                    <YAxis tickFormatter={(value) => value.toLocaleString()} />
                     <RechartsTooltip />
                     <Legend />
                     {Object.keys(incomeColors).map(key => (
@@ -741,7 +741,7 @@ const Finance = () => {
                   <BarChart data={stackedChartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
-                    <YAxis />
+                    <YAxis tickFormatter={(value) => value.toLocaleString()} />
                     <RechartsTooltip />
                     <Legend />
                     {Object.keys(expenseColors).map(key => (
@@ -963,27 +963,44 @@ const Finance = () => {
             <CardHeader>
               <div className="flex justify-between items-center">
                 <CardTitle>Financial Reports</CardTitle>
-                <div className="flex gap-2 items-center">
-                  <Label className="whitespace-nowrap">Month</Label>
-                  <Input
-                    type="month"
-                    value={reportsFilterMonth}
-                    onChange={(e) => setReportsFilterMonth(e.target.value)}
-                    className="w-[200px]"
-                    placeholder="Select month (leave empty for overall)"
-                  />
-                  {reportsFilterMonth && (
+                <div className="flex gap-2 items-end">
+                  <div>
+                    <Label className="whitespace-nowrap">From</Label>
+                    <Input
+                      type="date"
+                      value={reportsDateFrom}
+                      onChange={(e) => setReportsDateFrom(e.target.value)}
+                      className="w-[150px]"
+                    />
+                  </div>
+                  <div>
+                    <Label className="whitespace-nowrap">To</Label>
+                    <Input
+                      type="date"
+                      value={reportsDateTo}
+                      onChange={(e) => setReportsDateTo(e.target.value)}
+                      className="w-[150px]"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => setAppliedReportsFilter({ dateFrom: reportsDateFrom, dateTo: reportsDateTo })}
+                  >
+                    Apply Filter
+                  </Button>
+                  {(appliedReportsFilter.dateFrom || appliedReportsFilter.dateTo) && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setReportsFilterMonth("")}
+                      onClick={() => {
+                        setReportsDateFrom("");
+                        setReportsDateTo("");
+                        setAppliedReportsFilter({ dateFrom: "", dateTo: "" });
+                      }}
                     >
                       Clear
                     </Button>
                   )}
-                  <Badge variant="secondary" className="ml-2">
-                    {reportsFilterMonth ? `Month: ${reportsFilterMonth}` : "Overall (All Time)"}
-                  </Badge>
                 </div>
               </div>
             </CardHeader>
@@ -1231,16 +1248,20 @@ const Finance = () => {
               <Label>Total Income</Label>
               <Input
                 type="number"
+                readOnly
+                className="bg-muted"
                 value={closingFormData.totalIncome}
-                onChange={e => setClosingFormData({ ...closingFormData, totalIncome: parseFloat(e.target.value) || 0 })}
+                onChange={e => { }}
               />
             </div>
             <div>
               <Label>Total Expense</Label>
               <Input
                 type="number"
+                readOnly
+                className="bg-muted"
                 value={closingFormData.totalExpense}
-                onChange={e => setClosingFormData({ ...closingFormData, totalExpense: parseFloat(e.target.value) || 0 })}
+                onChange={e => { }}
               />
             </div>
             <div>
@@ -1316,16 +1337,20 @@ const Finance = () => {
                 <Label>Total Income</Label>
                 <Input
                   type="number"
+                  readOnly
+                  className="bg-muted"
                   value={editClosingData.totalIncome}
-                  onChange={e => setEditClosingData({ ...editClosingData, totalIncome: parseFloat(e.target.value) || 0 })}
+                  onChange={e => { }}
                 />
               </div>
               <div>
                 <Label>Total Expense</Label>
                 <Input
                   type="number"
+                  readOnly
+                  className="bg-muted"
                   value={editClosingData.totalExpense}
-                  onChange={e => setEditClosingData({ ...editClosingData, totalExpense: parseFloat(e.target.value) || 0 })}
+                  onChange={e => { }}
                 />
               </div>
               <div>

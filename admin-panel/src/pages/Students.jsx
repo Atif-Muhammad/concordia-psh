@@ -69,7 +69,8 @@ import {
   struckOffStudents,
   rejoinStudent,
   getDefaultStudentIDCardTemplate,
-  getStudentById
+  getStudentById,
+  getLatestRollNumber,
 } from "../../config/apis";
 import {
   UserPlus,
@@ -138,6 +139,7 @@ const Students = () => {
   const [filterMonth, setFilterMonth] = useState(format(new Date(), "yyyy-MM"));
   const [showFilters, setShowFilters] = useState(false);
 
+  const [showFeeConfig, setShowFeeConfig] = useState(true);
   const searchTimeoutRef = useRef(null);
 
 
@@ -419,6 +421,8 @@ const Students = () => {
       affidavit: false,
       admissionForm: false,
     },
+    tuitionFee: "",
+    numberOfInstallments: "1",
   });
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -462,22 +466,46 @@ const Students = () => {
   useEffect(() => {
     const prevPrefix = prevPrefixRef.current;
     if (calculatedPrefix !== prevPrefix) {
-      setFormData(prev => {
-        const currentRoll = prev.rollNumber || "";
-        // If current roll starts with the previous prefix, replace it with the new prefix
-        if (prevPrefix && currentRoll.startsWith(prevPrefix)) {
-          const numericPart = currentRoll.slice(prevPrefix.length);
-          return { ...prev, rollNumber: `${calculatedPrefix}${numericPart}` };
-        }
-        // If it was empty or didn't start with prev prefix, and currentRoll is empty, just set prefix
-        if (!currentRoll || currentRoll === prevPrefix) {
-          return { ...prev, rollNumber: calculatedPrefix };
-        }
-        return prev;
-      });
+      if (editingStudent) {
+        setFormData(prev => {
+          const currentRoll = prev.rollNumber || "";
+          if (prevPrefix && currentRoll.startsWith(prevPrefix)) {
+            const numericPart = currentRoll.slice(prevPrefix.length);
+            return { ...prev, rollNumber: `${calculatedPrefix}${numericPart}` };
+          }
+          if (!currentRoll || currentRoll === prevPrefix) {
+            return { ...prev, rollNumber: calculatedPrefix };
+          }
+          return prev;
+        });
+      } else if (open && calculatedPrefix) {
+        // Auto-generate for NEW students
+        const generateRollNumber = async () => {
+          try {
+            const currentYearSub = new Date().getFullYear().toString().slice(-2);
+            const searchPrefix = `${calculatedPrefix}${currentYearSub}-`;
+            const latestFull = await getLatestRollNumber(searchPrefix);
+
+            let nextSuffix = `${currentYearSub}-001`;
+            if (latestFull) {
+              const parts = latestFull.split("-");
+              const lastPart = parts[parts.length - 1];
+              if (!isNaN(parseInt(lastPart))) {
+                const nextNum = parseInt(lastPart, 10) + 1;
+                const nextNumStr = nextNum.toString().padStart(3, '0');
+                nextSuffix = `${currentYearSub}-${nextNumStr}`;
+              }
+            }
+            setFormData(prev => ({ ...prev, rollNumber: `${calculatedPrefix}${nextSuffix}` }));
+          } catch (error) {
+            console.error("Error auto-generating roll number:", error);
+          }
+        };
+        generateRollNumber();
+      }
       prevPrefixRef.current = calculatedPrefix;
     }
-  }, [calculatedPrefix]);
+  }, [calculatedPrefix, editingStudent, open]);
 
   const resetForm = () => {
     setFormData({
@@ -504,7 +532,10 @@ const Students = () => {
         affidavit: false,
         admissionForm: false,
       },
+      tuitionFee: "",
+      numberOfInstallments: "1",
     });
+    setShowFeeConfig(false);
     setImageFile(null);
     setImagePreview("");
     setEditingStudent(null);
@@ -536,7 +567,10 @@ const Students = () => {
         affidavit: false,
         admissionForm: false,
       },
+      tuitionFee: student.tuitionFee?.toString() || "",
+      numberOfInstallments: student.numberOfInstallments?.toString() || "1",
     });
+    if (student.tuitionFee) setShowFeeConfig(true);
     setImagePreview(student.photo_url || "");
     setOpen(true);
   };
@@ -570,8 +604,8 @@ const Students = () => {
   };
 
   const handleSubmit = async () => {
-    if (!formData.fName || !formData.rollNumber || !formData.classId || !formData.programId) {
-      toast({ title: "First Name, Roll #, Class, and Program are required", variant: "destructive" });
+    if (!formData.fName || !formData.rollNumber || !formData.classId || !formData.programId || !formData.tuitionFee || !formData.numberOfInstallments) {
+      toast({ title: "First Name, Roll #, Class, Program, Tuition Fee, and Installments (Tuition Fee Configuration) are required", variant: "destructive" });
       return;
     }
 
@@ -601,6 +635,8 @@ const Students = () => {
     if (formData.sectionId) fd.append("sectionId", formData.sectionId);
     fd.append("photo", imageFile);
     fd.append("documents", JSON.stringify(formData.documents));
+    if (formData.tuitionFee) fd.append("tuitionFee", formData.tuitionFee);
+    if (formData.numberOfInstallments) fd.append("numberOfInstallments", formData.numberOfInstallments);
 
     if (editingStudent) {
       updateMut.mutate({ id: editingStudent.id, data: fd });
@@ -1273,13 +1309,20 @@ const Students = () => {
                     <Label>Class *</Label>
                     <Select
                       value={formData.classId}
-                      onValueChange={(v) =>
-                        setFormData({
-                          ...formData,
+                      onValueChange={(v) => {
+                        const prog = programData.find((p) => p.id.toString() === formData.programId);
+                        const cls = prog?.classes.find((c) => c.id.toString() === v);
+                        const fee = cls?.feeStructures?.[0];
+
+                        setFormData(prev => ({
+                          ...prev,
                           classId: v,
                           sectionId: "",
-                        })
-                      }
+                          // Only auto-fill if not editing and field is currently empty
+                          tuitionFee: (!editingStudent && !prev.tuitionFee) ? (fee?.totalAmount?.toString() || "") : prev.tuitionFee,
+                          numberOfInstallments: (!editingStudent && (prev.numberOfInstallments === "" || prev.numberOfInstallments === "1")) ? (fee?.installments?.toString() || "1") : prev.numberOfInstallments,
+                        }));
+                      }}
                       disabled={!formData.programId}
                     >
                       <SelectTrigger>
@@ -1406,6 +1449,75 @@ const Students = () => {
               </div>
             </div>
 
+            {/* TUITION FEE CONFIGURATION */}
+            <div className="mt-6 border rounded-lg p-4 bg-gray-50/50">
+              <div
+                className="flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-lg font-semibold">Tuition Fee Configuration</h3>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="tuitionFee" className="flex items-center gap-2">
+                    Tuition Fee *
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="tuitionFee"
+                      type="number"
+                      placeholder="e.g. 50000"
+                      className="pl-8"
+                      value={formData.tuitionFee}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const prog = programData.find((p) => p.id.toString() === formData.programId);
+                        const cls = prog?.classes.find((c) => c.id.toString() === formData.classId);
+                        const fee = cls?.feeStructures?.[0];
+                        const maxFee = fee?.totalAmount || 0;
+
+                        if (val && maxFee > 0 && Number(val) > maxFee) {
+                          setFormData({ ...formData, tuitionFee: maxFee.toString() });
+                          toast({ title: `Tuition fee cannot exceed class default of Rs. ${maxFee}`, variant: "warning" });
+                        } else {
+                          setFormData({ ...formData, tuitionFee: val });
+                        }
+                      }}
+                    />
+                    <span className="absolute left-3 top-2.5 text-muted-foreground text-sm">Rs.</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    This value is pre-filled from class defaults but must be verified/set for each student.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="installments">Number of Installments *</Label>
+                  <Select
+                    value={formData.numberOfInstallments}
+                    onValueChange={(v) => setFormData({ ...formData, numberOfInstallments: v })}
+                  >
+                    <SelectTrigger id="installments">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => (
+                        <SelectItem key={n} value={n.toString()}>
+                          {n} {n === 1 ? "Installment" : "Installments"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground">
+                    Total fee will be divided into this many parts.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* DOCUMENTS — UNCHANGED */}
             <div className="mt-6">
               <Label>Required Documents</Label>
@@ -1492,6 +1604,15 @@ const Students = () => {
                     <div><span className="font-semibold">Parent Email:</span> {viewStudent.parentOrGuardianEmail || "-"}</div>
                     <div><span className="font-semibold">Parent Phone:</span> {viewStudent.parentOrGuardianPhone || "-"}</div>
                     <div><span className="font-semibold">DOB:</span> {viewStudent.dob ? new Date(viewStudent.dob).toLocaleDateString() : "-"}</div>
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-blue-600" />
+                      <span className="font-semibold">Total Tuition Fee:</span>
+                      <span className="font-mono font-bold">Rs. {viewStudent.tuitionFee?.toLocaleString()}</span>
+                    </div>
+                    <div>
+                      <span className="font-semibold">Installments:</span>
+                      <span className="ml-2">{viewStudent.numberOfInstallments} {viewStudent.numberOfInstallments === 1 ? "Installment" : "Installments"}</span>
+                    </div>
                   </div>
 
                   {/* Documents */}

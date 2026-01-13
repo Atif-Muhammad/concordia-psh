@@ -38,6 +38,12 @@ export class AcademicsService {
             id: true,
             rollPrefix: true,
             sections: { select: { name: true, id: true } },
+            feeStructures: {
+              select: {
+                totalAmount: true,
+                installments: true,
+              },
+            },
           },
         },
       },

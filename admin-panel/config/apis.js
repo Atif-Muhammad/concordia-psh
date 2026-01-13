@@ -1235,6 +1235,21 @@ export const getStudentById = async (studentId) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
+export const getLatestRollNumber = async (prefix) => {
+  try {
+    const { data } = await axios.get(`${base_url}/student/roll-number/latest?prefix=${encodeURIComponent(prefix)}`, {
+      withCredentials: true,
+    });
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
 export const getPassedOutStudents = async (programId, classId, sectionId, searchQuery, status, startDate, endDate, page, limit) => {
   try {
     const response = await axios.get(`${base_url}/student/get/all/passout?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&startDate=${startDate || ''}&endDate=${endDate || ''}&page=${page || 1}&limit=${limit || 20}`, {
@@ -1443,7 +1458,7 @@ export const searchStudents = async (query) => {
     const { data } = await axios.get(`${base_url}/student/search?searchFor=${encodeURIComponent(query)}`, {
       withCredentials: true,
     });
-    return data;
+    return data.students || data || [];
   } catch (error) {
     const message =
       error.response?.data?.message ||

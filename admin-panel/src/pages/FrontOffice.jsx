@@ -94,6 +94,7 @@ import {
   getSections,
   rollbackInquiry,
   getEmployeesByDept,
+  getLatestRollNumber,
 } from "../../config/apis";
 import { formatTime } from "../lib/utils";
 import {
@@ -148,7 +149,40 @@ const FrontOffice = () => {
     dob: "",
     documents: "{}",
   });
+  // === FETCH DATA ===
+  const { data: programs } = useQuery({
+    queryKey: ["programs"],
+    queryFn: getProgramNames,
+  });
 
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const { data: employees = [] } = useQuery({
+    queryKey: ["employees", employeeSearch],
+    queryFn: () => getEmployeesByDept("", employeeSearch),
+    enabled: true, // Always enable to allow searching
+  });
+
+  const {
+    data: inquiriesData,
+    isLoading: inquiriesLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["inquiries", selectedProgram],
+    queryFn: ({ pageParam = 1 }) => getInquiries(selectedProgram || undefined, pageParam, 15),
+    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
+    initialPageParam: 1,
+  });
+
+  const { data: classes } = useQuery({
+    queryKey: ["classes"],
+    queryFn: getClasses, // Changed from getClasseNames to get full objects
+  });
+  const { data: sections } = useQuery({
+    queryKey: ["sections"],
+    queryFn: getSections, // Changed from getSectionNames to get full objects
+  });
   const calculatedPrefix = useMemo(() => {
     if (!selectedInquiryForAccept || !studentFormData.classId) return "";
     const pId =
@@ -162,17 +196,43 @@ const FrontOffice = () => {
     return `${pPrefix}${cPrefix}`;
   }, [selectedInquiryForAccept, studentFormData.classId, programs, classes]);
 
-  useEffect(() => {
-    if (
-      calculatedPrefix &&
-      !studentFormData.rollNumber.startsWith(calculatedPrefix)
-    ) {
-      setStudentFormData((prev) => ({
-        ...prev,
-        rollNumber: calculatedPrefix,
-      }));
+  const rollNumberSuffix = useMemo(() => {
+    if (calculatedPrefix && studentFormData.rollNumber.startsWith(calculatedPrefix)) {
+      return studentFormData.rollNumber.slice(calculatedPrefix.length);
     }
-  }, [calculatedPrefix]);
+    return studentFormData.rollNumber;
+  }, [studentFormData.rollNumber, calculatedPrefix]);
+
+  useEffect(() => {
+    if (calculatedPrefix && acceptInquiryDialog) {
+      const generateRollNumber = async () => {
+        try {
+          const currentYearSub = new Date().getFullYear().toString().slice(-2);
+          const searchPrefix = `${calculatedPrefix}${currentYearSub}-`;
+          const latestFull = await getLatestRollNumber(searchPrefix);
+
+          let nextSuffix = `${currentYearSub}-001`;
+          if (latestFull) {
+            const parts = latestFull.split("-");
+            const lastPart = parts[parts.length - 1];
+            if (!isNaN(parseInt(lastPart))) {
+              const nextNum = parseInt(lastPart, 10) + 1;
+              const nextNumStr = nextNum.toString().padStart(3, '0');
+              nextSuffix = `${currentYearSub}-${nextNumStr}`;
+            }
+          }
+          setStudentFormData(prev => ({ ...prev, rollNumber: `${calculatedPrefix}${nextSuffix}` }));
+        } catch (error) {
+          console.error("Error auto-generating roll number:", error);
+          setStudentFormData(prev => ({
+            ...prev,
+            rollNumber: calculatedPrefix,
+          }));
+        }
+      };
+      generateRollNumber();
+    }
+  }, [calculatedPrefix, acceptInquiryDialog]);
 
   // === FORM STATES ===
   const [inquiryForm, setInquiryForm] = useState({
@@ -222,40 +282,9 @@ const FrontOffice = () => {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [categoryFilter, setCategoryFilter] = useState("All");
-  const { data: classes } = useQuery({
-    queryKey: ["classes"],
-    queryFn: getClasses, // Changed from getClasseNames to get full objects
-  });
-  const { data: sections } = useQuery({
-    queryKey: ["sections"],
-    queryFn: getSections, // Changed from getSectionNames to get full objects
-  });
 
-  // === FETCH DATA ===
-  const { data: programs } = useQuery({
-    queryKey: ["programs"],
-    queryFn: getProgramNames,
-  });
 
-  const [employeeSearch, setEmployeeSearch] = useState("");
-  const { data: employees = [] } = useQuery({
-    queryKey: ["employees", employeeSearch],
-    queryFn: () => getEmployeesByDept("", employeeSearch),
-    enabled: true, // Always enable to allow searching
-  });
 
-  const {
-    data: inquiriesData,
-    isLoading: inquiriesLoading,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
-    queryKey: ["inquiries", selectedProgram],
-    queryFn: ({ pageParam = 1 }) => getInquiries(selectedProgram || undefined, pageParam, 15),
-    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
-    initialPageParam: 1,
-  });
 
   const inquiries = useMemo(() => {
     return inquiriesData?.pages.flatMap((page) => page.data) || [];
@@ -1865,16 +1894,27 @@ const FrontOffice = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Roll Number *</Label>
-                      <Input
-                        value={studentFormData.rollNumber}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val.startsWith(calculatedPrefix)) {
-                            setStudentFormData({ ...studentFormData, rollNumber: val });
-                          }
-                        }}
-                        placeholder={calculatedPrefix || "e.g., PSH/25-XXX"}
-                      />
+                      <div className="flex items-center">
+                        {calculatedPrefix && (
+                          <div className="bg-muted px-3 py-2 border border-r-0 rounded-l-md text-xs font-mono text-muted-foreground h-10 flex items-center whitespace-nowrap">
+                            {calculatedPrefix}
+                          </div>
+                        )}
+                        <Input
+                          className={calculatedPrefix ? "rounded-l-none" : ""}
+                          value={rollNumberSuffix}
+                          onChange={(e) => {
+                            const suffix = e.target.value;
+                            setStudentFormData({ ...studentFormData, rollNumber: `${calculatedPrefix}${suffix}` });
+                          }}
+                          placeholder="e.g. 26-001"
+                        />
+                      </div>
+                      {calculatedPrefix && (
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          Full Roll: <span className="font-mono font-bold text-primary">{studentFormData.rollNumber}</span>
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label>Class *</Label>

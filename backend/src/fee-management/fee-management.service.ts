@@ -309,7 +309,8 @@ export class FeeManagementService {
         feeStructureId = structure.id;
         // If amount is not manually overridden, calculate based on installments
         if (amount === undefined || amount === null) {
-          amount = structure.totalAmount / structure.installments;
+          const baseTuition = (student as any).tuitionFee || structure.totalAmount;
+          amount = baseTuition / structure.installments;
         }
         // Calculate installment number only if tuition is being paid
         if (amount > 0) {
@@ -805,7 +806,9 @@ export class FeeManagementService {
         totalDiscount,
         paidInstallments,
         totalInstallments: feeStructure?.installments || 0,
-        totalAmount: tuitionOnlyAmount || feeStructure?.totalAmount || 0,
+        totalAmount: (((student as any).tuitionFee && (student as any).tuitionFee > 0)
+          ? (student as any).tuitionFee
+          : (tuitionOnlyAmount || feeStructure?.totalAmount || 0)),
         tuitionOnlyAmount,
         additionalChargesPaid, // Breakdown object
         totalAdditionalChargesPaid, // Total sum

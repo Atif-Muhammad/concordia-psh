@@ -92,6 +92,11 @@ export class StudentController {
     return await this.studentService.search(searchFor);
   }
 
+  @Get('roll-number/latest')
+  async getLatestRollNumber(@Query('prefix') prefix: string) {
+    return await this.studentService.getLatestRollNumber(prefix);
+  }
+
   @Get(':id')
   async getStudentById(@Param('id') id: string) {
     const student = await this.studentService.findOne(Number(id));
@@ -101,7 +106,7 @@ export class StudentController {
     return student;
   }
 
-  
+
 
   @Post('create')
   @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))

@@ -227,6 +227,9 @@ model Student {
   status                StudentStatus @default(ACTIVE)
   statusDate            DateTime? @default(now())
 
+  tuitionFee            Int?      @default(0)
+  numberOfInstallments  Int?      @default(1)
+
   departmentId Int?
   department   Department? @relation("DepartmentStudents", fields: [departmentId], references: [id])
 

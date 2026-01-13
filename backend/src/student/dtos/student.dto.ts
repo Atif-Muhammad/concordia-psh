@@ -40,4 +40,9 @@ export class StudentDto {
   inquiryId?: string;
   @IsOptional()
   status?: string;
+
+  @IsOptional()
+  tuitionFee?: number;
+  @IsOptional()
+  numberOfInstallments?: number;
 }

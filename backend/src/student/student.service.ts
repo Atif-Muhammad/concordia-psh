@@ -23,6 +23,66 @@ export class StudentService {
     });
   }
 
+  async getLatestRollNumber(prefix: string) {
+    // 1. Try to extract year from prefix (e.g., "PSH-CS-BS26-")
+    // We expect the suffix to be appended after the last hyphen
+    const parts = prefix.split('-').filter((p) => p.length > 0);
+    if (parts.length > 0) {
+      const lastPart = parts[parts.length - 1]; // e.g. "BS26" or "26"
+      const yearMatch = lastPart.match(/\d{2}$/);
+      if (yearMatch) {
+        const year = yearMatch[0];
+        const yearSearchPattern = `${year}-`;
+
+        // Find all students for this year across all prefixes
+        const students = await this.prismaService.student.findMany({
+          where: {
+            rollNumber: {
+              contains: yearSearchPattern,
+            },
+          },
+          select: {
+            rollNumber: true,
+          },
+        });
+
+        if (students.length > 0) {
+          let maxSuffix = -1;
+          let latestRoll: string | null = null;
+
+          for (const s of students) {
+            const sParts = s.rollNumber.split('-');
+            const sSuffixStr = sParts[sParts.length - 1];
+            const sSuffix = parseInt(sSuffixStr, 10);
+            if (!isNaN(sSuffix) && sSuffix > maxSuffix) {
+              maxSuffix = sSuffix;
+              latestRoll = s.rollNumber;
+            }
+          }
+
+          if (latestRoll) return latestRoll;
+        }
+      }
+    }
+
+    // Fallback to the specific prefix if year detection fails or no students found
+    const student = await this.prismaService.student.findFirst({
+      where: {
+        rollNumber: {
+          startsWith: prefix,
+        },
+      },
+      select: {
+        rollNumber: true,
+      },
+      orderBy: {
+        rollNumber: 'desc',
+      },
+    });
+
+    return student?.rollNumber || null;
+  }
+
   async search(query: string, status?: string) {
     const where: any = {
       OR: [
@@ -131,6 +191,8 @@ export class StudentService {
         inquiryId: payload.inquiryId ? Number(payload.inquiryId) : null,
         status: (payload.status as any) || 'ACTIVE',
         statusDate: new Date(),
+        tuitionFee: payload.tuitionFee ? Number(payload.tuitionFee) : 0,
+        numberOfInstallments: payload.numberOfInstallments ? Number(payload.numberOfInstallments) : 1,
       },
     });
   }
@@ -177,9 +239,14 @@ export class StudentService {
           // Cleared if:
           // - Paid all installments (count >= total installments)
           // - OR Paid full amount (amount >= total amount)
+          // CRITICAL: Respect custom student tuition fee if set
+          const targetAmount = ((student as any).tuitionFee && (student as any).tuitionFee > 0)
+            ? (student as any).tuitionFee
+            : currentFeeStructure.totalAmount;
+
           const isCleared =
             paidInstallments >= currentFeeStructure.installments ||
-            totalPaid >= currentFeeStructure.totalAmount;
+            totalPaid >= targetAmount;
 
           if (!isCleared) {
             const currentClass = await this.prismaService.class.findUnique({
@@ -188,7 +255,7 @@ export class StudentService {
             throw new BadRequestException(
               `Cannot promote student. Outstanding fees for current class (${currentClass?.name || 'Unknown Class'}). ` +
               `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
-              `Amount: ${totalPaid}/${currentFeeStructure.totalAmount}`,
+              `Amount: ${totalPaid}/${targetAmount}`,
             );
           }
         }
@@ -239,6 +306,9 @@ export class StudentService {
     // Optional: handle photo_url / photo_public_id from controller
     if (payload.photo_url) data.photo_url = payload.photo_url;
     if (payload.photo_public_id) data.photo_public_id = payload.photo_public_id;
+
+    if (payload.tuitionFee !== undefined) data.tuitionFee = Number(payload.tuitionFee);
+    if (payload.numberOfInstallments !== undefined) data.numberOfInstallments = Number(payload.numberOfInstallments);
 
     return this.prismaService.student.update({
       where: { id },

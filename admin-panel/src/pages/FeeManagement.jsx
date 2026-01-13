@@ -1373,7 +1373,7 @@ const FeeManagement = () => {
                                   // Auto-fill amount if available
                                   if (summary) {
                                     const perInstallment = summary.feeStructure ?
-                                      (summary.feeStructure.totalAmount / summary.feeStructure.installments) : 0;
+                                      (summary.summary.totalAmount / summary.feeStructure.installments) : 0;
 
                                     // Set initial amount based on remaining tuition
                                     const remainingTuition = summary.summary.totalAmount - (summary.summary.tuitionPaid || 0);
