@@ -96,6 +96,7 @@ import {
   getEmployeesByDept,
   getLatestRollNumber,
 } from "../../config/apis";
+import StudentForm from "@/components/students/StudentForm";
 import { formatTime } from "../lib/utils";
 import {
   Command,
@@ -193,6 +194,10 @@ const FrontOffice = () => {
     const cPrefix =
       classes?.find((c) => c.id === Number(studentFormData.classId))
         ?.rollPrefix || "";
+    const normalizedCPrefix = cPrefix;
+    if (pPrefix && normalizedCPrefix && normalizedCPrefix.startsWith(pPrefix)) {
+      return normalizedCPrefix;
+    }
     return `${pPrefix}${cPrefix}`;
   }, [selectedInquiryForAccept, studentFormData.classId, programs, classes]);
 
@@ -362,8 +367,15 @@ const FrontOffice = () => {
   //Accept Inquiry (Create Student + Update Inquiry)
   const acceptInquiryMutation = useMutation({
     mutationFn: async ({ studentData, inquiryId }) => {
-      // Include inquiryId in studentData
-      const studentWithInquiry = { ...studentData, inquiryId: String(inquiryId) };
+      // If studentData is FormData, append inquiryId. Otherwise spread.
+      let studentWithInquiry;
+      if (studentData instanceof FormData) {
+        studentData.append("inquiryId", String(inquiryId));
+        studentWithInquiry = studentData;
+      } else {
+        studentWithInquiry = { ...studentData, inquiryId: String(inquiryId) };
+      }
+
       const student = await createStudent(studentWithInquiry);
       await updateInquiry(inquiryId, { status: "APPROVED" });
       return student;
@@ -601,17 +613,31 @@ const FrontOffice = () => {
   const handleAcceptInquiry = (inquiry) => {
     setSelectedInquiryForAccept(inquiry);
 
+    // Precise mapping from Inquiry to StudentForm
+    const nameParts = (inquiry.studentName || "").trim().split(/\s+/);
+    const fName = nameParts[0] || inquiry.studentName;
+    const mName = nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : "";
+    const lName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+
     setStudentFormData({
+      fName,
+      mName,
+      lName,
+      fatherOrguardian: inquiry.fatherName || "",
       rollNumber: "",
-      classId: "",
-      sectionId: "",
-      gender: "",
-      dob: "",
-      documents: JSON.stringify({
-        fatherCnic: inquiry.fatherCnic || "",
-        address: inquiry.address || "",
-        previousInstitute: inquiry.previousInstitute || "",
-      }),
+      parentOrGuardianEmail: inquiry.email || "",
+      parentOrGuardianPhone: inquiry.contactNumber || "",
+      address: inquiry.address || "",
+      programId: inquiry.programInterest?.toString() || inquiry.program?.id?.toString() || "",
+      classId: inquiry.classId?.toString() || "",
+      sectionId: inquiry.sectionId?.toString() || "",
+      gender: inquiry.gender || "",
+      dob: inquiry.dob ? inquiry.dob.split('T')[0] : "",
+      documents: {
+        fatherCnic: !!inquiry.fatherCnic,
+        address: !!inquiry.address,
+        // map other boolean flags if exist in inquiry
+      }
     });
     setAcceptInquiryDialog(true);
   };
@@ -1872,126 +1898,55 @@ const FrontOffice = () => {
 
         {/* Accept Inquiry Dialog */}
         <Dialog open={acceptInquiryDialog} onOpenChange={setAcceptInquiryDialog}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Accept Inquiry - Create Student</DialogTitle>
             </DialogHeader>
-            {selectedInquiryForAccept && (
-              <div className="space-y-4">
-                <div className="bg-muted p-4 rounded-lg space-y-2">
-                  <h3 className="font-semibold">Available Information from Inquiry:</h3>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div><span className="font-medium">Name:</span> {selectedInquiryForAccept.studentName}</div>
-                    <div><span className="font-medium">Father:</span> {selectedInquiryForAccept.fatherName || "N/A"}</div>
-                    <div><span className="font-medium">Contact:</span> {selectedInquiryForAccept.contactNumber}</div>
-                    <div><span class Name="font-medium">Email:</span> {selectedInquiryForAccept.email || "N/A"}</div>
-                    <div><span className="font-medium">Program:</span> {selectedInquiryForAccept.program?.name || "N/A"}</div>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <h3 className="font-semibold text-destructive">Required Fields (Please Fill):</h3>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Roll Number *</Label>
-                      <div className="flex items-center">
-                        {calculatedPrefix && (
-                          <div className="bg-muted px-3 py-2 border border-r-0 rounded-l-md text-xs font-mono text-muted-foreground h-10 flex items-center whitespace-nowrap">
-                            {calculatedPrefix}
-                          </div>
-                        )}
-                        <Input
-                          className={calculatedPrefix ? "rounded-l-none" : ""}
-                          value={rollNumberSuffix}
-                          onChange={(e) => {
-                            const suffix = e.target.value;
-                            setStudentFormData({ ...studentFormData, rollNumber: `${calculatedPrefix}${suffix}` });
-                          }}
-                          placeholder="e.g. 26-001"
-                        />
-                      </div>
-                      {calculatedPrefix && (
-                        <p className="text-[10px] text-muted-foreground mt-1">
-                          Full Roll: <span className="font-mono font-bold text-primary">{studentFormData.rollNumber}</span>
-                        </p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Class *</Label>
-                      <Select
-                        value={studentFormData.classId}
-                        onValueChange={(v) => setStudentFormData({ ...studentFormData, classId: v })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select class" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {classes
-                            ?.filter((cls) => cls.programId === (selectedInquiryForAccept?.programInterest || selectedInquiryForAccept?.program?.id))
-                            .map((cls) => (
-                              <SelectItem key={cls.id} value={cls.id}>
-                                {cls.name}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Section (Optional)</Label>
-                      <Select
-                        value={studentFormData.sectionId}
-                        onValueChange={(v) => setStudentFormData({ ...studentFormData, sectionId: v })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select section" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {sections
-                            ?.filter((sec) => sec.classId === studentFormData.classId)
-                            .map((sec) => (
-                              <SelectItem key={sec.id} value={sec.id}>
-                                {sec.name}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Gender *</Label>
-                      <Select
-                        value={studentFormData.gender}
-                        onValueChange={(v) => setStudentFormData({ ...studentFormData, gender: v })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select gender" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Male">Male</SelectItem>
-                          <SelectItem value="Female">Female</SelectItem>
-                          <SelectItem value="Other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2 col-span-2">
-                      <Label>Date of Birth *</Label>
-                      <Input
-                        type="date"
-                        value={studentFormData.dob}
-                        onChange={(e) => setStudentFormData({ ...studentFormData, dob: e.target.value })}
-                      />
-                    </div>
+            {selectedInquiryForAccept && (
+              <div className="bg-muted/50 p-4 rounded-lg mb-6 border border-primary/20">
+                <div className="flex items-center gap-2 mb-2 text-primary font-semibold">
+                  <Users className="w-5 h-5" />
+                  <h3>Inquiry Details</h3>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Student Name</p>
+                    <p className="font-medium">{selectedInquiryForAccept.studentName}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Father Name</p>
+                    <p className="font-medium">{selectedInquiryForAccept.fatherName}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Contact</p>
+                    <p className="font-medium">{selectedInquiryForAccept.contactNumber}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Program Interested</p>
+                    <BadgeIcon className="inline-block" variant="outline">
+                      {programs?.find(p => p.id === selectedInquiryForAccept.programInterest)?.name || selectedInquiryForAccept.program?.name || "N/A"}
+                    </BadgeIcon>
                   </div>
                 </div>
               </div>
             )}
-            <DialogFooter>
-              <Button variant="outline" onClick={closeAcceptInquiryDialog}>
-                Cancel
-              </Button>
-              <Button onClick={handleConfirmAccept} disabled={acceptInquiryMutation.isLoading}>
-                {acceptInquiryMutation.isLoading ? "Creating..." : "Create Student"}
-              </Button>
-            </DialogFooter>
+
+            <StudentForm
+              initialData={studentFormData}
+              programs={programs}
+              classes={classes}
+              sections={sections}
+              getLatestRollNumber={getLatestRollNumber}
+              onCancel={closeAcceptInquiryDialog}
+              onSubmit={(data) => {
+                acceptInquiryMutation.mutate({
+                  studentData: data,
+                  inquiryId: selectedInquiryForAccept.id,
+                });
+              }}
+              isSubmitting={acceptInquiryMutation.isPending}
+            />
           </DialogContent>
         </Dialog>
 

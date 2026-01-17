@@ -5,10 +5,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { StudentDto } from './dtos/student.dto';
+import { FeeManagementService } from '../fee-management/fee-management.service';
 
 @Injectable()
 export class StudentService {
-  constructor(private prismaService: PrismaService) { }
+  constructor(
+    private prismaService: PrismaService,
+    private feeManagementService: FeeManagementService,
+  ) { }
 
   async findOne(id: number) {
     return await this.prismaService.student.findFirst({
@@ -19,7 +23,10 @@ export class StudentService {
         statusHistory: {
           orderBy: { createdAt: 'desc' },
         },
-      },
+        feeInstallments: {
+          orderBy: { installmentNumber: 'asc' }
+        }
+      } as any,
     });
   }
 
@@ -104,6 +111,7 @@ export class StudentService {
         program: { select: { name: true, id: true } },
         class: { select: { id: true, name: true } },
         section: { select: { id: true, name: true } },
+        feeInstallments: { orderBy: { installmentNumber: 'asc' } },
       },
     });
 
@@ -166,6 +174,7 @@ export class StudentService {
           program: { select: { name: true, id: true } },
           class: { select: { id: true, name: true } },
           section: { select: { id: true, name: true } },
+          feeInstallments: { orderBy: { installmentNumber: 'asc' } },
         },
       }),
       this.prismaService.student.count({ where }),
@@ -181,9 +190,22 @@ export class StudentService {
   }
 
   async createStudent(payload: StudentDto) {
-    return await this.prismaService.student.create({
+    const { installments, ...rest } = payload;
+
+    let installmentsData: any[] = [];
+    if (installments && typeof installments === 'string') {
+      try {
+        installmentsData = JSON.parse(installments);
+      } catch (e) {
+        // ignore or log
+      }
+    } else if (installments && Array.isArray(installments)) {
+      installmentsData = installments;
+    }
+
+    const result = await this.prismaService.student.create({
       data: {
-        ...payload,
+        ...rest,
         dob: new Date(payload.dob),
         classId: Number(payload.classId),
         programId: Number(payload.programId),
@@ -193,8 +215,21 @@ export class StudentService {
         statusDate: new Date(),
         tuitionFee: payload.tuitionFee ? Number(payload.tuitionFee) : 0,
         numberOfInstallments: payload.numberOfInstallments ? Number(payload.numberOfInstallments) : 1,
+        lateFeeFine: payload.lateFeeFine ? Number(payload.lateFeeFine) : 0,
+        feeInstallments: {
+          create: installmentsData.map(i => ({
+            installmentNumber: Number(i.installmentNumber),
+            amount: Number(i.amount),
+            dueDate: new Date(i.dueDate)
+          }))
+        }
       },
     });
+
+    // Sync challans after creation
+    await this.feeManagementService.syncStudentChallans(result.id);
+
+    return result;
   }
 
   async updateStudent(id: number, payload: Partial<StudentDto>) {
@@ -263,8 +298,16 @@ export class StudentService {
     }
 
     // 1. Remove raw FK fields to avoid type conflict
-    const { programId, classId, sectionId, documents, dob, photo, ...rest } =
-      payload;
+    const {
+      programId,
+      classId,
+      sectionId,
+      documents,
+      dob,
+      photo,
+      installments,
+      ...rest
+    } = payload;
 
     // 2. Build clean data object
     const data: any = { ...rest };
@@ -309,11 +352,39 @@ export class StudentService {
 
     if (payload.tuitionFee !== undefined) data.tuitionFee = Number(payload.tuitionFee);
     if (payload.numberOfInstallments !== undefined) data.numberOfInstallments = Number(payload.numberOfInstallments);
+    if (payload.lateFeeFine !== undefined) data.lateFeeFine = Number(payload.lateFeeFine);
 
-    return this.prismaService.student.update({
+    // Handle Installments Update
+    if (payload.installments) {
+      let installmentsData: any[] = [];
+      if (typeof payload.installments === 'string') {
+        try {
+          installmentsData = JSON.parse(payload.installments);
+        } catch (e) { }
+      } else if (Array.isArray(payload.installments)) {
+        installmentsData = payload.installments;
+      }
+
+      // We replace all installments for simplicity
+      (data as any).feeInstallments = {
+        deleteMany: {},
+        create: installmentsData.map(i => ({
+          installmentNumber: Number(i.installmentNumber),
+          amount: Number(i.amount),
+          dueDate: new Date(i.dueDate)
+        }))
+      };
+    }
+
+    const updatedStudent = await this.prismaService.student.update({
       where: { id },
       data,
     });
+
+    // Sync challans after update
+    await this.feeManagementService.syncStudentChallans(id);
+
+    return updatedStudent;
   }
 
   async removeStudent(id: number) {
@@ -321,6 +392,15 @@ export class StudentService {
     await this.prismaService.$transaction([
       this.prismaService.attendance.deleteMany({ where: { studentId: id } }),
       this.prismaService.leave.deleteMany({ where: { studentId: id } }),
+      (this.prismaService as any).studentFeeInstallment.deleteMany({ where: { studentId: id } }),
+      this.prismaService.feeChallan.deleteMany({ where: { studentId: id } }),
+      this.prismaService.result.deleteMany({ where: { studentId: id } }),
+      this.prismaService.marks.deleteMany({ where: { studentId: id } }),
+      this.prismaService.position.deleteMany({ where: { studentId: id } }),
+      this.prismaService.studentArrear.deleteMany({ where: { studentId: id } }),
+      this.prismaService.studentStatusHistory.deleteMany({ where: { studentId: id } }),
+      this.prismaService.roomAllocation.deleteMany({ where: { studentId: id } }),
+      this.prismaService.hostelRegistration.deleteMany({ where: { studentId: id } }),
     ]);
 
     // Now delete the student (no includes allowed)
@@ -337,7 +417,7 @@ export class StudentService {
     });
   }
 
-  async promote(id: number, forcePromote) {
+  async promote(id: number, forcePromote: boolean | any = false, targetClassId?: number, targetSectionId?: number) {
     const student = await this.prismaService.student.findUnique({
       where: { id },
       include: {
@@ -379,7 +459,8 @@ export class StudentService {
       });
 
       let totalTuitionPaid = 0;
-      let expectedTuitionTotal = 0;
+      // Prioritize student's agreed tuition fee over program standard
+      let expectedTuitionTotal = (student as any).tuitionFee || 0;
 
       for (const challan of currentChallans) {
         if (challan.status === 'PAID' || challan.status === 'PARTIAL') {
@@ -389,14 +470,15 @@ export class StudentService {
           // challan.paidAmount = total paid (might include both)
 
           // Calculate how much of the payment went toward tuition:
-          // If paidAmount <= amount, all of it went to tuition
-          // If paidAmount > amount, only 'amount' went to tuition (rest was additional charges)
+          // We must compare against the NET tuition (amount - discount)
+          const netTuitionAmount = (challan.amount || 0) - (challan.discount || 0);
           const tuitionPortionPaid =
             challan.tuitionPaid ??
-            Math.min(challan.paidAmount || 0, challan.amount || 0);
+            Math.min(challan.paidAmount || 0, netTuitionAmount);
           totalTuitionPaid += tuitionPortionPaid;
         }
-        if (challan.feeStructure) {
+        // If student tuition fee is not set, fallback to structure total
+        if (expectedTuitionTotal === 0 && challan.feeStructure) {
           expectedTuitionTotal = challan.feeStructure.totalAmount;
         }
       }
@@ -440,6 +522,17 @@ export class StudentService {
               outstandingAmount,
               className: student.class?.name,
               programName: student.program?.name,
+              unpaidChallans: currentChallans
+                .filter((c: any) => c.status !== 'PAID')
+                .map((c: any) => ({
+                  installmentNumber: c.installmentNumber,
+                  challanNumber: c.challanNumber,
+                  status: c.status,
+                  balance: Math.round((c.amount || 0) + (c.fineAmount || 0) - (c.discount || 0) - (c.paidAmount || 0)),
+                  dueDate: c.dueDate
+                }))
+                .filter(c => c.balance > 0)
+                .sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0))
             },
           };
         } else {
@@ -540,29 +633,51 @@ export class StudentService {
 
     // No arrears OR force promote - proceed with promotion
     const program = student.class.program;
+    let nextClass;
+    let matchingSection;
 
-    // FIXED SORTING
-    const classes = program.classes.sort((a, b) => {
-      if (a.isSemester && b.isSemester) {
-        return (a.semester ?? 0) - (b.semester ?? 0);
-      }
-      if (!a.isSemester && !b.isSemester) {
-        return (a.year ?? 0) - (b.year ?? 0);
-      }
-      if (a.isSemester && !b.isSemester) return 1;
-      if (!a.isSemester && b.isSemester) return -1;
-      return 0;
-    });
+    if (targetClassId) {
+      // Manual Promotion Override
+      console.log('🔧 Manual Promotion Requested to Class ID:', targetClassId);
 
-    const curIdx = classes.findIndex((c) => c.id === student.classId);
-    if (curIdx >= classes.length - 1) {
-      throw new BadRequestException('Student is already in the final class');
+      // Verify class belongs to the same program
+      const targetClass = program.classes.find(c => c.id === Number(targetClassId));
+      if (!targetClass) {
+        throw new BadRequestException('Target class does not belong to the student\'s program');
+      }
+      nextClass = targetClass;
+
+      if (targetSectionId) {
+        matchingSection = nextClass.sections.find(s => s.id === Number(targetSectionId));
+        if (!matchingSection) {
+          console.warn(`⚠️ Target section ${targetSectionId} not found in class ${nextClass.name}`);
+        }
+      }
+    } else {
+      // Automatic Promotion Logic
+      // FIXED SORTING
+      const classes = program.classes.sort((a, b) => {
+        if (a.isSemester && b.isSemester) {
+          return (a.semester ?? 0) - (b.semester ?? 0);
+        }
+        if (!a.isSemester && !b.isSemester) {
+          return (a.year ?? 0) - (b.year ?? 0);
+        }
+        if (a.isSemester && !b.isSemester) return 1;
+        if (!a.isSemester && b.isSemester) return -1;
+        return 0;
+      });
+
+      const curIdx = classes.findIndex((c) => c.id === student.classId);
+      if (curIdx >= classes.length - 1) {
+        throw new BadRequestException('Student is already in the final class');
+      }
+
+      nextClass = classes[curIdx + 1];
+      matchingSection = nextClass.sections.find(
+        (s) => s.name === student.section?.name,
+      );
     }
-
-    const nextClass = classes[curIdx + 1];
-    const matchingSection = nextClass.sections.find(
-      (s) => s.name === student.section?.name,
-    );
 
     const promoted = await this.prismaService.student.update({
       where: { id },

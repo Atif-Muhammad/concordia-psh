@@ -218,7 +218,7 @@ const HRPayroll = () => {
   // Holiday Management
   const [holidayFilter, setHolidayFilter] = useState({
     year: new Date().getFullYear(),
-    month: ""
+    month: "*"
   });
   const [holidayOpen, setHolidayOpen] = useState(false);
   const [holidayFormData, setHolidayFormData] = useState({

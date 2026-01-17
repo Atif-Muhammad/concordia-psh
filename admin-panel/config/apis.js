@@ -1335,10 +1335,15 @@ export const deleteStudent = async (studentID) => {
 };
 
 // promote
-export const promoteStudents = async (studentID, forcePromote = false) => {
+export const promoteStudents = async (studentID, forcePromote = false, targetClassId = null, targetSectionId = null) => {
   try {
+    let url = `${base_url}/student/promote?studentID=${studentID}`;
+    if (forcePromote) url += '&forcePromote=true';
+    if (targetClassId) url += `&targetClassId=${targetClassId}`;
+    if (targetSectionId) url += `&targetSectionId=${targetSectionId}`;
+
     const response = await axios.patch(
-      `${base_url}/student/promote?studentID=${studentID}${forcePromote ? '&forcePromote=true' : ''}`,
+      url,
       {},
       { withCredentials: true }
     );
@@ -2010,13 +2015,14 @@ export const createFeeChallan = async (data) => {
   }
 };
 
-export const getFeeChallans = async (studentId, search, page = 1, limit = 10) => {
+export const getFeeChallans = async (filters = {}) => {
   try {
     const params = new URLSearchParams();
-    if (studentId) params.append('studentId', studentId);
-    if (search) params.append('search', search);
-    params.append('page', page);
-    params.append('limit', limit);
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params.append(key, value);
+      }
+    });
 
     const url = `${base_url}/fee-management/challan/get/all${params.toString() ? '?' + params.toString() : ''}`;
     const response = await axios.get(url, {

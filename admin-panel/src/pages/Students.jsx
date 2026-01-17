@@ -31,6 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -71,7 +72,10 @@ import {
   getDefaultStudentIDCardTemplate,
   getStudentById,
   getLatestRollNumber,
+  getClasses,
+  getSections,
 } from "../../config/apis";
+import StudentForm from "@/components/students/StudentForm";
 import {
   UserPlus,
   Edit,
@@ -151,6 +155,16 @@ const Students = () => {
     queryFn: getProgramNames,
   });
 
+  const { data: classesData = [] } = useQuery({
+    queryKey: ["classes"],
+    queryFn: getClasses,
+  });
+
+  const { data: sectionsData = [] } = useQuery({
+    queryKey: ["sections"],
+    queryFn: getSections,
+  });
+
 
   const {
     data: infiniteStudentsData,
@@ -185,6 +199,11 @@ const Students = () => {
   const studentsData = useMemo(() => {
     return infiniteStudentsData?.pages.flatMap((page) => page?.students || []).filter(Boolean) || [];
   }, [infiniteStudentsData]);
+  const [manualPromotionDialog, setManualPromotionDialog] = useState({
+    open: false,
+    classId: "",
+    sectionId: ""
+  });
 
   // ──────────────────────────────────────────────────────────────
   // Mutations
@@ -222,9 +241,8 @@ const Students = () => {
 
 
   const bulkPromotionMut = useMutation({
-    mutationFn: async ({ ids, action, reason, forcePromote = false }) => {
-      console.log('📥 Mutation received:', { ids, action, reason, forcePromote });
-      console.log('📊 ids length:', ids?.length, 'forcePromote type:', typeof forcePromote);
+    mutationFn: async ({ ids, action, reason, forcePromote = false, targetClassId, targetSectionId }) => {
+      console.log('📥 Mutation received:', { ids, action, reason, forcePromote, targetClassId, targetSectionId });
 
       const fn =
         action === "promote"
@@ -242,7 +260,8 @@ const Students = () => {
       if (action === "promote" && !forcePromote) {
         console.log('🔄 Taking INITIAL promotion path (forcePromote is falsy)');
         for (const id of ids) {
-          const response = await fn(id, false);
+          // Pass targetClassId and targetSectionId to promoteStudents
+          const response = await fn(id, false, targetClassId, targetSectionId);
 
           // If student has arrears, stop and show dialog
           if (response.requiresConfirmation) {
@@ -251,7 +270,9 @@ const Students = () => {
               studentId: id,
               studentInfo: response.studentInfo,
               arrears: response.arrears,
-              remainingIds: ids
+              remainingIds: ids,
+              targetClassId,    // Pass manual targets to preserve context if user forces promote later
+              targetSectionId
             };
           }
         }
@@ -259,8 +280,13 @@ const Students = () => {
       }
       // For force promote or demote/passout/expel/struck-off/rejoin
       console.log('🚀 Taking FORCE promotion path (forcePromote:', forcePromote, ')');
-      console.log('🔥 Calling fn with forcePromote =', forcePromote);
-      const promises = ids.map((id) => fn(id, reason || forcePromote));
+      const promises = ids.map((id) => {
+        if (action === "promote") {
+          // Pass targetClassId and targetSectionId even when force promoting
+          return fn(id, reason || forcePromote, targetClassId, targetSectionId);
+        }
+        return fn(id, reason || forcePromote);
+      });
       await Promise.all(promises);
       return { success: true, count: ids.length };
     },
@@ -272,7 +298,9 @@ const Students = () => {
           studentId: result.studentId,
           studentInfo: result.studentInfo,
           arrears: result.arrears,
-          remainingIds: result.remainingIds
+          remainingIds: result.remainingIds,
+          targetClassId: result.targetClassId,    // Preserve manual targets
+          targetSectionId: result.targetSectionId
         });
       } else {
         queryClient.invalidateQueries({ queryKey: ["students"] });
@@ -389,260 +417,36 @@ const Students = () => {
           }
         } catch (error) {
           console.error(error);
-          // toast({ title: "Error fetching default template", variant: "destructive" });
         }
       };
       fetchTemplate();
     }
   }, [idCardOpen, viewStudent]);
 
-  // Form
-  const [formData, setFormData] = useState({
-    fName: "",
-    mName: "",
-    lName: "",
-    fatherOrguardian: "",
-    rollNumber: "",
-    parentOrGuardianEmail: "",
-    parentOrGuardianPhone: "",
-    gender: "",
-    address: "",
-    dob: "",
-    programId: "",
-    classId: "",
-    sectionId: "",
-    documents: {
-      formB: false,
-      pictures: false,
-      dmcMatric: false,
-      dmcIntermediate: false,
-      fatherCnic: false,
-      migration: false,
-      affidavit: false,
-      admissionForm: false,
-    },
-    tuitionFee: "",
-    numberOfInstallments: "1",
-  });
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState("");
-
-  // ──────────────────────────────────────────────────────────────
-  // Helpers
-  // ──────────────────────────────────────────────────────────────
-  const selectedProgram = programData.find((p) => p.id === Number(formData.programId));
-  const selectedClass = selectedProgram?.classes.find((c) => c.id === Number(formData.classId));
-  const availableSections = selectedClass?.sections || [];
-  const hasSections = availableSections.length > 0;
-
-  const calculatedPrefix = useMemo(() => {
-    if (!formData.programId || !formData.classId) return "";
-    const pPrefix = programData.find((p) => p.id === Number(formData.programId))?.rollPrefix || "";
-    const cPrefix = selectedProgram?.classes.find((c) => c.id === Number(formData.classId))?.rollPrefix || "";
-
-    // If class prefix already includes program prefix, don't combine them
-    if (pPrefix && cPrefix && cPrefix.startsWith(pPrefix)) {
-      return cPrefix;
-    }
-    return `${pPrefix}${cPrefix}`;
-  }, [formData.programId, formData.classId, programData, selectedProgram]);
-
-  const rollNumberSuffix = useMemo(() => {
-    if (calculatedPrefix && formData.rollNumber.startsWith(calculatedPrefix)) {
-      return formData.rollNumber.slice(calculatedPrefix.length);
-    }
-    return formData.rollNumber;
-  }, [formData.rollNumber, calculatedPrefix]);
-
-  const prevPrefixRef = useRef("");
-
-  // Reset tracking when dialog opens/closes to ensure correct prefix syncing for fresh edits
-  useEffect(() => {
-    if (!open) {
-      prevPrefixRef.current = "";
-    }
-  }, [open]);
-
-  useEffect(() => {
-    const prevPrefix = prevPrefixRef.current;
-    if (calculatedPrefix !== prevPrefix) {
-      if (editingStudent) {
-        setFormData(prev => {
-          const currentRoll = prev.rollNumber || "";
-          if (prevPrefix && currentRoll.startsWith(prevPrefix)) {
-            const numericPart = currentRoll.slice(prevPrefix.length);
-            return { ...prev, rollNumber: `${calculatedPrefix}${numericPart}` };
-          }
-          if (!currentRoll || currentRoll === prevPrefix) {
-            return { ...prev, rollNumber: calculatedPrefix };
-          }
-          return prev;
-        });
-      } else if (open && calculatedPrefix) {
-        // Auto-generate for NEW students
-        const generateRollNumber = async () => {
-          try {
-            const currentYearSub = new Date().getFullYear().toString().slice(-2);
-            const searchPrefix = `${calculatedPrefix}${currentYearSub}-`;
-            const latestFull = await getLatestRollNumber(searchPrefix);
-
-            let nextSuffix = `${currentYearSub}-001`;
-            if (latestFull) {
-              const parts = latestFull.split("-");
-              const lastPart = parts[parts.length - 1];
-              if (!isNaN(parseInt(lastPart))) {
-                const nextNum = parseInt(lastPart, 10) + 1;
-                const nextNumStr = nextNum.toString().padStart(3, '0');
-                nextSuffix = `${currentYearSub}-${nextNumStr}`;
-              }
-            }
-            setFormData(prev => ({ ...prev, rollNumber: `${calculatedPrefix}${nextSuffix}` }));
-          } catch (error) {
-            console.error("Error auto-generating roll number:", error);
-          }
-        };
-        generateRollNumber();
-      }
-      prevPrefixRef.current = calculatedPrefix;
-    }
-  }, [calculatedPrefix, editingStudent, open]);
+  // Form State (Still used to track if editing)
+  const [formData, setFormData] = useState({}); // Keep for potential reset or simple tracking if needed, but mostly managed by StudentForm
 
   const resetForm = () => {
-    setFormData({
-      fName: "",
-      mName: "",
-      lName: "",
-      fatherOrguardian: "",
-      rollNumber: "",
-      parentOrGuardianEmail: "",
-      parentOrGuardianPhone: "",
-      gender: "",
-      address: "",
-      dob: "",
-      programId: "",
-      classId: "",
-      sectionId: "",
-      documents: {
-        formB: false,
-        pictures: false,
-        dmcMatric: false,
-        dmcIntermediate: false,
-        fatherCnic: false,
-        migration: false,
-        affidavit: false,
-        admissionForm: false,
-      },
-      tuitionFee: "",
-      numberOfInstallments: "1",
-    });
-    setShowFeeConfig(false);
-    setImageFile(null);
-    setImagePreview("");
     setEditingStudent(null);
   };
 
   const openEdit = (student) => {
-    setEditingStudent(student);
-    setFormData({
-      fName: student.fName,
-      mName: student.mName || "",
-      lName: student.lName || "",
-      fatherOrguardian: student.fatherOrguardian || "",
-      rollNumber: student.rollNumber,
-      parentOrGuardianEmail: student.parentOrGuardianEmail || "",
-      parentOrGuardianPhone: student.parentOrGuardianPhone || "",
-      gender: student.gender || "",
-      address: student.address || "",
-      dob: student.dob ? new Date(student.dob).toISOString().split("T")[0] : "",
+    // Transform student data if necessary for StudentForm
+    setEditingStudent({
+      ...student,
       programId: student.programId?.toString() || "",
-      classId: student.classId.toString(),
+      classId: student.classId?.toString() || "",
       sectionId: student.sectionId?.toString() || "",
-      documents: student.documents || {
-        formB: false,
-        pictures: false,
-        dmcMatric: false,
-        dmcIntermediate: false,
-        fatherCnic: false,
-        migration: false,
-        affidavit: false,
-        admissionForm: false,
-      },
+      dob: student.dob ? new Date(student.dob).toISOString().split("T")[0] : "",
       tuitionFee: student.tuitionFee?.toString() || "",
       numberOfInstallments: student.numberOfInstallments?.toString() || "1",
+      installments: student.feeInstallments || [],
     });
-    if (student.tuitionFee) setShowFeeConfig(true);
-    setImagePreview(student.photo_url || "");
     setOpen(true);
   };
 
-  const handleImageDrop = (e) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file?.type.startsWith("image/")) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onload = () => setImagePreview(reader.result);
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleImageChange = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onload = () => setImagePreview(reader.result);
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const toggleDocument = (key) => {
-    setFormData((prev) => ({
-      ...prev,
-      documents: { ...prev.documents, [key]: !prev.documents[key] },
-    }));
-  };
-
-  const handleSubmit = async () => {
-    if (!formData.fName || !formData.rollNumber || !formData.classId || !formData.programId || !formData.tuitionFee || !formData.numberOfInstallments) {
-      toast({ title: "First Name, Roll #, Class, Program, Tuition Fee, and Installments (Tuition Fee Configuration) are required", variant: "destructive" });
-      return;
-    }
-
-    if (hasSections && !formData.sectionId) {
-      toast({ title: "Section is required for this class", variant: "destructive" });
-      return;
-    }
-
-    if (!imageFile && !editingStudent) {
-      toast({ title: "Photo is required", variant: "destructive" });
-      return;
-    }
-
-    const fd = new FormData();
-    fd.append("fName", formData.fName);
-    fd.append("mName", formData.mName || "");
-    fd.append("lName", formData.lName || "");
-    fd.append("fatherOrguardian", formData.fatherOrguardian || "");
-    fd.append("rollNumber", formData.rollNumber);
-    fd.append("classId", formData.classId);
-    fd.append("programId", formData.programId);
-    if (formData.parentOrGuardianEmail) fd.append("parentOrGuardianEmail", formData.parentOrGuardianEmail);
-    if (formData.parentOrGuardianPhone) fd.append("parentOrGuardianPhone", formData.parentOrGuardianPhone);
-    if (formData.gender) fd.append("gender", formData.gender);
-    if (formData.address) fd.append("address", formData.address);
-    if (formData.dob) fd.append("dob", formData.dob);
-    if (formData.sectionId) fd.append("sectionId", formData.sectionId);
-    fd.append("photo", imageFile);
-    fd.append("documents", JSON.stringify(formData.documents));
-    if (formData.tuitionFee) fd.append("tuitionFee", formData.tuitionFee);
-    if (formData.numberOfInstallments) fd.append("numberOfInstallments", formData.numberOfInstallments);
-
-    if (editingStudent) {
-      updateMut.mutate({ id: editingStudent.id, data: fd });
-    } else {
-      createMut.mutate(fd);
-    }
+  const handleSubmit = () => {
+    // Handled by StudentForm
   };
 
   const handleDelete = () => {
@@ -711,9 +515,11 @@ const Students = () => {
       }
       if (!sessionMap.has(sessionKey)) {
         // Determine if this is the current session
+        const challanClassId = challan.feeStructure?.classId || challan.studentClassId;
+        const challanProgramId = challan.feeStructure?.programId || challan.studentProgramId;
         const isCurrentSession =
-          challan.feeStructure?.classId === viewStudent.classId &&
-          challan.feeStructure?.programId === viewStudent.programId;
+          challanClassId === viewStudent.classId &&
+          challanProgramId === viewStudent.programId;
         sessionMap.set(sessionKey, {
           sessionKey,
           feeStructureId: challan.feeStructureId,
@@ -734,7 +540,17 @@ const Students = () => {
     });
     // Process each session's statistics
     const sessions = Array.from(sessionMap.values()).map(session => {
-      const sessionFee = session.feeStructure?.totalAmount || 0;
+      // Sort challans by installment number and due date
+      session.challans.sort((a, b) => {
+        if (a.installmentNumber !== b.installmentNumber) {
+          return (a.installmentNumber || 0) - (b.installmentNumber || 0);
+        }
+        return new Date(a.dueDate || 0) - new Date(b.dueDate || 0);
+      });
+
+      const sessionFee = session.isCurrentSession
+        ? (viewStudent.tuitionFee || session.feeStructure?.totalAmount || 0)
+        : (session.feeStructure?.totalAmount || session.challans.reduce((sum, c) => sum + (c.amount || 0), 0));
       const paidThisSession = session.challans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
       const remainingDues = session.challans
         .filter(c => c.status !== 'PAID')
@@ -797,6 +613,11 @@ const Students = () => {
   const handlePromoteStudents = () => {
     if (selectedForPromotion.length === 0) {
       toast({ title: "Select at least one student", variant: "destructive" });
+      return;
+    }
+
+    if (promotionAction === "promote_manual") {
+      setManualPromotionDialog({ open: true, classId: "", sectionId: "" });
       return;
     }
 
@@ -1134,433 +955,26 @@ const Students = () => {
               </DialogDescription>
             </DialogHeader>
 
-            {/* MAIN HORIZONTAL WRAPPER */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-
-              {/* LEFT — PHOTO */}
-              <div className="md:col-span-1 space-y-2">
-                <Label>Photo *</Label>
-                <div
-                  className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={handleImageDrop}
-                >
-                  {imagePreview ? (
-                    <div className="relative inline-block">
-                      <img
-                        src={imagePreview}
-                        alt="preview"
-                        className="h-32 w-32 rounded-full object-cover mx-auto"
-                      />
-                      <Button
-                        size="icon"
-                        variant="destructive"
-                        className="absolute top-0 right-0"
-                        onClick={() => {
-                          setImagePreview("");
-                          setImageFile(null);
-                        }}
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Drag & drop or click to upload
-                      </p>
-                      <Label className="text-sm font-medium mt-2">
-                        Photo (Max 5MB)
-                      </Label>
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        className="mt-2"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-
-                          if (file.size > 5 * 1024 * 1024) {
-                            toast({
-                              title: "File too large",
-                              description: "Max 5MB allowed",
-                              variant: "destructive",
-                            });
-                            e.target.value = null;
-                            return;
-                          }
-
-                          handleImageChange(e);
-                        }}
-                      />
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* RIGHT — FORM (UNCHANGED FIELDS) */}
-              <div className="md:col-span-3">
-                <div className="grid grid-cols-3 gap-4">
-
-                  {/* Names */}
-                  <div>
-                    <Label>First Name *</Label>
-                    <Input
-                      value={formData.fName}
-                      onChange={(e) =>
-                        setFormData({ ...formData, fName: e.target.value })
-                      }
-                      placeholder="John"
-                    />
-                  </div>
-
-                  <div>
-                    <Label>Middle Name</Label>
-                    <Input
-                      value={formData.mName}
-                      onChange={(e) =>
-                        setFormData({ ...formData, mName: e.target.value })
-                      }
-                      placeholder="Michael"
-                    />
-                  </div>
-
-                  <div>
-                    <Label>Last Name</Label>
-                    <Input
-                      value={formData.lName}
-                      onChange={(e) =>
-                        setFormData({ ...formData, lName: e.target.value })
-                      }
-                      placeholder="Doe"
-                    />
-                  </div>
-
-                  {/* Guardian + Roll */}
-                  <div>
-                    <Label>Father/Guardian</Label>
-                    <Input
-                      value={formData.fatherOrguardian}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          fatherOrguardian: e.target.value,
-                        })
-                      }
-                      placeholder="father or guardian name..."
-                    />
-                  </div>
-
-                  <div>
-                    <Label>Roll Number *</Label>
-                    <div className="flex items-center">
-                      {calculatedPrefix && (
-                        <div className="bg-muted px-3 py-2 border border-r-0 rounded-l-md text-xs font-mono text-muted-foreground h-10 flex items-center whitespace-nowrap">
-                          {calculatedPrefix}
-                        </div>
-                      )}
-                      <Input
-                        className={calculatedPrefix ? "rounded-l-none" : ""}
-                        value={rollNumberSuffix}
-                        onChange={(e) => {
-                          const suffix = e.target.value;
-                          setFormData({ ...formData, rollNumber: `${calculatedPrefix}${suffix}` });
-                        }}
-                        placeholder="e.g. 26-001"
-                      />
-                    </div>
-                    {calculatedPrefix && (
-                      <p className="text-[10px] text-muted-foreground mt-1">
-                        Full Roll: <span className="font-mono font-bold text-primary">{formData.rollNumber}</span>
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Program */}
-                  <div>
-                    <Label>Program *</Label>
-                    <Select
-                      value={formData.programId}
-                      onValueChange={(v) =>
-                        setFormData({
-                          ...formData,
-                          programId: v,
-                          classId: "",
-                          sectionId: "",
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select Program" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {programData.map((p) => (
-                          <SelectItem key={p.id} value={p.id.toString()}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Class */}
-                  <div>
-                    <Label>Class *</Label>
-                    <Select
-                      value={formData.classId}
-                      onValueChange={(v) => {
-                        const prog = programData.find((p) => p.id.toString() === formData.programId);
-                        const cls = prog?.classes.find((c) => c.id.toString() === v);
-                        const fee = cls?.feeStructures?.[0];
-
-                        setFormData(prev => ({
-                          ...prev,
-                          classId: v,
-                          sectionId: "",
-                          // Only auto-fill if not editing and field is currently empty
-                          tuitionFee: (!editingStudent && !prev.tuitionFee) ? (fee?.totalAmount?.toString() || "") : prev.tuitionFee,
-                          numberOfInstallments: (!editingStudent && (prev.numberOfInstallments === "" || prev.numberOfInstallments === "1")) ? (fee?.installments?.toString() || "1") : prev.numberOfInstallments,
-                        }));
-                      }}
-                      disabled={!formData.programId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={
-                            formData.programId
-                              ? "Select Class"
-                              : "Pick Program First"
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {selectedProgram?.classes.map((c) => (
-                          <SelectItem key={c.id} value={c.id.toString()}>
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Section */}
-                  <div>
-                    <Label>Section {hasSections ? "*" : ""}</Label>
-                    <Select
-                      value={formData.sectionId}
-                      onValueChange={(v) =>
-                        setFormData({ ...formData, sectionId: v })
-                      }
-                      disabled={!formData.classId || !hasSections}
-                    >
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={
-                            formData.classId
-                              ? hasSections
-                                ? "Select Section"
-                                : "No sections"
-                              : "Pick Class First"
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableSections.map((s) => (
-                          <SelectItem key={s.id} value={s.id.toString()}>
-                            {s.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Parent Contact */}
-                  <div>
-                    <Label>Parent Email</Label>
-                    <Input
-                      type="email"
-                      value={formData.parentOrGuardianEmail}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          parentOrGuardianEmail: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <Label>Parent Phone</Label>
-                    <Input
-                      value={formData.parentOrGuardianPhone}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          parentOrGuardianPhone: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-
-                  {/* Gender */}
-                  <div>
-                    <Label>Gender</Label>
-                    <Select
-                      value={formData.gender}
-                      onValueChange={(v) =>
-                        setFormData({ ...formData, gender: v })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Male">Male</SelectItem>
-                        <SelectItem value="Female">Female</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* DOB */}
-                  <div>
-                    <Label>Date of Birth</Label>
-                    <Input
-                      type="date"
-                      value={formData.dob}
-                      onChange={(e) =>
-                        setFormData({ ...formData, dob: e.target.value })
-                      }
-                    />
-                  </div>
-
-                  {/* Address */}
-                  <div className="col-span-3">
-                    <Label>Address</Label>
-                    <Input
-                      value={formData.address}
-                      onChange={(e) =>
-                        setFormData({ ...formData, address: e.target.value })
-                      }
-                      placeholder="Full address..."
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* TUITION FEE CONFIGURATION */}
-            <div className="mt-6 border rounded-lg p-4 bg-gray-50/50">
-              <div
-                className="flex items-center justify-between"
-              >
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-blue-600" />
-                  <h3 className="text-lg font-semibold">Tuition Fee Configuration</h3>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="tuitionFee" className="flex items-center gap-2">
-                    Tuition Fee *
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="tuitionFee"
-                      type="number"
-                      placeholder="e.g. 50000"
-                      className="pl-8"
-                      value={formData.tuitionFee}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        const prog = programData.find((p) => p.id.toString() === formData.programId);
-                        const cls = prog?.classes.find((c) => c.id.toString() === formData.classId);
-                        const fee = cls?.feeStructures?.[0];
-                        const maxFee = fee?.totalAmount || 0;
-
-                        if (val && maxFee > 0 && Number(val) > maxFee) {
-                          setFormData({ ...formData, tuitionFee: maxFee.toString() });
-                          toast({ title: `Tuition fee cannot exceed class default of Rs. ${maxFee}`, variant: "warning" });
-                        } else {
-                          setFormData({ ...formData, tuitionFee: val });
-                        }
-                      }}
-                    />
-                    <span className="absolute left-3 top-2.5 text-muted-foreground text-sm">Rs.</span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">
-                    This value is pre-filled from class defaults but must be verified/set for each student.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="installments">Number of Installments *</Label>
-                  <Select
-                    value={formData.numberOfInstallments}
-                    onValueChange={(v) => setFormData({ ...formData, numberOfInstallments: v })}
-                  >
-                    <SelectTrigger id="installments">
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => (
-                        <SelectItem key={n} value={n.toString()}>
-                          {n} {n === 1 ? "Installment" : "Installments"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[10px] text-muted-foreground">
-                    Total fee will be divided into this many parts.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* DOCUMENTS — UNCHANGED */}
-            <div className="mt-6">
-              <Label>Required Documents</Label>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2">
-                {[
-                  { key: "formB", label: "Form B / Domicile" },
-                  { key: "pictures", label: "4 Passport Size Pictures" },
-                  { key: "dmcMatric", label: "DMC Matric" },
-                  { key: "dmcIntermediate", label: "DMC Intermediate" },
-                  { key: "fatherCnic", label: "Father CNIC" },
-                  { key: "migration", label: "Migration (if from other board)" },
-                  { key: "affidavit", label: "Affidavit" },
-                  { key: "admissionForm", label: "Admission Form" },
-                ].map((doc) => (
-                  <div
-                    key={doc.key}
-                    onClick={() => toggleDocument(doc.key)}
-                    className={`cursor-pointer rounded-lg border p-3 text-sm font-medium flex items-center justify-center transition-all ${formData.documents[doc.key]
-                      ? "bg-blue-600 text-white border-blue-600 shadow-md scale-[1.02]"
-                      : "border-gray-300 hover:bg-gray-100 text-gray-700"
-                      }`}
-                  >
-                    {doc.label}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* ACTIONS */}
-            <div className="flex justify-end gap-2 mt-6">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setOpen(false);
-                  resetForm();
-                }}
-              >
-                Cancel
-              </Button>
-              <Button onClick={handleSubmit} disabled={createMut.isPending || updateMut.isPending}>
-                {createMut.isPending || updateMut.isPending ? "Saving..." : (editingStudent ? "Update" : "Add")} Student
-              </Button>
-            </div>
+            <StudentForm
+              initialData={editingStudent || {}}
+              isEditing={!!editingStudent}
+              programs={programData}
+              classes={classesData}
+              sections={sectionsData}
+              getLatestRollNumber={getLatestRollNumber}
+              onCancel={() => {
+                setOpen(false);
+                resetForm();
+              }}
+              onSubmit={(formData) => {
+                if (editingStudent) {
+                  updateMut.mutate({ id: editingStudent.id, data: formData });
+                } else {
+                  createMut.mutate(formData);
+                }
+              }}
+              isSubmitting={createMut.isPending || updateMut.isPending}
+            />
           </DialogContent>
         </Dialog>
 
@@ -2188,7 +1602,7 @@ const Students = () => {
               </div>
 
               <div className="flex gap-2">
-                <Button variant={promotionAction === "promote" ? "default" : "outline"} onClick={() => setPromotionAction("promote")}>
+                <Button variant={promotionAction === "promote_manual" ? "default" : "outline"} onClick={() => setPromotionAction("promote_manual")}>
                   <TrendingUp className="w-4 h-4 mr-2" /> Promote
                 </Button>
                 <Button variant={promotionAction === "demote" ? "default" : "outline"} onClick={() => setPromotionAction("demote")}>
@@ -2367,6 +1781,95 @@ const Students = () => {
           </DialogContent>
         </Dialog>
 
+        {/* Manual Promotion Dialog */}
+        <Dialog open={manualPromotionDialog.open} onOpenChange={(open) => setManualPromotionDialog({ ...manualPromotionDialog, open })}>
+          <DialogContent className="max-w-md bg-white text-black">
+            <DialogHeader>
+              <DialogTitle>Manual Class Assignment</DialogTitle>
+              <DialogDescription>
+                Manually select the destination class for the selected students.
+                Students usually follow a predefined path, use this only for exceptions.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              {/* Calculate available classes based on first selected student */}
+              {(() => {
+                const firstId = selectedForPromotion[0];
+                const firstStudent = studentsData.find(s => s.id === firstId);
+                const pId = firstStudent?.programId;
+                const prog = programData.find(p => p.id === pId);
+                const classes = prog?.classes || [];
+                // Sort classes by semester/year if needed, or use existing order
+
+                const selectedClass = classes.find(c => c.id.toString() === manualPromotionDialog.classId);
+                const sections = selectedClass?.sections || [];
+
+                return (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Target Class ({prog?.name || 'Unknown Program'})</Label>
+                      <Select
+                        value={manualPromotionDialog.classId}
+                        onValueChange={(val) => setManualPromotionDialog({ ...manualPromotionDialog, classId: val, sectionId: "" })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Destination Class" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {classes.map(c => (
+                            <SelectItem key={c.id} value={c.id.toString()}>
+                              {c.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Target Section</Label>
+                      <Select
+                        value={manualPromotionDialog.sectionId}
+                        onValueChange={(val) => setManualPromotionDialog({ ...manualPromotionDialog, sectionId: val })}
+                        disabled={!manualPromotionDialog.classId || sections.length === 0}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={sections.length === 0 ? "No sections available" : "Select Section"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sections.map(s => (
+                            <SelectItem key={s.id} value={s.id.toString()}>
+                              {s.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setManualPromotionDialog({ ...manualPromotionDialog, open: false })}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  bulkPromotionMut.mutate({
+                    ids: selectedForPromotion,
+                    action: "promote",
+                    targetClassId: manualPromotionDialog.classId,
+                    targetSectionId: manualPromotionDialog.sectionId
+                  });
+                  setManualPromotionDialog({ ...manualPromotionDialog, open: false });
+                }}
+                disabled={!manualPromotionDialog.classId}
+              >
+                Promote Manually
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* ID Card Dialog */}
         <Dialog open={idCardOpen} onOpenChange={setIdCardOpen}>
           <DialogContent className="max-w-3xl bg-white overflow-y-auto max-h-[95vh] text-black">
@@ -2440,12 +1943,26 @@ const Students = () => {
                     <div className="bg-destructive/10 border border-destructive rounded-lg p-3">
                       <div className="font-semibold text-destructive mb-2 flex items-center gap-2">
                         <div className="h-2 w-2 bg-destructive rounded-full animate-pulse" />
-                        Outstanding Fees
+                        Outstanding Fees (Current Session)
                       </div>
-                      <p><strong>Class:</strong> {promotionDialog.arrears?.className}</p>
-                      <p><strong>Program:</strong> {promotionDialog.arrears?.programName}</p>
-                      <p className="text-lg font-bold text-destructive mt-2">
-                        PKR {promotionDialog.arrears?.outstandingAmount?.toLocaleString()}
+                      <p className="text-sm"><strong>Class:</strong> {promotionDialog.arrears?.className}</p>
+                      <p className="text-sm"><strong>Program:</strong> {promotionDialog.arrears?.programName}</p>
+
+                      {promotionDialog.arrears?.unpaidChallans?.length > 0 && (
+                        <div className="mt-2 space-y-1 border-t pt-2 border-destructive/20">
+                          <p className="text-[10px] uppercase font-black text-destructive/60 mb-1">Unpaid Installments</p>
+                          {promotionDialog.arrears.unpaidChallans.map((c, idx) => (
+                            <div key={idx} className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">Inst. #{c.installmentNumber} ({c.status})</span>
+                              <span className="font-medium text-destructive">PKR {c.balance.toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <p className="text-lg font-bold text-destructive mt-3 flex justify-between items-center border-t pt-2 border-destructive/40">
+                        <span className="text-sm uppercase">Total Backlog</span>
+                        <span>PKR {promotionDialog.arrears?.outstandingAmount?.toLocaleString()}</span>
                       </p>
                     </div>
                     <p className="text-sm text-muted-foreground">
@@ -2464,7 +1981,9 @@ const Students = () => {
                     await bulkPromotionMut.mutateAsync({
                       ids: promotionDialog.remainingIds || [promotionDialog.studentId],
                       action: "promote",
-                      forcePromote: true
+                      forcePromote: true,
+                      targetClassId: promotionDialog.targetClassId,
+                      targetSectionId: promotionDialog.targetSectionId
                     });
                     console.log('✅ Force promote completed');
                     toast({ title: "Student promoted" });

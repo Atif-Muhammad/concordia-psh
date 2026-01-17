@@ -17,9 +17,8 @@ import {
   createFeeHead, getFeeHeads, updateFeeHead, deleteFeeHead,
   createFeeStructure, getFeeStructures, updateFeeStructure, deleteFeeStructure,
   getPrograms, getClasses,
-  createFeeChallan, getFeeChallans, updateFeeChallan, deleteFeeChallan, getStudentFeeHistory,
-  searchStudents, getStudentFeeSummary, getRevenueOverTime, getClassCollectionStats, getStudentArrears, getFeeCollectionSummary,
-  getFeeChallanTemplates
+  getFeeChallans, updateFeeChallan, getStudentFeeHistory,
+  searchStudents, getRevenueOverTime, getClassCollectionStats, getFeeCollectionSummary
 } from "../../config/apis";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -33,15 +32,17 @@ const FeeManagement = () => {
     toast
   } = useToast();
 
-  // Unified student search state
+  // Student search state (for history tab)
   const [studentSearchOpen, setStudentSearchOpen] = useState(false);
   const [studentSearchResults, setStudentSearchResults] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentFeeHistory, setStudentFeeHistory] = useState([]);
-  const [studentFeeSummary, setStudentFeeSummary] = useState(null);
-  const [studentArrears, setStudentArrears] = useState(null);
+
   const [challanSearch, setChallanSearch] = useState("");
   const [challanFilter, setChallanFilter] = useState("all");
+  const [selectedInstallment, setSelectedInstallment] = useState("all");
+  const [startDateFilter, setStartDateFilter] = useState("");
+  const [endDateFilter, setEndDateFilter] = useState("");
 
   const [challanOpen, setChallanOpen] = useState(false);
   const [feeHeadOpen, setFeeHeadOpen] = useState(false);
@@ -67,6 +68,7 @@ const FeeManagement = () => {
     isArrearsPayment: false,
     arrearsInstallments: 1
   });
+
   const [feeHeadForm, setFeeHeadForm] = useState({
     name: "",
     amount: "",
@@ -109,8 +111,16 @@ const FeeManagement = () => {
   const [challanMeta, setChallanMeta] = useState(null);
 
   const { data: feeChallansData = { data: [], meta: {} }, isLoading: isChallansLoading } = useQuery({
-    queryKey: ['feeChallans', challanSearch, page, limit],
-    queryFn: () => getFeeChallans(null, challanSearch, page, limit),
+    queryKey: ['feeChallans', challanSearch, challanFilter, selectedInstallment, startDateFilter, endDateFilter, page, limit],
+    queryFn: () => getFeeChallans({
+      search: challanSearch,
+      status: challanFilter,
+      installmentNumber: selectedInstallment === 'all' ? '' : selectedInstallment,
+      startDate: startDateFilter,
+      endDate: endDateFilter,
+      page,
+      limit
+    }),
     keepPreviousData: true,
   });
 
@@ -148,7 +158,8 @@ const FeeManagement = () => {
 
   const { data: challanTemplates = [] } = useQuery({
     queryKey: ['feeChallanTemplates'],
-    queryFn: getFeeChallanTemplates
+    // Use an empty query function or just remove it if not used anywhere
+    queryFn: () => []
   });
 
   // Derived state for summary cards (using fetched summary instead of local calc)
@@ -160,6 +171,22 @@ const FeeManagement = () => {
   const formatAmount = (amount) => {
     const num = Number(amount) || 0;
     return Math.round(num).toLocaleString();
+  };
+
+  const resetChallanForm = () => {
+    setChallanForm({
+      studentId: "",
+      amount: "",
+      dueDate: "",
+      discount: "",
+      fineAmount: 0,
+      remarks: "",
+      installmentNumber: "",
+      selectedHeads: [],
+      isArrearsPayment: false,
+      arrearsInstallments: 1
+    });
+    setEditingChallan(null);
   };
 
   const searchTimeoutRef = useRef(null);
@@ -185,37 +212,16 @@ const FeeManagement = () => {
   };
 
   // Mutations
-  const createChallanMutation = useMutation({
-    mutationFn: createFeeChallan,
-    onSuccess: () => {
-      queryClient.invalidateQueries(['feeChallans']);
-      toast({ title: "Challan created successfully" });
-      setChallanOpen(false);
-      resetChallanForm();
-    },
-    onError: (error) => toast({ title: error.message, variant: "destructive" })
-  });
 
   const updateChallanMutation = useMutation({
     mutationFn: ({ id, data }) => updateFeeChallan(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries(['feeChallans']);
       toast({ title: "Challan updated successfully" });
-      setChallanOpen(false);
-      resetChallanForm();
     },
     onError: (error) => toast({ title: error.message, variant: "destructive" })
   });
 
-  const deleteChallanMutation = useMutation({
-    mutationFn: deleteFeeChallan,
-    onSuccess: () => {
-      queryClient.invalidateQueries(['feeChallans']);
-      toast({ title: "Challan deleted" });
-      setDeleteDialogOpen(false);
-    },
-    onError: (error) => toast({ title: error.message, variant: "destructive" })
-  });
 
   const createHeadMutation = useMutation({
     mutationFn: createFeeHead,
@@ -287,28 +293,12 @@ const FeeManagement = () => {
       return;
     }
 
-    const totalPayable = parseFloat(challanForm.amount) || 0;
-    const additionalCharges = Number(challanForm.fineAmount) || 0;
-    const discount = Number(challanForm.discount) || 0;
+    const tuitionToStore = Math.round(parseFloat(challanForm.amount) || 0);
+    const additionalToStore = Math.round(Number(challanForm.fineAmount) || 0);
+    const discountToStore = Math.round(Number(challanForm.discount) || 0);
 
-    // Calculate tuition amount: Total Payable - Additional Charges + Discount
-    // This gives us the pure tuition component
-    const tuitionAmount = Math.max(0, totalPayable - additionalCharges + discount);
+    const installmentNumber = parseInt(challanForm.installmentNumber) || 0;
 
-    // Tuition and Additional Charges are stored separately
-    // amount = tuition only (rounded to integer)
-    // fineAmount = additional charges only (rounded to integer)
-    const tuitionToStore = Math.round(tuitionAmount);
-    const additionalToStore = Math.round(additionalCharges);
-    const discountToStore = Math.round(discount);
-
-    // Installment number only applies when tuition is being paid
-    // If tuition is 0, this is an additional-charges-only challan
-    const hasTuition = tuitionToStore > 0;
-    const installmentNumber = hasTuition ? (parseInt(challanForm.installmentNumber) || 1) : 0;
-
-    // Build complete fee head breakdown - ALL fee heads with 0 if not selected
-    // This allows backend to calculate tuition vs additional charges separately
     const selectedHeadIds = challanForm.selectedHeads || [];
     const allFeeHeadDetails = feeHeads.map(h => ({
       id: h.id,
@@ -318,26 +308,23 @@ const FeeManagement = () => {
       isSelected: selectedHeadIds.includes(h.id)
     }));
 
-    const payload = {
-      studentId: parseInt(challanForm.studentId),
-      amount: tuitionToStore, // Tuition fee only (integer)
-      dueDate: challanForm.dueDate,
-      discount: discountToStore, // Discount (integer)
-      fineAmount: additionalToStore, // Additional charges only (integer)
-      remarks: challanForm.remarks,
-      installmentNumber: installmentNumber, // 0 when no tuition, else from form
-      selectedHeads: allFeeHeadDetails, // Array of all fee heads with amounts (0 if not selected)
-      // Arrears payment specific fields
-      isArrearsPayment: challanForm.isArrearsPayment || false,
-      studentArrearId: challanForm.studentArrearId || null,
-    };
-
     if (editingChallan) {
-      updateChallanMutation.mutate({ id: editingChallan.id, data: payload });
-    } else {
-      createChallanMutation.mutate(payload);
+      updateChallanMutation.mutate({
+        id: editingChallan.id,
+        data: {
+          studentId: parseInt(challanForm.studentId),
+          amount: tuitionToStore,
+          dueDate: challanForm.dueDate,
+          discount: discountToStore,
+          fineAmount: additionalToStore,
+          remarks: challanForm.remarks,
+          installmentNumber: installmentNumber,
+          selectedHeads: allFeeHeadDetails
+        }
+      });
     }
   };
+
   const handleSubmitFeeHead = () => {
     if (!feeHeadForm.name || !feeHeadForm.amount) {
       toast({ title: "Please fill required fields", variant: "destructive" });
@@ -435,7 +422,7 @@ const FeeManagement = () => {
       data: {
         status: "PAID",
         paidDate: new Date().toISOString().split("T")[0],
-        paidAmount: itemToPay.amount - itemToPay.discount + itemToPay.fineAmount,
+        paidAmount: itemToPay.amount - itemToPay.discount + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0),
         coveredInstallments
       }
     }, {
@@ -450,29 +437,12 @@ const FeeManagement = () => {
   const confirmDelete = () => {
     if (!itemToDelete) return;
 
-    if (itemToDelete.type === "challan") {
-      deleteChallanMutation.mutate(itemToDelete.id);
-    } else if (itemToDelete.type === "feeHead") {
+    if (itemToDelete.type === "feeHead") {
       deleteHeadMutation.mutate(itemToDelete.id);
     } else if (itemToDelete.type === "structure") {
       deleteStructureMutation.mutate(itemToDelete.id);
     }
     setItemToDelete(null);
-  };
-  const resetChallanForm = () => {
-    setChallanForm({
-      studentId: "",
-      amount: "",
-      dueDate: "",
-      discount: "",
-      fineAmount: 0,
-      remarks: "",
-      installmentNumber: "",
-      selectedHeads: []
-    });
-    setEditingChallan(null);
-    setStudentFeeSummary(null);
-    setSelectedStudent(null);
   };
   const resetFeeHeadForm = () => {
     setFeeHeadForm({
@@ -597,7 +567,7 @@ const FeeManagement = () => {
     const displayArrears = isArrearsOnly ? (challan.amount || 0) : (challan.arrearsAmount || 0);
 
     // Calculate Net Payable using the corrected display values to avoid double counting
-    const netPayable = displayTuition + displayArrears + (challan.fineAmount || 0) - (challan.discount || 0);
+    const netPayable = displayTuition + displayArrears + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.discount || 0);
 
     const replacements = {
       '{{challanNo}}': challan.challanNumber,
@@ -621,7 +591,9 @@ const FeeManagement = () => {
       '{{Tuition Fee}}': displayTuition.toLocaleString(),
 
       // Other Static/Specific Fields
-      '{{Fine}}': (headMap['Fine'] || 0).toLocaleString(),
+      '{{Fine}}': ((challan.fineAmount || 0) + (challan.lateFeeFine || 0)).toLocaleString(),
+      '{{lateFeeFine}}': (challan.lateFeeFine || 0).toLocaleString(),
+      '{{additionalCharges}}': (challan.fineAmount || 0).toLocaleString(),
       '{{arrears}}': displayArrears.toLocaleString(),
       '{{discount}}': (challan.discount || 0).toLocaleString(),
 
@@ -819,31 +791,77 @@ const FeeManagement = () => {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Fee Challans</CardTitle>
-                <Button onClick={() => {
-                  resetChallanForm();
-                  setChallanOpen(true);
-                }} className="gap-2">
-                  <Plus className="w-4 h-4" />Create Challan
-                </Button>
               </div>
-              <div className="mt-4 flex gap-4">
-                <Input
-                  placeholder="Search by challan number, student name, or roll number..."
-                  value={challanSearch}
-                  onChange={(e) => setChallanSearch(e.target.value)}
-                  className="max-w-md"
-                />
-                <Select value={challanFilter} onValueChange={setChallanFilter}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Filter by status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Challans</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
-                    <SelectItem value="overdue">Overdue</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="mt-4 flex flex-wrap gap-4 items-end">
+                <div className="space-y-1">
+                  <Label className="text-xs">Search</Label>
+                  <Input
+                    placeholder="Challan #, name, roll..."
+                    value={challanSearch}
+                    onChange={(e) => setChallanSearch(e.target.value)}
+                    className="w-[200px]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Status</Label>
+                  <Select value={challanFilter} onValueChange={setChallanFilter}>
+                    <SelectTrigger className="w-[130px]">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="paid">Paid</SelectItem>
+                      <SelectItem value="overdue">Overdue</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Billing Installment</Label>
+                  <Select value={selectedInstallment} onValueChange={setSelectedInstallment}>
+                    <SelectTrigger className="w-[150px]">
+                      <SelectValue placeholder="All Installments" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Installments</SelectItem>
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(num => (
+                        <SelectItem key={num} value={num.toString()}>Installment # {num}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">From Date</Label>
+                  <Input
+                    type="date"
+                    value={startDateFilter}
+                    onChange={(e) => setStartDateFilter(e.target.value)}
+                    className="w-[140px]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">To Date</Label>
+                  <Input
+                    type="date"
+                    value={endDateFilter}
+                    onChange={(e) => setEndDateFilter(e.target.value)}
+                    className="w-[140px]"
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setChallanSearch("");
+                    setChallanFilter("all");
+                    setSelectedInstallment("all");
+                    setStartDateFilter("");
+                    setEndDateFilter("");
+                  }}
+                  className="h-9 px-2 text-muted-foreground"
+                >
+                  Reset
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
@@ -854,8 +872,9 @@ const FeeManagement = () => {
                       <TableHead>Challan No</TableHead>
                       <TableHead>Student</TableHead>
                       <TableHead>Installment</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Discount</TableHead>
+                      <TableHead>Standard Amt</TableHead>
+                      <TableHead>Scholarship</TableHead>
+                      <TableHead>Net Payable</TableHead>
                       <TableHead>Paid Amount</TableHead>
                       <TableHead>Due Date</TableHead>
                       <TableHead>Status</TableHead>
@@ -864,15 +883,6 @@ const FeeManagement = () => {
                   </TableHeader>
                   <TableBody>
                     {feeChallans
-                      .filter(challan => {
-                        if (challanFilter === "all") return true;
-                        if (challanFilter === "paid") return challan.status === "PAID";
-                        if (challanFilter === "pending") return challan.status === "PENDING";
-                        if (challanFilter === "overdue") {
-                          return challan.status === "PENDING" && new Date(challan.dueDate) < new Date();
-                        }
-                        return true;
-                      })
                       .map(challan => {
                         return <TableRow key={challan.id}>
                           <TableCell className="font-medium">{challan.challanNumber}</TableCell>
@@ -885,10 +895,18 @@ const FeeManagement = () => {
                               {challan.coveredInstallments || (challan.installmentNumber === 0 ? "Additional Charges" : `#${challan.installmentNumber}`)}
                             </Badge>
                           </TableCell>
-                          <TableCell>PKR {formatAmount(challan.amount + (challan.fineAmount || 0) - (challan.discount || 0))}</TableCell>
-                          <TableCell className="text-primary">-PKR {formatAmount(challan.discount)}</TableCell>
-                          <TableCell className="text-success">PKR {formatAmount(challan.paidAmount)}</TableCell>
-                          <TableCell>{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
+                          <TableCell>PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0))}</TableCell>
+                          <TableCell className="text-destructive">-PKR {formatAmount(challan.discount || 0)}</TableCell>
+                          <TableCell className="font-bold">PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.discount || 0))}</TableCell>
+                          <TableCell className="text-success">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
+                          <TableCell>
+                            <div>{new Date(challan.dueDate).toLocaleDateString()}</div>
+                            {challan.lateFeeFine > 0 && (
+                              <div className="text-[10px] text-destructive font-bold">
+                                Late Fee: PKR {formatAmount(challan.lateFeeFine)}
+                              </div>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : "secondary"}>
                               {challan.status}
@@ -902,37 +920,30 @@ const FeeManagement = () => {
                               }}>
                                 <Eye className="w-4 h-4" />
                               </Button>
+                              {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={() => {
+                                setEditingChallan(challan);
+                                setChallanForm({
+                                  studentId: challan.studentId.toString(),
+                                  amount: (challan.amount || 0).toString(),
+                                  dueDate: new Date(challan.dueDate).toISOString().split('T')[0],
+                                  discount: (challan.discount || 0).toString(),
+                                  fineAmount: (challan.fineAmount || 0).toString(),
+                                  remarks: challan.remarks || "",
+                                  installmentNumber: (challan.installmentNumber || 0).toString(),
+                                  selectedHeads: (Array.isArray(challan.feeHeadDetails)
+                                    ? challan.feeHeadDetails.filter(h => h.isSelected).map(h => h.id)
+                                    : [])
+                                });
+                                setChallanOpen(true);
+                              }}>
+                                <Edit className="w-4 h-4" />
+                              </Button>}
                               <Button size="sm" variant="outline" onClick={() => printChallan(challan.id)}>
                                 <Printer className="w-4 h-4" />
                               </Button>
                               {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={() => handlePayment(challan)}>
                                 <CheckCircle2 className="w-4 h-4" />
                               </Button>}
-                              {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={() => {
-                                setEditingChallan(challan);
-                                setChallanForm({
-                                  studentId: challan.studentId.toString(),
-                                  amount: challan.amount,
-                                  dueDate: new Date(challan.dueDate).toISOString().split('T')[0],
-                                  discount: challan.discount,
-                                  fineAmount: challan.fineAmount,
-                                  remarks: challan.remarks,
-                                  installmentNumber: challan.installmentNumber
-                                });
-                                setSelectedStudent(challan.student);
-                                setChallanOpen(true);
-                              }}>
-                                <Edit className="w-4 h-4" />
-                              </Button>}
-                              <Button size="sm" variant="outline" onClick={() => {
-                                setItemToDelete({
-                                  type: "challan",
-                                  id: challan.id
-                                });
-                                setDeleteDialogOpen(true);
-                              }}>
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1023,7 +1034,9 @@ const FeeManagement = () => {
                     <TableRow>
                       <TableHead>Challan No</TableHead>
                       <TableHead>Installment</TableHead>
-                      <TableHead>Amount</TableHead>
+                      <TableHead>Standard Amt</TableHead>
+                      <TableHead>Scholarship</TableHead>
+                      <TableHead>Net Payable</TableHead>
                       <TableHead>Due Date</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Paid Date</TableHead>
@@ -1038,6 +1051,8 @@ const FeeManagement = () => {
                           <Badge variant="outline">#{challan.installmentNumber}</Badge>
                         </TableCell>
                         <TableCell>PKR {formatAmount(challan.amount)}</TableCell>
+                        <TableCell className="text-destructive">-PKR {formatAmount(challan.discount)}</TableCell>
+                        <TableCell className="font-bold">PKR {formatAmount((challan.amount || 0) - (challan.discount || 0))}</TableCell>
                         <TableCell>{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
                         <TableCell>
                           <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : "secondary"}>
@@ -1315,418 +1330,6 @@ const FeeManagement = () => {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={challanOpen} onOpenChange={(open) => {
-        setChallanOpen(open);
-        if (!open) {
-          // Clean up when dialog closes
-          resetChallanForm();
-          setSelectedStudent(null);
-          setStudentFeeSummary(null);
-          setStudentArrears(null);
-        }
-      }}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingChallan ? "Edit" : "Create"} Fee Challan</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Student</Label>
-                <Popover open={studentSearchOpen} onOpenChange={setStudentSearchOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" role="combobox" aria-expanded={studentSearchOpen} className="w-full justify-between">
-                      {selectedStudent ? `${selectedStudent.rollNumber} (${selectedStudent.fName} ${selectedStudent.mName} ${selectedStudent.lName})` : "Search Student..."}
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[400px] p-0">
-                    <Command shouldFilter={false}>
-                      <CommandInput placeholder="Search by name or roll no..." onValueChange={v => handleStudentSearch(v, setStudentSearchResults)} />
-                      <CommandList>
-                        <CommandEmpty>No student found.</CommandEmpty>
-                        <CommandGroup>
-                          {studentSearchResults.map(student => (
-                            <CommandItem
-                              key={student.id}
-                              value={student.id.toString()}
-                              onSelect={async () => {
-                                setSelectedStudent(student);
-                                setChallanForm({ ...challanForm, studentId: student.id.toString() });
-                                setStudentSearchOpen(false);
-                                try {
-                                  const summary = await getStudentFeeSummary(student.id);
-                                  setStudentFeeSummary(summary);
-
-                                  // Fetch arrears data
-                                  try {
-                                    const arrearsData = await getStudentArrears(student.id);
-                                    console.log('🔍 Arrears Data:', arrearsData);
-                                    console.log('📊 Total Arrears:', arrearsData?.totalArrears);
-                                    console.log('📋 Arrears Count:', arrearsData?.arrearsCount);
-                                    setStudentArrears(arrearsData);
-                                  } catch (arrErr) {
-                                    console.error('❌ Error fetching arrears:', arrErr);
-                                    setStudentArrears(null);
-                                  }
-
-                                  // Auto-fill amount if available
-                                  if (summary) {
-                                    const perInstallment = summary.feeStructure ?
-                                      (summary.summary.totalAmount / summary.feeStructure.installments) : 0;
-
-                                    // Set initial amount based on remaining tuition
-                                    const remainingTuition = summary.summary.totalAmount - (summary.summary.tuitionPaid || 0);
-                                    const initialAmount = remainingTuition <= 0 ? 0 : Math.round(perInstallment);
-
-                                    setChallanForm(prev => ({
-                                      ...prev,
-                                      amount: initialAmount.toString()
-                                    }));
-                                  }
-                                } catch (err) {
-                                  console.error(err);
-                                }
-                              }}
-                            >
-                              <Check className={cn("mr-2 h-4 w-4", selectedStudent?.id === student.id ? "opacity-100" : "opacity-0")} />
-                              <div className="flex flex-col">
-                                <span>{student.rollNumber} ({student.fName} {student.mName} {student.lName})</span>
-                                <span className="text-xs text-muted-foreground">{student.program?.name} {student.class?.name}</span>
-                              </div>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              {studentFeeSummary && (
-                <div className="bg-muted p-4 rounded-lg text-sm space-y-3 relative">
-                  {(studentFeeSummary.summary.totalAmount - (studentFeeSummary.summary.tuitionPaid || 0)) <= 0 && (
-                    <div className="absolute top-2 right-2 bg-success text-success-foreground px-2 py-1 rounded text-xs font-bold">
-                      FULLY PAID
-                    </div>
-                  )}
-                  <div className="font-semibold border-b pb-2">Fee Summary ({studentFeeSummary.feeStructure?.class?.name || 'Current Class'})</div>
-
-                  {/* Tuition Section */}
-                  <div className="space-y-1">
-                    <div className="text-xs font-semibold text-muted-foreground">Tuition Fees:</div>
-                    <div className="grid grid-cols-2 gap-2 pl-2">
-                      <div className="text-xs">Total: <span className="font-medium">PKR {studentFeeSummary.summary.totalAmount.toLocaleString()}</span></div>
-                      <div className="text-xs">Paid: <span className="font-medium text-success">PKR {(studentFeeSummary.summary.tuitionPaid || 0).toLocaleString()}</span></div>
-                      <div className="text-xs">Remaining: <span className="font-medium text-destructive">PKR {Math.max(0, studentFeeSummary.summary.totalAmount - (studentFeeSummary.summary.tuitionPaid || 0)).toLocaleString()}</span></div>
-                      <div className="text-xs">Installments: <span className="font-medium">{studentFeeSummary.summary.paidInstallments} / {studentFeeSummary.summary.totalInstallments}</span></div>
-                    </div>
-                  </div>
-
-                  {/* Additional Charges & Discounts Summary */}
-                  {((studentFeeSummary.summary.additionalChargesPaid && Object.keys(studentFeeSummary.summary.additionalChargesPaid).length > 0) || studentFeeSummary.summary.totalDiscount > 0) && (
-                    <div className="space-y-1 border-t pt-2">
-                      <div className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
-                        <span>⚠️ Already Paid This Session:</span>
-                      </div>
-                      <div className="pl-2 space-y-1 bg-blue-50 dark:bg-blue-950 p-2 rounded">
-                        {studentFeeSummary.summary.additionalChargesPaid && Object.keys(studentFeeSummary.summary.additionalChargesPaid).length > 0 && (
-                          <div className="space-y-0.5">
-                            <div className="text-xs font-medium text-blue-900 dark:text-blue-100">Additional Charges:</div>
-                            {Object.entries(studentFeeSummary.summary.additionalChargesPaid).map(([chargeName, amount]) => (
-                              <div key={chargeName} className="text-xs pl-2 text-blue-800 dark:text-blue-200">
-                                ✓ {chargeName}: <span className="font-medium">PKR {Number(amount).toLocaleString()}</span>
-                              </div>
-                            ))}
-                            <div className="text-xs text-blue-700 dark:text-blue-300 italic mt-1">
-                              Note: These charges have been paid. Avoid re-selecting them below.
-                            </div>
-                          </div>
-                        )}
-                        {studentFeeSummary.summary.totalDiscount > 0 && (
-                          <div className="text-xs border-t border-blue-200 dark:border-blue-800 pt-1">
-                            Total Discounts Applied: <span className="font-medium text-primary">PKR {studentFeeSummary.summary.totalDiscount.toLocaleString()}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* This Challan Breakdown */}
-                  <div className="pt-2 border-t space-y-1">
-                    <div className="text-xs font-semibold text-muted-foreground">This Challan:</div>
-                    <div className="grid grid-cols-2 gap-2 pl-2 text-xs">
-                      <div>
-                        Base Amount:
-                        <span className="font-medium text-foreground ml-1">
-                          PKR {studentFeeSummary.feeStructure ?
-                            (studentFeeSummary.feeStructure.totalAmount / studentFeeSummary.feeStructure.installments).toLocaleString() :
-                            Number(challanForm.amount).toLocaleString()}
-                        </span>
-                        {(studentFeeSummary.summary.totalAmount - (studentFeeSummary.summary.tuitionPaid || 0)) <= 0 && (
-                          <span className="ml-2 text-success font-bold">PAID</span>
-                        )}
-                      </div>
-                      <div>Additions: <span className="font-medium text-warning">PKR {Number(challanForm.fineAmount || 0).toLocaleString()}</span></div>
-                      <div>Discounts: <span className="font-medium text-primary">PKR {Number(challanForm.discount || 0).toLocaleString()}</span></div>
-                      <div className="font-bold text-foreground">
-                        Total Payable: PKR {Number(challanForm.amount || 0).toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Arrears Warning */}
-              {studentArrears && studentArrears.totalArrears > 0 && (
-                <div className="bg-destructive/10 border-2 border-destructive rounded-lg p-3 mb-4">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-2 bg-destructive rounded-full animate-pulse" />
-                      <h4 className="font-semibold text-destructive text-sm">PREVIOUS ARREARS FOUND</h4>
-                    </div>
-                    <div className="text-destructive font-bold">PKR {studentArrears.totalArrears.toLocaleString()}</div>
-                  </div>
-
-                  <p className="text-xs text-muted-foreground mb-2">
-                    {studentArrears.arrearsCount} unpaid session(s) from previous classes
-                  </p>
-
-                  {studentArrears.arrearsBySession && studentArrears.arrearsBySession.length > 0 && (
-                    <details className="text-xs mt-2">
-                      <summary className="cursor-pointer text-destructive hover:underline font-medium">
-                        View Breakdown by Session
-                      </summary>
-                      <div className="mt-2 space-y-2 pl-2 border-l-2 border-destructive/30">
-                        {studentArrears.arrearsBySession.map((session, idx) => (
-                          <div key={idx} className="text-muted-foreground">
-                            <div className="font-medium text-foreground">
-                              {session.className} - {session.programName}
-                            </div>
-                            <div>Arrears: PKR {session.totalArrears.toLocaleString()}</div>
-                            <div className="text-[10px]">
-                              {session.challans?.length || 0} challan(s),
-                              {session.oldestDaysOverdue > 0 && ` oldest: ${session.oldestDaysOverdue} days overdue`}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
-                  {/* asdasd */}
-                  {/* Arrears Payment Checkbox */}
-                  <div className="mt-3 pt-3 border-t border-destructive/30">
-                    <label className="flex items-center gap-2 cursor-pointer hover:bg-destructive/5 p-2 rounded transition">
-                      <input
-                        type="checkbox"
-                        checked={challanForm.isArrearsPayment || false}
-                        onChange={(e) => {
-                          const isChecked = e.target.checked;
-                          // Get first arrears session (highest arrears)
-                          const firstArrearsSession = studentArrears.arrearsBySession?.[0];
-
-                          setChallanForm(prev => ({
-                            ...prev,
-                            isArrearsPayment: isChecked,
-                            amount: isChecked ? firstArrearsSession?.totalArrears?.toString() : prev.amount,
-                            remarks: isChecked ? `Arrears payment for ${firstArrearsSession?.className || 'previous'} - ${firstArrearsSession?.programName || 'sessions'}` : (prev.remarks || ''),
-                            // Pass the arrear record ID
-                            studentArrearId: isChecked ? firstArrearsSession?.id : undefined,
-                            // Clear other arrears-specific fields when unchecked
-                            arrearsSessionClassId: undefined,
-                            arrearsSessionProgramId: undefined,
-                            arrearsSessionFeeStructureId: undefined,
-                            arrearsInstallments: undefined
-                          }));
-                        }}
-                        className="w-4 h-4 text-destructive border-destructive focus:ring-destructive"
-                      />
-                      <span className="text-sm font-medium text-destructive">
-                        Pay arrears (PKR {studentArrears.totalArrears.toLocaleString()})
-                      </span>
-
-                    </label>
-
-                    {/* Installment Option */}
-                    {challanForm.isArrearsPayment && (
-                      <div className="ml-6 mt-2 space-y-2">
-                        <label className="flex items-center gap-2 text-xs">
-                          <input
-                            type="checkbox"
-                            checked={challanForm.arrearsInstallments > 1}
-                            onChange={(e) => {
-                              setChallanForm(prev => ({
-                                ...prev,
-                                arrearsInstallments: e.target.checked ? 2 : 1,
-                                amount: e.target.checked
-                                  ? (studentArrears.totalArrears / 2).toFixed(0)
-                                  : studentArrears.totalArrears.toString()
-                              }));
-                            }}
-                            className="w-3 h-3"
-                          />
-                          <span className="text-muted-foreground">Auto-calculate Installments</span>
-                        </label>
-
-                        {challanForm.arrearsInstallments > 1 && (
-                          <div className="space-y-1">
-                            <label className="text-xs text-muted-foreground">Number of installments:</label>
-                            <input
-                              type="number"
-                              min="2"
-                              max="12"
-                              value={challanForm.arrearsInstallments}
-                              onChange={(e) => {
-                                const installments = Math.max(2, Math.min(12, parseInt(e.target.value) || 2));
-                                const perInstallment = Math.ceil(studentArrears.totalArrears / installments);
-                                setChallanForm(prev => ({
-                                  ...prev,
-                                  arrearsInstallments: installments,
-                                  amount: perInstallment.toString(),
-                                  remarks: `Arrears payment - Installment 1 of ${installments} (PKR ${perInstallment.toLocaleString()} each)`
-                                }));
-                              }}
-                              className="w-20 px-2 py-1 text-xs border rounded"
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              Per installment: PKR {Math.ceil(studentArrears.totalArrears / (challanForm.arrearsInstallments || 1)).toLocaleString()}
-                            </p>
-                            <p className="text-[10px] text-amber-600 dark:text-amber-400">
-                              Creates 1st installment challan. Create remaining manually.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <p className="text-[10px] text-muted-foreground mt-1 ml-6">
-                      {challanForm.arrearsInstallments > 1
-                        ? `Arrears installment challan (${challanForm.arrearsInstallments} total)`
-                        : 'Creates arrears challan linked to original session'}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label>{challanForm.isArrearsPayment ? "Payment Amount (Partial or Full)" : "Payable (PKR)"}</Label>
-                <Input
-                  type="number"
-                  value={challanForm.amount}
-                  onChange={e => setChallanForm({ ...challanForm, amount: e.target.value })}
-                  placeholder="Amount"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Due Date</Label>
-                <Input
-                  type="date"
-                  value={challanForm.dueDate}
-                  onChange={e => setChallanForm({ ...challanForm, dueDate: e.target.value })}
-                />
-              </div>
-            </div>
-
-            {/* Right Column */}
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Additional Charges & Discounts</Label>
-                <div className="border rounded-md p-4 space-y-2 max-h-[400px] overflow-y-auto">
-                  {feeHeads.filter(h => !h.isTuition).map(head => (
-                    <div key={head.id} className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id={`head-${head.id}`}
-                          className="w-4 h-4"
-                          checked={(challanForm.selectedHeads || []).includes(head.id)}
-                          onChange={e => {
-                            const currentHeads = challanForm.selectedHeads || [];
-                            let newHeads;
-                            if (e.target.checked) {
-                              newHeads = [...currentHeads, head.id];
-                            } else {
-                              newHeads = currentHeads.filter(id => id !== head.id);
-                            }
-
-                            // Recalculate totals
-                            const selectedHeadObjects = feeHeads.filter(h => newHeads.includes(h.id));
-                            const newFine = selectedHeadObjects
-                              .filter(h => !h.isDiscount && !h.isTuition)
-                              .reduce((sum, h) => sum + h.amount, 0);
-                            const newDiscount = selectedHeadObjects
-                              .filter(h => h.isDiscount)
-                              .reduce((sum, h) => sum + h.amount, 0);
-
-                            // Calculate delta from current values
-                            const oldFine = challanForm.fineAmount || 0;
-                            const oldDiscount = challanForm.discount || 0;
-                            const currentAmount = parseFloat(challanForm.amount) || 0;
-
-                            // Apply delta to current amount
-                            const deltaFine = newFine - oldFine;
-                            const deltaDiscount = newDiscount - oldDiscount;
-                            const newTotalAmount = currentAmount + deltaFine - deltaDiscount;
-
-                            setChallanForm({
-                              ...challanForm,
-                              selectedHeads: newHeads,
-                              fineAmount: newFine,
-                              discount: newDiscount,
-                              amount: Math.round(newTotalAmount).toString()
-                            });
-                          }}
-                        />
-                        <Label htmlFor={`head-${head.id}`} className={head.isDiscount ? "text-primary" : ""}>
-                          {head.name}
-                          {head.isDiscount && " (Discount)"}
-                          {head.isFine && " (Fine)"}
-                          {head.isLabFee && " (Lab)"}
-                          {head.isLibraryFee && " (Library)"}
-                          {head.isRegistrationFee && " (Registration)"}
-                          {head.isAdmissionFee && " (Admission)"}
-                          {head.isProspectusFee && " (Prospectus)"}
-                          {head.isExaminationFee && " (Examination)"}
-                          {head.isAlliedCharges && " (Allied)"}
-                          {head.isHostelFee && " (Hostel)"}
-                          {head.isOther && " (Other)"}
-                          {studentFeeSummary?.summary?.additionalChargesPaid?.[head.name] !== undefined && (
-                            <Badge variant="secondary" className="ml-2 text-[10px] h-5 bg-green-100 text-green-800 hover:bg-green-100">
-                              PAID
-                            </Badge>
-                          )}
-                        </Label>
-                      </div>
-                      <span className="text-sm font-medium">PKR {head.amount.toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Remarks</Label>
-                <Textarea value={challanForm.remarks} onChange={e => setChallanForm({
-                  ...challanForm,
-                  remarks: e.target.value
-                })} placeholder="Optional remarks..." rows={4} />
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-2 justify-end mt-4">
-            <Button variant="outline" onClick={() => {
-              setChallanOpen(false)
-              setSelectedStudent(null)
-            }}>Cancel</Button>
-            <Button
-              onClick={handleSubmitChallan}
-              disabled={createChallanMutation.isPending || updateChallanMutation.isPending}
-            >
-              {createChallanMutation.isPending || updateChallanMutation.isPending ? "Processing..." : (editingChallan ? "Update" : "Create")}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog >
 
       <Dialog open={feeHeadOpen} onOpenChange={setFeeHeadOpen}>
         <DialogContent>
@@ -2054,8 +1657,22 @@ const FeeManagement = () => {
             <AlertDialogTitle>Confirm Payment</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to mark this challan as PAID?
-              <br />
-              Amount: PKR {itemToPay ? Math.round(itemToPay.amount - itemToPay.discount + itemToPay.fineAmount).toLocaleString() : 0}
+              {itemToPay && (
+                <div className="mt-2 p-2 bg-muted rounded-md space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span>Standard Amt + Extras:</span>
+                    <span>PKR {formatAmount((itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0))}</span>
+                  </div>
+                  <div className="flex justify-between text-destructive">
+                    <span>Scholarship Discount:</span>
+                    <span>-PKR {formatAmount(itemToPay.discount || 0)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t pt-1">
+                    <span>Net Payable:</span>
+                    <span>PKR {formatAmount((itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0) - (itemToPay.discount || 0))}</span>
+                  </div>
+                </div>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2082,6 +1699,111 @@ const FeeManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={challanOpen} onOpenChange={(open) => {
+        setChallanOpen(open);
+        if (!open) {
+          resetChallanForm();
+        }
+      }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Fee Challan</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Student</Label>
+              <Input
+                value={editingChallan?.student ? `${editingChallan.student.fName} ${editingChallan.student.lName} (${editingChallan.student.rollNumber})` : ""}
+                disabled
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Installment #</Label>
+              <Input value={challanForm.installmentNumber} disabled />
+            </div>
+            <div className="space-y-2">
+              <Label>Standard Tuition</Label>
+              <Input
+                value={challanForm.amount}
+                disabled
+                className="bg-muted"
+              />
+            </div>
+            <div className="space-y-2 text-destructive">
+              <Label>Persisted Scholarship</Label>
+              <Input
+                value={challanForm.discount}
+                disabled
+                className="bg-muted text-destructive"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Due Date</Label>
+              <Input
+                type="date"
+                value={challanForm.dueDate}
+                onChange={(e) => setChallanForm({ ...challanForm, dueDate: e.target.value })}
+              />
+            </div>
+            <div className="col-span-2 space-y-4">
+              <Label>Select Additional Fee Heads</Label>
+              <div className="grid grid-cols-2 gap-2 border rounded-md p-4 max-h-[200px] overflow-y-auto">
+                {feeHeads.filter(h => !h.isTuition && !h.isDiscount).map(head => (
+                  <div key={head.id} className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id={`head-${head.id}`}
+                      checked={challanForm.selectedHeads?.includes(head.id)}
+                      onChange={(e) => {
+                        const selected = [...(challanForm.selectedHeads || [])];
+                        if (e.target.checked) {
+                          selected.push(head.id);
+                        } else {
+                          const index = selected.indexOf(head.id);
+                          if (index > -1) selected.splice(index, 1);
+                        }
+                        const additionalSum = feeHeads
+                          .filter(h => selected.includes(h.id))
+                          .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+
+                        setChallanForm({
+                          ...challanForm,
+                          selectedHeads: selected,
+                          fineAmount: additionalSum
+                        });
+                      }}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    <Label htmlFor={`head-${head.id}`} className="text-sm font-normal">
+                      {head.name} (PKR {head.amount})
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="col-span-2 space-y-2">
+              <Label>Remarks</Label>
+              <Textarea
+                value={challanForm.remarks}
+                onChange={(e) => setChallanForm({ ...challanForm, remarks: e.target.value })}
+                placeholder="Add any specific notes for this challan..."
+              />
+            </div>
+          </div>
+          <div className="flex justify-between items-center mt-4 pt-4 border-t">
+            <div className="text-lg font-bold">
+              Total Payable: PKR {formatAmount(parseFloat(challanForm.amount) + (parseFloat(challanForm.fineAmount) || 0) - (parseFloat(challanForm.discount) || 0))}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setChallanOpen(false)}>Cancel</Button>
+              <Button onClick={handleSubmitChallan} disabled={updateChallanMutation.isPending}>
+                {updateChallanMutation.isPending ? "Saving..." : "Update Challan"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
         <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">

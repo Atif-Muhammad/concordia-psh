@@ -45,4 +45,8 @@ export class StudentDto {
   tuitionFee?: number;
   @IsOptional()
   numberOfInstallments?: number;
+  @IsOptional()
+  lateFeeFine?: number;
+  @IsOptional()
+  installments?: string; // JSON string for multipart/form-data
 }

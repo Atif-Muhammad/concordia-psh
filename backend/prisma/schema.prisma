@@ -229,6 +229,9 @@ model Student {
 
   tuitionFee            Int?      @default(0)
   numberOfInstallments  Int?      @default(1)
+  lateFeeFine           Int?      @default(0)
+
+  feeInstallments       StudentFeeInstallment[]
 
   departmentId Int?
   department   Department? @relation("DepartmentStudents", fields: [departmentId], references: [id])
@@ -1240,4 +1243,18 @@ model StudentIDCardTemplate {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   createdBy   String?
+}
+
+model StudentFeeInstallment {
+  id                Int      @id @default(autoincrement())
+  studentId         Int
+  student           Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  installmentNumber Int
+  amount            Int
+  dueDate           DateTime
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([studentId, installmentNumber])
 }

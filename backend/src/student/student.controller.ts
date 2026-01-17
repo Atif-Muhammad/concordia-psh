@@ -221,6 +221,8 @@ export class StudentController {
   async promoteStudents(
     @Query('studentID') studentID: string,
     @Query('forcePromote') forcePromote?: string, // Query params are always strings!
+    @Query('targetClassId') targetClassId?: string,
+    @Query('targetSectionId') targetSectionId?: string,
   ) {
     console.log(
       '🔵 Controller received forcePromote:',
@@ -230,12 +232,19 @@ export class StudentController {
     );
     const forceBool = forcePromote === 'true';
     console.log('🔵 Converting to boolean:', forceBool);
+
+    if (targetClassId) {
+      console.log('🔵 Target Class Override:', targetClassId);
+    }
+
     console.log('🔵 Calling promote service...');
 
     try {
       const result = await this.studentService.promote(
         Number(studentID),
         forceBool,
+        targetClassId ? Number(targetClassId) : undefined,
+        targetSectionId ? Number(targetSectionId) : undefined,
       );
       console.log('🔵 Promote service returned:', result);
       return result;
