@@ -690,6 +690,67 @@ export class StudentService {
       },
     });
 
+    // --- AUTO-GENERATE NEW FEES FOR PROMOTED CLASS ---
+    // Fetch fee structure for the new class (if any)
+    const newFeeStructure = await this.prismaService.feeStructure.findUnique({
+      where: {
+        programId_classId: {
+          programId: program.id,
+          classId: nextClass.id,
+        },
+      },
+    });
+
+    if (newFeeStructure) {
+      // 1. Initialize Fee Details for the new class
+      const totalAmount = newFeeStructure.totalAmount;
+      const installmentCount = newFeeStructure.installments || 1;
+      const defaultInstallmentAmount = Math.floor(totalAmount / installmentCount);
+
+      // Generate the new installment plan
+      const newInstallments = Array.from({ length: installmentCount }).map((_, idx) => ({
+        installmentNumber: idx + 1,
+        amount: defaultInstallmentAmount,
+        dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)), // Monthly staggered
+      }));
+
+      // Fix rounding: last installment covers the remainder
+      const totalCalculated = defaultInstallmentAmount * installmentCount;
+      const diff = totalAmount - totalCalculated;
+      if (diff !== 0 && newInstallments.length > 0) {
+        newInstallments[newInstallments.length - 1].amount += diff;
+      }
+
+      // A. Update Student Tuition & Metadata
+      await this.prismaService.student.update({
+        where: { id },
+        data: {
+          tuitionFee: totalAmount,
+          numberOfInstallments: installmentCount,
+        }
+      });
+
+      // B. Replace Fee Installments (Relation)
+      await this.prismaService.$transaction([
+        this.prismaService.studentFeeInstallment.deleteMany({
+          where: { studentId: id }
+        }),
+        this.prismaService.studentFeeInstallment.createMany({
+          data: newInstallments.map(i => ({
+            studentId: id,
+            installmentNumber: i.installmentNumber,
+            amount: i.amount,
+            dueDate: i.dueDate
+          }))
+        })
+      ]);
+
+      // C. Sync Challans (strictly scoped to the NEW classId already set in 'promoted' record)
+      await this.feeManagementService.syncStudentChallans(id);
+
+      console.log(`✅ Auto-generated fees for Student ${id} promoted to Class ${nextClass.name}`);
+    }
+
     return {
       requiresConfirmation: false,
       promoted: true,
@@ -735,6 +796,10 @@ export class StudentService {
     const matchingSection = prevClass.sections.find(
       (s) => s.name === student.section?.name,
     );
+
+    // --- AUTO-DELETE INVALID CHALLANS FOR DEMOTION ---
+    // Remove unpaid challans associated with the current class (the one they are leaving)
+    await this.feeManagementService.removeChallansForDemotion(id, student.classId);
 
     return this.prismaService.student.update({
       where: { id },

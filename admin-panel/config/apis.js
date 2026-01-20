@@ -3750,6 +3750,18 @@ export const getFeeChallanTemplates = async () => {
   }
 };
 
+export const getDefaultFeeChallanTemplate = async () => {
+  try {
+    const response = await axios.get(`${base_url}/fee-management/template/get/default`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Failed to fetch default fee challan template";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 export const createFeeChallanTemplate = async (data) => {
   try {
     const response = await axios.post(`${base_url}/fee-management/template/create`, data, {

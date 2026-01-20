@@ -49,6 +49,7 @@ const StudentForm = ({
         numberOfInstallments: "1",
         lateFeeFine: 0,
         installments: initialData.feeInstallments || [],
+        documents: {},
         ...initialData
     });
 
@@ -279,7 +280,7 @@ const StudentForm = ({
         const submissionData = new FormData();
         allowedFields.forEach(key => {
             if (key === 'installments' || key === 'documents') {
-                submissionData.append(key, JSON.stringify(formData[key]));
+                submissionData.append(key, JSON.stringify(formData[key] || (key === 'documents' ? {} : [])));
             } else if (formData[key] !== undefined && formData[key] !== null) {
                 submissionData.append(key, formData[key]);
             }

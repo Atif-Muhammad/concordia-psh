@@ -140,6 +140,11 @@ export class FeeManagementController {
     return await this.feeService.getFeeChallanTemplateById(Number(id));
   }
 
+  @Get('template/get/default')
+  async getFeeChallanTemplateDefault() {
+    return await this.feeService.getDefaultTemplate();
+  }
+
   @Patch('template/update')
   async updateFeeChallanTemplate(
     @Query('id') id: string,

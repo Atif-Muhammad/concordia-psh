@@ -6,7 +6,7 @@
 
 5. custom name for class sections. --- imp --- ✔
 
-6. custom fee allocation while creating student --- imp --- 
+6. custom fee allocation while creating student --- imp ---   ---> come up with an idea to define fee plan when promoting to new class
 	--> create challans per installment
 	--> prev challan arrears etc.
 	--> fine on date miss for payable date.
