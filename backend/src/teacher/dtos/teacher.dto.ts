@@ -1,7 +1,6 @@
 import {
   IsEnum,
   IsNotEmpty,
-  IsNotEmptyObject,
   IsOptional,
 } from 'class-validator';
 

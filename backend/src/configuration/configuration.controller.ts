@@ -17,7 +17,7 @@ import { UpdateStudentIDCardTemplateDto } from './dtos/update-student-id-card-te
 
 @Controller('configuration')
 export class ConfigurationController {
-  constructor(private readonly configService: ConfigurationService) { }
+  constructor(private readonly configService: ConfigurationService) {}
 
   // ==================== INSTITUTE SETTINGS ====================
 
@@ -128,7 +128,10 @@ export class ConfigurationController {
     @Param('id') id: string,
     @Body() updateDto: UpdateStudentIDCardTemplateDto,
   ) {
-    return this.configService.updateStudentIDCardTemplate(Number(id), updateDto);
+    return this.configService.updateStudentIDCardTemplate(
+      Number(id),
+      updateDto,
+    );
   }
 
   @Delete('student-id-card-templates/:id')

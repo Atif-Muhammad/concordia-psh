@@ -18,7 +18,7 @@ import { FeeReportQueryDto } from './dtos/fee-report-query.dto';
 
 @Controller('fee-management')
 export class FeeManagementController {
-  constructor(private readonly feeService: FeeManagementService) { }
+  constructor(private readonly feeService: FeeManagementService) {}
 
   // Fee Heads
   @Post('head/create')

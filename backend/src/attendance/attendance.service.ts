@@ -10,7 +10,7 @@ import { LeaveDto } from './dtos/leave.dto';
 
 @Injectable()
 export class AttendanceService {
-  constructor(private prismaService: PrismaService) { }
+  constructor(private prismaService: PrismaService) {}
 
   async isNonWorkingDay(
     date: Date,
@@ -24,12 +24,17 @@ export class AttendanceService {
 
     // Check for Future Date
     const now = new Date();
-    const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    const today = new Date(
+      Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()),
+    );
     const dateOnly = new Date(date);
     dateOnly.setUTCHours(0, 0, 0, 0);
 
     if (dateOnly.getTime() > today.getTime()) {
-      return { isBlocked: true, reason: 'Cannot mark attendance for future dates' };
+      return {
+        isBlocked: true,
+        reason: 'Cannot mark attendance for future dates',
+      };
     }
 
     const holidays = await this.prismaService.holiday.findMany();
@@ -596,7 +601,7 @@ export class AttendanceService {
 
     // Map by staffId (preferring staffId, falling back to teacherId/employeeId if staffId is missing)
     const leaveMap = new Map();
-    leaves.forEach(l => {
+    leaves.forEach((l) => {
       const id = l.staffId || l.teacherId || l.employeeId;
       if (id) leaveMap.set(id, l);
     });
@@ -606,10 +611,7 @@ export class AttendanceService {
     const allStaff = await this.prismaService.staff.findMany({
       where: {
         status: 'ACTIVE',
-        OR: [
-          { isTeaching: true },
-          { isNonTeaching: true }
-        ]
+        OR: [{ isTeaching: true }, { isNonTeaching: true }],
       },
       select: { id: true },
     });

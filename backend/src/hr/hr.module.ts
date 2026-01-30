@@ -10,4 +10,4 @@ import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
   controllers: [HrController],
   providers: [HrService],
 })
-export class HrModule { }
+export class HrModule {}

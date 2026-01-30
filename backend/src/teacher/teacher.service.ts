@@ -11,7 +11,7 @@ import { Prisma, StaffStatus, StaffType } from '@prisma/client';
 
 @Injectable()
 export class TeacherService {
-  constructor(private prismaService: PrismaService) { }
+  constructor(private prismaService: PrismaService) {}
 
   async getNames() {
     return await this.prismaService.staff.findMany({
@@ -57,15 +57,32 @@ export class TeacherService {
           specialization: payload.specialization,
           highestDegree: payload.highestDegree,
           documents: payload.documents as unknown as Prisma.JsonObject,
-          departmentId: payload.departmentId && Number(payload.departmentId) > 0 ? Number(payload.departmentId) : undefined,
+          departmentId:
+            payload.departmentId && Number(payload.departmentId) > 0
+              ? Number(payload.departmentId)
+              : undefined,
           staffType: payload.staffType as unknown as StaffType,
           status: payload.status as unknown as StaffStatus,
-          basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : null,
-          joinDate: payload.joinDate && !isNaN(new Date(payload.joinDate).getTime()) ? new Date(payload.joinDate) : undefined,
+          basicPay:
+            payload.basicPay && !isNaN(parseFloat(payload.basicPay))
+              ? parseFloat(payload.basicPay)
+              : null,
+          joinDate:
+            payload.joinDate && !isNaN(new Date(payload.joinDate).getTime())
+              ? new Date(payload.joinDate)
+              : undefined,
           photo_url: payload.photo_url,
           photo_public_id: payload.photo_public_id,
-          contractStart: payload.contractStart && !isNaN(new Date(payload.contractStart).getTime()) ? new Date(payload.contractStart) : null,
-          contractEnd: payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime()) ? new Date(payload.contractEnd) : null,
+          contractStart:
+            payload.contractStart &&
+            !isNaN(new Date(payload.contractStart).getTime())
+              ? new Date(payload.contractStart)
+              : null,
+          contractEnd:
+            payload.contractEnd &&
+            !isNaN(new Date(payload.contractEnd).getTime())
+              ? new Date(payload.contractEnd)
+              : null,
           isTeaching: true,
           isNonTeaching: false,
         },
@@ -97,15 +114,32 @@ export class TeacherService {
           specialization: payload.specialization,
           highestDegree: payload.highestDegree,
           documents: payload.documents as unknown as Prisma.JsonObject,
-          departmentId: payload.departmentId && Number(payload.departmentId) > 0 ? Number(payload.departmentId) : undefined,
+          departmentId:
+            payload.departmentId && Number(payload.departmentId) > 0
+              ? Number(payload.departmentId)
+              : undefined,
           staffType: payload.staffType as unknown as StaffType,
           status: payload.status as unknown as StaffStatus,
-          basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : undefined,
-          joinDate: payload.joinDate && !isNaN(new Date(payload.joinDate).getTime()) ? new Date(payload.joinDate) : undefined,
+          basicPay:
+            payload.basicPay && !isNaN(parseFloat(payload.basicPay))
+              ? parseFloat(payload.basicPay)
+              : undefined,
+          joinDate:
+            payload.joinDate && !isNaN(new Date(payload.joinDate).getTime())
+              ? new Date(payload.joinDate)
+              : undefined,
           photo_url: payload.photo_url,
           photo_public_id: payload.photo_public_id,
-          contractStart: payload.contractStart && !isNaN(new Date(payload.contractStart).getTime()) ? new Date(payload.contractStart) : undefined,
-          contractEnd: payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime()) ? new Date(payload.contractEnd) : undefined,
+          contractStart:
+            payload.contractStart &&
+            !isNaN(new Date(payload.contractStart).getTime())
+              ? new Date(payload.contractStart)
+              : undefined,
+          contractEnd:
+            payload.contractEnd &&
+            !isNaN(new Date(payload.contractEnd).getTime())
+              ? new Date(payload.contractEnd)
+              : undefined,
         },
       });
     } catch (error: any) {

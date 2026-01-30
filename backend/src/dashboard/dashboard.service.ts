@@ -4,7 +4,10 @@ import { FinanceService } from '../finance/finance.service';
 
 @Injectable()
 export class DashboardService {
-  constructor(private prisma: PrismaService, private financeService: FinanceService) { }
+  constructor(
+    private prisma: PrismaService,
+    private financeService: FinanceService,
+  ) {}
   async getDashboardStats(filters?: { month?: string; year?: string }) {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -21,7 +24,9 @@ export class DashboardService {
 
       if (filters.month) {
         // Specific Month
-        const monthIndex = new Date(Date.parse(`${filters.month} 1, ${filters.year}`)).getMonth();
+        const monthIndex = new Date(
+          Date.parse(`${filters.month} 1, ${filters.year}`),
+        ).getMonth();
         monthStart = new Date(year, monthIndex, 1);
         monthEnd = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
       } else {
@@ -32,12 +37,24 @@ export class DashboardService {
     } else {
       // Default to current month
       monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-      monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+      monthEnd = new Date(
+        today.getFullYear(),
+        today.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
     }
 
     // For charts: last 12 months ending at monthEnd
     const chartEnd = new Date(monthEnd);
-    const chartStart = new Date(chartEnd.getFullYear(), chartEnd.getMonth() - 11, 1);
+    const chartStart = new Date(
+      chartEnd.getFullYear(),
+      chartEnd.getMonth() - 11,
+      1,
+    );
 
     // For weekly trend: last 7 days ending at monthEnd
     const weeklyEnd = new Date(monthEnd);
@@ -53,13 +70,18 @@ export class DashboardService {
     // Call FinanceService to get Income and Expense (Exactly as Finance Page does)
     const [financeIncomes, financeExpenses] = await Promise.all([
       this.financeService.getIncomes({ dateFrom, dateTo }),
-      this.financeService.getExpenses({ dateFrom, dateTo })
+      this.financeService.getExpenses({ dateFrom, dateTo }),
     ]);
 
     // Calculate Totals using FinanceService data
-    const monthlyIncome = financeIncomes.reduce((sum: number, item: any) => sum + Number(item.amount), 0);
-    const monthlyExpense = financeExpenses.reduce((sum: number, item: any) => sum + Number(item.amount), 0);
-
+    const monthlyIncome = financeIncomes.reduce(
+      (sum: number, item: any) => sum + Number(item.amount),
+      0,
+    );
+    const monthlyExpense = financeExpenses.reduce(
+      (sum: number, item: any) => sum + Number(item.amount),
+      0,
+    );
 
     // Parallel queries for efficiency
     const [
@@ -84,9 +106,9 @@ export class DashboardService {
           program: {
             select: {
               name: true,
-              level: true
-            }
-          }
+              level: true,
+            },
+          },
         },
       }),
 
@@ -158,12 +180,10 @@ export class DashboardService {
             select: {
               name: true,
               level: true,
-            }
+            },
           },
         },
       }),
-
-
 
       // Fee History - Collected (Based on Paid Date - Cash Flow)
       this.prisma.feeChallan.findMany({
@@ -173,8 +193,8 @@ export class DashboardService {
             lte: chartEnd,
           },
           paidAmount: {
-            gt: 0
-          }
+            gt: 0,
+          },
         },
         select: {
           paidDate: true,
@@ -230,7 +250,6 @@ export class DashboardService {
           status: true,
         },
       }),
-
     ]);
 
     // Calculate student statistics
@@ -247,61 +266,73 @@ export class DashboardService {
       passedOut: students.filter((s) => s.passedOut).length,
     };
 
-
-
     // Calculate Expected vs Collected Tuition
     // 1. Expected: Sum of Tuition Fee for ALL Active Students (Standardized per Class)
     const allActiveStudents = await this.prisma.student.findMany({
       where: { passedOut: false },
-      select: { programId: true, classId: true }
+      select: { programId: true, classId: true },
     });
 
     const feeStructures = await this.prisma.feeStructure.findMany({
-      include: { feeHeads: { include: { feeHead: true } } }
+      include: { feeHeads: { include: { feeHead: true } } },
     });
 
     let totalExpectedTuition = 0;
 
     // Create lookup for structure tuition amount
     const structureTuitionMap = new Map<string, number>(); // key: "progId-classId"
-    feeStructures.forEach(fs => {
+    feeStructures.forEach((fs) => {
       const tuition = fs.feeHeads
-        .filter(fh => fh.feeHead.isTuition)
+        .filter((fh) => fh.feeHead.isTuition)
         .reduce((sum, fh) => sum + (fh.amount || fh.feeHead.amount), 0);
       structureTuitionMap.set(`${fs.programId}-${fs.classId}`, tuition);
     });
 
-    allActiveStudents.forEach(stu => {
-      const tuition = structureTuitionMap.get(`${stu.programId}-${stu.classId}`) || 0;
+    allActiveStudents.forEach((stu) => {
+      const tuition =
+        structureTuitionMap.get(`${stu.programId}-${stu.classId}`) || 0;
       totalExpectedTuition += tuition;
     });
 
     // 2. Collected: Sum of tuitionPaid for Paid/Partial Challans in period
     const collectionWhere: any = {
-      status: { in: ['PAID', 'PARTIAL'] }
+      status: { in: ['PAID', 'PARTIAL'] },
     };
     if (!isOverall) {
       collectionWhere.paidDate = {
         gte: monthStart,
-        lte: monthEnd
+        lte: monthEnd,
       };
     }
 
     const collectedChallans = await this.prisma.feeChallan.findMany({
       where: collectionWhere,
-      select: { tuitionPaid: true }
+      select: { tuitionPaid: true },
     });
 
-    const totalCollectedTuition = collectedChallans.reduce((sum, c) => sum + (c.tuitionPaid || 0), 0);
+    const totalCollectedTuition = collectedChallans.reduce(
+      (sum, c) => sum + (c.tuitionPaid || 0),
+      0,
+    );
 
     // Calculate collection rate (max 100%)
-    const feeCollectionRate = totalExpectedTuition > 0
-      ? Math.min(Math.round((totalCollectedTuition / totalExpectedTuition) * 100), 100)
-      : 0;
+    const feeCollectionRate =
+      totalExpectedTuition > 0
+        ? Math.min(
+            Math.round((totalCollectedTuition / totalExpectedTuition) * 100),
+            100,
+          )
+        : 0;
 
     // Fees Stats for Dashboard
-    const totalFeeAmount = feeChallan.reduce((sum, f) => sum + Number(f.amount), 0);
-    const paidFees = feeChallan.reduce((sum, f) => sum + Number(f.paidAmount), 0);
+    const totalFeeAmount = feeChallan.reduce(
+      (sum, f) => sum + Number(f.amount),
+      0,
+    );
+    const paidFees = feeChallan.reduce(
+      (sum, f) => sum + Number(f.paidAmount),
+      0,
+    );
     const pendingFees = totalFeeAmount - paidFees;
 
     const feesByStatus = {
@@ -312,7 +343,10 @@ export class DashboardService {
     };
 
     // Calculate monthly fee history
-    const feeHistoryMap = new Map<string, { collected: number; pending: number }>();
+    const feeHistoryMap = new Map<
+      string,
+      { collected: number; pending: number }
+    >();
 
     // Initialize chart months
     for (let i = 11; i >= 0; i--) {
@@ -325,7 +359,9 @@ export class DashboardService {
     // Process Collected (by Paid Date)
     paidHistoryData?.forEach((record) => {
       if (!record.paidDate) return;
-      const monthName = new Date(record.paidDate).toLocaleString('default', { month: 'short' });
+      const monthName = new Date(record.paidDate).toLocaleString('default', {
+        month: 'short',
+      });
       if (feeHistoryMap.has(monthName)) {
         const entry: any = feeHistoryMap.get(monthName);
         entry.collected += Number(record.paidAmount);
@@ -337,25 +373,32 @@ export class DashboardService {
       // Ignore if status is PAID or CANCELLED
       if (['PAID', 'CANCELLED'].includes(record.status)) return;
 
-      const monthName = new Date(record.issueDate).toLocaleString('default', { month: 'short' });
+      const monthName = new Date(record.issueDate).toLocaleString('default', {
+        month: 'short',
+      });
       if (feeHistoryMap.has(monthName)) {
         const entry: any = feeHistoryMap.get(monthName);
-        entry.pending += (Number(record.amount) - Number(record.paidAmount));
+        entry.pending += Number(record.amount) - Number(record.paidAmount);
       }
     });
 
-    const monthlyFeeCollection = Array.from(feeHistoryMap.entries()).map(([month, data]) => ({
-      month,
-      collected: data.collected,
-      pending: data.pending,
-    }));
+    const monthlyFeeCollection = Array.from(feeHistoryMap.entries()).map(
+      ([month, data]) => ({
+        month,
+        collected: data.collected,
+        pending: data.pending,
+      }),
+    );
 
     // Calculate receivables
-    const totalReceivable = (receivablesAgg._sum.amount || 0) - (receivablesAgg._sum.paidAmount || 0);
+    const totalReceivable =
+      (receivablesAgg._sum.amount || 0) - (receivablesAgg._sum.paidAmount || 0);
 
     // Calculate attendance statistics
     const totalAttendanceToday = attendance.length;
-    const presentToday = attendance.filter((a) => a.status === 'PRESENT').length;
+    const presentToday = attendance.filter(
+      (a) => a.status === 'PRESENT',
+    ).length;
     const attendanceRate =
       totalAttendanceToday > 0
         ? (presentToday / totalAttendanceToday) * 100
@@ -389,16 +432,19 @@ export class DashboardService {
     const totalExams = exams.length;
     const totalStaff = teachingStaff.length + nonTeachingStaff.length;
     const teachingCount = teachingStaff.length;
-    const adminStaffCount = nonTeachingStaff.filter(e => ['ADMIN', 'FINANCE', 'HR'].includes(e.empDepartment!)).length;
+    const adminStaffCount = nonTeachingStaff.filter((e) =>
+      ['ADMIN', 'FINANCE', 'HR'].includes(e.empDepartment!),
+    ).length;
     const supportStaffCount = nonTeachingStaff.length - adminStaffCount;
-
 
     // Calculate exam statistics
     const examsByProgram = {
-      intermediate: exams.filter((e) => e.program?.level === 'INTERMEDIATE').length,
+      intermediate: exams.filter((e) => e.program?.level === 'INTERMEDIATE')
+        .length,
       diploma: exams.filter((e) => e.program?.level === 'DIPLOMA').length,
       bs: exams.filter((e) => e.program?.level === 'UNDERGRADUATE').length,
-      shortCourse: exams.filter((e) => e.program?.level === 'SHORT_COURSE').length,
+      shortCourse: exams.filter((e) => e.program?.level === 'SHORT_COURSE')
+        .length,
       coaching: exams.filter((e) => e.program?.level === 'COACHING').length,
     };
 
@@ -410,23 +456,22 @@ export class DashboardService {
       const dateStr = d.toISOString().split('T')[0];
       const dayName = d.toLocaleString('default', { weekday: 'short' });
 
-      const dayStats = weeklyAttendanceRaw.filter(a =>
-        new Date(a.date).toISOString().split('T')[0] === dateStr
+      const dayStats = weeklyAttendanceRaw.filter(
+        (a) => new Date(a.date).toISOString().split('T')[0] === dateStr,
       );
 
       const total = dayStats.length;
-      const present = dayStats.filter(a => a.status === 'PRESENT').length;
+      const present = dayStats.filter((a) => a.status === 'PRESENT').length;
       const rate = total > 0 ? Math.round((present / total) * 100) : 0;
 
       weeklyAttendanceTrend.push({
         day: dayName,
         rate: rate,
-        fullDate: dateStr
+        fullDate: dateStr,
       });
     }
 
     // Calculate finance statistics
-
 
     return {
       students: {
@@ -485,13 +530,13 @@ export class DashboardService {
         periodPendingFees: pendingFees,
       },
       charts: {
-        monthlyFeeCollection: monthlyFeeCollection.map(m => ({
+        monthlyFeeCollection: monthlyFeeCollection.map((m) => ({
           month: m.month,
           collected: m.collected,
-          pending: m.pending
+          pending: m.pending,
         })),
-        weeklyAttendance: weeklyAttendanceTrend
-      }
+        weeklyAttendance: weeklyAttendanceTrend,
+      },
     };
   }
 }

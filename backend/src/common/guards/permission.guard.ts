@@ -21,7 +21,7 @@ export class PermissionsGuard implements CanActivate {
     // Extract user from request
     const { user } = context.switchToHttp().getRequest();
 
-    if (!user || (!user.permissions.modules && user?.role !== "SUPER_ADMIN")) {
+    if (!user || (!user.permissions.modules && user?.role !== 'SUPER_ADMIN')) {
       return false;
     }
     // Check if user has *any* of the required permissions

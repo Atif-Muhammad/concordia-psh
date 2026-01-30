@@ -8,7 +8,7 @@ import { CreateClosingDto } from './dto/create-closing.dto';
 
 @Injectable()
 export class FinanceService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   // ==================== INCOME ====================
   async createIncome(createIncomeDto: CreateIncomeDto) {
@@ -81,8 +81,12 @@ export class FinanceService {
       });
 
       feeChallans = challans.map((c) => {
-        const billingMonth = c.issueDate.toLocaleString('en-US', { month: 'short', year: 'numeric' });
-        const studentName = `${c.student.fName} ${c.student.lName || ''}`.trim();
+        const billingMonth = c.issueDate.toLocaleString('en-US', {
+          month: 'short',
+          year: 'numeric',
+        });
+        const studentName =
+          `${c.student.fName} ${c.student.lName || ''}`.trim();
         return {
           id: `fee-${c.id}`,
           date: c.paidDate || c.createdAt,
@@ -94,7 +98,7 @@ export class FinanceService {
           source: 'fee-challan',
           sourceId: c.id,
           studentId: c.studentId,
-          billingMonth: billingMonth
+          billingMonth: billingMonth,
         };
       });
     }
@@ -254,8 +258,10 @@ export class FinanceService {
       const invPurchaseWhere: any = {};
       if (filters?.dateFrom || filters?.dateTo) {
         invPurchaseWhere.purchaseDate = {};
-        if (filters.dateFrom) invPurchaseWhere.purchaseDate.gte = new Date(filters.dateFrom);
-        if (filters.dateTo) invPurchaseWhere.purchaseDate.lte = new Date(filters.dateTo);
+        if (filters.dateFrom)
+          invPurchaseWhere.purchaseDate.gte = new Date(filters.dateFrom);
+        if (filters.dateTo)
+          invPurchaseWhere.purchaseDate.lte = new Date(filters.dateTo);
       }
       const purchases = await this.prisma.schoolInventory.findMany({
         where: invPurchaseWhere,
@@ -266,7 +272,8 @@ export class FinanceService {
       const invMaintWhere: any = {};
       if (filters?.dateFrom || filters?.dateTo) {
         invMaintWhere.date = {};
-        if (filters.dateFrom) invMaintWhere.date.gte = new Date(filters.dateFrom);
+        if (filters.dateFrom)
+          invMaintWhere.date.gte = new Date(filters.dateFrom);
         if (filters.dateTo) invMaintWhere.date.lte = new Date(filters.dateTo);
       }
       const maintenances = await this.prisma.inventoryExpense.findMany({
@@ -307,10 +314,8 @@ export class FinanceService {
       ...manualExpenses,
       ...payrolls,
       ...hostelExpenses,
-      ...inventoryExpenses
-    ].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-    );
+      ...inventoryExpenses,
+    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     return allExpenses;
   }

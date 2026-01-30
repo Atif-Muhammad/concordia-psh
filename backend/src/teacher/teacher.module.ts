@@ -11,4 +11,4 @@ import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
   controllers: [TeacherController],
   providers: [TeacherService],
 })
-export class TeacherModule { }
+export class TeacherModule {}

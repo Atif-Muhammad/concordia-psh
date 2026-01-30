@@ -10,4 +10,4 @@ import { FinanceModule } from '../finance/finance.module';
   controllers: [DashboardController],
   providers: [DashboardService, PrismaService],
 })
-export class DashboardModule { }
+export class DashboardModule {}

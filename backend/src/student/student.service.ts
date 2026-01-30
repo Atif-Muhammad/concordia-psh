@@ -12,7 +12,7 @@ export class StudentService {
   constructor(
     private prismaService: PrismaService,
     private feeManagementService: FeeManagementService,
-  ) { }
+  ) {}
 
   async findOne(id: number) {
     return await this.prismaService.student.findFirst({
@@ -24,8 +24,8 @@ export class StudentService {
           orderBy: { createdAt: 'desc' },
         },
         feeInstallments: {
-          orderBy: { installmentNumber: 'asc' }
-        }
+          orderBy: { installmentNumber: 'asc' },
+        },
       } as any,
     });
   }
@@ -214,15 +214,17 @@ export class StudentService {
         status: (payload.status as any) || 'ACTIVE',
         statusDate: new Date(),
         tuitionFee: payload.tuitionFee ? Number(payload.tuitionFee) : 0,
-        numberOfInstallments: payload.numberOfInstallments ? Number(payload.numberOfInstallments) : 1,
+        numberOfInstallments: payload.numberOfInstallments
+          ? Number(payload.numberOfInstallments)
+          : 1,
         lateFeeFine: payload.lateFeeFine ? Number(payload.lateFeeFine) : 0,
         feeInstallments: {
-          create: installmentsData.map(i => ({
+          create: installmentsData.map((i) => ({
             installmentNumber: Number(i.installmentNumber),
             amount: Number(i.amount),
-            dueDate: new Date(i.dueDate)
-          }))
-        }
+            dueDate: new Date(i.dueDate),
+          })),
+        },
       },
     });
 
@@ -275,9 +277,10 @@ export class StudentService {
           // - Paid all installments (count >= total installments)
           // - OR Paid full amount (amount >= total amount)
           // CRITICAL: Respect custom student tuition fee if set
-          const targetAmount = ((student as any).tuitionFee && (student as any).tuitionFee > 0)
-            ? (student as any).tuitionFee
-            : currentFeeStructure.totalAmount;
+          const targetAmount =
+            (student as any).tuitionFee && (student as any).tuitionFee > 0
+              ? (student as any).tuitionFee
+              : currentFeeStructure.totalAmount;
 
           const isCleared =
             paidInstallments >= currentFeeStructure.installments ||
@@ -289,8 +292,8 @@ export class StudentService {
             });
             throw new BadRequestException(
               `Cannot promote student. Outstanding fees for current class (${currentClass?.name || 'Unknown Class'}). ` +
-              `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
-              `Amount: ${totalPaid}/${targetAmount}`,
+                `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
+                `Amount: ${totalPaid}/${targetAmount}`,
             );
           }
         }
@@ -350,9 +353,12 @@ export class StudentService {
     if (payload.photo_url) data.photo_url = payload.photo_url;
     if (payload.photo_public_id) data.photo_public_id = payload.photo_public_id;
 
-    if (payload.tuitionFee !== undefined) data.tuitionFee = Number(payload.tuitionFee);
-    if (payload.numberOfInstallments !== undefined) data.numberOfInstallments = Number(payload.numberOfInstallments);
-    if (payload.lateFeeFine !== undefined) data.lateFeeFine = Number(payload.lateFeeFine);
+    if (payload.tuitionFee !== undefined)
+      data.tuitionFee = Number(payload.tuitionFee);
+    if (payload.numberOfInstallments !== undefined)
+      data.numberOfInstallments = Number(payload.numberOfInstallments);
+    if (payload.lateFeeFine !== undefined)
+      data.lateFeeFine = Number(payload.lateFeeFine);
 
     // Handle Installments Update
     if (payload.installments) {
@@ -360,19 +366,19 @@ export class StudentService {
       if (typeof payload.installments === 'string') {
         try {
           installmentsData = JSON.parse(payload.installments);
-        } catch (e) { }
+        } catch (e) {}
       } else if (Array.isArray(payload.installments)) {
         installmentsData = payload.installments;
       }
 
       // We replace all installments for simplicity
-      (data as any).feeInstallments = {
+      data.feeInstallments = {
         deleteMany: {},
-        create: installmentsData.map(i => ({
+        create: installmentsData.map((i) => ({
           installmentNumber: Number(i.installmentNumber),
           amount: Number(i.amount),
-          dueDate: new Date(i.dueDate)
-        }))
+          dueDate: new Date(i.dueDate),
+        })),
       };
     }
 
@@ -392,15 +398,23 @@ export class StudentService {
     await this.prismaService.$transaction([
       this.prismaService.attendance.deleteMany({ where: { studentId: id } }),
       this.prismaService.leave.deleteMany({ where: { studentId: id } }),
-      (this.prismaService as any).studentFeeInstallment.deleteMany({ where: { studentId: id } }),
+      (this.prismaService as any).studentFeeInstallment.deleteMany({
+        where: { studentId: id },
+      }),
       this.prismaService.feeChallan.deleteMany({ where: { studentId: id } }),
       this.prismaService.result.deleteMany({ where: { studentId: id } }),
       this.prismaService.marks.deleteMany({ where: { studentId: id } }),
       this.prismaService.position.deleteMany({ where: { studentId: id } }),
       this.prismaService.studentArrear.deleteMany({ where: { studentId: id } }),
-      this.prismaService.studentStatusHistory.deleteMany({ where: { studentId: id } }),
-      this.prismaService.roomAllocation.deleteMany({ where: { studentId: id } }),
-      this.prismaService.hostelRegistration.deleteMany({ where: { studentId: id } }),
+      this.prismaService.studentStatusHistory.deleteMany({
+        where: { studentId: id },
+      }),
+      this.prismaService.roomAllocation.deleteMany({
+        where: { studentId: id },
+      }),
+      this.prismaService.hostelRegistration.deleteMany({
+        where: { studentId: id },
+      }),
     ]);
 
     // Now delete the student (no includes allowed)
@@ -417,7 +431,12 @@ export class StudentService {
     });
   }
 
-  async promote(id: number, forcePromote: boolean | any = false, targetClassId?: number, targetSectionId?: number) {
+  async promote(
+    id: number,
+    forcePromote: boolean | any = false,
+    targetClassId?: number,
+    targetSectionId?: number,
+  ) {
     const student = await this.prismaService.student.findUnique({
       where: { id },
       include: {
@@ -471,7 +490,8 @@ export class StudentService {
 
           // Calculate how much of the payment went toward tuition:
           // We must compare against the NET tuition (amount - discount)
-          const netTuitionAmount = (challan.amount || 0) - (challan.discount || 0);
+          const netTuitionAmount =
+            (challan.amount || 0) - (challan.discount || 0);
           const tuitionPortionPaid =
             challan.tuitionPaid ??
             Math.min(challan.paidAmount || 0, netTuitionAmount);
@@ -528,11 +548,19 @@ export class StudentService {
                   installmentNumber: c.installmentNumber,
                   challanNumber: c.challanNumber,
                   status: c.status,
-                  balance: Math.round((c.amount || 0) + (c.fineAmount || 0) - (c.discount || 0) - (c.paidAmount || 0)),
-                  dueDate: c.dueDate
+                  balance: Math.round(
+                    (c.amount || 0) +
+                      (c.fineAmount || 0) -
+                      (c.discount || 0) -
+                      (c.paidAmount || 0),
+                  ),
+                  dueDate: c.dueDate,
                 }))
-                .filter(c => c.balance > 0)
-                .sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0))
+                .filter((c) => c.balance > 0)
+                .sort(
+                  (a, b) =>
+                    (a.installmentNumber || 0) - (b.installmentNumber || 0),
+                ),
             },
           };
         }
@@ -549,16 +577,24 @@ export class StudentService {
       console.log('🔧 Manual Promotion Requested to Class ID:', targetClassId);
 
       // Verify class belongs to the same program
-      const targetClass = program.classes.find(c => c.id === Number(targetClassId));
+      const targetClass = program.classes.find(
+        (c) => c.id === Number(targetClassId),
+      );
       if (!targetClass) {
-        throw new BadRequestException('Target class does not belong to the student\'s program');
+        throw new BadRequestException(
+          "Target class does not belong to the student's program",
+        );
       }
       nextClass = targetClass;
 
       if (targetSectionId) {
-        matchingSection = nextClass.sections.find(s => s.id === Number(targetSectionId));
+        matchingSection = nextClass.sections.find(
+          (s) => s.id === Number(targetSectionId),
+        );
         if (!matchingSection) {
-          console.warn(`⚠️ Target section ${targetSectionId} not found in class ${nextClass.name}`);
+          console.warn(
+            `⚠️ Target section ${targetSectionId} not found in class ${nextClass.name}`,
+          );
         }
       }
     } else {
@@ -599,7 +635,9 @@ export class StudentService {
     });
 
     // --- AUTO-GENERATE NEW FEES FOR PROMOTED CLASS ---
-    console.log(`🚀 Promotion Fee Logic: Student ${id} -> Class ${nextClass.id}`);
+    console.log(
+      `🚀 Promotion Fee Logic: Student ${id} -> Class ${nextClass.id}`,
+    );
 
     // A. Fetch fee structure for the new class
     const newFeeStructure = await this.prismaService.feeStructure.findUnique({
@@ -614,24 +652,33 @@ export class StudentService {
     // B. Determine Tuition and Installment Count
     // If a structure exists, use its total. Otherwise keep current student's tuition fee.
 
-    const totalAmount = newFeeStructure ? newFeeStructure.totalAmount : (student.tuitionFee || 0);
+    const totalAmount = newFeeStructure
+      ? newFeeStructure.totalAmount
+      : student.tuitionFee || 0;
 
     // Respect student's custom installment count if it exists (>0).
-    const installmentCount = (student.numberOfInstallments && student.numberOfInstallments > 0)
-      ? student.numberOfInstallments
-      : (newFeeStructure?.installments || 1);
+    const installmentCount =
+      student.numberOfInstallments && student.numberOfInstallments > 0
+        ? student.numberOfInstallments
+        : newFeeStructure?.installments || 1;
 
-    console.log(`📊 Fees: Total=${totalAmount}, Installments=${installmentCount} (Structure Found: ${!!newFeeStructure})`);
+    console.log(
+      `📊 Fees: Total=${totalAmount}, Installments=${installmentCount} (Structure Found: ${!!newFeeStructure})`,
+    );
 
     if (totalAmount > 0) {
-      const defaultInstallmentAmount = Math.floor(totalAmount / installmentCount);
+      const defaultInstallmentAmount = Math.floor(
+        totalAmount / installmentCount,
+      );
 
       // Generate the new installment plan
-      const newInstallments = Array.from({ length: installmentCount }).map((_, idx) => ({
-        installmentNumber: idx + 1,
-        amount: defaultInstallmentAmount,
-        dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)), // Monthly staggered
-      }));
+      const newInstallments = Array.from({ length: installmentCount }).map(
+        (_, idx) => ({
+          installmentNumber: idx + 1,
+          amount: defaultInstallmentAmount,
+          dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)), // Monthly staggered
+        }),
+      );
 
       // Fix rounding: last installment covers the remainder
       const totalCalculated = defaultInstallmentAmount * installmentCount;
@@ -647,26 +694,30 @@ export class StudentService {
           data: {
             tuitionFee: totalAmount,
             numberOfInstallments: installmentCount,
-          }
+          },
         }),
         this.prismaService.studentFeeInstallment.deleteMany({
-          where: { studentId: id }
+          where: { studentId: id },
         }),
         this.prismaService.studentFeeInstallment.createMany({
-          data: newInstallments.map(i => ({
+          data: newInstallments.map((i) => ({
             studentId: id,
             installmentNumber: i.installmentNumber,
             amount: i.amount,
-            dueDate: i.dueDate
-          }))
-        })
+            dueDate: i.dueDate,
+          })),
+        }),
       ]);
 
       // D. Sync Challans (strictly scoped to the NEW classId already set)
       await this.feeManagementService.syncStudentChallans(id);
-      console.log(`✅ Success: Auto-generated ${installmentCount} fees for Student ${id} in Class ${nextClass.name}`);
+      console.log(
+        `✅ Success: Auto-generated ${installmentCount} fees for Student ${id} in Class ${nextClass.name}`,
+      );
     } else {
-      console.warn(`⚠️ Warning: No tuition amount found for Student ${id} promotion (Class ${nextClass.name}). Skipping fee generation.`);
+      console.warn(
+        `⚠️ Warning: No tuition amount found for Student ${id} promotion (Class ${nextClass.name}). Skipping fee generation.`,
+      );
     }
 
     return {
@@ -717,34 +768,49 @@ export class StudentService {
 
     // --- AUTO-DELETE INVALID CHALLANS FOR DEMOTION ---
     // Remove unpaid challans associated with the current class (the one they are leaving)
-    await this.feeManagementService.removeChallansForDemotion(id, student.classId);
+    await this.feeManagementService.removeChallansForDemotion(
+      id,
+      student.classId,
+    );
 
     // --- RESET FEE STRUCTURE TO PREVIOUS CLASS ---
-    const targetFeeStructure = await this.prismaService.feeStructure.findUnique({
-      where: {
-        programId_classId: {
-          programId: program.id,
-          classId: prevClass.id,
+    const targetFeeStructure = await this.prismaService.feeStructure.findUnique(
+      {
+        where: {
+          programId_classId: {
+            programId: program.id,
+            classId: prevClass.id,
+          },
         },
       },
-    });
+    );
 
-    const targetTuitionFee = targetFeeStructure ? targetFeeStructure.totalAmount : 0;
-    const targetInstallments = targetFeeStructure ? targetFeeStructure.installments : 1;
+    const targetTuitionFee = targetFeeStructure
+      ? targetFeeStructure.totalAmount
+      : 0;
+    const targetInstallments = targetFeeStructure
+      ? targetFeeStructure.installments
+      : 1;
 
-    console.log(`📉 Demotion Fee Reset: Student ${id} -> Class ${prevClass.name}. Tuition: ${targetTuitionFee}, Installments: ${targetInstallments}`);
+    console.log(
+      `📉 Demotion Fee Reset: Student ${id} -> Class ${prevClass.name}. Tuition: ${targetTuitionFee}, Installments: ${targetInstallments}`,
+    );
 
     // Regenerate Installments
     let newInstallments: any[] = [];
     if (targetTuitionFee > 0) {
-      const defaultInstallmentAmount = Math.floor(targetTuitionFee / targetInstallments);
-      newInstallments = Array.from({ length: targetInstallments }).map((_, idx) => ({
-        installmentNumber: idx + 1,
-        amount: defaultInstallmentAmount,
-        dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)), // Monthly staggered from NOW? Or start of year?
-        // Ideally prompt for start date, but for auto-demote, relative to now or keeping original dates is hard without tracking.
-        // Let's assume standard staggered from now for simplicity, or just reset.
-      }));
+      const defaultInstallmentAmount = Math.floor(
+        targetTuitionFee / targetInstallments,
+      );
+      newInstallments = Array.from({ length: targetInstallments }).map(
+        (_, idx) => ({
+          installmentNumber: idx + 1,
+          amount: defaultInstallmentAmount,
+          dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)), // Monthly staggered from NOW? Or start of year?
+          // Ideally prompt for start date, but for auto-demote, relative to now or keeping original dates is hard without tracking.
+          // Let's assume standard staggered from now for simplicity, or just reset.
+        }),
+      );
 
       // Fix rounding
       const totalCalculated = defaultInstallmentAmount * targetInstallments;
@@ -769,16 +835,16 @@ export class StudentService {
         },
       }),
       this.prismaService.studentFeeInstallment.deleteMany({
-        where: { studentId: id }
+        where: { studentId: id },
       }),
       this.prismaService.studentFeeInstallment.createMany({
-        data: newInstallments.map(i => ({
+        data: newInstallments.map((i) => ({
           studentId: id,
           installmentNumber: i.installmentNumber,
           amount: i.amount,
-          dueDate: i.dueDate
-        }))
-      })
+          dueDate: i.dueDate,
+        })),
+      }),
     ]);
 
     // Resync challans for the new (demoted) class state

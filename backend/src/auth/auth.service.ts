@@ -10,7 +10,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-  ) { }
+  ) {}
 
   async generateTokens(payload: {
     id: number | string;
@@ -72,7 +72,6 @@ export class AuthService {
     });
   }
 
-
   async updateAdmin(adminID: number, payload: Partial<CreateAdminDto>) {
     // const admin = await this.prisma.admin.findUnique({
     //     where: { id: adminID },
@@ -117,7 +116,8 @@ export class AuthService {
 
     // Ensure isStaff flag is correctly set based on which table user was found in
     // Note: this is a bit redundant if role is already set correctly, but safe
-    const isActuallyStaff = !admin.role.includes('SUPER_ADMIN') && !admin.role.includes('ADMIN');
+    const isActuallyStaff =
+      !admin.role.includes('SUPER_ADMIN') && !admin.role.includes('ADMIN');
     admin.isStaff = isActuallyStaff;
 
     return admin;

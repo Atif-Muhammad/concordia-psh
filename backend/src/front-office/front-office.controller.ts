@@ -15,7 +15,7 @@ import { ContactDto } from './dtos/Contact.dto';
 
 @Controller('front-office')
 export class FrontOfficeController {
-  constructor(private readonly frontOfficeService: FrontOfficeService) { }
+  constructor(private readonly frontOfficeService: FrontOfficeService) {}
 
   // inquiries
   @Get('get/inquiries')

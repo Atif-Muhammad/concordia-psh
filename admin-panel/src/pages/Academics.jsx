@@ -326,11 +326,32 @@ const Academics = () => {
     }
 
     if (type === "class") {
+      const programId = Number(classForm.programId);
+      const name = classForm.name;
+      const year = classForm.year ? Number(classForm.year) : null;
+      const semester = classForm.semester ? Number(classForm.semester) : null;
+
+      const exists = classes.some(
+        (c) =>
+          c.id !== editing?.id &&
+          c.programId === programId &&
+          (c.name === name || (year !== null && c.year === year) || (semester !== null && c.semester === semester))
+      );
+
+      if (exists) {
+        toast({
+          title: `Class already exists`,
+          description: `A class with this name or period already exists for this program.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
       data = {
-        name: classForm.name,
-        programId: Number(classForm.programId),
-        year: classForm.year ? Number(classForm.year) : null,
-        semester: classForm.semester ? Number(classForm.semester) : null,
+        name,
+        programId,
+        year,
+        semester,
         isSemester: Boolean(classForm.isSemester),
         rollPrefix: classForm.rollPrefix || null,
       };

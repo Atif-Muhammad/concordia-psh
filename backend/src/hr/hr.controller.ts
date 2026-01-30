@@ -16,14 +16,21 @@ import { Permissions } from 'src/common/decorators/permissions.decorator';
 
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
-import { UploadedFile, UseInterceptors, ConflictException } from '@nestjs/common';
+import {
+  UploadedFile,
+  UseInterceptors,
+  ConflictException,
+} from '@nestjs/common';
 import { HrService } from './hr.service';
 import { EmployeeDto } from './dtos/employee.dot';
 import { StaffDto } from './dtos/staff.dto';
 
 @Controller('hr')
 export class HrController {
-  constructor(private readonly hrService: HrService, private readonly cloudinaryService: CloudinaryService) { }
+  constructor(
+    private readonly hrService: HrService,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
   // UNIFIED STAFF MANAGEMENT ENDPOINTS
@@ -37,8 +44,18 @@ export class HrController {
     @Query('status') status?: string,
   ) {
     return await this.hrService.getAllStaff({
-      isTeaching: isTeaching === 'true' ? true : isTeaching === 'false' ? false : undefined,
-      isNonTeaching: isNonTeaching === 'true' ? true : isNonTeaching === 'false' ? false : undefined,
+      isTeaching:
+        isTeaching === 'true'
+          ? true
+          : isTeaching === 'false'
+            ? false
+            : undefined,
+      isNonTeaching:
+        isNonTeaching === 'true'
+          ? true
+          : isNonTeaching === 'false'
+            ? false
+            : undefined,
       search,
       status,
     });
@@ -50,7 +67,9 @@ export class HrController {
   }
 
   @Post('staff')
-  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
   async createStaff(
     @UploadedFile() file: Express.Multer.File,
     @Body() payload: StaffDto,
@@ -70,10 +89,19 @@ export class HrController {
     // Parse boolean strings and JSON strings from form data
     const parsedPayload = {
       ...payload,
-      isTeaching: payload.isTeaching === true || payload.isTeaching === 'true' as any,
-      isNonTeaching: payload.isNonTeaching === true || payload.isNonTeaching === 'true' as any,
-      permissions: typeof payload.permissions === 'string' ? JSON.parse(payload.permissions) : payload.permissions,
-      documents: typeof payload.documents === 'string' ? JSON.parse(payload.documents) : payload.documents,
+      isTeaching:
+        payload.isTeaching === true || payload.isTeaching === ('true' as any),
+      isNonTeaching:
+        payload.isNonTeaching === true ||
+        payload.isNonTeaching === ('true' as any),
+      permissions:
+        typeof payload.permissions === 'string'
+          ? JSON.parse(payload.permissions)
+          : payload.permissions,
+      documents:
+        typeof payload.documents === 'string'
+          ? JSON.parse(payload.documents)
+          : payload.documents,
       photo_url: url || undefined,
       photo_public_id: public_id || undefined,
     };
@@ -82,7 +110,9 @@ export class HrController {
   }
 
   @Patch('staff/:id')
-  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
   async updateStaff(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
@@ -96,9 +126,13 @@ export class HrController {
       // Get existing staff to delete old photo
       const existingStaff = await this.hrService.findOne(staffId);
       if (existingStaff?.photo_public_id) {
-        await this.cloudinaryService.removeFile(existingStaff.photo_public_id).catch(() => {
-          console.warn(`Failed to delete old photo: ${existingStaff.photo_public_id}`);
-        });
+        await this.cloudinaryService
+          .removeFile(existingStaff.photo_public_id)
+          .catch(() => {
+            console.warn(
+              `Failed to delete old photo: ${existingStaff.photo_public_id}`,
+            );
+          });
       }
 
       const uploadResult = await this.cloudinaryService.uploadFile(file);
@@ -112,16 +146,25 @@ export class HrController {
     // Parse boolean strings and JSON strings from form data
     const updateData: any = { ...payload };
     if (payload.isTeaching !== undefined) {
-      updateData.isTeaching = payload.isTeaching === true || payload.isTeaching === 'true' as any;
+      updateData.isTeaching =
+        payload.isTeaching === true || payload.isTeaching === ('true' as any);
     }
     if (payload.isNonTeaching !== undefined) {
-      updateData.isNonTeaching = payload.isNonTeaching === true || payload.isNonTeaching === 'true' as any;
+      updateData.isNonTeaching =
+        payload.isNonTeaching === true ||
+        payload.isNonTeaching === ('true' as any);
     }
     if (payload.permissions !== undefined) {
-      updateData.permissions = typeof payload.permissions === 'string' ? JSON.parse(payload.permissions) : payload.permissions;
+      updateData.permissions =
+        typeof payload.permissions === 'string'
+          ? JSON.parse(payload.permissions)
+          : payload.permissions;
     }
     if (payload.documents !== undefined) {
-      updateData.documents = typeof payload.documents === 'string' ? JSON.parse(payload.documents) : payload.documents;
+      updateData.documents =
+        typeof payload.documents === 'string'
+          ? JSON.parse(payload.documents)
+          : payload.documents;
     }
     if (photo_url && photo_public_id) {
       updateData.photo_url = photo_url;
@@ -137,9 +180,13 @@ export class HrController {
     const existingStaff = await this.hrService.findOne(staffId);
 
     if (existingStaff?.photo_public_id) {
-      await this.cloudinaryService.removeFile(existingStaff.photo_public_id).catch(() => {
-        console.warn(`Failed to delete staff photo: ${existingStaff.photo_public_id}`);
-      });
+      await this.cloudinaryService
+        .removeFile(existingStaff.photo_public_id)
+        .catch(() => {
+          console.warn(
+            `Failed to delete staff photo: ${existingStaff.photo_public_id}`,
+          );
+        });
     }
 
     return await this.hrService.deleteStaff(staffId);
@@ -150,11 +197,16 @@ export class HrController {
   // ═══════════════════════════════════════════════════════════════════════════
 
   @Get('get/employees')
-  async getEmployees(@Query('dept') dept: string, @Query('search') search: string) {
+  async getEmployees(
+    @Query('dept') dept: string,
+    @Query('search') search: string,
+  ) {
     return await this.hrService.fetchEmpls(dept, search);
   }
   @Post('create/employee')
-  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
   async createEmpl(
     @UploadedFile() file: Express.Multer.File,
     @Body() payload: EmployeeDto,
@@ -179,7 +231,9 @@ export class HrController {
   }
 
   @Patch('update/employee')
-  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
   async updateEmpl(
     @UploadedFile() file: Express.Multer.File,
     @Query('id') id: string,
@@ -216,7 +270,9 @@ export class HrController {
       await this.cloudinaryService
         .removeFile(existingEmp.photo_public_id)
         .catch(() => {
-          console.warn(`Failed to delete old photo: ${existingEmp.photo_public_id}`);
+          console.warn(
+            `Failed to delete old photo: ${existingEmp.photo_public_id}`,
+          );
         });
     }
 
@@ -308,7 +364,10 @@ export class HrController {
     @Query('year') year?: string,
     @Query('month') month?: string,
   ) {
-    return await this.hrService.getHolidays(year ? Number(year) : undefined, month ? Number(month) : undefined);
+    return await this.hrService.getHolidays(
+      year ? Number(year) : undefined,
+      month ? Number(month) : undefined,
+    );
   }
 
   @Delete('holidays')

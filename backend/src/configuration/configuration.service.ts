@@ -11,7 +11,7 @@ import { UpdateStudentIDCardTemplateDto } from './dtos/update-student-id-card-te
 
 @Injectable()
 export class ConfigurationService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   // Create a new ReportCardTemplate
   async createReportCardTemplate(data: CreateReportCardTemplateDto) {
@@ -87,7 +87,9 @@ export class ConfigurationService {
       where: { id },
     });
     if (!template) {
-      throw new NotFoundException(`StaffIDCardTemplate with id ${id} not found`);
+      throw new NotFoundException(
+        `StaffIDCardTemplate with id ${id} not found`,
+      );
     }
     return template;
   }
@@ -134,7 +136,10 @@ export class ConfigurationService {
     return this.prisma.studentIDCardTemplate.findUnique({ where: { id } });
   }
 
-  async updateStudentIDCardTemplate(id: number, data: UpdateStudentIDCardTemplateDto) {
+  async updateStudentIDCardTemplate(
+    id: number,
+    data: UpdateStudentIDCardTemplateDto,
+  ) {
     if (data.isDefault) {
       await this.prisma.studentIDCardTemplate.updateMany({
         where: { isDefault: true, id: { not: id } },

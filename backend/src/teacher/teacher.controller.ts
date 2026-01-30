@@ -19,7 +19,12 @@ import { StudentService } from 'src/student/student.service';
 import { AttendanceStatus } from '@prisma/client';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
-import { UploadedFile, UseInterceptors, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  UploadedFile,
+  UseInterceptors,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 
 @Controller('teacher')
 export class TeacherController {
@@ -28,7 +33,7 @@ export class TeacherController {
     private readonly attendanceService: AttendanceService,
     private readonly studentService: StudentService,
     private readonly cloudinaryService: CloudinaryService,
-  ) { }
+  ) {}
   @Get('get/names')
   async getTeacherNames() {
     return await this.teacherService.getNames();
@@ -39,7 +44,9 @@ export class TeacherController {
   }
 
   @Post('create')
-  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
   async createTeacher(
     @UploadedFile() file: Express.Multer.File,
     @Body() payload: TeacherDto,
@@ -71,7 +78,9 @@ export class TeacherController {
     });
   }
   @Patch('update')
-  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
   async updateTeacher(
     @UploadedFile() file: Express.Multer.File,
     @Query() teacherID: { teacherID: string },
@@ -90,7 +99,9 @@ export class TeacherController {
         await this.cloudinaryService
           .removeFile(existingTeacher.photo_public_id)
           .catch(() => {
-            console.warn(`Failed to delete old photo: ${existingTeacher.photo_public_id}`);
+            console.warn(
+              `Failed to delete old photo: ${existingTeacher.photo_public_id}`,
+            );
           });
       }
 
@@ -123,9 +134,11 @@ export class TeacherController {
     const id = Number(teacherID);
     const existingTeacher = await this.teacherService.findOne(id);
     if (existingTeacher && existingTeacher.photo_public_id) {
-      await this.cloudinaryService.removeFile(existingTeacher.photo_public_id).catch(() => {
-        console.warn(`Failed to delete photo for teacher ${id}`);
-      });
+      await this.cloudinaryService
+        .removeFile(existingTeacher.photo_public_id)
+        .catch(() => {
+          console.warn(`Failed to delete photo for teacher ${id}`);
+        });
     }
     return await this.teacherService.removeTeacher(id);
   }

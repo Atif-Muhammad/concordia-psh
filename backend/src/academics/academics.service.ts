@@ -89,13 +89,48 @@ export class AcademicsService {
     return await this.prismaService.class.findMany({
       include: {
         sections: { select: { id: true, name: true } },
-        program: { select: { id: true, name: true, duration: true, rollPrefix: true } },
+        program: {
+          select: { id: true, name: true, duration: true, rollPrefix: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async createClass(payload: ClassDto) {
+    const programId = Number(payload.programId);
+
+    // Check if class with same name already exists in this program
+    const existingByName = await this.prismaService.class.findFirst({
+      where: {
+        programId,
+        name: payload.name,
+      },
+    });
+
+    if (existingByName) {
+      throw new ConflictException(
+        `Class '${payload.name}' already exists for this program`,
+      );
+    }
+
+    // Check if class with same year/semester combination already exists (if applicable)
+    if (payload.year || payload.semester) {
+      const existingByPeriod = await this.prismaService.class.findFirst({
+        where: {
+          programId,
+          year: payload.year ? Number(payload.year) : null,
+          semester: payload.semester ? Number(payload.semester) : null,
+        },
+      });
+
+      if (existingByPeriod) {
+        throw new ConflictException(
+          `A class with this year/semester already exists for this program`,
+        );
+      }
+    }
+
     return await this.prismaService.class.create({
       data: {
         name: payload.name,
@@ -103,16 +138,51 @@ export class AcademicsService {
         semester: Number(payload.semester) || null,
         isSemester: Boolean(payload.isSemester),
         rollPrefix: payload.rollPrefix,
-        programId: Number(payload.programId),
+        programId,
       },
     });
   }
   async updateClass(id: number, payload: Partial<ClassDto>) {
+    const programId = Number(payload.programId);
+
+    if (payload.name) {
+      const existingByName = await this.prismaService.class.findFirst({
+        where: {
+          programId,
+          name: payload.name,
+          id: { not: id },
+        },
+      });
+
+      if (existingByName) {
+        throw new ConflictException(
+          `Another class with name '${payload.name}' already exists for this program`,
+        );
+      }
+    }
+
+    if (payload.year || payload.semester) {
+      const existingByPeriod = await this.prismaService.class.findFirst({
+        where: {
+          programId,
+          year: payload.year ? Number(payload.year) : null,
+          semester: payload.semester ? Number(payload.semester) : null,
+          id: { not: id },
+        },
+      });
+
+      if (existingByPeriod) {
+        throw new ConflictException(
+          `Another class with this year/semester already exists for this program`,
+        );
+      }
+    }
+
     return await this.prismaService.class.update({
       where: { id },
       data: {
         name: payload.name,
-        programId: Number(payload.programId),
+        programId,
         year: Number(payload.year) || null,
         semester: Number(payload.semester) || null,
         isSemester: Boolean(payload.isSemester),

@@ -8,7 +8,7 @@ import { ContactDto } from './dtos/Contact.dto';
 
 @Injectable()
 export class FrontOfficeService {
-  constructor(private prismaService: PrismaService) { }
+  constructor(private prismaService: PrismaService) {}
 
   // inquiries
   async createInquiry(payload: InquiryDto) {
@@ -22,7 +22,8 @@ export class FrontOfficeService {
   }
   async getInquiries(programId?: number, page: number = 1, limit: number = 10) {
     const skip = (page - 1) * limit;
-    const where = programId && !isNaN(programId) ? { programInterest: programId } : {};
+    const where =
+      programId && !isNaN(programId) ? { programInterest: programId } : {};
 
     const [inquiries, total] = await Promise.all([
       this.prismaService.inquiry.findMany({
@@ -123,8 +124,8 @@ export class FrontOfficeService {
     );
     const outTime = payload.outTime
       ? new Date(
-        `${new Date().toISOString().split('T')[0]}T${payload.outTime}:00`,
-      )
+          `${new Date().toISOString().split('T')[0]}T${payload.outTime}:00`,
+        )
       : null;
     return await this.prismaService.visitor.create({
       data: {
@@ -146,8 +147,8 @@ export class FrontOfficeService {
     );
     const outTime = payload.outTime
       ? new Date(
-        `${new Date().toISOString().split('T')[0]}T${payload.outTime}:00`,
-      )
+          `${new Date().toISOString().split('T')[0]}T${payload.outTime}:00`,
+        )
       : null;
     return await this.prismaService.visitor.update({
       where: { id },
@@ -178,7 +179,9 @@ export class FrontOfficeService {
         contact: payload.contact,
         subject: payload.subject,
         description: payload.details,
-        assignedToId: payload.assignedToId ? Number(payload.assignedToId) : undefined,
+        assignedToId: payload.assignedToId
+          ? Number(payload.assignedToId)
+          : undefined,
       },
     });
   }
@@ -230,7 +233,9 @@ export class FrontOfficeService {
         description: payload.details,
         status: payload.status as ComplaintStatus,
         type: payload.type as ComplaintType,
-        assignedToId: payload.assignedToId ? Number(payload.assignedToId) : undefined,
+        assignedToId: payload.assignedToId
+          ? Number(payload.assignedToId)
+          : undefined,
       },
     });
   }

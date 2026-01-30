@@ -18,4 +18,4 @@ import { FeeManagementModule } from '../fee-management/fee-management.module';
   controllers: [StudentController],
   exports: [StudentService],
 })
-export class StudentModule { }
+export class StudentModule {}

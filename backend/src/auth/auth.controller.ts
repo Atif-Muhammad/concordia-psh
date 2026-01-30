@@ -24,7 +24,7 @@ import { RolesEnum } from 'src/common/constants/roles.enum';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
   @Post('create/super-admin')
   async createSuperAdmin(@Body() payload: CreateAdminDto) {
@@ -53,8 +53,8 @@ export class AuthController {
       message: 'Login successful',
       user: {
         ...admin,
-        role: admin.role || 'Staff'
-      }
+        role: admin.role || 'Staff',
+      },
     });
   }
 
@@ -81,7 +81,14 @@ export class AuthController {
       isStaff: boolean;
     };
     const { access_token, refresh_token } =
-      await this.authService.refreshTokens({ id, name, email, role, permissions, isStaff });
+      await this.authService.refreshTokens({
+        id,
+        name,
+        email,
+        role,
+        permissions,
+        isStaff,
+      });
     // for web
     if (clientType === 'web') {
       res.cookie('access_token', access_token, {
@@ -105,7 +112,10 @@ export class AuthController {
   @UseGuards(JwtAccGuard)
   @Get('user-who')
   async userWho(@Req() req: any) {
-    const user = await this.authService.findUserById(req.user.id, req.user.isStaff);
+    const user = await this.authService.findUserById(
+      req.user.id,
+      req.user.isStaff,
+    );
     if (!user) {
       throw new HttpException('User not found', HttpStatus.NOT_FOUND);
     }

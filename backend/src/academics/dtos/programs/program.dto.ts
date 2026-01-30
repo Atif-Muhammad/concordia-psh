@@ -17,8 +17,6 @@ export class ProgramDto {
   @IsNotEmpty({ message: "Program's duration must be provided" })
   duration: string;
   @IsNotEmpty()
-
-
   @IsOptional()
   rollPrefix?: string;
 }

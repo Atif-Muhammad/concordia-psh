@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { EmployeeDto } from './dtos/employee.dot';
 import { StaffDto } from './dtos/staff.dto';
@@ -12,7 +17,7 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class HrService {
-  constructor(private prismService: PrismaService) { }
+  constructor(private prismService: PrismaService) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
   // UNIFIED STAFF MANAGEMENT (Teaching + Non-Teaching)
@@ -62,8 +67,8 @@ export class HrService {
         classSectionMappings: {
           include: {
             class: { include: { program: true } },
-            section: true
-          }
+            section: true,
+          },
         },
       },
     });
@@ -84,7 +89,9 @@ export class HrService {
 
     // Validate: at least one role must be selected
     if (!payload.isTeaching && !payload.isNonTeaching) {
-      throw new BadRequestException('Staff must have at least one role (Teaching or Non-Teaching)');
+      throw new BadRequestException(
+        'Staff must have at least one role (Teaching or Non-Teaching)',
+      );
     }
 
     try {
@@ -101,32 +108,59 @@ export class HrService {
           photo_public_id: payload.photo_public_id,
           staffType: payload.staffType as unknown as StaffType,
           status: (payload.status as unknown as StaffStatus) || 'ACTIVE',
-          basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : null,
-          joinDate: payload.joinDate && !isNaN(new Date(payload.joinDate).getTime()) ? new Date(payload.joinDate) : undefined,
-          leaveDate: payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime()) ? new Date(payload.leaveDate) : null,
-          contractStart: payload.contractStart && !isNaN(new Date(payload.contractStart).getTime()) ? new Date(payload.contractStart) : null,
-          contractEnd: payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime()) ? new Date(payload.contractEnd) : null,
+          basicPay:
+            payload.basicPay && !isNaN(parseFloat(payload.basicPay))
+              ? parseFloat(payload.basicPay)
+              : null,
+          joinDate:
+            payload.joinDate && !isNaN(new Date(payload.joinDate).getTime())
+              ? new Date(payload.joinDate)
+              : undefined,
+          leaveDate:
+            payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime())
+              ? new Date(payload.leaveDate)
+              : null,
+          contractStart:
+            payload.contractStart &&
+            !isNaN(new Date(payload.contractStart).getTime())
+              ? new Date(payload.contractStart)
+              : null,
+          contractEnd:
+            payload.contractEnd &&
+            !isNaN(new Date(payload.contractEnd).getTime())
+              ? new Date(payload.contractEnd)
+              : null,
 
           // Role flags
           isTeaching: payload.isTeaching ?? false,
           isNonTeaching: payload.isNonTeaching ?? false,
 
-          permissions: (payload.permissions as unknown as Prisma.JsonObject) || undefined,
+          permissions:
+            (payload.permissions as unknown as Prisma.JsonObject) || undefined,
 
           // Teaching-specific fields
           specialization: payload.isTeaching ? payload.specialization : null,
           highestDegree: payload.isTeaching ? payload.highestDegree : null,
-          departmentId: payload.departmentId && Number(payload.departmentId) > 0 ? Number(payload.departmentId) : undefined,
-          documents: payload.isTeaching ? (payload.documents as unknown as Prisma.JsonObject) : undefined,
+          departmentId:
+            payload.departmentId && Number(payload.departmentId) > 0
+              ? Number(payload.departmentId)
+              : undefined,
+          documents: payload.isTeaching
+            ? (payload.documents as unknown as Prisma.JsonObject)
+            : undefined,
 
           // Non-teaching specific fields
           designation: payload.isNonTeaching ? payload.designation : null,
-          empDepartment: payload.isNonTeaching ? (payload.empDepartment as unknown as EmployeeDepartment) : null,
+          empDepartment: payload.isNonTeaching
+            ? (payload.empDepartment as unknown as EmployeeDepartment)
+            : null,
         },
       });
     } catch (error: any) {
       if (error.code === 'P2002') {
-        throw new BadRequestException('Email or CNIC is already taken by another staff member');
+        throw new BadRequestException(
+          'Email or CNIC is already taken by another staff member',
+        );
       }
       throw error;
     }
@@ -139,9 +173,14 @@ export class HrService {
     }
 
     // Validate: at least one role must be selected if changing roles
-    if (payload.isTeaching !== undefined || payload.isNonTeaching !== undefined) {
+    if (
+      payload.isTeaching !== undefined ||
+      payload.isNonTeaching !== undefined
+    ) {
       if (!payload.isTeaching && !payload.isNonTeaching) {
-        throw new BadRequestException('Staff must have at least one role (Teaching or Non-Teaching)');
+        throw new BadRequestException(
+          'Staff must have at least one role (Teaching or Non-Teaching)',
+        );
       }
     }
 
@@ -160,22 +199,48 @@ export class HrService {
           photo_public_id: payload.photo_public_id,
           staffType: payload.staffType as unknown as StaffType,
           status: payload.status as unknown as StaffStatus,
-          basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : undefined,
-          joinDate: payload.joinDate && !isNaN(new Date(payload.joinDate).getTime()) ? new Date(payload.joinDate) : undefined,
-          leaveDate: payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime()) ? new Date(payload.leaveDate) : undefined,
-          contractStart: payload.contractStart && !isNaN(new Date(payload.contractStart).getTime()) ? new Date(payload.contractStart) : undefined,
-          contractEnd: payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime()) ? new Date(payload.contractEnd) : undefined,
+          basicPay:
+            payload.basicPay && !isNaN(parseFloat(payload.basicPay))
+              ? parseFloat(payload.basicPay)
+              : undefined,
+          joinDate:
+            payload.joinDate && !isNaN(new Date(payload.joinDate).getTime())
+              ? new Date(payload.joinDate)
+              : undefined,
+          leaveDate:
+            payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime())
+              ? new Date(payload.leaveDate)
+              : undefined,
+          contractStart:
+            payload.contractStart &&
+            !isNaN(new Date(payload.contractStart).getTime())
+              ? new Date(payload.contractStart)
+              : undefined,
+          contractEnd:
+            payload.contractEnd &&
+            !isNaN(new Date(payload.contractEnd).getTime())
+              ? new Date(payload.contractEnd)
+              : undefined,
 
           // Role flags (only update if provided)
-          ...(payload.isTeaching !== undefined && { isTeaching: payload.isTeaching }),
-          ...(payload.isNonTeaching !== undefined && { isNonTeaching: payload.isNonTeaching }),
+          ...(payload.isTeaching !== undefined && {
+            isTeaching: payload.isTeaching,
+          }),
+          ...(payload.isNonTeaching !== undefined && {
+            isNonTeaching: payload.isNonTeaching,
+          }),
 
-          ...(payload.permissions !== undefined && { permissions: payload.permissions as unknown as Prisma.JsonObject }),
+          ...(payload.permissions !== undefined && {
+            permissions: payload.permissions as unknown as Prisma.JsonObject,
+          }),
 
           // Teaching-specific fields
           specialization: payload.specialization,
           highestDegree: payload.highestDegree,
-          departmentId: payload.departmentId && Number(payload.departmentId) > 0 ? Number(payload.departmentId) : undefined,
+          departmentId:
+            payload.departmentId && Number(payload.departmentId) > 0
+              ? Number(payload.departmentId)
+              : undefined,
           documents: payload.documents as unknown as Prisma.JsonObject,
 
           // Non-teaching specific fields
@@ -186,7 +251,9 @@ export class HrService {
     } catch (error: any) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2002') {
-          throw new BadRequestException('Email or CNIC is already taken by another staff member');
+          throw new BadRequestException(
+            'Email or CNIC is already taken by another staff member',
+          );
         }
         if (error.code === 'P2025') {
           throw new NotFoundException('Staff not found');
@@ -222,7 +289,9 @@ export class HrService {
 
     // Block deletion if assigned to classes
     if (staff.classSectionMappings.length > 0) {
-      const classNames = staff.classSectionMappings.map(m => m.class.name).join(', ');
+      const classNames = staff.classSectionMappings
+        .map((m) => m.class.name)
+        .join(', ');
       throw new ForbiddenException(
         `Cannot delete staff "${staff.name}". They are assigned to class(es): ${classNames}. Remove class assignments first.`,
       );
@@ -230,7 +299,7 @@ export class HrService {
 
     // Block deletion if teaching subjects
     if (staff.subjects.length > 0) {
-      const subjectNames = staff.subjects.map(s => s.subject.name).join(', ');
+      const subjectNames = staff.subjects.map((s) => s.subject.name).join(', ');
       throw new ForbiddenException(
         `Cannot delete staff "${staff.name}". They teach subject(s): ${subjectNames}. Unassign from subjects first.`,
       );
@@ -238,12 +307,16 @@ export class HrService {
 
     // Cleanup: Delete timetable entries
     if (staff.timetables.length > 0) {
-      await this.prismService.timetable.deleteMany({ where: { teacherId: id } });
+      await this.prismService.timetable.deleteMany({
+        where: { teacherId: id },
+      });
     }
 
     // Cleanup: Delete assignments
     if (staff.assignments.length > 0) {
-      await this.prismService.assignment.deleteMany({ where: { teacherId: id } });
+      await this.prismService.assignment.deleteMany({
+        where: { teacherId: id },
+      });
     }
 
     // Delete associated photo from cloudinary if exists
@@ -256,13 +329,13 @@ export class HrService {
   // END UNIFIED STAFF MANAGEMENT
   // ═══════════════════════════════════════════════════════════════════════════
 
-
-
   /**
    * Check if a date is a non-working day (weekend or holiday)
    * Copied from AttendanceService to verify dates in HR module
    */
-  async isNonWorkingDay(date: Date): Promise<{ isBlocked: boolean; reason?: string }> {
+  async isNonWorkingDay(
+    date: Date,
+  ): Promise<{ isBlocked: boolean; reason?: string }> {
     const dayOfWeek = date.getUTCDay();
 
     if (dayOfWeek === 0 || dayOfWeek === 6) {
@@ -273,10 +346,15 @@ export class HrService {
     dateOnly.setUTCHours(0, 0, 0, 0);
 
     const now = new Date();
-    const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    const today = new Date(
+      Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()),
+    );
 
     if (dateOnly.getTime() > today.getTime()) {
-      return { isBlocked: true, reason: 'Cannot mark attendance for future dates' };
+      return {
+        isBlocked: true,
+        reason: 'Cannot mark attendance for future dates',
+      };
     }
 
     const holidays = await this.prismService.holiday.findMany();
@@ -312,12 +390,14 @@ export class HrService {
     }
 
     if (search) {
-      where.OR = [
-        { name: { contains: search } },
-      ];
+      where.OR = [{ name: { contains: search } }];
       // Basic check if search string matches a department enum
       const upperSearch = search.toUpperCase();
-      if (Object.values(EmployeeDepartment).includes(upperSearch as EmployeeDepartment)) {
+      if (
+        Object.values(EmployeeDepartment).includes(
+          upperSearch as EmployeeDepartment,
+        )
+      ) {
         where.OR.push({ empDepartment: upperSearch as EmployeeDepartment });
       }
     }
@@ -341,14 +421,27 @@ export class HrService {
         empDepartment: payload.empDepartment as unknown as EmployeeDepartment,
         staffType: payload.staffType as unknown as StaffType,
         status: payload.status as unknown as StaffStatus,
-        basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : null,
+        basicPay:
+          payload.basicPay && !isNaN(parseFloat(payload.basicPay))
+            ? parseFloat(payload.basicPay)
+            : null,
         phone: payload.contactNumber,
         joinDate: payload.joinDate ? new Date(payload.joinDate) : undefined,
-        leaveDate: payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime()) ? new Date(payload.leaveDate) : null,
+        leaveDate:
+          payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime())
+            ? new Date(payload.leaveDate)
+            : null,
         photo_url: payload.photo_url,
         photo_public_id: payload.photo_public_id,
-        contractStart: payload.contractStart && !isNaN(new Date(payload.contractStart).getTime()) ? new Date(payload.contractStart) : null,
-        contractEnd: payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime()) ? new Date(payload.contractEnd) : null,
+        contractStart:
+          payload.contractStart &&
+          !isNaN(new Date(payload.contractStart).getTime())
+            ? new Date(payload.contractStart)
+            : null,
+        contractEnd:
+          payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime())
+            ? new Date(payload.contractEnd)
+            : null,
         isTeaching: false,
         isNonTeaching: true,
       },
@@ -368,14 +461,27 @@ export class HrService {
         empDepartment: payload.empDepartment as unknown as EmployeeDepartment,
         staffType: payload.staffType as unknown as StaffType,
         status: payload.status as unknown as StaffStatus,
-        basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : undefined,
+        basicPay:
+          payload.basicPay && !isNaN(parseFloat(payload.basicPay))
+            ? parseFloat(payload.basicPay)
+            : undefined,
         phone: payload.contactNumber,
         joinDate: payload.joinDate ? new Date(payload.joinDate) : undefined,
-        leaveDate: payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime()) ? new Date(payload.leaveDate) : undefined,
+        leaveDate:
+          payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime())
+            ? new Date(payload.leaveDate)
+            : undefined,
         photo_url: payload.photo_url,
         photo_public_id: payload.photo_public_id,
-        contractStart: payload.contractStart && !isNaN(new Date(payload.contractStart).getTime()) ? new Date(payload.contractStart) : undefined,
-        contractEnd: payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime()) ? new Date(payload.contractEnd) : undefined,
+        contractStart:
+          payload.contractStart &&
+          !isNaN(new Date(payload.contractStart).getTime())
+            ? new Date(payload.contractStart)
+            : undefined,
+        contractEnd:
+          payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime())
+            ? new Date(payload.contractEnd)
+            : undefined,
       },
     });
   }
@@ -677,7 +783,6 @@ export class HrService {
         },
       });
     }
-
   }
 
   // Leave Management
@@ -838,8 +943,8 @@ export class HrService {
         admin: { select: { name: true } },
       },
       orderBy: {
-        staff: { name: 'asc' }
-      }
+        staff: { name: 'asc' },
+      },
     });
   }
 
@@ -851,7 +956,9 @@ export class HrService {
     // Check for Non-Working Day
     const dateCheck = await this.isNonWorkingDay(targetDate);
     if (dateCheck.isBlocked) {
-      throw new BadRequestException(`Cannot mark attendance: ${dateCheck.reason}`);
+      throw new BadRequestException(
+        `Cannot mark attendance: ${dateCheck.reason}`,
+      );
     }
 
     const staffId = data.staffId || data.employeeId || data.teacherId;
@@ -961,7 +1068,10 @@ export class HrService {
     });
   }
 
-  async getAdvanceSalaries(month?: string, type?: 'teacher' | 'employee' | 'all') {
+  async getAdvanceSalaries(
+    month?: string,
+    type?: 'teacher' | 'employee' | 'all',
+  ) {
     const where: any = {};
 
     if (month) {
@@ -985,8 +1095,8 @@ export class HrService {
             designation: true,
             specialization: true,
             isTeaching: true,
-            isNonTeaching: true
-          }
+            isNonTeaching: true,
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -1027,23 +1137,22 @@ export class HrService {
     }
 
     // Get attendance records for the specified month
-    const attendanceRecords =
-      await this.prismService.staffAttendance.findMany({
-        where: {
-          staffId: teacherId,
-          date: {
-            gte: startDate,
-            lte: endDate,
-          },
+    const attendanceRecords = await this.prismService.staffAttendance.findMany({
+      where: {
+        staffId: teacherId,
+        date: {
+          gte: startDate,
+          lte: endDate,
         },
-        select: {
-          status: true,
-          date: true,
-        },
-        orderBy: {
-          date: 'asc',
-        },
-      });
+      },
+      select: {
+        status: true,
+        date: true,
+      },
+      orderBy: {
+        date: 'asc',
+      },
+    });
 
     // Calculate summary
     const summary = {
@@ -1116,7 +1225,10 @@ export class HrService {
   }
 
   // History
-  async getPayrollHistory(staffId: number, type: 'teacher' | 'employee' | 'all') {
+  async getPayrollHistory(
+    staffId: number,
+    type: 'teacher' | 'employee' | 'all',
+  ) {
     const where: any = {};
 
     if (type === 'teacher') {
@@ -1136,17 +1248,15 @@ export class HrService {
 
     return payrolls.map((p) => {
       const staff = p.staff;
-      const designation =
-        staff?.isTeaching
-          ? staff?.specialization
-            ? `Teacher - ${staff.specialization}`
-            : 'Teacher'
-          : staff?.designation || 'Employee';
+      const designation = staff?.isTeaching
+        ? staff?.specialization
+          ? `Teacher - ${staff.specialization}`
+          : 'Teacher'
+        : staff?.designation || 'Employee';
 
-      const dept =
-        staff?.isTeaching
-          ? (staff as any).department?.name
-          : (staff?.empDepartment as any) || 'N/A';
+      const dept = staff?.isTeaching
+        ? (staff as any).department?.name
+        : (staff?.empDepartment as any) || 'N/A';
 
       const totalAllowances =
         (p.extraAllowance || 0) +

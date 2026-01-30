@@ -1,4 +1,9 @@
-import { IsArray, IsNotEmpty, IsOptional, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsNotEmpty,
+  IsOptional,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateMarksDto {
@@ -18,7 +23,7 @@ export class CreateMarksDto {
   isAbsent?: boolean;
 }
 
-export class UpdateMarksDto extends CreateMarksDto { }
+export class UpdateMarksDto extends CreateMarksDto {}
 
 export class BulkCreateMarksDto {
   @IsArray()

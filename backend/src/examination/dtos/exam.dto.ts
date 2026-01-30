@@ -27,4 +27,4 @@ export class CreateExamDto {
   }[];
 }
 
-export class UpdateExamDto extends CreateExamDto { }
+export class UpdateExamDto extends CreateExamDto {}

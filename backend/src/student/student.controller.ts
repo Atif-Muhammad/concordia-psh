@@ -23,7 +23,7 @@ export class StudentController {
   constructor(
     private readonly studentService: StudentService,
     private readonly cloudinaryService: CloudinaryService,
-  ) { }
+  ) {}
 
   @Get('get/all/passout')
   async getPassoutStudents(
@@ -37,7 +37,8 @@ export class StudentController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    if (!programId && !classId && !sectionId && !searchQuery && !status) return [];
+    if (!programId && !classId && !sectionId && !searchQuery && !status)
+      return [];
 
     const effectiveStatus = status || 'GRADUATED'; // default or specific
 
@@ -106,10 +107,10 @@ export class StudentController {
     return student;
   }
 
-
-
   @Post('create')
-  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
   async createStudent(
     @UploadedFile() file: Express.Multer.File,
     @Body() payload: StudentDto,
@@ -149,7 +150,9 @@ export class StudentController {
   }
 
   @Patch('update')
-  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
   async updateStudent(
     @UploadedFile() file: Express.Multer.File,
     @Query() studentID: { studentID: string },

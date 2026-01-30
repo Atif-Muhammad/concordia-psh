@@ -9,7 +9,7 @@ import { UpdateRegistrationDto } from './dtos/update-registration.dto';
 
 @Injectable()
 export class HostelService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // REGISTRATION CRUD
@@ -22,7 +22,9 @@ export class HostelService {
       });
 
       if (existing) {
-        throw new BadRequestException('Student is already registered in hostel');
+        throw new BadRequestException(
+          'Student is already registered in hostel',
+        );
       }
     }
 

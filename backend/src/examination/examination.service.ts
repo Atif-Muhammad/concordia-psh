@@ -1,13 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateExamDto, UpdateExamDto } from './dtos/exam.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { CreateMarksDto, UpdateMarksDto, BulkCreateMarksDto } from './dtos/marks.dto';
+import {
+  CreateMarksDto,
+  UpdateMarksDto,
+  BulkCreateMarksDto,
+} from './dtos/marks.dto';
 import { CreateResultDto, UpdateResultDto } from './dtos/result.dto';
 import { CreatePositionDto, UpdatePositionDto } from './dtos/position.dto';
 
 @Injectable()
 export class ExaminationService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
   // exam
   create(dto: CreateExamDto) {
     const { schedule, ...examData } = dto;
@@ -18,14 +22,14 @@ export class ExaminationService {
         endDate: new Date(dto.endDate),
         schedules: schedule
           ? {
-            create: schedule.map((s) => ({
-              subjectId: Number(s.subjectId),
-              date: new Date(s.date),
-              startTime: s.startTime,
-              endTime: s.endTime,
-              totalMarks: Number(s.totalMarks || 100),
-            })),
-          }
+              create: schedule.map((s) => ({
+                subjectId: Number(s.subjectId),
+                date: new Date(s.date),
+                startTime: s.startTime,
+                endTime: s.endTime,
+                totalMarks: Number(s.totalMarks || 100),
+              })),
+            }
           : undefined,
       },
     });

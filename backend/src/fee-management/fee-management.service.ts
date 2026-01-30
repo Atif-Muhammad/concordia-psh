@@ -13,7 +13,7 @@ import { UpdateFeeChallanDto } from './dtos/update-fee-challan.dto';
 
 @Injectable()
 export class FeeManagementService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   private generateNumericChallanNumber(): string {
     // Generate a 12-digit numeric string
@@ -318,15 +318,22 @@ export class FeeManagementService {
         feeStructureId = structure.id;
         // If amount is not manually overridden, calculate based on installments
         if (amount === undefined || amount === null) {
-          const agreedTuitionTotal = (student as any).tuitionFee || structure.totalAmount;
+          const agreedTuitionTotal =
+            (student as any).tuitionFee || structure.totalAmount;
           const standardTuitionTotal = structure.totalAmount;
-          const standardInstallmentAmount = Math.round(standardTuitionTotal / structure.installments);
-          const agreedInstallmentAmount = Math.round(agreedTuitionTotal / structure.installments);
+          const standardInstallmentAmount = Math.round(
+            standardTuitionTotal / structure.installments,
+          );
+          const agreedInstallmentAmount = Math.round(
+            agreedTuitionTotal / structure.installments,
+          );
 
           // If agreed is less than standard, treat standard as base and diff as scholarship
           if (standardInstallmentAmount > agreedInstallmentAmount) {
             amount = standardInstallmentAmount;
-            payload.discount = (payload.discount || 0) + (standardInstallmentAmount - agreedInstallmentAmount);
+            payload.discount =
+              (payload.discount || 0) +
+              (standardInstallmentAmount - agreedInstallmentAmount);
           } else {
             amount = agreedInstallmentAmount;
           }
@@ -391,7 +398,15 @@ export class FeeManagementService {
   }
 
   async getFeeChallans(query: any) {
-    const { studentId, search, status, month, installmentNumber, startDate, endDate } = query;
+    const {
+      studentId,
+      search,
+      status,
+      month,
+      installmentNumber,
+      startDate,
+      endDate,
+    } = query;
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 10;
 
@@ -411,10 +426,7 @@ export class FeeManagementService {
         searchConditions.push({ installmentNumber: Number(search) });
       }
 
-      where.AND = [
-        ...(where.AND || []),
-        { OR: searchConditions }
-      ];
+      where.AND = [...(where.AND || []), { OR: searchConditions }];
     }
 
     if (status && status !== 'all') {
@@ -436,9 +448,12 @@ export class FeeManagementService {
         {
           OR: [
             { studentProgramId: Number(query.programId) },
-            { studentProgramId: null, student: { programId: Number(query.programId) } }
-          ]
-        }
+            {
+              studentProgramId: null,
+              student: { programId: Number(query.programId) },
+            },
+          ],
+        },
       ];
     }
 
@@ -448,9 +463,12 @@ export class FeeManagementService {
         {
           OR: [
             { studentClassId: Number(query.classId) },
-            { studentClassId: null, student: { classId: Number(query.classId) } }
-          ]
-        }
+            {
+              studentClassId: null,
+              student: { classId: Number(query.classId) },
+            },
+          ],
+        },
       ];
     }
 
@@ -461,12 +479,14 @@ export class FeeManagementService {
           OR: [
             { studentSectionId: Number(query.sectionId) },
             // Fallback
-            { studentSectionId: null, student: { sectionId: Number(query.sectionId) } }
-          ]
-        }
+            {
+              studentSectionId: null,
+              student: { sectionId: Number(query.sectionId) },
+            },
+          ],
+        },
       ];
     }
-
 
     if (month) {
       const year = new Date().getFullYear();
@@ -494,10 +514,7 @@ export class FeeManagementService {
         studentClass: true,
         studentProgram: true,
       },
-      orderBy: [
-        { dueDate: 'asc' },
-        { installmentNumber: 'asc' }
-      ],
+      orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
     });
 
     return {
@@ -520,7 +537,7 @@ export class FeeManagementService {
       where.OR = [
         ...(where.OR || []),
         { studentProgramId: Number(programId) },
-        { studentProgramId: null, student: { programId: Number(programId) } }
+        { studentProgramId: null, student: { programId: Number(programId) } },
       ];
     }
 
@@ -532,9 +549,9 @@ export class FeeManagementService {
         {
           OR: [
             { studentClassId: Number(classId) },
-            { studentClassId: null, student: { classId: Number(classId) } }
-          ]
-        }
+            { studentClassId: null, student: { classId: Number(classId) } },
+          ],
+        },
       ];
     }
 
@@ -545,9 +562,12 @@ export class FeeManagementService {
           OR: [
             { studentSectionId: Number(sectionId) },
             // Fallback only useful if student hasn't moved sections
-            { studentSectionId: null, student: { sectionId: Number(sectionId) } }
-          ]
-        }
+            {
+              studentSectionId: null,
+              student: { sectionId: Number(sectionId) },
+            },
+          ],
+        },
       ];
     }
 
@@ -565,17 +585,18 @@ export class FeeManagementService {
         studentClass: true,
         studentProgram: true,
       },
-      orderBy: [
-        { dueDate: 'asc' },
-        { student: { rollNumber: 'asc' } }
-      ],
+      orderBy: [{ dueDate: 'asc' }, { student: { rollNumber: 'asc' } }],
     });
 
     // Calculate dynamic late fees
     const now = new Date();
     data.forEach((challan: any) => {
       challan.lateFeeFine = 0;
-      if (challan.status === 'PENDING' && challan.dueDate && challan.student?.lateFeeFine > 0) {
+      if (
+        challan.status === 'PENDING' &&
+        challan.dueDate &&
+        challan.student?.lateFeeFine > 0
+      ) {
         const dueDate = new Date(challan.dueDate);
         if (now > dueDate) {
           const diffTime = Math.abs(now.getTime() - dueDate.getTime());
@@ -587,7 +608,6 @@ export class FeeManagementService {
 
     return data;
   }
-
 
   async updateFeeChallan(id: number, payload: UpdateFeeChallanDto) {
     // Handle status change logic if needed (e.g. updating paidAmount)
@@ -655,7 +675,10 @@ export class FeeManagementService {
           // Net Tuition Due = (Challan Amount - Persisted Discount) - Already Paid toward tuition
           const netTuitionTotal = challan.amount - challan.discount;
           const tuitionDue = Math.max(0, netTuitionTotal - challan.tuitionPaid);
-          const additionalDue = Math.max(0, challan.fineAmount - challan.additionalPaid);
+          const additionalDue = Math.max(
+            0,
+            challan.fineAmount - challan.additionalPaid,
+          );
 
           // Allocate payment: Tuition first, then additional charges
           let remainingPayment = paymentIncrease;
@@ -701,9 +724,11 @@ export class FeeManagementService {
 
             // Use Math.round with a small epsilon or just Math.round to handle floating point/rounding differences
             // If they pay the expected tuition, they cover the installment
-            installmentsCovered = Math.round(tuitionPayment / installmentAmount);
+            installmentsCovered = Math.round(
+              tuitionPayment / installmentAmount,
+            );
           } else if (challan.installmentNumber > 0 && tuitionPayment > 0) {
-            // Fallback: If this is a pre-generated installment challan (number > 0) 
+            // Fallback: If this is a pre-generated installment challan (number > 0)
             // and we're paying tuition, it covers (at least) this installment.
             installmentsCovered = 1;
           }
@@ -714,7 +739,10 @@ export class FeeManagementService {
             let startInstallment = challan.installmentNumber || 1;
 
             // If it's zero (Additional Charges) or we need to calculate specifically for arrears
-            if (challan.installmentNumber === 0 || (challan.includesArrears && challan.studentArrearId)) {
+            if (
+              challan.installmentNumber === 0 ||
+              (challan.includesArrears && challan.studentArrearId)
+            ) {
               if (challan.includesArrears && challan.studentArrearId) {
                 const arrear = await this.prisma.studentArrear.findUnique({
                   where: { id: challan.studentArrearId },
@@ -878,7 +906,9 @@ export class FeeManagementService {
         },
       });
       if (structure) {
-        standardInstallmentAmount = Math.round(structure.totalAmount / structure.installments);
+        standardInstallmentAmount = Math.round(
+          structure.totalAmount / structure.installments,
+        );
       }
     }
 
@@ -1002,7 +1032,11 @@ export class FeeManagementService {
     const now = new Date();
     history.forEach((challan: any) => {
       challan.lateFeeFine = 0;
-      if (challan.status === 'PENDING' && challan.dueDate && challan.student?.lateFeeFine > 0) {
+      if (
+        challan.status === 'PENDING' &&
+        challan.dueDate &&
+        challan.student?.lateFeeFine > 0
+      ) {
         const dueDate = new Date(challan.dueDate);
         if (now > dueDate) {
           const diffTime = Math.abs(now.getTime() - dueDate.getTime());
@@ -1084,7 +1118,10 @@ export class FeeManagementService {
           .reduce((sum, fh) => sum + fh.amount, 0);
       }
 
-      const totalPaid = challans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
+      const totalPaid = challans.reduce(
+        (sum, c) => sum + (c.paidAmount || 0),
+        0,
+      );
       const totalDiscount = challans.reduce(
         (sum, c) => sum + (c.discount || 0),
         0,
@@ -1101,35 +1138,48 @@ export class FeeManagementService {
 
       const totalInstallments = feeStructure?.installments || 0;
 
-      // Improved logic for session total: 
+      // Improved logic for session total:
       // If no fee heads are marked as tuition, treat the entire structure as tuition to be replaced.
-      const tuitionBaseInStructure = tuitionOnlyAmount > 0 ? tuitionOnlyAmount : (feeStructure?.totalAmount || 0);
-      const otherChargesAmount = Math.max(0, (feeStructure?.totalAmount || 0) - tuitionBaseInStructure);
+      const tuitionBaseInStructure =
+        tuitionOnlyAmount > 0
+          ? tuitionOnlyAmount
+          : feeStructure?.totalAmount || 0;
+      const otherChargesAmount = Math.max(
+        0,
+        (feeStructure?.totalAmount || 0) - tuitionBaseInStructure,
+      );
 
-      const effectiveTuition = (session.isCurrentSession && student.tuitionFee && student.tuitionFee > 0)
-        ? student.tuitionFee
-        : tuitionBaseInStructure;
+      const effectiveTuition =
+        session.isCurrentSession && student.tuitionFee && student.tuitionFee > 0
+          ? student.tuitionFee
+          : tuitionBaseInStructure;
 
       const sessionTotalAmount = effectiveTuition + otherChargesAmount;
       const tuitionPaid = totalPaid - totalAdditional + totalDiscount;
 
       // New: Calculate breakdown of additional charges paid from selectedHeads JSON
       const additionalChargesMap = new Map();
-      challans.filter(c => c.status === 'PAID' && c.selectedHeads).forEach(c => {
-        try {
-          const parsedHeads = JSON.parse(c.selectedHeads) || [];
-          if (Array.isArray(parsedHeads)) {
-            parsedHeads.forEach(head => {
-              // Only count if it's an additional charge (not tuition, not discount)
-              const isAdditional = head.type === 'additional' || (!head.type && !head.isTuition && !head.isDiscount);
-              if (isAdditional && head.amount > 0) {
-                const current = additionalChargesMap.get(head.name) || 0;
-                additionalChargesMap.set(head.name, current + head.amount);
-              }
-            });
+      challans
+        .filter((c) => c.status === 'PAID' && c.selectedHeads)
+        .forEach((c) => {
+          try {
+            const parsedHeads = JSON.parse(c.selectedHeads) || [];
+            if (Array.isArray(parsedHeads)) {
+              parsedHeads.forEach((head) => {
+                // Only count if it's an additional charge (not tuition, not discount)
+                const isAdditional =
+                  head.type === 'additional' ||
+                  (!head.type && !head.isTuition && !head.isDiscount);
+                if (isAdditional && head.amount > 0) {
+                  const current = additionalChargesMap.get(head.name) || 0;
+                  additionalChargesMap.set(head.name, current + head.amount);
+                }
+              });
+            }
+          } catch (e) {
+            /* ignore parse errors */
           }
-        } catch (e) { /* ignore parse errors */ }
-      });
+        });
       const additionalChargesPaid = Object.fromEntries(additionalChargesMap);
 
       return {
@@ -1147,7 +1197,10 @@ export class FeeManagementService {
           remainingDues: Math.max(0, sessionTotalAmount - tuitionPaid),
           paidInstallments,
           totalInstallments,
-          pendingInstallments: Math.max(0, totalInstallments - paidInstallments),
+          pendingInstallments: Math.max(
+            0,
+            totalInstallments - paidInstallments,
+          ),
           additionalChargesPaid, // Breakdown object { name: amount }
         },
       };
@@ -1158,14 +1211,14 @@ export class FeeManagementService {
     const summary = currentSession
       ? currentSession.stats
       : {
-        sessionFee: 0,
-        paidThisSession: 0,
-        tuitionPaid: 0,
-        remainingDues: 0,
-        paidInstallments: 0,
-        totalInstallments: 0,
-        pendingInstallments: 0,
-      };
+          sessionFee: 0,
+          paidThisSession: 0,
+          tuitionPaid: 0,
+          remainingDues: 0,
+          paidInstallments: 0,
+          totalInstallments: 0,
+          pendingInstallments: 0,
+        };
 
     return {
       student,
@@ -1447,7 +1500,10 @@ export class FeeManagementService {
           dynamicLateFee -
           (c.discount || 0);
 
-        stats[className].outstanding += Math.max(0, netAmount - (c.paidAmount || 0));
+        stats[className].outstanding += Math.max(
+          0,
+          netAmount - (c.paidAmount || 0),
+        );
       }
     });
 
@@ -1471,7 +1527,7 @@ export class FeeManagementService {
       data: {
         name,
         htmlContent,
-        isDefault
+        isDefault,
       },
     });
   }
@@ -1485,7 +1541,9 @@ export class FeeManagementService {
   async removeChallansForDemotion(studentId: number, classId: number) {
     if (!studentId || !classId) return;
 
-    console.log(`🧹 Cleaning up challans for student ${studentId} in class ${classId} (Demotion)`);
+    console.log(
+      `🧹 Cleaning up challans for student ${studentId} in class ${classId} (Demotion)`,
+    );
 
     // Delete ONLY unpaid/pending challans for the class being left
     // We rely on the snapshot 'studentClassId' AND the 'feeStructure.classId' to be safe
@@ -1500,16 +1558,16 @@ export class FeeManagementService {
             OR: [
               { studentClassId: classId }, // Snapshot match
               {
-                studentClassId: null,      // Legacy fallback
-                feeStructure: { classId: classId }
+                studentClassId: null, // Legacy fallback
+                feeStructure: { classId: classId },
               },
-              // FALLBACK: If no snapshot and no fee structure link (orphaned?), 
+              // FALLBACK: If no snapshot and no fee structure link (orphaned?),
               // we might want to check against the student's *current* class (which is still 'classId' coming in)
               // But 'classId' arg IS the current class.
-            ]
-          }
-        ]
-      }
+            ],
+          },
+        ],
+      },
     });
 
     console.log(`✅ Deleted ${result.count} challans.`);
@@ -1521,7 +1579,9 @@ export class FeeManagementService {
     });
 
     if (!template) {
-      throw new NotFoundException(`Fee challan template with ID ${id} not found`);
+      throw new NotFoundException(
+        `Fee challan template with ID ${id} not found`,
+      );
     }
 
     return template;
@@ -1533,7 +1593,9 @@ export class FeeManagementService {
     });
 
     if (!template) {
-      throw new NotFoundException(`Fee challan template with ID ${id} not found`);
+      throw new NotFoundException(
+        `Fee challan template with ID ${id} not found`,
+      );
     }
 
     // If setting as default, unset other defaults
@@ -1541,7 +1603,7 @@ export class FeeManagementService {
       await this.prisma.feeChallanTemplate.updateMany({
         where: {
           id: { not: id },
-          isDefault: true
+          isDefault: true,
         },
         data: { isDefault: false },
       });
@@ -1559,7 +1621,9 @@ export class FeeManagementService {
     });
 
     if (!template) {
-      throw new NotFoundException(`Fee challan template with ID ${id} not found`);
+      throw new NotFoundException(
+        `Fee challan template with ID ${id} not found`,
+      );
     }
 
     return await this.prisma.feeChallanTemplate.delete({
