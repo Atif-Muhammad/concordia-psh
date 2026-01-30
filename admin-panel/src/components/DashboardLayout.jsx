@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, DollarSign, ClipboardCheck, GraduationCap,
   BookOpen, Settings, BriefcaseBusiness, Home, FileText, TrendingUp,
-  Menu, X, LogOut, Bell, ChevronLeft, ChevronRight, Package, UserCircle, Lock, User
+  Menu, X, LogOut, Bell, ChevronLeft, ChevronRight, Package, UserCircle, Lock, User, UsersRound
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -25,7 +25,8 @@ const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { icon: FileText, label: "Front Office", path: "/front-office" },
   { icon: Users, label: "Students", path: "/students" },
-  { icon: UserCircle, label: "Teachers", path: "/teachers" },
+  { icon: UsersRound, label: "Staff", path: "/staff" },
+  // { icon: UserCircle, label: "Teachers", path: "/teachers" },
   { icon: ClipboardCheck, label: "Attendance", path: "/attendance" },
   { icon: DollarSign, label: "Fee Management", path: "/fee-management" },
   { icon: BookOpen, label: "Examination", path: "/examination" },
@@ -85,7 +86,7 @@ const DashboardLayout = ({ children }) => {
   // Determine allowed modules
   const modulePermissions = currentUser?.permissions?.modules ?? [];
   const hasModulePermissions = Array.isArray(modulePermissions) && modulePermissions.length > 0;
-  const isTeacher = currentUser?.role === "Teacher";
+  const isTeacherOrStaff = currentUser?.role === "Teacher";
   const isSuperAdmin = currentUser?.role === "SUPER_ADMIN";
 
   const canAccess = (label) => {
@@ -94,13 +95,16 @@ const DashboardLayout = ({ children }) => {
       return true;
     }
 
-    if (hasModulePermissions) {
+    // Hardcoded permissions for all staff (teaching/non-teaching)
+    if (isTeacherOrStaff && ["Attendance", "Examination"].includes(label)) {
+      return true;
+    }
+
+    // Explicitly granted module permissions
+    if (Array.isArray(modulePermissions)) {
       return modulePermissions.includes(label);
     }
-    // No module list → fallback to role
-    if (isTeacher) {
-      return ["Attendance", "Examination"].includes(label);
-    }
+
     return false;
   };
 
@@ -119,7 +123,7 @@ const DashboardLayout = ({ children }) => {
           sidebarCollapsed ? "lg:w-16" : "lg:w-64"
         )}
       >
-        <div className="flex flex-col flex-grow pt-5 overflow-y-auto">
+        <div className="flex flex-col flex-grow pt-5 overflow-y-auto scrollbar-thin">
           {/* Logo */}
           <div
             className={cn(
@@ -153,26 +157,7 @@ const DashboardLayout = ({ children }) => {
               const isActive = location.pathname === item.path;
               const hasAccess = canAccess(item.label);
 
-              if (!hasAccess) {
-                return (
-                  <div
-                    key={item.path}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium cursor-not-allowed text-sidebar-foreground/40",
-                      sidebarCollapsed && "justify-center"
-                    )}
-                    title={sidebarCollapsed ? `${item.label} (No Access)` : undefined}
-                  >
-                    <Icon className="w-5 h-5 shrink-0 opacity-50" />
-                    {!sidebarCollapsed && (
-                      <span className="flex items-center gap-1">
-                        {item.label}
-                        <Lock className="w-3 h-3" />
-                      </span>
-                    )}
-                  </div>
-                );
-              }
+              if (!hasAccess) return null;
 
               return (
                 <Link
@@ -253,19 +238,7 @@ const DashboardLayout = ({ children }) => {
                   const isActive = location.pathname === item.path;
                   const hasAccess = canAccess(item.label);
 
-                  if (!hasAccess) {
-                    return (
-                      <div
-                        key={item.path}
-                        className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/40 cursor-not-allowed"
-                      >
-                        <Icon className="w-5 h-5 opacity-50" />
-                        <span className="flex items-center gap-1">
-                          {item.label} <Lock className="w-3 h-3" />
-                        </span>
-                      </div>
-                    );
-                  }
+                  if (!hasAccess) return null;
 
                   return (
                     <Link

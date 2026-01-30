@@ -42,7 +42,7 @@ export class CreateFeeChallanDto {
 
   @IsArray()
   @IsOptional()
-  selectedHeads?: number[];
+  selectedHeads?: any[]; // Accept full fee head objects (snapshot) or IDs
 
   @IsNumber()
   @IsOptional()

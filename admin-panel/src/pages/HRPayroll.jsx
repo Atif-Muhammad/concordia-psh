@@ -19,7 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, getEmployeeAttendance, markEmployeeAttendance, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet } from "../../config/apis";
+import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet } from "../../config/apis";
 import { Loader2 } from "lucide-react";
 import { calculateDuration } from "../lib/dateUtils";
 
@@ -27,7 +27,7 @@ const HRPayroll = () => {
   const {
     toast
   } = useToast();
-  const [activeTab, setActiveTab] = useState("employees");
+  const [activeTab, setActiveTab] = useState("leaves");
   const [employeeOpen, setEmployeeOpen] = useState(false);
   const [payrollOpen, setPayrollOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -45,6 +45,7 @@ const HRPayroll = () => {
   const [viewEmployeeOpen, setViewEmployeeOpen] = useState(false);
   const [viewEmployee, setViewEmployee] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [advanceRoleFilter, setAdvanceRoleFilter] = useState("all");
 
   const handleIDCardPreview = async (employee) => {
     try {
@@ -85,65 +86,7 @@ const HRPayroll = () => {
   const [payrollType, setPayrollType] = useState("employee");
   const [payrollData, setPayrollData] = useState([]);
 
-  // Attendance Queries
-  const { data: attendanceEmployees = [] } = useQuery({
-    queryKey: ["employees", selectedDepartment],
-    queryFn: () => getEmp(selectedDepartment === "ALL" ? "" : selectedDepartment),
-  });
-
-  const { data: employeeAttendance = [], isFetching: attendanceLoading } = useQuery({
-    queryKey: ["employeeAttendance", selectedDate],
-    queryFn: () => getEmployeeAttendance(selectedDate),
-  });
-
   const queryClient = useQueryClient();
-
-  const markAttendanceMutation = useMutation({
-    mutationFn: ({ id, status, date }) => markEmployeeAttendance({ employeeId: id, status, date, markedBy: 1 }), // Assuming admin ID 1 for now
-    onSuccess: (savedRecord) => {
-      queryClient.setQueryData(["employeeAttendance", selectedDate], (oldData) => {
-        if (!oldData) return [savedRecord];
-
-        const existingIndex = oldData.findIndex(r => r.employeeId === savedRecord.employeeId);
-
-        if (existingIndex > -1) {
-          const newData = [...oldData];
-          newData[existingIndex] = savedRecord;
-          return newData;
-        } else {
-          return [...oldData, savedRecord];
-        }
-      });
-      toast({
-        title: "Attendance Marked",
-        description: "Employee attendance has been updated successfully.",
-      });
-    },
-    onError: (error) => {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message,
-      });
-    },
-  });
-
-  const handleMarkAttendance = (id, status) => {
-    markAttendanceMutation.mutate({
-      id,
-      status,
-      date: format(selectedDate, "yyyy-MM-dd"),
-    });
-  };
-
-  const markAllPresent = () => {
-    attendanceEmployees.filter(e => e.status === "ACTIVE").forEach(emp => {
-      const record = employeeAttendance.find(a => a.employeeId === emp.id);
-      if (!record || record.status !== "PRESENT") {
-        handleMarkAttendance(emp.id, "PRESENT");
-      }
-    });
-  };
 
 
   // Employee Detail Data Queries
@@ -182,7 +125,7 @@ const HRPayroll = () => {
     address: "",
     designation: "",
     empDepartment: "",
-    employmentType: "PERMANENT",
+    staffType: "PERMANENT",
     status: "ACTIVE",
     joinDate: new Date().toISOString().split("T")[0],
     leaveDate: "",
@@ -192,12 +135,11 @@ const HRPayroll = () => {
   });
 
   const [advanceFormData, setAdvanceFormData] = useState({
-    type: "employee",  // NEW: Add type selection
-    employeeId: "",
-    teacherId: "",     // NEW: Add teacherId field
+    staffId: "",
     month: new Date().toISOString().slice(0, 7),
     amount: 0,
-    remarks: ""
+    remarks: "",
+    adjusted: false
   });
 
   const [leaveFormData, setLeaveFormData] = useState({
@@ -458,7 +400,7 @@ const HRPayroll = () => {
     payload.append("address", employeeFormData.address || "");
     payload.append("designation", employeeFormData.designation);
     payload.append("empDepartment", employeeFormData.empDepartment);
-    payload.append("employmentType", employeeFormData.employmentType);
+    payload.append("staffType", employeeFormData.staffType);
     payload.append("status", editingEmployee?.status || "ACTIVE");
     payload.append("basicPay", employeeFormData.basicPay);
     payload.append("joinDate", employeeFormData.joinDate || "");
@@ -479,7 +421,7 @@ const HRPayroll = () => {
     setEditingEmployee(null);
     setEmployeeFormData({
       name: "", fatherName: "", cnic: "", contactNumber: "", email: "", address: "",
-      designation: "", empDepartment: "", employmentType: "PERMANENT", status: "ACTIVE",
+      designation: "", empDepartment: "", staffType: "PERMANENT", status: "ACTIVE",
       basicPay: 0, joinDate: new Date().toISOString().split("T")[0], leaveDate: "",
       contractStart: "", contractEnd: "", photo: null
     });
@@ -487,8 +429,8 @@ const HRPayroll = () => {
 
   // Advance Salary Queries
   const { data: advanceSalaries = [] } = useQuery({
-    queryKey: ["advanceSalaries"],
-    queryFn: () => getAdvanceSalaries(),
+    queryKey: ["advanceSalaries", advanceRoleFilter],
+    queryFn: () => getAdvanceSalaries(undefined, advanceRoleFilter),
   });
 
   const createAdvanceMutation = useMutation({
@@ -498,12 +440,11 @@ const HRPayroll = () => {
       toast({ title: "Advance salary created successfully" });
       setAdvanceOpen(false);
       setAdvanceFormData({
-        type: "employee",
-        employeeId: "",
-        teacherId: "",
+        staffId: "",
         month: new Date().toISOString().slice(0, 7),
         amount: 0,
-        remarks: ""
+        remarks: "",
+        adjusted: false
       });
     },
     onError: (err) => toast({ title: err.message, variant: "destructive" })
@@ -517,9 +458,7 @@ const HRPayroll = () => {
       setAdvanceOpen(false);
       setEditingAdvance(null);
       setAdvanceFormData({
-        type: "employee",
-        employeeId: "",
-        teacherId: "",
+        staffId: "",
         month: new Date().toISOString().slice(0, 7),
         amount: 0,
         remarks: "",
@@ -539,8 +478,7 @@ const HRPayroll = () => {
   });
 
   const handleAddAdvance = () => {
-    const staffId = advanceFormData.type === "employee" ? advanceFormData.employeeId : advanceFormData.teacherId;
-    if (!staffId || !advanceFormData.amount) {
+    if (!advanceFormData.staffId || !advanceFormData.amount) {
       toast({
         title: "Please fill required fields",
         variant: "destructive"
@@ -548,8 +486,7 @@ const HRPayroll = () => {
       return;
     }
     const payload = {
-      employeeId: advanceFormData.type === "employee" ? Number(advanceFormData.employeeId) : null,
-      teacherId: advanceFormData.type === "teacher" ? Number(advanceFormData.teacherId) : null,
+      staffId: Number(advanceFormData.staffId),
       month: advanceFormData.month,
       amount: parseFloat(advanceFormData.amount),
       remarks: advanceFormData.remarks,
@@ -565,9 +502,7 @@ const HRPayroll = () => {
   const handleEditAdvance = (advance) => {
     setEditingAdvance(advance);
     setAdvanceFormData({
-      type: advance.employeeId ? "employee" : "teacher",
-      employeeId: advance.employeeId ? advance.employeeId.toString() : "",
-      teacherId: advance.teacherId ? advance.teacherId.toString() : "",
+      staffId: advance.staffId.toString(),
       month: advance.month,
       amount: advance.amount,
       remarks: advance.remarks || "",
@@ -669,249 +604,13 @@ const HRPayroll = () => {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 h-auto gap-1">
-            <TabsTrigger value="employees">Employees</TabsTrigger>
-            <TabsTrigger value="attendance">Attendance</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 h-auto gap-1">
             <TabsTrigger value="leaves">Leaves</TabsTrigger>
             <TabsTrigger value="payroll">Payroll</TabsTrigger>
             <TabsTrigger value="advance">Advance Salary</TabsTrigger>
             <TabsTrigger value="departments">Departments</TabsTrigger>
             <TabsTrigger value="holidays">Holidays</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="attendance" className="space-y-4">
-            <Card>
-              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <CardTitle className="flex items-center gap-2">
-                    <UserCheck className="w-5 h-5" />
-                    Attendance
-                  </CardTitle>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="flex items-center gap-2">
-                        <CalendarIcon className="w-4 h-4" />
-                        {format(selectedDate, "PPP")}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={selectedDate}
-                        onSelect={(d) => {
-                          if (d) setSelectedDate(d);
-                        }}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                  <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Select Department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {empDepts.map((dept) => (
-                        <SelectItem key={dept} value={dept}>
-                          {dept}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button onClick={markAllPresent}>Mark All Present</Button>
-              </CardHeader>
-              <CardContent>
-                {attendanceLoading ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Designation</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {attendanceEmployees.filter(e => e.status === "ACTIVE").map((employee) => {
-                        const record = employeeAttendance.find(a => a.employeeId === employee.id);
-                        return (
-                          <TableRow key={employee.id}>
-                            <TableCell>
-                              <div>
-                                <p className="font-medium">{employee.name}</p>
-                                <p className="text-xs text-muted-foreground">{employee.empDepartment}</p>
-                              </div>
-                            </TableCell>
-                            <TableCell>{employee.designation}</TableCell>
-                            <TableCell>
-                              {record ? (
-                                <Badge
-                                  variant={
-                                    record.status === "PRESENT" ? "default" :
-                                      record.status === "ABSENT" ? "destructive" :
-                                        record.status === "LEAVE" ? "secondary" : "outline"
-                                  }
-                                >
-                                  {record.status}
-                                </Badge>
-                              ) : (
-                                <span className="text-muted-foreground text-sm">Not Marked</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-1">
-                                <Button
-                                  size="sm"
-                                  variant={record?.status === "PRESENT" ? "default" : "outline"}
-                                  onClick={() => handleMarkAttendance(employee.id, "PRESENT")}
-                                  title="Present"
-                                >
-                                  <CheckCircle2 className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant={record?.status === "ABSENT" ? "destructive" : "outline"}
-                                  onClick={() => handleMarkAttendance(employee.id, "ABSENT")}
-                                  title="Absent"
-                                >
-                                  <XCircle className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant={record?.status === "LEAVE" ? "secondary" : "outline"}
-                                  onClick={() => handleMarkAttendance(employee.id, "LEAVE")}
-                                  title="Leave"
-                                >
-                                  <Clock className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="employees" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>Employee Management</CardTitle>
-                  <Button onClick={() => setEmployeeOpen(true)}>
-                    <UserPlus className="mr-2 h-4 w-4" />
-                    Add Employee
-                  </Button>
-                </div>
-                <div className="flex flex-col sm:flex-row gap-4 mt-4">
-                  <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                    <SelectTrigger className="w-full sm:w-[200px]">
-                      <SelectValue placeholder="Filter by department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {empDepts.map(dept => (
-                        <SelectItem key={dept} value={dept}>
-                          {dept}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>CNIC</TableHead>
-                        <TableHead>Father Name</TableHead>
-                        <TableHead>Designation</TableHead>
-                        <TableHead>Department</TableHead>
-                        <TableHead>Basic Pay</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {employees?.map(employee => (
-                        <TableRow key={employee.id}>
-                          <TableCell className="font-medium">
-                            <div className="flex items-center gap-2">
-                              <Avatar>
-                                <AvatarImage className="object-cover" src={employee.photo_url} alt={employee.name} />
-                                <AvatarFallback>{employee.name.charAt(0)}</AvatarFallback>
-                              </Avatar>
-                              {employee.name}
-                            </div>
-                          </TableCell>
-                          <TableCell>{employee.cnic}</TableCell>
-                          <TableCell>{employee.fatherName}</TableCell>
-                          <TableCell>{employee.designation}</TableCell>
-                          <TableCell>{employee.empDepartment}</TableCell>
-                          <TableCell>PKR {employee.basicPay ? Number(employee.basicPay).toLocaleString() : '0'}</TableCell>
-                          <TableCell>
-                            <Badge variant={employee.status === "ACTIVE" ? "default" : "destructive"}>
-                              {employee.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button size="sm" variant="outline" onClick={() => {
-                                setViewEmployee(employee);
-                                setViewEmployeeOpen(true);
-                              }}>
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => {
-                                handleIDCardPreview(employee);
-                              }}>
-                                <IdCard className="h-4 w-4" />
-                              </Button>
-                              <Button size="sm" variant="outline"
-                                onClick={() => {
-                                  setEditingEmployee(employee);
-                                  setEmployeeFormData({
-                                    name: employee.name || "",
-                                    fatherName: employee.fatherName || "",
-                                    cnic: employee.cnic || "",
-                                    contactNumber: employee.phone || "",
-                                    email: employee.email || "",
-                                    address: employee.address || "",
-                                    designation: employee.designation || "",
-                                    empDepartment: employee.empDepartment || "",
-                                    employmentType: employee.employmentType || "PERMANENT",
-                                    status: employee.status || "ACTIVE",
-                                    basicPay: employee.basicPay,
-                                    joinDate: employee.joinDate ? new Date(employee.joinDate).toISOString().split("T")[0] : "",
-                                    leaveDate: employee.leaveDate ? new Date(employee.leaveDate).toISOString().split("T")[0] : "",
-                                    contractStart: employee.contractStart ? new Date(employee.contractStart).toISOString().split("T")[0] : "",
-                                    contractEnd: employee.contractEnd ? new Date(employee.contractEnd).toISOString().split("T")[0] : "",
-                                  });
-                                  setEmployeeOpen(true);
-                                }}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button size="sm" variant="destructive" onClick={() => deleteEmployee(employee.id)}>
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           <TabsContent value="leaves" className="space-y-4">
             <Card>
@@ -921,9 +620,7 @@ const HRPayroll = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <LeavesManagementDialog />
-                </div>
+                <LeavesManagementDialog />
               </CardContent>
             </Card>
           </TabsContent>
@@ -942,9 +639,7 @@ const HRPayroll = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <PayrollManagementDialog open={true} onOpenChange={() => { }} />
-                </div>
+                <PayrollManagementDialog open={true} onOpenChange={() => { }} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -953,128 +648,92 @@ const HRPayroll = () => {
             <Card>
               <CardHeader>
                 <div className="flex justify-between items-center">
-                  <CardTitle>Advance Salary</CardTitle>
-                  <Button onClick={() => setAdvanceOpen(true)}>
-                    <DollarSign className="mr-2 h-4 w-4" />
-                    Add Advance
-                  </Button>
+                  <div className="flex flex-col gap-1">
+                    <CardTitle>Advance Salary</CardTitle>
+                    <p className="text-sm text-muted-foreground">Manage advance salary requests for all staff</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex items-center gap-2">
+                      <Label className="hidden sm:inline">Role:</Label>
+                      <Select value={advanceRoleFilter} onValueChange={setAdvanceRoleFilter}>
+                        <SelectTrigger className="w-32 sm:w-40">
+                          <SelectValue placeholder="All Staff" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Staff</SelectItem>
+                          <SelectItem value="teacher">Teachers</SelectItem>
+                          <SelectItem value="employee">Staff</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button onClick={() => setAdvanceOpen(true)}>
+                      <DollarSign className="mr-2 h-4 w-4" />
+                      Add Advance
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
-                <Tabs defaultValue="employees" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="employees" onClick={() => setAdvanceFormData({ ...advanceFormData, type: "employee" })}>
-                      Non-Teaching Staff
-                    </TabsTrigger>
-                    <TabsTrigger value="teachers" onClick={() => setAdvanceFormData({ ...advanceFormData, type: "teacher" })}>
-                      Teachers
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="employees" className="mt-4">
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Employee</TableHead>
-                            <TableHead>Designation</TableHead>
-                            <TableHead>Month</TableHead>
-                            <TableHead>Amount</TableHead>
-                            <TableHead>Remarks</TableHead>
-                            <TableHead>Adjusted</TableHead>
-                            <TableHead>Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {advanceSalaries?.filter(adv => adv.employeeId).map(advance => (
-                            <TableRow key={advance.id}>
-                              <TableCell>{advance.employee?.name || "N/A"}</TableCell>
-                              <TableCell>{advance.employee?.designation || "N/A"}</TableCell>
-                              <TableCell>{advance.month}</TableCell>
-                              <TableCell>PKR {advance.amount?.toLocaleString()}</TableCell>
-                              <TableCell>{advance.remarks || "-"}</TableCell>
-                              <TableCell>
-                                {advance.adjusted ? (
-                                  <Badge variant="default">Yes</Badge>
-                                ) : (
-                                  <Badge variant="secondary">No</Badge>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex space-x-2">
-                                  <Button size="sm" variant="outline" onClick={() => handleEditAdvance(advance)}>
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                  <Button size="sm" variant="destructive" onClick={() => deleteAdvanceMutation.mutate(advance.id)}>
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                          {advanceSalaries?.filter(adv => adv.employeeId).length === 0 && (
-                            <TableRow>
-                              <TableCell colSpan={7} className="text-center text-muted-foreground">
-                                No advance salaries for employees
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="teachers" className="mt-4">
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Teacher</TableHead>
-                            <TableHead>Specialization</TableHead>
-                            <TableHead>Month</TableHead>
-                            <TableHead>Amount</TableHead>
-                            <TableHead>Remarks</TableHead>
-                            <TableHead>Adjusted</TableHead>
-                            <TableHead>Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {advanceSalaries?.filter(adv => adv.teacherId).map(advance => (
-                            <TableRow key={advance.id}>
-                              <TableCell>{advance.teacher?.name || "N/A"}</TableCell>
-                              <TableCell>{advance.teacher?.specialization || "N/A"}</TableCell>
-                              <TableCell>{advance.month}</TableCell>
-                              <TableCell>PKR {advance.amount?.toLocaleString()}</TableCell>
-                              <TableCell>{advance.remarks || "-"}</TableCell>
-                              <TableCell>
-                                {advance.adjusted ? (
-                                  <Badge variant="default">Yes</Badge>
-                                ) : (
-                                  <Badge variant="secondary">No</Badge>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex space-x-2">
-                                  <Button size="sm" variant="outline" onClick={() => handleEditAdvance(advance)}>
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                  <Button size="sm" variant="destructive" onClick={() => deleteAdvanceMutation.mutate(advance.id)}>
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                          {advanceSalaries?.filter(adv => adv.teacherId).length === 0 && (
-                            <TableRow>
-                              <TableCell colSpan={7} className="text-center text-muted-foreground">
-                                No advance salaries for teachers
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </TabsContent>
-                </Tabs>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Staff Name</TableHead>
+                        <TableHead>Role / Designation</TableHead>
+                        <TableHead>Month</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Remarks</TableHead>
+                        <TableHead>Adjusted</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {advanceSalaries?.map(advance => (
+                        <TableRow key={advance.id}>
+                          <TableCell className="font-medium">{advance.staff?.name || "N/A"}</TableCell>
+                          <TableCell>
+                            <div className="text-xs">
+                              {advance.staff?.isTeaching ?
+                                (advance.staff?.specialization ? `Teacher (${advance.staff?.specialization})` : 'Teacher') :
+                                (advance.staff?.designation || "Staff")}
+                            </div>
+                          </TableCell>
+                          <TableCell>{advance.month}</TableCell>
+                          <TableCell className="font-semibold text-primary">PKR {Number(advance.amount || 0).toLocaleString()}</TableCell>
+                          <TableCell className="max-w-[200px] truncate">{advance.remarks || "-"}</TableCell>
+                          <TableCell>
+                            {advance.adjusted ? (
+                              <Badge variant="default" className="bg-green-600">Adjusted</Badge>
+                            ) : (
+                              <Badge variant="secondary">Pending</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end space-x-2">
+                              <Button size="sm" variant="ghost" onClick={() => handleEditAdvance(advance)}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => {
+                                if (confirm("Are you sure you want to delete this record?")) {
+                                  deleteAdvanceMutation.mutate(advance.id);
+                                }
+                              }}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {(!advanceSalaries || advanceSalaries.length === 0) && (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground italic">
+                            No advance salary records found
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1228,238 +887,7 @@ const HRPayroll = () => {
 
       </div>
 
-      {/* Employee Dialog */}
-      <Dialog open={employeeOpen} onOpenChange={setEmployeeOpen}>
-        <DialogContent className="w-[95vw] max-w-5xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingEmployee ? "Edit Employee" : "Add New Employee"}</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
-            {/* Name */}
-            <div>
-              <Label>Name <span className="text-red-500">*</span></Label>
-              <Input
-                value={employeeFormData.name}
-                onChange={(e) => setEmployeeFormData({ ...employeeFormData, name: e.target.value })}
-                placeholder="John Doe"
-              />
-            </div>
 
-            {/* Photo */}
-            <div>
-              <Label>Photo (Max 5MB)</Label>
-              <Input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    if (file.size > 5 * 1024 * 1024) {
-                      toast({ title: "File too large", description: "Max 5MB allowed", variant: "destructive" });
-                      e.target.value = null; // Clear input
-                      return;
-                    }
-                    setEmployeeFormData({ ...employeeFormData, photo: file });
-                  }
-                }}
-              />
-            </div>
-
-            {/* Father Name */}
-            <div>
-              <Label>Father Name <span className="text-red-500">*</span></Label>
-              <Input
-                value={employeeFormData.fatherName}
-                onChange={(e) => setEmployeeFormData({ ...employeeFormData, fatherName: e.target.value })}
-                placeholder="Ahmed Khan"
-              />
-            </div>
-
-            {/* CNIC */}
-            <div>
-              <Label>CNIC <span className="text-red-500">*</span></Label>
-              <Input
-                value={employeeFormData.cnic}
-                onChange={(e) => setEmployeeFormData({ ...employeeFormData, cnic: e.target.value })}
-                placeholder="35202-1234567-1"
-              />
-            </div>
-
-            {/* Contact Number */}
-            <div>
-              <Label>Phone <span className="text-red-500">*</span></Label>
-              <Input
-                value={employeeFormData.contactNumber}
-                onChange={(e) => setEmployeeFormData({ ...employeeFormData, contactNumber: e.target.value })}
-                placeholder="0300-1234567"
-              />
-            </div>
-
-            {/* Email */}
-            <div>
-              <Label>Email</Label>
-              <Input
-                type="email"
-                value={employeeFormData.email}
-                onChange={(e) => setEmployeeFormData({ ...employeeFormData, email: e.target.value })}
-                placeholder="john@example.com"
-              />
-            </div>
-
-            {/* Address */}
-            <div className="md:col-span-3 xl:col-span-4">
-              <Label>Address</Label>
-              <Input
-                value={employeeFormData.address}
-                onChange={(e) => setEmployeeFormData({ ...employeeFormData, address: e.target.value })}
-                placeholder="123 Street, Lahore"
-              />
-            </div>
-
-            {/* Designation */}
-            <div>
-              <Label>Designation</Label>
-              <Input
-                value={employeeFormData.designation}
-                onChange={(e) => setEmployeeFormData({ ...employeeFormData, designation: e.target.value })}
-                placeholder="Manager"
-              />
-            </div>
-
-            {/* Department */}
-            <div>
-              <Label>Department</Label>
-              <Select
-                value={employeeFormData.empDepartment}
-                onValueChange={(value) => setEmployeeFormData({ ...employeeFormData, empDepartment: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select department" />
-                </SelectTrigger>
-                <SelectContent>
-                  {[
-                    "ADMIN",
-                    "FINANCE",
-                    "SECURITY",
-                    "TRANSPORT",
-                    "CLASS_4",
-                    "MAINTENANCE",
-                    "IT_SUPPORT",
-                    "LIBRARY",
-                    "LAB",
-                    "OTHER",
-                  ].map((dept) => (
-                    <SelectItem key={dept} value={dept}>
-                      {dept.replace("_", " ")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Employment Type */}
-            <div>
-              <Label>Employment Type</Label>
-              <Select
-                value={employeeFormData.employmentType}
-                onValueChange={(value) => setEmployeeFormData({ ...employeeFormData, employmentType: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PERMANENT">Permanent</SelectItem>
-                  <SelectItem value="CONTRACT">Contract</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Status */}
-            <div>
-              <Label>Status</Label>
-              <Select
-                value={employeeFormData.status}
-                onValueChange={(value) => setEmployeeFormData({ ...employeeFormData, status: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ACTIVE">Active</SelectItem>
-                  <SelectItem value="TERMINATED">Terminated</SelectItem>
-                  <SelectItem value="RETIRED">Retired</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Basic Pay */}
-            <div>
-              <Label>Basic Pay (PKR)</Label>
-              <Input
-                type="number"
-                value={employeeFormData.basicPay}
-                onChange={(e) => setEmployeeFormData({ ...employeeFormData, basicPay: parseFloat(e.target.value) })}
-                placeholder="30000"
-              />
-            </div>
-
-
-
-            {/* Join Date */}
-            <div>
-              <Label>Join Date</Label>
-              <Input
-                type="date"
-                value={employeeFormData.joinDate}
-                onChange={(e) => setEmployeeFormData({ ...employeeFormData, joinDate: e.target.value })}
-              />
-            </div>
-
-            {/* Contract Dates - Only for CONTRACT staff */}
-            {employeeFormData.employmentType === "CONTRACT" && (
-              <>
-                <div>
-                  <Label>Contract Start Date</Label>
-                  <Input
-                    type="date"
-                    value={employeeFormData.contractStart}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, contractStart: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Contract End Date</Label>
-                  <Input
-                    type="date"
-                    value={employeeFormData.contractEnd}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, contractEnd: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* Leave Date (Only if status is TERMINATED/RETIRED) */}
-            {(employeeFormData.status === "TERMINATED" || employeeFormData.status === "RETIRED") && (
-              <div>
-                <Label>Leave Date</Label>
-                <Input
-                  type="date"
-                  value={employeeFormData.leaveDate}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, leaveDate: e.target.value })}
-                />
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-end gap-3 mt-6">
-            <Button variant="outline" onClick={() => setEmployeeOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddEmployee}>
-              {editingEmployee ? "Update Employee" : "Add Employee"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Payroll Settings Dialog */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
@@ -1513,76 +941,52 @@ const HRPayroll = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={advanceOpen} onOpenChange={setAdvanceOpen}>
-        <DialogContent>
+      <Dialog open={advanceOpen} onOpenChange={(val) => {
+        setAdvanceOpen(val);
+        if (!val) {
+          setEditingAdvance(null);
+          setAdvanceFormData({
+            staffId: "",
+            month: new Date().toISOString().slice(0, 7),
+            amount: 0,
+            remarks: "",
+            adjusted: false
+          });
+        }
+      }}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{editingAdvance ? "Edit Advance Salary" : "Add Advance Salary"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 pt-4">
             <div>
-              <Label>Staff Type</Label>
+              <Label className="mb-2 block">Select Staff Member *</Label>
               <Select
-                value={advanceFormData.type}
+                value={advanceFormData.staffId}
                 onValueChange={value => setAdvanceFormData({
                   ...advanceFormData,
-                  type: value,
-                  employeeId: "",
-                  teacherId: ""
+                  staffId: value
                 })}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Select staff member" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="employee">Non-Teaching Staff</SelectItem>
-                  <SelectItem value="teacher">Teacher</SelectItem>
+                  {[
+                    ...(employees || []).map(e => ({ ...e, isTeaching: false })),
+                    ...(teachers || []).map(t => ({ ...t, isTeaching: true }))
+                  ]
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map(staff => (
+                      <SelectItem key={staff.id} value={staff.id.toString()}>
+                        {staff.name} - {staff.isTeaching ? (staff.specialization || "Teacher") : (staff.designation || "Staff")}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Select {advanceFormData.type === "employee" ? "Employee" : "Teacher"}</Label>
-              {advanceFormData.type === "employee" ? (
-                <Select
-                  value={advanceFormData.employeeId}
-                  onValueChange={value => setAdvanceFormData({
-                    ...advanceFormData,
-                    employeeId: value
-                  })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select employee" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {employees?.filter(e => e.status === "ACTIVE").map(emp => (
-                      <SelectItem key={emp.id} value={emp.id.toString()}>
-                        {emp.name} - {emp.designation}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Select
-                  value={advanceFormData.teacherId}
-                  onValueChange={value => setAdvanceFormData({
-                    ...advanceFormData,
-                    teacherId: value
-                  })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select teacher" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {teachers?.map(teacher => (
-                      <SelectItem key={teacher.id} value={teacher.id.toString()}>
-                        {teacher.name} - {teacher.specialization || "N/A"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-            <div>
-              <Label>Month</Label>
+              <Label className="mb-2 block">Month *</Label>
               <Input
                 type="month"
                 value={advanceFormData.month}
@@ -1593,7 +997,7 @@ const HRPayroll = () => {
               />
             </div>
             <div>
-              <Label>Amount</Label>
+              <Label className="mb-2 block">Amount (PKR) *</Label>
               <Input
                 type="number"
                 value={advanceFormData.amount}
@@ -1604,8 +1008,9 @@ const HRPayroll = () => {
               />
             </div>
             <div>
-              <Label>Remarks</Label>
+              <Label className="mb-2 block">Remarks</Label>
               <Textarea
+                placeholder="Optional remarks..."
                 value={advanceFormData.remarks}
                 onChange={e => setAdvanceFormData({
                   ...advanceFormData,
@@ -1613,23 +1018,26 @@ const HRPayroll = () => {
                 })}
               />
             </div>
+            <div className="flex items-center space-x-2 pt-2">
+              <input
+                type="checkbox"
+                id="adjusted"
+                className="h-4 w-4 rounded border-gray-300"
+                checked={advanceFormData.adjusted || false}
+                onChange={e => setAdvanceFormData({
+                  ...advanceFormData,
+                  adjusted: e.target.checked
+                })}
+              />
+              <Label htmlFor="adjusted" className="cursor-pointer font-medium text-sm">Mark as Adjusted (Deducted from payroll)</Label>
+            </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="adjusted"
-              className="h-4 w-4 rounded border-gray-300"
-              checked={advanceFormData.adjusted || false}
-              onChange={e => setAdvanceFormData({
-                ...advanceFormData,
-                adjusted: e.target.checked
-              })}
-            />
-            <Label htmlFor="adjusted">Mark as Adjusted (Deducted)</Label>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={() => setAdvanceOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddAdvance}>
+              {editingAdvance ? "Update Advance" : "Save Advance"}
+            </Button>
           </div>
-          <Button onClick={handleAddAdvance}>
-            {editingAdvance ? "Update Advance" : "Add Advance"}
-          </Button>
         </DialogContent>
       </Dialog>
 
@@ -1892,7 +1300,7 @@ const HRPayroll = () => {
                     <CardContent className="space-y-3 pt-0">
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Type:</span>
-                        <span className="font-medium uppercase">{viewEmployee.employmentType}</span>
+                        <span className="font-medium uppercase">{viewEmployee.staffType}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Designation:</span>
@@ -1911,13 +1319,13 @@ const HRPayroll = () => {
 
                   <Card className={viewEmployee.employmentType === "CONTRACT" ? "bg-primary/5 border-primary/20" : "bg-green-50/30 border-green-100"}>
                     <CardHeader className="py-3">
-                      <CardTitle className={`text-sm font-semibold flex items-center gap-2 ${viewEmployee.employmentType === "CONTRACT" ? "text-primary" : "text-green-700"}`}>
-                        {viewEmployee.employmentType === "CONTRACT" ? <CalendarIcon className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
-                        {viewEmployee.employmentType === "CONTRACT" ? "Contract Information" : "Tenure Information"}
+                      <CardTitle className={`text-sm font-semibold flex items-center gap-2 ${viewEmployee.staffType === "CONTRACT" ? "text-primary" : "text-green-700"}`}>
+                        {viewEmployee.staffType === "CONTRACT" ? <CalendarIcon className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                        {viewEmployee.staffType === "CONTRACT" ? "Contract Information" : "Tenure Information"}
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3 pt-0">
-                      {viewEmployee.employmentType === "CONTRACT" ? (
+                      {viewEmployee.staffType === "CONTRACT" ? (
                         <>
                           <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">Start Date:</span>

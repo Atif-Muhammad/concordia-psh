@@ -17,5 +17,5 @@ export class UpdateFeeChallanDto extends PartialType(CreateFeeChallanDto) {
 
   @IsArray()
   @IsOptional()
-  selectedHeads?: number[];
+  selectedHeads?: any[]; // Accept full fee head objects from frontend
 }

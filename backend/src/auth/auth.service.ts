@@ -18,9 +18,10 @@ export class AuthService {
     email: string;
     role?: string;
     permissions: any;
+    isStaff?: boolean;
   }) {
     if (!payload.role) {
-      payload = { ...payload, role: 'Teacher' };
+      payload = { ...payload, role: payload.isStaff ? 'Staff' : 'ADMIN' };
     }
     const accessToken = await this.jwtService.signAsync(payload, {
       secret: process.env.JWT_ACCESS_SECRET!,
@@ -39,6 +40,7 @@ export class AuthService {
     email: string;
     role?: string;
     permissions: any;
+    isStaff?: boolean;
   }) {
     return this.generateTokens(payload);
   }
@@ -96,7 +98,7 @@ export class AuthService {
       where: { email },
     });
     if (!admin) {
-      admin = await this.prisma.teacher.findUnique({
+      admin = await this.prisma.staff.findUnique({
         where: { email },
       });
       if (!admin) {
@@ -108,21 +110,61 @@ export class AuthService {
       throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
     }
 
+    if (!admin.role) {
+      admin.role = admin.isTeaching ? 'Teacher' : 'Staff';
+    }
+    admin.isStaff = !admin.role.includes('ADMIN'); // Staff if not ADMIN/SUPER_ADMIN
+
+    // Ensure isStaff flag is correctly set based on which table user was found in
+    // Note: this is a bit redundant if role is already set correctly, but safe
+    const isActuallyStaff = !admin.role.includes('SUPER_ADMIN') && !admin.role.includes('ADMIN');
+    admin.isStaff = isActuallyStaff;
+
     return admin;
   }
 
-  async findUserById(id: number | string) {
+  async findUserById(id: number | string, isStaff?: boolean) {
     const numericId = typeof id === 'string' ? parseInt(id) : id;
     if (isNaN(numericId)) return null;
 
+    if (isStaff === true) {
+      const staff = await this.prisma.staff.findUnique({
+        where: { id: numericId },
+      });
+      if (staff) {
+        (staff as any).role = (staff as any).isTeaching ? 'Teacher' : 'Staff';
+        (staff as any).isStaff = true;
+      }
+      return staff;
+    }
+
+    if (isStaff === false) {
+      const admin = await this.prisma.admin.findUnique({
+        where: { id: numericId },
+      });
+      if (admin) {
+        (admin as any).isStaff = false;
+        return admin;
+      }
+      return null;
+    }
+
+    // Fallback if isStaff is unknown (check both)
     const admin = await this.prisma.admin.findUnique({
       where: { id: numericId },
     });
-    if (admin) return admin;
+    if (admin) {
+      (admin as any).isStaff = false;
+      return admin;
+    }
 
-    const teacher = await this.prisma.teacher.findUnique({
+    const staff = await this.prisma.staff.findUnique({
       where: { id: numericId },
     });
-    return teacher;
+    if (staff) {
+      (staff as any).role = (staff as any).isTeaching ? 'Teacher' : 'Staff';
+      (staff as any).isStaff = true;
+    }
+    return staff;
   }
 }

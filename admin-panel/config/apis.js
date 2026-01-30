@@ -1,8 +1,8 @@
 import axios from "axios";
 import { formatLocalDate } from "../src/lib/utils";
 
-const base_url = "http://localhost:3003/api";
-// const base_url = "http://69.62.117.175:3003/api";
+// const base_url = "http://localhost:3003/api";
+const base_url = "http://69.62.117.175:3003/api";
 
 export const userWho = async () => {
   try {
@@ -138,6 +138,100 @@ export const deleteAdmin = async (adminID) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UNIFIED STAFF MANAGEMENT APIs
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const getAllStaff = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters.isTeaching !== undefined) params.append('isTeaching', filters.isTeaching);
+    if (filters.isNonTeaching !== undefined) params.append('isNonTeaching', filters.isNonTeaching);
+    if (filters.search) params.append('search', filters.search);
+    if (filters.status) params.append('status', filters.status);
+
+    const response = await axios.get(`${base_url}/hr/staff?${params.toString()}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getStaffById = async (id) => {
+  try {
+    const response = await axios.get(`${base_url}/hr/staff/${id}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const createStaffAPI = async (data) => {
+  try {
+    const response = await axios.post(`${base_url}/hr/staff`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateStaffAPI = async (id, data) => {
+  try {
+    const response = await axios.patch(`${base_url}/hr/staff/${id}`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteStaffAPI = async (id) => {
+  try {
+    const response = await axios.delete(`${base_url}/hr/staff/${id}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEGACY EMPLOYEE APIs (kept for backward compatibility)
+// ═══════════════════════════════════════════════════════════════════════════
 
 export const getEmployeesByDept = async (dept, search) => {
   try {
@@ -2035,11 +2129,34 @@ export const getFeeChallans = async (filters = {}) => {
   }
 };
 
+export const getBulkChallans = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params.append(key, value);
+      }
+    });
+
+    const url = `${base_url}/fee-management/challan/bulk${params.toString() ? '?' + params.toString() : ''}`;
+    const response = await axios.get(url, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+
 export const updateFeeChallan = async (id, data) => {
+  console.log(id, data);
   try {
     const response = await axios.patch(`${base_url}/fee-management/challan/update?id=${id}`, data, {
       withCredentials: true,
     });
+    console.log(response)
     return response.data;
   } catch (error) {
     const message = error.response?.data?.message || error.message || "Something went wrong";
@@ -3293,6 +3410,7 @@ export const getFeeCollectionSummary = async ({ period }) => {
 };
 
 
+
 // Leave Management
 export const getLeaveSheet = async (month, type) => {
   try {
@@ -3330,9 +3448,9 @@ export const upsertLeave = async (data) => {
 };
 
 // Employee Attendance
-export const getEmployeeAttendance = async (date) => {
+export const getStaffAttendance = async (date) => {
   try {
-    const response = await axios.get(`${base_url}/hr/employee-attendance`, {
+    const response = await axios.get(`${base_url}/hr/staff-attendance`, {
       params: { date },
       withCredentials: true,
     });
@@ -3348,9 +3466,9 @@ export const getEmployeeAttendance = async (date) => {
   }
 };
 
-export const markEmployeeAttendance = async (data) => {
+export const markStaffAttendance = async (data) => {
   try {
-    const response = await axios.post(`${base_url}/hr/employee-attendance`, data, {
+    const response = await axios.post(`${base_url}/hr/staff-attendance`, data, {
       withCredentials: true,
     });
     return response.data;

@@ -109,8 +109,8 @@ const Teachers = () => {
     phone: "",
     specialization: "",
     highestDegree: "",
-    teacherType: "CONTRACT",
-    teacherStatus: "ACTIVE",
+    staffType: "CONTRACT",
+    status: "ACTIVE",
     departmentId: "",
     basicPay: "",
     documents: TEACHER_DOCUMENTS.reduce((acc, doc) => ({ ...acc, [doc.key]: false }), {}),
@@ -232,8 +232,8 @@ const Teachers = () => {
       phone: "",
       specialization: "",
       highestDegree: "",
-      teacherType: "CONTRACT",
-      teacherStatus: "ACTIVE",
+      staffType: "CONTRACT",
+      status: "ACTIVE",
       departmentId: "",
       basicPay: "",
       documents: TEACHER_DOCUMENTS.reduce((acc, doc) => ({ ...acc, [doc.key]: false }), {}),
@@ -256,8 +256,8 @@ const Teachers = () => {
       phone: teacher.phone || "",
       specialization: teacher.specialization || "",
       highestDegree: teacher.highestDegree || "",
-      teacherType: teacher.teacherType || "CONTRACT",
-      teacherStatus: teacher.teacherStatus || "ACTIVE",
+      staffType: teacher.staffType || "CONTRACT",
+      status: teacher.status || "ACTIVE",
       departmentId: teacher.departmentId?.toString() || "",
       basicPay: teacher.basicPay?.toString() || "",
       documents: teacher.documents || TEACHER_DOCUMENTS.reduce((acc, doc) => ({ ...acc, [doc.key]: false }), {}),
@@ -284,8 +284,8 @@ const Teachers = () => {
     payload.append("phone", formData.phone || "");
     payload.append("specialization", formData.specialization);
     payload.append("highestDegree", formData.highestDegree);
-    payload.append("teacherType", formData.teacherType);
-    payload.append("teacherStatus", formData.teacherStatus);
+    payload.append("staffType", formData.staffType);
+    payload.append("status", formData.status);
     payload.append("departmentId", formData.departmentId ? formData.departmentId : "");
     payload.append("basicPay", formData.basicPay || "");
     payload.append("documents", JSON.stringify(formData.documents));
@@ -475,12 +475,11 @@ const Teachers = () => {
                       </Select>
                     </div>
 
-                    {/* Teacher Type */}
                     <div>
                       <Label>Employment Type</Label>
                       <Select
-                        value={formData.teacherType}
-                        onValueChange={(v) => setFormData({ ...formData, teacherType: v })}
+                        value={formData.staffType}
+                        onValueChange={(v) => setFormData({ ...formData, staffType: v })}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -492,12 +491,11 @@ const Teachers = () => {
                       </Select>
                     </div>
 
-                    {/* Status */}
                     <div>
                       <Label>Status</Label>
                       <Select
-                        value={formData.teacherStatus}
-                        onValueChange={(v) => setFormData({ ...formData, teacherStatus: v })}
+                        value={formData.status}
+                        onValueChange={(v) => setFormData({ ...formData, status: v })}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -553,7 +551,7 @@ const Teachers = () => {
                     </div>
 
                     {/* Contract Dates - Only for CONTRACT staff */}
-                    {formData.teacherType === "CONTRACT" && (
+                    {formData.staffType === "CONTRACT" && (
                       <>
                         <div>
                           <Label>Contract Start Date</Label>
@@ -646,21 +644,21 @@ const Teachers = () => {
                         <TableCell>{t.department?.name || "-"}</TableCell>
                         <TableCell>{t.basicPay ? `PKR ${parseFloat(t.basicPay).toLocaleString()}` : "-"}</TableCell>
                         <TableCell>
-                          <Badge variant={t.teacherType === "PERMANENT" ? "default" : "secondary"}>
-                            {t.teacherType}
+                          <Badge variant={t.staffType === "PERMANENT" ? "default" : "secondary"}>
+                            {t.staffType}
                           </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge
                             variant={
-                              t.teacherStatus === "ACTIVE"
+                              t.status === "ACTIVE"
                                 ? "default"
-                                : t.teacherStatus === "TERMINATED"
+                                : t.status === "TERMINATED"
                                   ? "destructive"
                                   : "secondary"
                             }
                           >
-                            {t.teacherStatus}
+                            {t.status}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -734,7 +732,15 @@ const Teachers = () => {
                       const record = teacherAttendance.find(a => a.teacherId === teacher.id);
                       return (
                         <TableRow key={teacher.id}>
-                          <TableCell>{teacher.name}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage className="object-cover" src={teacher.photo_url} alt={teacher.name} />
+                                <AvatarFallback>{teacher.name.charAt(0)}</AvatarFallback>
+                              </Avatar>
+                              {teacher.name}
+                            </div>
+                          </TableCell>
                           <TableCell>{format(selectedDate, "PPP")}</TableCell>
                           <TableCell>
                             {record ? (
@@ -833,9 +839,9 @@ const Teachers = () => {
                       <p className="text-muted-foreground break-words w-1/2">{viewTeacher.address}</p>
                       <p className="text-muted-foreground">CNIC: {viewTeacher.cnic}</p>
                       <div className="flex flex-wrap gap-2 mt-2">
-                        <Badge>{viewTeacher.teacherType}</Badge>
-                        <Badge variant={viewTeacher.teacherStatus === "ACTIVE" ? "default" : "destructive"}>
-                          {viewTeacher.teacherStatus}
+                        <Badge>{viewTeacher.staffType}</Badge>
+                        <Badge variant={viewTeacher.status === "ACTIVE" ? "default" : "destructive"}>
+                          {viewTeacher.status}
                         </Badge>
                       </div>
                     </div>
@@ -863,7 +869,7 @@ const Teachers = () => {
                       <p>{viewTeacher.joinDate ? format(new Date(viewTeacher.joinDate), "PPP") : "N/A"}</p>
                     </div>
 
-                    {viewTeacher.teacherType === "CONTRACT" ? (
+                    {viewTeacher.staffType === "CONTRACT" ? (
                       <>
                         <div className="space-y-1">
                           <h4 className="font-semibold text-sm text-muted-foreground">Contract Start</h4>

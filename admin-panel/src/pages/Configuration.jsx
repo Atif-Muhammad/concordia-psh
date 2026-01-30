@@ -934,7 +934,9 @@ const Configuration = () => {
     queryFn: getAdmins,
   });
 
-  const admins = Array.isArray(adminsRaw) ? adminsRaw.map(mapAdminData) : [];
+  const admins = Array.isArray(adminsRaw)
+    ? adminsRaw.filter(a => a.role === "SUPER_ADMIN").map(mapAdminData)
+    : [];
 
   // Mutations
   const createAdminMutation = useMutation({
@@ -1635,104 +1637,57 @@ const Configuration = () => {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
-                  <Users className="w-5 h-5" />
-                  Admin Management
+                  <Shield className="w-5 h-5 text-primary" />
+                  System Administrators
                 </CardTitle>
-                <Dialog
-                  open={dialog.type === "admin" && dialog.open}
-                  onOpenChange={(open) =>
-                    setDialog({
-                      type: "admin",
-                      open,
-                    })
-                  }
-                >
-                  <DialogTrigger asChild>
-                    <Button
-                      onClick={() => {
-                        setEditing(null);
-                        setAdminForm({
-                          name: "",
-                          email: "",
-                          password: "",
-                          role: "ADMIN",
-                        });
-                      }}
-                    >
-                      <PlusCircle className="w-4 h-4 mr-2" />
-                      Add Admin
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>
-                        {editing ? "Edit Admin" : "Add Admin"}
-                      </DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div>
-                        <Label>Name</Label>
-                        <Input
-                          value={adminForm.name}
-                          onChange={(e) =>
-                            setAdminForm({
-                              ...adminForm,
-                              name: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      <div>
-                        <Label>Email</Label>
-                        <Input
-                          type="email"
-                          value={adminForm.email}
-                          onChange={(e) =>
-                            setAdminForm({
-                              ...adminForm,
-                              email: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      {!editing && (
-                        <div>
-                          <Label>Password</Label>
-                          <PasswordInput
-                            value={adminForm.password}
-                            onChange={(e) =>
-                              setAdminForm({
-                                ...adminForm,
-                                password: e.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                      )}
-                      <div>
-                        <Label>Role</Label>
-                        <Select
-                          value={adminForm.role}
-                          onValueChange={(val) =>
-                            setAdminForm({ ...adminForm, role: val })
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Role" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="ADMIN">ADMIN</SelectItem>
-                            <SelectItem value="SUPER_ADMIN">SUPER_ADMIN</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button onClick={handleAdminSubmit} className="w-full">
-                        {editing ? "Update" : "Add"}
-                      </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
               </CardHeader>
+
+              <Dialog
+                open={dialog.type === "admin" && dialog.open}
+                onOpenChange={(open) =>
+                  setDialog({
+                    type: "admin",
+                    open,
+                  })
+                }
+              >
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Edit Super Admin</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 pt-4">
+                    <div className="space-y-2">
+                      <Label>Full Name</Label>
+                      <Input
+                        value={adminForm.name}
+                        onChange={(e) =>
+                          setAdminForm({
+                            ...adminForm,
+                            name: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Email Address</Label>
+                      <Input
+                        value={adminForm.email}
+                        onChange={(e) =>
+                          setAdminForm({
+                            ...adminForm,
+                            email: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                    <DialogFooter>
+                      <Button onClick={handleAdminSubmit} className="w-full">
+                        Update Account
+                      </Button>
+                    </DialogFooter>
+                  </div>
+                </DialogContent>
+              </Dialog>
               <CardContent>
                 <Table>
                   <TableHeader>
@@ -1855,19 +1810,6 @@ const Configuration = () => {
                                   onClick={() => openPasswordDialog(admin.id)}
                                 >
                                   <Shield className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => {
-                                    setDeleteTarget({
-                                      type: "admin",
-                                      id: admin.id,
-                                    });
-                                    setDeleteDialog(true);
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
                                 </Button>
                               </div>
                             </TableCell>

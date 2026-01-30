@@ -34,8 +34,7 @@ export class AttendanceCron {
       }
 
       await this.attendance.generateAttendanceForDate(today);
-      await this.attendance.generateAttendanceTeacher(today);
-      await this.attendance.generateAttendanceEmployee(today);
+      await this.attendance.generateAttendanceStaff(today);
     });
   }
 }

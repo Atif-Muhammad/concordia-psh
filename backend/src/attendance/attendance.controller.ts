@@ -35,7 +35,7 @@ export class AttendanceController {
       );
     }
     if (attenFor === 'teacher')
-      return await this.attendanceService.generateAttendanceTeacher(targetDate);
+      return await this.attendanceService.generateAttendanceStaff(targetDate);
     if (attenFor === 'student')
       return await this.attendanceService.generateAttendanceForDate(targetDate);
     throw new ForbiddenException();

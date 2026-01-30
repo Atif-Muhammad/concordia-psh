@@ -6,8 +6,24 @@ import {
 } from 'class-validator';
 
 export class CreateRegistrationDto {
-  @IsNotEmpty()
-  studentId: number;
+  @IsOptional()
+  studentId?: number;
+
+  @IsOptional()
+  @IsString()
+  externalName?: string;
+
+  @IsOptional()
+  @IsString()
+  externalInstitute?: string;
+
+  @IsOptional()
+  @IsString()
+  externalGuardianName?: string;
+
+  @IsOptional()
+  @IsString()
+  externalGuardianNumber?: string;
 
   @IsNotEmpty()
   @IsString()

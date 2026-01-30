@@ -9,24 +9,30 @@ import { UpdateRegistrationDto } from './dtos/update-registration.dto';
 
 @Injectable()
 export class HostelService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // REGISTRATION CRUD
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   async createRegistration(dto: CreateRegistrationDto) {
-    const existing = await this.prisma.hostelRegistration.findFirst({
-      where: { studentId: Number(dto.studentId) },
-    });
+    if (dto.studentId) {
+      const existing = await this.prisma.hostelRegistration.findFirst({
+        where: { studentId: Number(dto.studentId) },
+      });
 
-    if (existing) {
-      throw new BadRequestException('Student is already registered in hostel');
+      if (existing) {
+        throw new BadRequestException('Student is already registered in hostel');
+      }
     }
 
     return this.prisma.hostelRegistration.create({
       data: {
-        studentId: Number(dto.studentId),
+        studentId: dto.studentId ? Number(dto.studentId) : undefined,
+        externalName: dto.externalName,
+        externalInstitute: dto.externalInstitute,
+        externalGuardianName: dto.externalGuardianName,
+        externalGuardianNumber: dto.externalGuardianNumber,
         hostelName: dto.hostelName,
         registrationDate: new Date(dto.registrationDate),
         status: dto.status || 'active',
@@ -108,6 +114,17 @@ export class HostelService {
           registrationDate: new Date(dto.registrationDate),
         }),
         ...(dto.status && { status: dto.status }),
+        studentId: dto.studentId ? Number(dto.studentId) : null,
+        ...(dto.externalName && { externalName: dto.externalName }),
+        ...(dto.externalInstitute && {
+          externalInstitute: dto.externalInstitute,
+        }),
+        ...(dto.externalGuardianName && {
+          externalGuardianName: dto.externalGuardianName,
+        }),
+        ...(dto.externalGuardianNumber && {
+          externalGuardianNumber: dto.externalGuardianNumber,
+        }),
       },
       include: {
         student: {
@@ -210,20 +227,23 @@ export class HostelService {
       throw new BadRequestException('Room is at full capacity');
     }
 
-    // Check if student is already allocated
-    const existingAllocation = await this.prisma.roomAllocation.findFirst({
-      where: { studentId: Number(data.studentId) },
-    });
+    if (data.studentId) {
+      // Check if student is already allocated
+      const existingAllocation = await this.prisma.roomAllocation.findFirst({
+        where: { studentId: Number(data.studentId) },
+      });
 
-    if (existingAllocation) {
-      throw new BadRequestException('Student is already allocated to a room');
+      if (existingAllocation) {
+        throw new BadRequestException('Student is already allocated to a room');
+      }
     }
 
     // Create allocation and update room
     const allocation = await this.prisma.roomAllocation.create({
       data: {
         roomId: data.roomId,
-        studentId: Number(data.studentId),
+        studentId: data.studentId ? Number(data.studentId) : undefined,
+        externalName: data.externalName,
         allocationDate: new Date(data.allocationDate),
       },
       include: { student: true, room: true },

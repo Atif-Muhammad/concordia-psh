@@ -7,14 +7,15 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import { TeacherDto } from './dtos/teacher.dto';
 import * as bcrypt from 'bcrypt';
-import { Prisma, TeacherStatus, TeacherType } from '@prisma/client';
+import { Prisma, StaffStatus, StaffType } from '@prisma/client';
 
 @Injectable()
 export class TeacherService {
   constructor(private prismaService: PrismaService) { }
 
   async getNames() {
-    return await this.prismaService.teacher.findMany({
+    return await this.prismaService.staff.findMany({
+      where: { isTeaching: true },
       select: {
         name: true,
         id: true,
@@ -26,12 +27,13 @@ export class TeacherService {
   }
 
   async findOne(id: number) {
-    return await this.prismaService.teacher.findUnique({
-      where: { id },
+    return await this.prismaService.staff.findUnique({
+      where: { id, isTeaching: true },
     });
   }
   async getAll() {
-    return await this.prismaService.teacher.findMany({
+    return await this.prismaService.staff.findMany({
+      where: { isTeaching: true },
       include: {
         department: { select: { name: true } },
       },
@@ -43,7 +45,7 @@ export class TeacherService {
     const hashedPass = await bcrypt.hash(payload.password, 10);
 
     try {
-      return await this.prismaService.teacher.create({
+      return await this.prismaService.staff.create({
         data: {
           name: payload.name,
           fatherName: payload.fatherName,
@@ -56,14 +58,16 @@ export class TeacherService {
           highestDegree: payload.highestDegree,
           documents: payload.documents as unknown as Prisma.JsonObject,
           departmentId: payload.departmentId && Number(payload.departmentId) > 0 ? Number(payload.departmentId) : undefined,
-          teacherType: payload.teacherType as unknown as TeacherType,
-          teacherStatus: payload.teacherStatus as unknown as TeacherStatus,
+          staffType: payload.staffType as unknown as StaffType,
+          status: payload.status as unknown as StaffStatus,
           basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : null,
           joinDate: payload.joinDate && !isNaN(new Date(payload.joinDate).getTime()) ? new Date(payload.joinDate) : undefined,
           photo_url: payload.photo_url,
           photo_public_id: payload.photo_public_id,
           contractStart: payload.contractStart && !isNaN(new Date(payload.contractStart).getTime()) ? new Date(payload.contractStart) : null,
           contractEnd: payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime()) ? new Date(payload.contractEnd) : null,
+          isTeaching: true,
+          isNonTeaching: false,
         },
       });
     } catch (error) {
@@ -80,8 +84,8 @@ export class TeacherService {
       hashedPass = await bcrypt.hash(payload.password, 10);
     }
     try {
-      return await this.prismaService.teacher.update({
-        where: { id: teacherID },
+      return await this.prismaService.staff.update({
+        where: { id: teacherID, isTeaching: true },
         data: {
           name: payload.name,
           fatherName: payload.fatherName,
@@ -94,8 +98,8 @@ export class TeacherService {
           highestDegree: payload.highestDegree,
           documents: payload.documents as unknown as Prisma.JsonObject,
           departmentId: payload.departmentId && Number(payload.departmentId) > 0 ? Number(payload.departmentId) : undefined,
-          teacherType: payload.teacherType as unknown as TeacherType,
-          teacherStatus: payload.teacherStatus as unknown as TeacherStatus,
+          staffType: payload.staffType as unknown as StaffType,
+          status: payload.status as unknown as StaffStatus,
           basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : undefined,
           joinDate: payload.joinDate && !isNaN(new Date(payload.joinDate).getTime()) ? new Date(payload.joinDate) : undefined,
           photo_url: payload.photo_url,
@@ -121,8 +125,8 @@ export class TeacherService {
 
   async removeTeacher(teacherID: number) {
     // Fetch teacher with all relations
-    const teacher = await this.prismaService.teacher.findUnique({
-      where: { id: teacherID },
+    const teacher = await this.prismaService.staff.findUnique({
+      where: { id: teacherID, isTeaching: true },
       include: {
         headOf: true,
         classSectionMappings: {
@@ -182,7 +186,7 @@ export class TeacherService {
     }
 
     // ALL CLEAR → Delete teacher
-    await this.prismaService.teacher.delete({
+    await this.prismaService.staff.delete({
       where: { id: teacherID },
     });
 
@@ -217,8 +221,8 @@ export class TeacherService {
   }
 
   async getSubjects(teacherID: number) {
-    return await this.prismaService.teacher.findFirst({
-      where: { id: teacherID },
+    return await this.prismaService.staff.findFirst({
+      where: { id: teacherID, isTeaching: true },
       select: {
         id: true,
         subjects: {

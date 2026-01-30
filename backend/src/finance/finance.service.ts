@@ -51,7 +51,7 @@ export class FinanceService {
       orderBy: { date: 'desc' },
     });
 
-    // If category is 'Fee' or 'all', fetch paid fee challans and aggregate by month
+    // If category is 'Fee' or 'all', fetch PAID fee challans
     let feeChallans: any[] = [];
     if (
       !filters?.category ||
@@ -80,62 +80,24 @@ export class FinanceService {
         orderBy: { paidDate: 'desc' },
       });
 
-      // Aggregate by month
-      const monthlyAggregation = new Map<
-        string,
-        { total: number; date: Date; count: number }
-      >();
-
-      challans.forEach((c) => {
-        const paidDate = c.paidDate || c.createdAt;
-        const monthKey = `${paidDate.getFullYear()}-${String(paidDate.getMonth() + 1).padStart(2, '0')}`;
-
-        if (!monthlyAggregation.has(monthKey)) {
-          monthlyAggregation.set(monthKey, {
-            total: 0,
-            date: new Date(paidDate.getFullYear(), paidDate.getMonth(), 1),
-            count: 0,
-          });
-        }
-
-        const entry = monthlyAggregation.get(monthKey) || {
-          total: 0,
-          date: new Date(),
-          count: 0,
+      feeChallans = challans.map((c) => {
+        const billingMonth = c.issueDate.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+        const studentName = `${c.student.fName} ${c.student.lName || ''}`.trim();
+        return {
+          id: `fee-${c.id}`,
+          date: c.paidDate || c.createdAt,
+          category: 'Fee',
+          description: `Fee Payment: ${studentName} (${c.student.rollNumber}) - For ${billingMonth}`,
+          amount: Number(c.paidAmount),
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+          source: 'fee-challan',
+          sourceId: c.id,
+          studentId: c.studentId,
+          billingMonth: billingMonth
         };
-        entry.total += Number(c.paidAmount);
-        entry.count += 1;
       });
-
-      // Convert to array of income records
-      feeChallans = Array.from(monthlyAggregation.entries()).map(
-        ([monthKey, data]) => {
-          const [year, month] = monthKey.split('-');
-          const monthName = new Date(
-            parseInt(year),
-            parseInt(month) - 1,
-            1,
-          ).toLocaleString('en-US', { month: 'long', year: 'numeric' });
-
-          return {
-            id: `fee-${monthKey}`,
-            date: data.date, // already aggregated by month object
-            category: 'Fee',
-            description: `Fee payments from ${monthName} (${data.count} payments)`,
-            amount: data.total,
-            createdAt: data.date,
-            updatedAt: data.date,
-            source: 'fee-challan-aggregated',
-            sourceId: monthKey,
-          };
-        },
-      );
     }
-
-    // Map individual fee challans if needed (logic below handles if not aggregated) - BUT wait, the code above aggregated them if filtered. 
-    // Actually, looking at lines 417-425 in getDashboardStats, it maps individual ones.
-    // getIncomes does aggregation for "Fee" category? 
-    // Let's check lines 110-132. It returns aggregated.
 
     // Combine and sort by date
     const allIncomes = [...manualIncomes, ...feeChallans].sort(
@@ -228,23 +190,20 @@ export class FinanceService {
       const paidPayrolls = await this.prisma.payroll.findMany({
         where: payrollWhere,
         include: {
-          employee: true,
-          teacher: true,
+          staff: true,
         },
         orderBy: { paymentDate: 'desc' },
       });
 
       payrolls = paidPayrolls.map((p) => {
-        const staffName = p.employee
-          ? p.employee.name
-          : p.teacher?.name || 'Unknown';
-        const staffType = p.employee ? 'Employee' : 'Teacher';
+        const staffName = p.staff?.name || 'Unknown';
+        const staffType = p.staff?.isTeaching ? 'Teacher' : 'Staff';
 
         return {
           id: `payroll-${p.id}`,
           date: p.paymentDate || p.createdAt,
           category: 'Salaries',
-          description: `Salary payment for ${staffName} (${staffType}) - ${p.month}`,
+          description: `Salary: ${staffName} (${staffType}) - Month: ${p.month}`,
           amount: Number(p.netSalary),
           createdAt: p.createdAt,
           updatedAt: p.updatedAt,
@@ -460,7 +419,7 @@ export class FinanceService {
     }
     const paidPayrolls = await this.prisma.payroll.findMany({
       where: payrollWhere,
-      include: { employee: true, teacher: true },
+      include: { staff: true },
     });
 
     // Calculate totals
@@ -530,7 +489,7 @@ export class FinanceService {
         id: `payroll-${p.id}`,
         date: p.paymentDate || p.createdAt,
         category: 'Salaries', // Mapped to Salaries
-        description: `Salary - ${p.month}`,
+        description: `Salary - ${p.month} - ${p.staff?.name || 'Staff'}`,
         amount: Number(p.netSalary),
         createdAt: p.createdAt,
         updatedAt: p.updatedAt,

@@ -12,4 +12,23 @@ export class UpdateRegistrationDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  studentId?: number;
+
+  @IsOptional()
+  @IsString()
+  externalName?: string;
+
+  @IsOptional()
+  @IsString()
+  externalInstitute?: string;
+
+  @IsOptional()
+  @IsString()
+  externalGuardianName?: string;
+
+  @IsOptional()
+  @IsString()
+  externalGuardianNumber?: string;
 }

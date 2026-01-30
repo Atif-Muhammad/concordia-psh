@@ -1,15 +1,260 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { EmployeeDto } from './dtos/employee.dot';
+import { StaffDto } from './dtos/staff.dto';
 import {
   EmployeeDepartment,
-  EmployeeStatus,
-  EmploymentType,
+  Prisma,
+  StaffStatus,
+  StaffType,
 } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class HrService {
   constructor(private prismService: PrismaService) { }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // UNIFIED STAFF MANAGEMENT (Teaching + Non-Teaching)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async getAllStaff(filters?: {
+    isTeaching?: boolean;
+    isNonTeaching?: boolean;
+    search?: string;
+    status?: string;
+  }) {
+    const where: any = {};
+
+    if (filters?.isTeaching !== undefined) {
+      where.isTeaching = filters.isTeaching;
+    }
+    if (filters?.isNonTeaching !== undefined) {
+      where.isNonTeaching = filters.isNonTeaching;
+    }
+    if (filters?.status) {
+      where.status = filters.status;
+    }
+    if (filters?.search) {
+      where.OR = [
+        { name: { contains: filters.search } },
+        { email: { contains: filters.search } },
+        { cnic: { contains: filters.search } },
+        { phone: { contains: filters.search } },
+      ];
+    }
+
+    return await this.prismService.staff.findMany({
+      where,
+      include: {
+        department: { select: { name: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async getStaffById(id: number) {
+    const staff = await this.prismService.staff.findUnique({
+      where: { id },
+      include: {
+        department: { select: { id: true, name: true } },
+        subjects: { include: { subject: true } },
+        classSectionMappings: {
+          include: {
+            class: { include: { program: true } },
+            section: true
+          }
+        },
+      },
+    });
+
+    if (!staff) {
+      throw new NotFoundException(`Staff with ID ${id} not found`);
+    }
+
+    return staff;
+  }
+
+  async createStaff(payload: StaffDto) {
+    // Hash password if provided
+    let hashedPass = '';
+    if (payload.password) {
+      hashedPass = await bcrypt.hash(payload.password, 10);
+    }
+
+    // Validate: at least one role must be selected
+    if (!payload.isTeaching && !payload.isNonTeaching) {
+      throw new BadRequestException('Staff must have at least one role (Teaching or Non-Teaching)');
+    }
+
+    try {
+      return await this.prismService.staff.create({
+        data: {
+          name: payload.name,
+          fatherName: payload.fatherName,
+          email: payload.email || null,
+          password: hashedPass,
+          phone: payload.phone,
+          cnic: payload.cnic,
+          address: payload.address,
+          photo_url: payload.photo_url,
+          photo_public_id: payload.photo_public_id,
+          staffType: payload.staffType as unknown as StaffType,
+          status: (payload.status as unknown as StaffStatus) || 'ACTIVE',
+          basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : null,
+          joinDate: payload.joinDate && !isNaN(new Date(payload.joinDate).getTime()) ? new Date(payload.joinDate) : undefined,
+          leaveDate: payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime()) ? new Date(payload.leaveDate) : null,
+          contractStart: payload.contractStart && !isNaN(new Date(payload.contractStart).getTime()) ? new Date(payload.contractStart) : null,
+          contractEnd: payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime()) ? new Date(payload.contractEnd) : null,
+
+          // Role flags
+          isTeaching: payload.isTeaching ?? false,
+          isNonTeaching: payload.isNonTeaching ?? false,
+
+          permissions: (payload.permissions as unknown as Prisma.JsonObject) || undefined,
+
+          // Teaching-specific fields
+          specialization: payload.isTeaching ? payload.specialization : null,
+          highestDegree: payload.isTeaching ? payload.highestDegree : null,
+          departmentId: payload.departmentId && Number(payload.departmentId) > 0 ? Number(payload.departmentId) : undefined,
+          documents: payload.isTeaching ? (payload.documents as unknown as Prisma.JsonObject) : undefined,
+
+          // Non-teaching specific fields
+          designation: payload.isNonTeaching ? payload.designation : null,
+          empDepartment: payload.isNonTeaching ? (payload.empDepartment as unknown as EmployeeDepartment) : null,
+        },
+      });
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        throw new BadRequestException('Email or CNIC is already taken by another staff member');
+      }
+      throw error;
+    }
+  }
+
+  async updateStaff(id: number, payload: Partial<StaffDto>) {
+    let hashedPass: string | undefined;
+    if (payload.password) {
+      hashedPass = await bcrypt.hash(payload.password, 10);
+    }
+
+    // Validate: at least one role must be selected if changing roles
+    if (payload.isTeaching !== undefined || payload.isNonTeaching !== undefined) {
+      if (!payload.isTeaching && !payload.isNonTeaching) {
+        throw new BadRequestException('Staff must have at least one role (Teaching or Non-Teaching)');
+      }
+    }
+
+    try {
+      return await this.prismService.staff.update({
+        where: { id },
+        data: {
+          name: payload.name,
+          fatherName: payload.fatherName,
+          email: payload.email,
+          ...(hashedPass && { password: hashedPass }),
+          phone: payload.phone,
+          cnic: payload.cnic,
+          address: payload.address,
+          photo_url: payload.photo_url,
+          photo_public_id: payload.photo_public_id,
+          staffType: payload.staffType as unknown as StaffType,
+          status: payload.status as unknown as StaffStatus,
+          basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : undefined,
+          joinDate: payload.joinDate && !isNaN(new Date(payload.joinDate).getTime()) ? new Date(payload.joinDate) : undefined,
+          leaveDate: payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime()) ? new Date(payload.leaveDate) : undefined,
+          contractStart: payload.contractStart && !isNaN(new Date(payload.contractStart).getTime()) ? new Date(payload.contractStart) : undefined,
+          contractEnd: payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime()) ? new Date(payload.contractEnd) : undefined,
+
+          // Role flags (only update if provided)
+          ...(payload.isTeaching !== undefined && { isTeaching: payload.isTeaching }),
+          ...(payload.isNonTeaching !== undefined && { isNonTeaching: payload.isNonTeaching }),
+
+          ...(payload.permissions !== undefined && { permissions: payload.permissions as unknown as Prisma.JsonObject }),
+
+          // Teaching-specific fields
+          specialization: payload.specialization,
+          highestDegree: payload.highestDegree,
+          departmentId: payload.departmentId && Number(payload.departmentId) > 0 ? Number(payload.departmentId) : undefined,
+          documents: payload.documents as unknown as Prisma.JsonObject,
+
+          // Non-teaching specific fields
+          designation: payload.designation,
+          empDepartment: payload.empDepartment as unknown as EmployeeDepartment,
+        },
+      });
+    } catch (error: any) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new BadRequestException('Email or CNIC is already taken by another staff member');
+        }
+        if (error.code === 'P2025') {
+          throw new NotFoundException('Staff not found');
+        }
+      }
+      throw error;
+    }
+  }
+
+  async deleteStaff(id: number) {
+    // Fetch staff with relations to check for dependencies
+    const staff = await this.prismService.staff.findUnique({
+      where: { id },
+      include: {
+        headOf: true,
+        classSectionMappings: { include: { class: true } },
+        subjects: { include: { subject: true } },
+        timetables: true,
+        assignments: true,
+      },
+    });
+
+    if (!staff) {
+      throw new NotFoundException(`Staff with ID ${id} not found`);
+    }
+
+    // Block deletion if staff is HOD
+    if (staff.headOf) {
+      throw new ForbiddenException(
+        `Cannot delete staff "${staff.name}". They are Head of Department (HOD) for "${staff.headOf.name}". Assign a new HOD first.`,
+      );
+    }
+
+    // Block deletion if assigned to classes
+    if (staff.classSectionMappings.length > 0) {
+      const classNames = staff.classSectionMappings.map(m => m.class.name).join(', ');
+      throw new ForbiddenException(
+        `Cannot delete staff "${staff.name}". They are assigned to class(es): ${classNames}. Remove class assignments first.`,
+      );
+    }
+
+    // Block deletion if teaching subjects
+    if (staff.subjects.length > 0) {
+      const subjectNames = staff.subjects.map(s => s.subject.name).join(', ');
+      throw new ForbiddenException(
+        `Cannot delete staff "${staff.name}". They teach subject(s): ${subjectNames}. Unassign from subjects first.`,
+      );
+    }
+
+    // Cleanup: Delete timetable entries
+    if (staff.timetables.length > 0) {
+      await this.prismService.timetable.deleteMany({ where: { teacherId: id } });
+    }
+
+    // Cleanup: Delete assignments
+    if (staff.assignments.length > 0) {
+      await this.prismService.assignment.deleteMany({ where: { teacherId: id } });
+    }
+
+    // Delete associated photo from cloudinary if exists
+    await this.prismService.staff.delete({ where: { id } });
+
+    return { message: `Staff "${staff.name}" has been deleted successfully.` };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // END UNIFIED STAFF MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════════════════
 
 
 
@@ -54,13 +299,13 @@ export class HrService {
   }
 
   async findOne(id: number) {
-    return await this.prismService.employee.findUnique({
+    return await this.prismService.staff.findUnique({
       where: { id },
     });
   }
 
   async fetchEmpls(dept: string, search?: string) {
-    const where: any = {};
+    const where: any = { isNonTeaching: true };
 
     if (dept) {
       where.empDepartment = dept as EmployeeDepartment;
@@ -77,24 +322,25 @@ export class HrService {
       }
     }
 
-    return await this.prismService.employee.findMany({
+    return await this.prismService.staff.findMany({
       where,
       orderBy: { name: 'asc' },
     });
   }
 
   async createEmp(payload: EmployeeDto) {
-    return await this.prismService.employee.create({
+    return await this.prismService.staff.create({
       data: {
         name: payload.name,
         fatherName: payload.fatherName,
         email: payload.email ?? null,
+        password: '', // Employees created via HR don't login as staff usually, or set default
         cnic: payload.cnic,
         address: payload.address,
         designation: payload.designation,
         empDepartment: payload.empDepartment as unknown as EmployeeDepartment,
-        employmentType: payload.employmentType as unknown as EmploymentType,
-        status: payload.status as unknown as EmployeeStatus,
+        staffType: payload.staffType as unknown as StaffType,
+        status: payload.status as unknown as StaffStatus,
         basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : null,
         phone: payload.contactNumber,
         joinDate: payload.joinDate ? new Date(payload.joinDate) : undefined,
@@ -103,13 +349,15 @@ export class HrService {
         photo_public_id: payload.photo_public_id,
         contractStart: payload.contractStart && !isNaN(new Date(payload.contractStart).getTime()) ? new Date(payload.contractStart) : null,
         contractEnd: payload.contractEnd && !isNaN(new Date(payload.contractEnd).getTime()) ? new Date(payload.contractEnd) : null,
+        isTeaching: false,
+        isNonTeaching: true,
       },
     });
   }
 
   async updateEmp(id: number, payload: EmployeeDto) {
-    return await this.prismService.employee.update({
-      where: { id },
+    return await this.prismService.staff.update({
+      where: { id, isNonTeaching: true },
       data: {
         name: payload.name,
         fatherName: payload.fatherName,
@@ -118,8 +366,8 @@ export class HrService {
         address: payload.address,
         designation: payload.designation,
         empDepartment: payload.empDepartment as unknown as EmployeeDepartment,
-        employmentType: payload.employmentType as unknown as EmploymentType,
-        status: payload.status as unknown as EmployeeStatus,
+        staffType: payload.staffType as unknown as StaffType,
+        status: payload.status as unknown as StaffStatus,
         basicPay: payload.basicPay && !isNaN(parseFloat(payload.basicPay)) ? parseFloat(payload.basicPay) : undefined,
         phone: payload.contactNumber,
         joinDate: payload.joinDate ? new Date(payload.joinDate) : undefined,
@@ -133,14 +381,15 @@ export class HrService {
   }
 
   async deleteEmp(id: number) {
-    return await this.prismService.employee.delete({
+    return await this.prismService.staff.delete({
       where: { id },
     });
   }
 
   async getEmployeesByDept() {
-    const result = await this.prismService.employee.groupBy({
+    const result = await this.prismService.staff.groupBy({
       by: ['empDepartment'],
+      where: { isNonTeaching: true },
       _count: {
         _all: true,
       },
@@ -201,303 +450,172 @@ export class HrService {
     }
   }
 
-  async getPayrollSheet(month: string, type: 'teacher' | 'employee') {
+  async getPayrollSheet(month: string, type?: 'teacher' | 'employee' | 'all') {
     // Get payroll settings for deduction rates
     const settings: any = await this.getPayrollSettings();
-    // console.log('Payroll Settings:', settings);
 
     // Parse month to get date range (YYYY-MM)
     const [year, monthNum] = month.split('-').map(Number);
     const startDate = new Date(year, monthNum - 1, 1);
     const endDate = new Date(year, monthNum, 0); // Last day of month
 
+    const where: any = { status: 'ACTIVE' };
     if (type === 'teacher') {
-      const teachers = await this.prismService.teacher.findMany({
-        where: { teacherStatus: 'ACTIVE' },
-        include: {
-          payrolls: {
-            where: { month },
-          },
-          advanceSalaries: {
-            where: {
-              month,
-              adjusted: false,
-            },
-          },
-          department: true,
-          attendance: {
-            where: {
-              date: {
-                gte: startDate,
-                lte: endDate,
-              },
-            },
-          },
-        },
-        orderBy: { name: 'asc' },
-      });
-
-      return teachers.map((t) => {
-        const payroll = t.payrolls[0];
-
-        // Count absents and leaves from attendance
-        const absentCount = t.attendance.filter(
-          (a) => a.status === 'ABSENT',
-        ).length;
-        const leaveCount = t.attendance.filter(
-          (a) => a.status === 'LEAVE',
-        ).length;
-
-        // Calculate advance salary deductions
-        const advanceSalaryTotal = t.advanceSalaries.reduce(
-          (sum, advance) => sum + advance.amount,
-          0,
-        );
-
-        // Calculate deductions for absents/leaves
-        const calculatedAbsentDeduction =
-          absentCount * (settings.absentDeduction || 0);
-        const calculatedLeaveDeduction =
-          leaveCount * (settings.leaveDeduction || 0);
-
-        // Use payroll values if they exist, otherwise use calculated values
-        const basicSalary = Number(t.basicPay) || 0;
-        const securityDeduction = payroll?.securityDeduction || 0;
-
-        // CRITICAL FIX: If there are advance salaries, use their total
-        // Only use payroll.advanceDeduction if there are NO advance salaries
-        const advanceDeduction =
-          advanceSalaryTotal > 0
-            ? advanceSalaryTotal
-            : payroll?.advanceDeduction || 0;
-
-        const absentDeduction =
-          payroll?.absentDeduction ?? calculatedAbsentDeduction;
-        const leaveDeduction = calculatedLeaveDeduction; // Always use calculated value for leaves
-        const otherDeduction = payroll?.otherDeduction || 0;
-        const incomeTax = payroll?.incomeTax || 0;
-        const eobi = payroll?.eobi || 0;
-        const lateArrivalDeduction = payroll?.lateArrivalDeduction || 0;
-
-        // Recalculate total deductions
-        const totalDeductions =
-          securityDeduction +
-          advanceDeduction +
-          absentDeduction +
-          leaveDeduction +
-          otherDeduction +
-          incomeTax +
-          eobi +
-          lateArrivalDeduction;
-
-        const extraAllowance = payroll?.extraAllowance || 0;
-        const travelAllowance = payroll?.travelAllowance || 0;
-        const houseRentAllowance = payroll?.houseRentAllowance || 0;
-        const medicalAllowance = payroll?.medicalAllowance || 0;
-        const insuranceAllowance = payroll?.insuranceAllowance || 0;
-        const otherAllowance = payroll?.otherAllowance || 0;
-        const totalAllowances =
-          extraAllowance +
-          travelAllowance +
-          houseRentAllowance +
-          medicalAllowance +
-          insuranceAllowance +
-          otherAllowance;
-
-        const netSalary = basicSalary - totalDeductions + totalAllowances;
-
-        // Calculate excess for display purposes
-        const excessAbsents = Math.max(
-          0,
-          absentCount - (settings.absentsAllowed || 0),
-        );
-        const excessLeaves = Math.max(
-          0,
-          leaveCount - (settings.leavesAllowed || 0),
-        );
-
-        return {
-          id: t.id,
-          name: t.name,
-          designation: t.specialization
-            ? `Teacher - ${t.specialization}`
-            : 'Teacher',
-          department: t.department?.name || 'N/A',
-          basicSalary,
-          payrollId: payroll?.id,
-          month,
-          securityDeduction,
-          advanceDeduction,
-          absentDeduction,
-          leaveDeduction,
-          otherDeduction,
-          incomeTax,
-          eobi,
-          lateArrivalDeduction,
-          totalDeductions,
-          extraAllowance,
-          travelAllowance,
-          houseRentAllowance,
-          medicalAllowance,
-          insuranceAllowance,
-          otherAllowance,
-          totalAllowances,
-          netSalary,
-          status: payroll?.status || 'UNPAID',
-          // Additional info for UI
-          absentCount,
-          leaveCount,
-          excessAbsents,
-          excessLeaves,
-          advanceSalaryTotal,
-          hasAdvanceSalary: advanceSalaryTotal > 0,
-          paymentDate: payroll?.paymentDate
-            ? new Date(payroll.paymentDate).toLocaleDateString()
-            : 'N/A',
-        };
-      });
-    } else {
-      // Apply the same logic for employees
-      const employees = await this.prismService.employee.findMany({
-        where: { status: 'ACTIVE' },
-        include: {
-          payrolls: {
-            where: { month },
-          },
-          advanceSalaries: {
-            where: {
-              month,
-              adjusted: false,
-            },
-          },
-          attendance: {
-            where: {
-              date: {
-                gte: startDate,
-                lte: endDate,
-              },
-            },
-          },
-        },
-        orderBy: { name: 'asc' },
-      });
-
-      return employees.map((e) => {
-        const payroll = e.payrolls[0];
-
-        // Count absents and leaves from attendance
-        const absentCount = e.attendance.filter(
-          (a) => a.status === 'ABSENT',
-        ).length;
-        const leaveCount = e.attendance.filter(
-          (a) => a.status === 'LEAVE',
-        ).length;
-
-        // Calculate advance salary deductions
-        const advanceSalaryTotal = e.advanceSalaries.reduce(
-          (sum, advance) => sum + advance.amount,
-          0,
-        );
-
-        // Calculate deductions for absents/leaves
-        const calculatedAbsentDeduction =
-          absentCount * (settings.absentDeduction || 0);
-        const calculatedLeaveDeduction =
-          leaveCount * (settings.leaveDeduction || 0);
-
-        // Use payroll values if they exist, otherwise use calculated values
-        const basicSalary = Number(e.basicPay) || 0;
-        const securityDeduction = payroll?.securityDeduction || 0;
-
-        // Apply the same fix for employees
-        const advanceDeduction =
-          advanceSalaryTotal > 0
-            ? advanceSalaryTotal
-            : payroll?.advanceDeduction || 0;
-
-        const absentDeduction =
-          payroll?.absentDeduction ?? calculatedAbsentDeduction;
-        const leaveDeduction = calculatedLeaveDeduction;
-        const otherDeduction = payroll?.otherDeduction || 0;
-        const incomeTax = payroll?.incomeTax || 0;
-        const eobi = payroll?.eobi || 0;
-        const lateArrivalDeduction = payroll?.lateArrivalDeduction || 0;
-
-        const totalDeductions =
-          securityDeduction +
-          advanceDeduction +
-          absentDeduction +
-          leaveDeduction +
-          otherDeduction +
-          incomeTax +
-          eobi +
-          lateArrivalDeduction;
-
-        const extraAllowance = payroll?.extraAllowance || 0;
-        const travelAllowance = payroll?.travelAllowance || 0;
-        const houseRentAllowance = payroll?.houseRentAllowance || 0;
-        const medicalAllowance = payroll?.medicalAllowance || 0;
-        const insuranceAllowance = payroll?.insuranceAllowance || 0;
-        const otherAllowance = payroll?.otherAllowance || 0;
-        const totalAllowances =
-          extraAllowance +
-          travelAllowance +
-          houseRentAllowance +
-          medicalAllowance +
-          insuranceAllowance +
-          otherAllowance;
-
-        const netSalary = basicSalary - totalDeductions + totalAllowances;
-
-        // Calculate excess for display purposes
-        const excessAbsents = Math.max(
-          0,
-          absentCount - (settings.absentsAllowed || 0),
-        );
-        const excessLeaves = Math.max(
-          0,
-          leaveCount - (settings.leavesAllowed || 0),
-        );
-
-        return {
-          id: e.id,
-          name: e.name,
-          designation: e.designation,
-          department: e.empDepartment,
-          basicSalary,
-          payrollId: payroll?.id,
-          month,
-          securityDeduction,
-          advanceDeduction,
-          absentDeduction,
-          leaveDeduction,
-          otherDeduction,
-          incomeTax,
-          eobi,
-          lateArrivalDeduction,
-          totalDeductions,
-          extraAllowance,
-          travelAllowance,
-          houseRentAllowance,
-          medicalAllowance,
-          insuranceAllowance,
-          otherAllowance,
-          totalAllowances,
-          netSalary,
-          status: payroll?.status || 'UNPAID',
-          // Additional info for UI
-          absentCount,
-          leaveCount,
-          excessAbsents,
-          excessLeaves,
-          advanceSalaryTotal,
-          hasAdvanceSalary: advanceSalaryTotal > 0,
-          paymentDate: payroll?.paymentDate
-            ? new Date(payroll.paymentDate).toLocaleDateString()
-            : 'N/A',
-        };
-      });
+      where.isTeaching = true;
+    } else if (type === 'employee') {
+      where.isNonTeaching = true;
+    } else if (type === 'all') {
+      // No filter
     }
+
+    const staffMembers = await this.prismService.staff.findMany({
+      where,
+      include: {
+        payrolls: {
+          where: { month },
+        },
+        advanceSalaries: {
+          where: {
+            month,
+            adjusted: false,
+          },
+        },
+        department: true,
+        attendance: {
+          where: {
+            date: {
+              gte: startDate,
+              lte: endDate,
+            },
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    return staffMembers.map((staff) => {
+      const payroll = staff.payrolls[0];
+
+      // Count absents and leaves from attendance
+      const absentCount = staff.attendance.filter(
+        (a) => a.status === 'ABSENT',
+      ).length;
+      const leaveCount = staff.attendance.filter(
+        (a) => a.status === 'LEAVE',
+      ).length;
+
+      // Calculate advance salary deductions
+      const advanceSalaryTotal = staff.advanceSalaries.reduce(
+        (sum, advance) => sum + advance.amount,
+        0,
+      );
+
+      // Calculate deductions for absents/leaves
+      const calculatedAbsentDeduction =
+        absentCount * (settings.absentDeduction || 0);
+      const calculatedLeaveDeduction =
+        leaveCount * (settings.leaveDeduction || 0);
+
+      // Use payroll values if they exist, otherwise use calculated values
+      const basicSalary = Number(staff.basicPay) || 0;
+      const securityDeduction = payroll?.securityDeduction || 0;
+
+      // CRITICAL FIX: If there are advance salaries, use their total
+      // Only use payroll.advanceDeduction if there are NO advance salaries
+      const advanceDeduction =
+        advanceSalaryTotal > 0
+          ? advanceSalaryTotal
+          : payroll?.advanceDeduction || 0;
+
+      const absentDeduction =
+        payroll?.absentDeduction ?? calculatedAbsentDeduction;
+      const leaveDeduction = calculatedLeaveDeduction; // Always use calculated value for leaves
+      const otherDeduction = payroll?.otherDeduction || 0;
+      const incomeTax = payroll?.incomeTax || 0;
+      const eobi = payroll?.eobi || 0;
+      const lateArrivalDeduction = payroll?.lateArrivalDeduction || 0;
+
+      // Recalculate total deductions
+      const totalDeductions =
+        securityDeduction +
+        advanceDeduction +
+        absentDeduction +
+        leaveDeduction +
+        otherDeduction +
+        incomeTax +
+        eobi +
+        lateArrivalDeduction;
+
+      const extraAllowance = payroll?.extraAllowance || 0;
+      const travelAllowance = payroll?.travelAllowance || 0;
+      const houseRentAllowance = payroll?.houseRentAllowance || 0;
+      const medicalAllowance = payroll?.medicalAllowance || 0;
+      const insuranceAllowance = payroll?.insuranceAllowance || 0;
+      const otherAllowance = payroll?.otherAllowance || 0;
+      const totalAllowances =
+        extraAllowance +
+        travelAllowance +
+        houseRentAllowance +
+        medicalAllowance +
+        insuranceAllowance +
+        otherAllowance;
+
+      const netSalary = basicSalary - totalDeductions + totalAllowances;
+
+      // Calculate excess for display purposes
+      const excessAbsents = Math.max(
+        0,
+        absentCount - (settings.absentsAllowed || 0),
+      );
+      const excessLeaves = Math.max(
+        0,
+        leaveCount - (settings.leavesAllowed || 0),
+      );
+
+      return {
+        id: staff.id,
+        name: staff.name,
+        designation: staff.isTeaching
+          ? staff.specialization
+            ? `Teacher - ${staff.specialization}`
+            : 'Teacher'
+          : staff.designation || 'Staff',
+        department: staff.isTeaching
+          ? staff.department?.name || 'N/A'
+          : (staff.empDepartment as string) || 'N/A',
+        basicSalary,
+        payrollId: payroll?.id,
+        month,
+        securityDeduction,
+        advanceDeduction,
+        absentDeduction,
+        leaveDeduction,
+        otherDeduction,
+        incomeTax,
+        eobi,
+        lateArrivalDeduction,
+        totalDeductions,
+        extraAllowance,
+        travelAllowance,
+        houseRentAllowance,
+        medicalAllowance,
+        insuranceAllowance,
+        otherAllowance,
+        totalAllowances,
+        netSalary,
+        status: payroll?.status || 'UNPAID',
+        // Additional info for UI
+        absentCount,
+        leaveCount,
+        excessAbsents,
+        excessLeaves,
+        advanceSalaryTotal,
+        hasAdvanceSalary: advanceSalaryTotal > 0,
+        paymentDate: payroll?.paymentDate
+          ? new Date(payroll.paymentDate).toLocaleDateString()
+          : 'N/A',
+      };
+    });
   }
 
   async upsertPayroll(dto: any) {
@@ -553,75 +671,60 @@ export class HrService {
       return await this.prismService.payroll.create({
         data: {
           ...data,
-          employeeId: dto.employeeId,
-          teacherId: dto.teacherId,
+          staffId: dto.staffId || dto.employeeId || dto.teacherId, // Unified staffId
+          employeeId: dto.employeeId, // Legacy
+          teacherId: dto.teacherId, // Legacy
         },
       });
     }
+
   }
 
   // Leave Management
-  async getLeaveSheet(month: string, type: 'teacher' | 'employee') {
+  async getLeaveSheet(month: string, type?: 'teacher' | 'employee' | 'all') {
+    const where: any = { status: 'ACTIVE' };
+
     if (type === 'teacher') {
-      const teachers = await this.prismService.teacher.findMany({
-        where: { teacherStatus: 'ACTIVE' },
-        include: {
-          leaves: {
-            where: { month },
-            orderBy: { status: 'asc' },
-          },
-          department: true,
-        },
-      });
-
-      return teachers
-        .map((t) => {
-          const leaves = t.leaves || [];
-          return leaves.map((leave) => ({
-            id: t.id,
-            name: t.name,
-            designation: t.specialization || 'Teacher',
-            department: t.department?.name || 'N/A',
-            leaveId: leave.id,
-            month,
-            startDate: leave.startDate,
-            endDate: leave.endDate,
-            days: leave.days || 0,
-            reason: leave.reason || '',
-            status: leave.status || 'PENDING',
-          }));
-        })
-        .flat();
-    } else {
-      const employees = await this.prismService.employee.findMany({
-        where: { status: 'ACTIVE' },
-        include: {
-          leaves: {
-            where: { month },
-          },
-        },
-        orderBy: { name: 'asc' },
-      });
-
-      return employees
-        .map((e) => {
-          const leaves = e.leaves || [];
-          return leaves.map((leave) => ({
-            id: e.id,
-            name: e.name,
-            designation: e.designation,
-            department: e.empDepartment,
-            leaveId: leave.id,
-            month,
-            startDate: leave.startDate,
-            endDate: leave.endDate,
-            days: leave.days || 0,
-            reason: leave.reason || '',
-            status: leave.status || 'PENDING',
-          }));
-        })
-        .flat();
+      where.isTeaching = true;
+    } else if (type === 'employee') {
+      where.isNonTeaching = true;
     }
+    // If 'all' or undefined, no role filter is applied (returns ALL staff)
+
+    const staff = await this.prismService.staff.findMany({
+      where,
+      include: {
+        leaves: {
+          where: { month },
+          orderBy: { status: 'asc' },
+        },
+        department: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    return staff
+      .map((s) => {
+        const leaves = s.leaves || [];
+        return leaves.map((leave) => ({
+          id: s.id,
+          name: s.name,
+          designation: s.isTeaching
+            ? s.specialization || 'Teacher'
+            : s.designation || 'Staff',
+          department: s.isTeaching
+            ? s.department?.name || 'N/A'
+            : (s.empDepartment as string) || 'N/A',
+          leaveId: leave.id,
+          month,
+          startDate: leave.startDate,
+          endDate: leave.endDate,
+          days: leave.days || 0,
+          reason: leave.reason || '',
+          status: leave.status || 'PENDING',
+        }));
+      })
+      .flat();
   }
 
   async upsertLeave(dto: any) {
@@ -644,7 +747,8 @@ export class HrService {
       leave = await this.prismService.staffLeave.create({
         data: {
           ...data,
-          employeeId: dto.employeeId,
+          staffId: dto.staffId || dto.employeeId || dto.teacherId, // Handle legacy
+          employeeId: dto.employeeId, // Keep for legacy if needed by existing frontend
           teacherId: dto.teacherId,
         },
       });
@@ -685,13 +789,14 @@ export class HrService {
       }
     }
 
-    // Mark attendance for teachers or employees
+    // Mark attendance for staff
     for (const date of dates) {
-      if (leave.teacherId) {
-        await this.prismService.teacherAttendance.upsert({
+      const staffId = leave.staffId || leave.teacherId || leave.employeeId;
+      if (staffId) {
+        await this.prismService.staffAttendance.upsert({
           where: {
-            teacherId_date: {
-              teacherId: leave.teacherId,
+            staffId_date: {
+              staffId,
               date,
             },
           },
@@ -700,27 +805,7 @@ export class HrService {
             notes: `Marked ${attendanceStatus.toLowerCase()} automatically based on leave`,
           },
           create: {
-            teacherId: leave.teacherId,
-            date,
-            status: attendanceStatus,
-            notes: `Marked ${attendanceStatus.toLowerCase()} automatically based on leave`,
-            autoGenerated: true,
-          },
-        });
-      } else if (leave.employeeId) {
-        await this.prismService.employeeAttendance.upsert({
-          where: {
-            employeeId_date: {
-              employeeId: leave.employeeId,
-              date,
-            },
-          },
-          update: {
-            status: attendanceStatus,
-            notes: `Marked ${attendanceStatus.toLowerCase()} automatically based on leave`,
-          },
-          create: {
-            employeeId: leave.employeeId,
+            staffId,
             date,
             status: attendanceStatus,
             notes: `Marked ${attendanceStatus.toLowerCase()} automatically based on leave`,
@@ -731,26 +816,34 @@ export class HrService {
     }
   }
 
-  // Employee Attendance Management
-  async getEmployeeAttendance(date: Date) {
+  // Staff Attendance Management
+  async getStaffAttendance(date: Date) {
     const formattedDate = date.toISOString().split('T')[0];
-    return await this.prismService.employeeAttendance.findMany({
-      where: { date: new Date(formattedDate) },
+    return await this.prismService.staffAttendance.findMany({
+      where: { date: new Date(formattedDate) }, // Removed isNonTeaching filter to include ALL staff
       include: {
-        employee: {
+        staff: {
           select: {
             name: true,
             id: true,
-            designation: true,
-            empDepartment: true,
+            designation: true, // Employee
+            specialization: true, // Teacher
+            empDepartment: true, // Employee Dept
+            department: { select: { name: true } }, // Teacher Dept
+            isTeaching: true,
+            isNonTeaching: true,
+            photo_url: true,
           },
         },
         admin: { select: { name: true } },
       },
+      orderBy: {
+        staff: { name: 'asc' }
+      }
     });
   }
 
-  async markEmployeeAttendance(data: any) {
+  async markStaffAttendance(data: any) {
     const formattedDate = new Date(data.date).toISOString().split('T')[0];
     const targetDate = new Date(formattedDate);
     targetDate.setUTCHours(0, 0, 0, 0);
@@ -761,11 +854,13 @@ export class HrService {
       throw new BadRequestException(`Cannot mark attendance: ${dateCheck.reason}`);
     }
 
+    const staffId = data.staffId || data.employeeId || data.teacherId;
+
     // Check if attendance already exists
-    const existing = await this.prismService.employeeAttendance.findUnique({
+    const existing = await this.prismService.staffAttendance.findUnique({
       where: {
-        employeeId_date: {
-          employeeId: data.employeeId,
+        staffId_date: {
+          staffId,
           date: new Date(formattedDate),
         },
       },
@@ -773,7 +868,7 @@ export class HrService {
 
     if (existing) {
       // Update existing attendance
-      return await this.prismService.employeeAttendance.update({
+      return await this.prismService.staffAttendance.update({
         where: { id: existing.id },
         data: {
           status: data.status,
@@ -785,9 +880,9 @@ export class HrService {
       });
     } else {
       // Create new attendance record
-      return await this.prismService.employeeAttendance.create({
+      return await this.prismService.staffAttendance.create({
         data: {
-          employeeId: data.employeeId,
+          staffId,
           date: new Date(formattedDate),
           status: data.status,
           markedBy: data.markedBy,
@@ -857,8 +952,7 @@ export class HrService {
   async createAdvanceSalary(data: any) {
     return await this.prismService.advanceSalary.create({
       data: {
-        employeeId: data.employeeId || null,
-        teacherId: data.teacherId || null,
+        staffId: data.staffId || data.employeeId || data.teacherId,
         amount: data.amount,
         month: data.month,
         remarks: data.remarks,
@@ -867,7 +961,7 @@ export class HrService {
     });
   }
 
-  async getAdvanceSalaries(month?: string, type?: 'teacher' | 'employee') {
+  async getAdvanceSalaries(month?: string, type?: 'teacher' | 'employee' | 'all') {
     const where: any = {};
 
     if (month) {
@@ -875,16 +969,25 @@ export class HrService {
     }
 
     if (type === 'teacher') {
-      where.teacherId = { not: null };
+      where.staff = { isTeaching: true };
     } else if (type === 'employee') {
-      where.employeeId = { not: null };
+      where.staff = { isNonTeaching: true };
     }
+    // If 'all', return all
 
     return await this.prismService.advanceSalary.findMany({
       where,
       include: {
-        employee: { select: { id: true, name: true, designation: true } },
-        teacher: { select: { id: true, name: true, specialization: true } },
+        staff: {
+          select: {
+            id: true,
+            name: true,
+            designation: true,
+            specialization: true,
+            isTeaching: true,
+            isNonTeaching: true
+          }
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -915,8 +1018,8 @@ export class HrService {
     endDate: Date,
   ) {
     // Verify teacher exists
-    const teacher = await this.prismService.teacher.findUnique({
-      where: { id: teacherId },
+    const teacher = await this.prismService.staff.findUnique({
+      where: { id: teacherId, isTeaching: true },
     });
 
     if (!teacher) {
@@ -925,9 +1028,9 @@ export class HrService {
 
     // Get attendance records for the specified month
     const attendanceRecords =
-      await this.prismService.teacherAttendance.findMany({
+      await this.prismService.staffAttendance.findMany({
         where: {
-          teacherId,
+          staffId: teacherId,
           date: {
             gte: startDate,
             lte: endDate,
@@ -1013,39 +1116,37 @@ export class HrService {
   }
 
   // History
-  async getPayrollHistory(staffId: number, type: 'teacher' | 'employee') {
+  async getPayrollHistory(staffId: number, type: 'teacher' | 'employee' | 'all') {
     const where: any = {};
 
     if (type === 'teacher') {
-      where.teacherId = staffId;
+      where.staff = { isTeaching: true };
     } else {
-      where.employeeId = staffId;
+      where.staff = { isNonTeaching: true };
     }
+    where.staffId = staffId;
 
     const payrolls = await this.prismService.payroll.findMany({
       where,
       orderBy: { month: 'desc' },
       include: {
-        teacher: { include: { department: true } },
-        employee: true,
-        // Note: 'advanceSalary' relation in Payroll is NOT a list, it's just 'advanceDeduction' field.
-        // We rely on the stored snapshot values in the Payroll record.
+        staff: { include: { department: true } },
       },
     });
 
     return payrolls.map((p) => {
-      const staff = p.teacher || p.employee;
+      const staff = p.staff;
       const designation =
-        type === 'teacher'
-          ? p.teacher?.specialization
-            ? `Teacher - ${p.teacher.specialization}`
+        staff?.isTeaching
+          ? staff?.specialization
+            ? `Teacher - ${staff.specialization}`
             : 'Teacher'
-          : p.employee?.designation || 'Employee';
+          : staff?.designation || 'Employee';
 
       const dept =
-        type === 'teacher'
-          ? p.teacher?.department?.name
-          : (p.employee?.empDepartment as any) || 'N/A';
+        staff?.isTeaching
+          ? (staff as any).department?.name
+          : (staff?.empDepartment as any) || 'N/A';
 
       const totalAllowances =
         (p.extraAllowance || 0) +

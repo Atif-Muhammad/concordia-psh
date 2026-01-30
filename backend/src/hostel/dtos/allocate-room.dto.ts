@@ -1,13 +1,17 @@
-import { IsNotEmpty, IsInt, IsDateString, IsString } from 'class-validator';
+import { IsNotEmpty, IsInt, IsDateString, IsString, IsOptional } from 'class-validator';
 
 export class AllocateRoomDto {
   @IsNotEmpty()
   @IsString()
   roomId: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsInt()
-  studentId: number;
+  studentId?: number;
+
+  @IsOptional()
+  @IsString()
+  externalName?: string;
 
   @IsNotEmpty()
   @IsDateString()

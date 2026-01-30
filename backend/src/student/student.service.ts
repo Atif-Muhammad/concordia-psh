@@ -535,98 +535,6 @@ export class StudentService {
                 .sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0))
             },
           };
-        } else {
-          // Force promote - create arrears record
-          // Find the highest installment number paid (handle ranges like "1-6")
-          const paidChallans = await this.prismaService.feeChallan.findMany({
-            where: {
-              studentId: student.id,
-              status: 'PAID',
-              OR: [
-                {
-                  studentClassId: student.classId,
-                  studentProgramId: student.programId,
-                },
-                {
-                  // Legacy support
-                  studentClassId: null,
-                  feeStructure: {
-                    classId: student.classId,
-                    programId: student.programId,
-                  },
-                },
-              ],
-            },
-            select: { installmentNumber: true, coveredInstallments: true },
-          });
-
-          let lastInstallmentNumber = 0;
-
-          // Parse coveredInstallments to find highest installment
-          for (const challan of paidChallans) {
-            if (challan.coveredInstallments) {
-              // Parse "1-6" or "7" format
-              const parts = challan.coveredInstallments.split('-');
-              const highestInChallan = parseInt(parts[parts.length - 1]) || 0;
-              lastInstallmentNumber = Math.max(
-                lastInstallmentNumber,
-                highestInChallan,
-              );
-            } else {
-              // Fallback to installmentNumber if coveredInstallments not set
-              lastInstallmentNumber = Math.max(
-                lastInstallmentNumber,
-                challan.installmentNumber || 0,
-              );
-            }
-          }
-
-          console.log('📊 Highest installment paid:', lastInstallmentNumber);
-
-          console.log('🎓 Creating/Updating StudentArrear Record:');
-          console.log('  Student ID:', student.id);
-          console.log(
-            '  Class ID:',
-            student.classId,
-            '(Class:',
-            student.class?.name,
-            ')',
-          );
-          console.log(
-            '  Program ID:',
-            student.programId,
-            '(Program:',
-            student.program?.name,
-            ')',
-          );
-          console.log('  Arrear Amount:', outstandingAmount);
-          console.log('  Last Installment Number:', lastInstallmentNumber);
-
-          // Use upsert to handle case where StudentArrear already exists
-          // This prevents unique constraint violations if student is promoted multiple times
-          const createdArrear = await this.prismaService.studentArrear.upsert({
-            where: {
-              studentId_classId_programId: {
-                studentId: student.id,
-                classId: student.classId,
-                programId: student.programId,
-              },
-            },
-            update: {
-              // If record exists, ADD the new outstanding amount to existing arrears
-              arrearAmount: { increment: outstandingAmount },
-              lastInstallmentNumber,
-            },
-            create: {
-              studentId: student.id,
-              classId: student.classId,
-              programId: student.programId,
-              arrearAmount: outstandingAmount,
-              lastInstallmentNumber,
-            },
-          });
-
-          console.log('✅ StudentArrear Created/Updated:', createdArrear);
         }
       }
     }
@@ -691,7 +599,9 @@ export class StudentService {
     });
 
     // --- AUTO-GENERATE NEW FEES FOR PROMOTED CLASS ---
-    // Fetch fee structure for the new class (if any)
+    console.log(`🚀 Promotion Fee Logic: Student ${id} -> Class ${nextClass.id}`);
+
+    // A. Fetch fee structure for the new class
     const newFeeStructure = await this.prismaService.feeStructure.findUnique({
       where: {
         programId_classId: {
@@ -701,10 +611,19 @@ export class StudentService {
       },
     });
 
-    if (newFeeStructure) {
-      // 1. Initialize Fee Details for the new class
-      const totalAmount = newFeeStructure.totalAmount;
-      const installmentCount = newFeeStructure.installments || 1;
+    // B. Determine Tuition and Installment Count
+    // If a structure exists, use its total. Otherwise keep current student's tuition fee.
+
+    const totalAmount = newFeeStructure ? newFeeStructure.totalAmount : (student.tuitionFee || 0);
+
+    // Respect student's custom installment count if it exists (>0).
+    const installmentCount = (student.numberOfInstallments && student.numberOfInstallments > 0)
+      ? student.numberOfInstallments
+      : (newFeeStructure?.installments || 1);
+
+    console.log(`📊 Fees: Total=${totalAmount}, Installments=${installmentCount} (Structure Found: ${!!newFeeStructure})`);
+
+    if (totalAmount > 0) {
       const defaultInstallmentAmount = Math.floor(totalAmount / installmentCount);
 
       // Generate the new installment plan
@@ -721,17 +640,15 @@ export class StudentService {
         newInstallments[newInstallments.length - 1].amount += diff;
       }
 
-      // A. Update Student Tuition & Metadata
-      await this.prismaService.student.update({
-        where: { id },
-        data: {
-          tuitionFee: totalAmount,
-          numberOfInstallments: installmentCount,
-        }
-      });
-
-      // B. Replace Fee Installments (Relation)
+      // C. Update Student Metadata & Reset Installments
       await this.prismaService.$transaction([
+        this.prismaService.student.update({
+          where: { id },
+          data: {
+            tuitionFee: totalAmount,
+            numberOfInstallments: installmentCount,
+          }
+        }),
         this.prismaService.studentFeeInstallment.deleteMany({
           where: { studentId: id }
         }),
@@ -745,10 +662,11 @@ export class StudentService {
         })
       ]);
 
-      // C. Sync Challans (strictly scoped to the NEW classId already set in 'promoted' record)
+      // D. Sync Challans (strictly scoped to the NEW classId already set)
       await this.feeManagementService.syncStudentChallans(id);
-
-      console.log(`✅ Auto-generated fees for Student ${id} promoted to Class ${nextClass.name}`);
+      console.log(`✅ Success: Auto-generated ${installmentCount} fees for Student ${id} in Class ${nextClass.name}`);
+    } else {
+      console.warn(`⚠️ Warning: No tuition amount found for Student ${id} promotion (Class ${nextClass.name}). Skipping fee generation.`);
     }
 
     return {
@@ -801,16 +719,74 @@ export class StudentService {
     // Remove unpaid challans associated with the current class (the one they are leaving)
     await this.feeManagementService.removeChallansForDemotion(id, student.classId);
 
-    return this.prismaService.student.update({
-      where: { id },
-      data: {
-        class: { connect: { id: prevClass.id } },
-        section: matchingSection
-          ? { connect: { id: matchingSection.id } }
-          : { disconnect: true },
-        passedOut: false,
+    // --- RESET FEE STRUCTURE TO PREVIOUS CLASS ---
+    const targetFeeStructure = await this.prismaService.feeStructure.findUnique({
+      where: {
+        programId_classId: {
+          programId: program.id,
+          classId: prevClass.id,
+        },
       },
     });
+
+    const targetTuitionFee = targetFeeStructure ? targetFeeStructure.totalAmount : 0;
+    const targetInstallments = targetFeeStructure ? targetFeeStructure.installments : 1;
+
+    console.log(`📉 Demotion Fee Reset: Student ${id} -> Class ${prevClass.name}. Tuition: ${targetTuitionFee}, Installments: ${targetInstallments}`);
+
+    // Regenerate Installments
+    let newInstallments: any[] = [];
+    if (targetTuitionFee > 0) {
+      const defaultInstallmentAmount = Math.floor(targetTuitionFee / targetInstallments);
+      newInstallments = Array.from({ length: targetInstallments }).map((_, idx) => ({
+        installmentNumber: idx + 1,
+        amount: defaultInstallmentAmount,
+        dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)), // Monthly staggered from NOW? Or start of year?
+        // Ideally prompt for start date, but for auto-demote, relative to now or keeping original dates is hard without tracking.
+        // Let's assume standard staggered from now for simplicity, or just reset.
+      }));
+
+      // Fix rounding
+      const totalCalculated = defaultInstallmentAmount * targetInstallments;
+      const diff = targetTuitionFee - totalCalculated;
+      if (diff !== 0 && newInstallments.length > 0) {
+        newInstallments[newInstallments.length - 1].amount += diff;
+      }
+    }
+
+    const updatedStudent = await this.prismaService.$transaction([
+      this.prismaService.student.update({
+        where: { id },
+        data: {
+          class: { connect: { id: prevClass.id } },
+          section: matchingSection
+            ? { connect: { id: matchingSection.id } }
+            : { disconnect: true },
+          passedOut: false,
+          // RESET FEES
+          tuitionFee: targetTuitionFee,
+          numberOfInstallments: targetInstallments,
+        },
+      }),
+      this.prismaService.studentFeeInstallment.deleteMany({
+        where: { studentId: id }
+      }),
+      this.prismaService.studentFeeInstallment.createMany({
+        data: newInstallments.map(i => ({
+          studentId: id,
+          installmentNumber: i.installmentNumber,
+          amount: i.amount,
+          dueDate: i.dueDate
+        }))
+      })
+    ]);
+
+    // Resync challans for the new (demoted) class state
+    // This will match the new (restored) installments against any PAID receipts from the previous time they were in this class
+    // or create new pending ones if they owe for this class.
+    await this.feeManagementService.syncStudentChallans(id);
+
+    return updatedStudent[0];
   }
 
   async passout(id: number) {

@@ -22,8 +22,7 @@ model admin {
   permissions Json    @default("{}")
   approvals   Leave[] @relation("leave_approver")
 
-  attendanceMarked         TeacherAttendance[]
-  employeeAttendanceMarked EmployeeAttendance[]
+  attendanceMarked         StaffAttendance[] @relation("marked_by_admin")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -49,9 +48,9 @@ model Department {
   description String? @db.VarChar(300)
 
   hodId Int?     @unique
-  hod   Teacher? @relation("DepartmentHead", fields: [hodId], references: [id])
+  hod   Staff? @relation("DepartmentHead", fields: [hodId], references: [id])
 
-  teachers Teacher[] @relation("DepartmentTeacher")
+  staff Staff[] @relation("DepartmentStaff")
   students Student[] @relation("DepartmentStudents")
   programs Program[] @relation("DepartmentPrograms")
 
@@ -128,6 +127,7 @@ model Section {
   assignments     Assignment[]                 @relation("SectionAssignments")
   teacherMappings TeacherClassSectionMapping[] @relation("SectionTeacherMappings")
   attendance      Attendance[]
+  challanSnapshots FeeChallan[] @relation("ChallanStudentSection")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -135,58 +135,73 @@ model Section {
   @@unique([classId, name])
 }
 
-enum TeacherType {
+enum StaffType {
   PERMANENT
   CONTRACT
 }
 
-enum TeacherStatus {
+enum StaffStatus {
   ACTIVE
   TERMINATED
   RETIRED
 }
 
-model Teacher {
-  id             Int     @id @unique @default(autoincrement())
-  name           String  @db.VarChar(50)
-  fatherName     String? @db.VarChar(50)
-  email          String  @unique @db.VarChar(100)
-  password       String  @db.VarChar(255)
-  phone          String? @db.VarChar(20)
-  cnic           String? @unique @db.VarChar(15)
-  address        String? @db.VarChar(255)
+model Staff {
+  id              Int     @id @unique @default(autoincrement())
+  name            String  @db.VarChar(100)
+  fatherName      String? @db.VarChar(100)
+  email           String? @unique @db.VarChar(100)
+  password        String  @db.VarChar(255)
+  phone           String? @db.VarChar(20)
+  cnic            String? @unique @db.VarChar(15)
+  address         String? @db.VarChar(255)
   
   photo_url       String?
   photo_public_id String?
 
   specialization String? @db.VarChar(50)
-  highestDegree  String  @db.VarChar(50)
+  highestDegree  String? @db.VarChar(50)
   documents      Json?   @default("{}")
 
-  teacherType   TeacherType   @default(CONTRACT)
-  teacherStatus TeacherStatus @default(ACTIVE)
+  staffType   StaffType   @default(CONTRACT)
+  status      StaffStatus @default(ACTIVE)
 
   basicPay Decimal? @db.Decimal(10, 2)
   joinDate DateTime? @default(now())
+  leaveDate DateTime?
   departmentId Int?
-  department   Department? @relation("DepartmentTeacher", fields: [departmentId], references: [id])
+  department   Department? @relation("DepartmentStaff", fields: [departmentId], references: [id])
   headOf       Department? @relation("DepartmentHead")
+
+  // Role Flags
+  isTeaching      Boolean @default(false)
+  isNonTeaching   Boolean @default(false)
+
+  permissions   Json?   @default("{}")
+
+  // Non-teaching specific
+  designation   String?            @db.VarChar(100)
+  empDepartment EmployeeDepartment?
 
   subjects             TeacherSubjectMapping[]      @relation("TeacherSubjectMappings")
   classSectionMappings TeacherClassSectionMapping[] @relation("TeacherClassSectionMappings")
   timetables           Timetable[]                  @relation("TeacherTimetables")
   assignments          Assignment[]                 @relation("TeacherAssignments")
   classAttendance      Attendance[]
-  attendance           TeacherAttendance[]
+  attendance           StaffAttendance[]
   payrolls             Payroll[]
   leaves               StaffLeave[]
   advanceSalaries      AdvanceSalary[]
+  complaints           Complaint[]
 
   contractStart DateTime?
   contractEnd   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([empDepartment])
+  @@index([status])
 }
 
 model Subject {
@@ -292,7 +307,7 @@ model TeacherSubjectMapping {
   teacherId Int
   subjectId Int
 
-  teacher Teacher @relation("TeacherSubjectMappings", fields: [teacherId], references: [id])
+  teacher Staff @relation("TeacherSubjectMappings", fields: [teacherId], references: [id])
   subject Subject @relation("SubjectTeacherMappings", fields: [subjectId], references: [id])
 
   createdAt DateTime @default(now())
@@ -307,7 +322,7 @@ model TeacherClassSectionMapping {
   classId   Int
   sectionId Int? // NULL = “all sections of the class”
 
-  teacher   Teacher  @relation("TeacherClassSectionMappings", fields: [teacherId], references: [id])
+  teacher   Staff  @relation("TeacherClassSectionMappings", fields: [teacherId], references: [id])
   class     Class    @relation("ClassTeacherSectionMappings", fields: [classId], references: [id])
   section   Section? @relation("SectionTeacherMappings", fields: [sectionId], references: [id])
   createdAt DateTime @default(now())
@@ -328,7 +343,7 @@ model Timetable {
   endTime   String  @db.VarChar(5)
   room      String? @db.VarChar(50)
 
-  teacher Teacher  @relation("TeacherTimetables", fields: [teacherId], references: [id])
+  teacher Staff  @relation("TeacherTimetables", fields: [teacherId], references: [id])
   subject Subject  @relation("SubjectTimetables", fields: [subjectId], references: [id])
   section Section? @relation("SectionTimetables", fields: [sectionId], references: [id])
   class   Class    @relation("ClassTimetable", fields: [classId], references: [id])
@@ -349,7 +364,7 @@ model Assignment {
   subjectId Int
   sectionId Int
 
-  teacher Teacher @relation("TeacherAssignments", fields: [teacherId], references: [id])
+  teacher Staff @relation("TeacherAssignments", fields: [teacherId], references: [id])
   subject Subject @relation("SubjectAssignments", fields: [subjectId], references: [id])
   section Section @relation("SectionAssignments", fields: [sectionId], references: [id])
 
@@ -375,7 +390,7 @@ model Attendance {
   class   Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
   section Section? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   subject Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  teacher Teacher? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  teacher Staff? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
 
   // --- Enforce uniqueness: one attendance per student per subject per day per class/section ---
   @@unique([studentId, classId, sectionId, subjectId, date])
@@ -421,9 +436,9 @@ enum LeaveStatus {
 }
 
 // teacher attendance and leave
-model TeacherAttendance {
+model StaffAttendance {
   id            Int              @id @default(autoincrement())
-  teacherId     Int
+  staffId       Int
   date          DateTime         @db.Date
   status        AttendanceStatus @default(PRESENT)
   markedBy      Int? // admin id
@@ -431,26 +446,10 @@ model TeacherAttendance {
   notes         String?          @db.Text
   autoGenerated Boolean          @default(false)
 
-  admin   admin?  @relation(fields: [markedBy], references: [id])
-  teacher Teacher @relation(fields: [teacherId], references: [id])
+  admin admin? @relation("marked_by_admin", fields: [markedBy], references: [id])
+  staff Staff  @relation(fields: [staffId], references: [id])
 
-  @@unique([teacherId, date])
-}
-
-model EmployeeAttendance {
-  id            Int              @id @default(autoincrement())
-  employeeId    Int
-  date          DateTime         @db.Date
-  status        AttendanceStatus @default(PRESENT)
-  markedBy      Int? // admin id
-  markedAt      DateTime         @default(now())
-  notes         String?          @db.Text
-  autoGenerated Boolean          @default(false)
-
-  admin    admin?   @relation(fields: [markedBy], references: [id])
-  employee Employee @relation(fields: [employeeId], references: [id])
-
-  @@unique([employeeId, date])
+  @@unique([staffId, date])
 }
 
 // Employees
@@ -472,46 +471,8 @@ enum EmploymentType {
   CONTRACT
 }
 
-enum EmployeeStatus {
-  ACTIVE
-  TERMINATED
-  RETIRED
-}
 
-model Employee {
-  id             Int                @id @default(autoincrement())
-  name           String             @db.VarChar(100)
-  fatherName     String             @db.VarChar(100)
-  email          String?            @unique @db.VarChar(100)
-  phone          String             @db.VarChar(20)
-  cnic           String             @unique @db.VarChar(15)
-  address        String?            @db.VarChar(255)
-  designation    String             @db.VarChar(100)
-  empDepartment  EmployeeDepartment
-  employmentType EmploymentType     @default(PERMANENT)
-  status         EmployeeStatus     @default(ACTIVE)
-  basicPay       Decimal?           @db.Decimal(10, 2)
-  joinDate       DateTime?          @default(now())
-  leaveDate      DateTime?
-  documents      Json               @default("{}")
 
-  photo_url       String?
-  photo_public_id String?
-
-  contractStart DateTime?
-  contractEnd   DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([empDepartment])
-  @@index([status])
-  attendance      EmployeeAttendance[]
-  payrolls        Payroll[]
-  leaves          StaffLeave[]
-  advanceSalaries AdvanceSalary[]
-  complaints      Complaint[]
-}
 
 
 // front office
@@ -597,7 +558,7 @@ model Complaint {
   status ComplaintStatus @default(Pending)
 
   assignedToId Int?
-  assignedTo Employee? @relation(fields: [assignedToId], references: [id])
+  assignedTo Staff? @relation(fields: [assignedToId], references: [id])
 
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
@@ -740,14 +701,18 @@ model ReportCardTemplate {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 model HostelRegistration {
-  id               String   @id @default(uuid())
-  studentId        Int
-  student          Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  hostelName       String   @db.VarChar(100)
-  registrationDate DateTime
-  status           String   @db.VarChar(20) // "active" | "inactive"
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                     String   @id @default(uuid())
+  studentId              Int?
+  student                Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  externalName           String?  @db.VarChar(100)
+  externalInstitute      String?  @db.VarChar(100)
+  externalGuardianName   String?  @db.VarChar(100)
+  externalGuardianNumber String?  @db.VarChar(20)
+  hostelName             String   @db.VarChar(100)
+  registrationDate       DateTime
+  status                 String   @db.VarChar(20) // "active" | "inactive"
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   @@index([studentId])
 }
@@ -769,8 +734,9 @@ model RoomAllocation {
   id             String   @id @default(uuid())
   roomId         String
   room           Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  studentId      Int
-  student        Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId      Int?
+  student        Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  externalName   String?  @db.VarChar(100)
   allocationDate DateTime
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -977,8 +943,10 @@ model FeeChallan {
   // This ensures challans are properly classified by session even after student promotion
   studentClassId   Int?
   studentProgramId Int?
+  studentSectionId Int? // New field for section snapshot
   studentClass     Class?   @relation(name: "ChallanStudentClass", fields: [studentClassId], references: [id])
   studentProgram   Program? @relation(name: "ChallanStudentProgram", fields: [studentProgramId], references: [id])
+  studentSection   Section? @relation(name: "ChallanStudentSection", fields: [studentSectionId], references: [id])
   
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
@@ -987,17 +955,17 @@ model FeeChallan {
   @@index([status])
   @@index([studentClassId])
   @@index([studentProgramId])
+  @@index([studentSectionId])
 }
 
 model Payroll {
   id              Int      @id @default(autoincrement())
   month           String   @db.VarChar(7) // YYYY-MM
   
-  employeeId      Int?
-  employee        Employee? @relation(fields: [employeeId], references: [id])
-  
-  teacherId       Int?
-  teacher         Teacher?  @relation(fields: [teacherId], references: [id])
+  staffId      Int?
+  staff        Staff?   @relation(fields: [staffId], references: [id])
+  employeeId   Int?
+  teacherId    Int?
   
   basicSalary     Float    @default(0)
   
@@ -1033,8 +1001,7 @@ model Payroll {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  @@unique([employeeId, month])
-  @@unique([teacherId, month])
+  @@unique([staffId, month])
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1062,11 +1029,10 @@ model StaffLeave {
   id              Int      @id @default(autoincrement())
   month           String   @db.VarChar(7) // YYYY-MM
   
-  employeeId      Int?
-  employee        Employee? @relation(fields: [employeeId], references: [id])
-  
-  teacherId       Int?
-  teacher         Teacher?  @relation(fields: [teacherId], references: [id])
+  staffId      Int?
+  staff        Staff?   @relation(fields: [staffId], references: [id])
+  employeeId   Int?
+  teacherId    Int?
   
   // leaveType       StaffLeaveType @default(CASUAL)
   startDate       DateTime  @db.Date
@@ -1079,8 +1045,7 @@ model StaffLeave {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   
-  @@index([employeeId, month])
-  @@index([teacherId, month])
+  @@index([staffId, month])
 }
 
 model Holiday {
@@ -1097,11 +1062,10 @@ model Holiday {
 model AdvanceSalary {
   id          Int      @id @default(autoincrement())
   
+  staffId     Int?
+  staff       Staff?    @relation(fields: [staffId], references: [id])
   employeeId  Int?
-  employee    Employee? @relation(fields: [employeeId], references: [id])
-  
   teacherId   Int?
-  teacher     Teacher?  @relation(fields: [teacherId], references: [id])
   
   amount      Float
   month       String   @db.VarChar(7) // YYYY-MM
@@ -1111,8 +1075,7 @@ model AdvanceSalary {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([employeeId])
-  @@index([teacherId])
+  @@index([staffId])
   @@index([month])
 }
 

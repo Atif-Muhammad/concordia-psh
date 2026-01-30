@@ -46,7 +46,7 @@ export class EmployeeDto {
   empDepartment: EmployeeDepartment;
 
   @IsEnum(EmploymentType, { message: 'Employee type must be provided' })
-  employmentType: EmploymentType;
+  staffType: EmploymentType;
   @IsEnum(EmployeeStatus, { message: 'Employee status must be provided' })
   status: EmployeeStatus;
   @IsOptional()

@@ -97,6 +97,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 
+const EMPTY_OBJECT = {};
+
 const Students = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -110,6 +112,7 @@ const Students = () => {
   const [meritOpen, setMeritOpen] = useState(false);
   const [idCardOpen, setIdCardOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [demoteConfirmOpen, setDemoteConfirmOpen] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState(null);
   const [editingStudent, setEditingStudent] = useState(null);
   const [viewStudent, setViewStudent] = useState(null);
@@ -215,7 +218,7 @@ const Students = () => {
       queryClient.invalidateQueries(["students"]);
       toast({ title: "Student added successfully" });
       setOpen(false);
-      resetForm();
+      // resetForm(); // Don't reset immediately to prevent UI flash
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -226,7 +229,7 @@ const Students = () => {
       queryClient.invalidateQueries(["students"]);
       toast({ title: "Student updated successfully" });
       setOpen(false);
-      resetForm();
+      // resetForm(); // Don't reset immediately to prevent UI flash
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -531,11 +534,15 @@ const Students = () => {
         });
       }
       sessionMap.get(sessionKey).challans.push(challan);
-      // Calculate overall stats
-      totalAllSessions += challan.amount || 0;
+      // Calculate overall stats - use net amount (amount - discount)
+      // Fines are added to dues but maybe not to "total fees" base? 
+      // Actually, for consistency with "Payable", let's include accrued fines if we want to show total expected.
+      // But usually "Total Fees" is the base. Let's stick to Net Tuition for Total Fees.
+      totalAllSessions += (challan.amount - (challan.discount || 0)) || 0;
       paidAllSessions += challan.paidAmount || 0;
       if (challan.status !== 'PAID') {
-        duesAllSessions += (challan.amount - challan.paidAmount) || 0;
+        const netPayable = (challan.amount - (challan.discount || 0) + (challan.fineAmount || 0));
+        duesAllSessions += Math.max(0, netPayable - (challan.paidAmount || 0));
       }
     });
     // Process each session's statistics
@@ -550,11 +557,14 @@ const Students = () => {
 
       const sessionFee = session.isCurrentSession
         ? (viewStudent.tuitionFee || session.feeStructure?.totalAmount || 0)
-        : (session.feeStructure?.totalAmount || session.challans.reduce((sum, c) => sum + (c.amount || 0), 0));
+        : (session.challans.reduce((sum, c) => sum + ((c.amount - (c.discount || 0)) || 0), 0));
       const paidThisSession = session.challans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
       const remainingDues = session.challans
         .filter(c => c.status !== 'PAID')
-        .reduce((sum, c) => sum + ((c.amount - c.paidAmount) || 0), 0);
+        .reduce((sum, c) => {
+          const netPayable = (c.amount - (c.discount || 0) + (c.fineAmount || 0));
+          return sum + Math.max(0, netPayable - (c.paidAmount || 0));
+        }, 0);
       // Calculate paid installments from coveredInstallments
       let paidInstallments = 0;
       session.challans.filter(c => c.status === 'PAID').forEach(c => {
@@ -623,6 +633,12 @@ const Students = () => {
 
     if ((promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && !promotionReason) {
       toast({ title: "Reason is required for this action", variant: "destructive" });
+      return;
+    }
+
+    // Demotion Warning Interception
+    if (promotionAction === "demote") {
+      setDemoteConfirmOpen(true);
       return;
     }
 
@@ -956,7 +972,7 @@ const Students = () => {
             </DialogHeader>
 
             <StudentForm
-              initialData={editingStudent || {}}
+              initialData={editingStudent || EMPTY_OBJECT}
               isEditing={!!editingStudent}
               programs={programData}
               classes={classesData}
@@ -1170,7 +1186,7 @@ const Students = () => {
                               <TableHeader>
                                 <TableRow>
                                   <TableHead>Challan No</TableHead>
-                                  <TableHead>Amount</TableHead>
+                                  <TableHead>Payable</TableHead>
                                   <TableHead>Paid</TableHead>
                                   <TableHead>Status</TableHead>
                                   <TableHead>Installments</TableHead>
@@ -1189,7 +1205,7 @@ const Students = () => {
                                   feesData.selectedSessionData.challans.map(fee => (
                                     <TableRow key={fee.id}>
                                       <TableCell className="font-medium">{fee.challanNumber || fee.id}</TableCell>
-                                      <TableCell>PKR {fee.amount?.toLocaleString() || 0}</TableCell>
+                                      <TableCell>PKR {(fee.amount - (fee.discount || 0) + (fee.fineAmount || 0)).toLocaleString()}</TableCell>
                                       <TableCell className="text-green-600">PKR {fee.paidAmount?.toLocaleString() || 0}</TableCell>
                                       <TableCell>
                                         <Badge variant={fee.status === "PAID" ? "default" : "destructive"}>
@@ -1783,7 +1799,7 @@ const Students = () => {
 
         {/* Manual Promotion Dialog */}
         <Dialog open={manualPromotionDialog.open} onOpenChange={(open) => setManualPromotionDialog({ ...manualPromotionDialog, open })}>
-          <DialogContent className="max-w-md bg-white text-black">
+          <DialogContent className="max-w-md bg-white text-black max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Manual Class Assignment</DialogTitle>
               <DialogDescription>
@@ -1872,7 +1888,7 @@ const Students = () => {
 
         {/* ID Card Dialog */}
         <Dialog open={idCardOpen} onOpenChange={setIdCardOpen}>
-          <DialogContent className="max-w-3xl bg-white overflow-y-auto max-h-[95vh] text-black">
+          <DialogContent className="max-w-3xl bg-white overflow-y-auto max-h-[90vh] text-black">
             <DialogHeader>
               <DialogTitle>Student ID Card</DialogTitle>
             </DialogHeader>
@@ -1930,7 +1946,7 @@ const Students = () => {
             open: false, studentId: null, studentInfo: null, arrears: null
           })}
         >
-          <AlertDialogContent>
+          <AlertDialogContent className="max-h-[90vh] overflow-y-auto">
             <AlertDialogHeader>
               <AlertDialogTitle>Confirm Student Promotion</AlertDialogTitle>
               <AlertDialogDescription>
@@ -1966,7 +1982,7 @@ const Students = () => {
                       </p>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      Promoting will move these fees to arrears. Continue?
+                      Unpaid fees will remain in this class history. Continue with promotion?
                     </p>
                   </div>
                 )}
@@ -2016,9 +2032,49 @@ const Students = () => {
           </AlertDialogContent>
         </AlertDialog>
 
+        {/* Demote Confirmation Dialog */}
+        <AlertDialog open={demoteConfirmOpen} onOpenChange={setDemoteConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-destructive flex items-center gap-2">
+                <TrendingDown className="h-5 w-5" /> Confirm Demotion
+              </AlertDialogTitle>
+              <AlertDialogDescription className="space-y-3 pt-2">
+                <p className="font-semibold text-foreground">
+                  You are about to demote {selectedForPromotion.length} student(s) to the previous class.
+                </p>
+                <div className="bg-destructive/10 border border-destructive/20 p-3 rounded-lg text-sm text-destructive">
+                  <p className="font-bold mb-1">⚠️ Warning: Challan Deletion</p>
+                  <p>
+                    Any <strong>unpaid challans</strong> associated with their current class will be
+                    <strong> permanently deleted</strong> to prevent incorrect arrears, effectively resetting their financial record for this class.
+                  </p>
+                </div>
+                <p>This action cannot be automatically undone.</p>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setDemoteConfirmOpen(false)}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setDemoteConfirmOpen(false);
+                  bulkPromotionMut.mutate({
+                    ids: selectedForPromotion,
+                    action: "demote",
+                    reason: promotionReason,
+                  });
+                }}
+                className="bg-destructive hover:bg-destructive/90"
+              >
+                Yes, Demote & Delete Challans
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         {/* Challan Details Dialog */}
         <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Challan Details</DialogTitle>
             </DialogHeader>
@@ -2059,24 +2115,34 @@ const Students = () => {
                 )}
 
                 {(() => {
-                  // Handle both array format (new) and JSON string format (legacy)
                   let heads = [];
                   try {
-                    if (typeof selectedChallanDetails.selectedHeads === 'string') {
-                      heads = JSON.parse(selectedChallanDetails.selectedHeads || '[]');
-                    } else if (Array.isArray(selectedChallanDetails.selectedHeads)) {
-                      heads = selectedChallanDetails.selectedHeads;
+                    const rawHeads = selectedChallanDetails.selectedHeads;
+                    if (typeof rawHeads === 'string') {
+                      heads = JSON.parse(rawHeads || '[]');
+                    } else if (Array.isArray(rawHeads)) {
+                      heads = rawHeads;
                     }
-                  } catch {
-                    heads = [];
+                  } catch (e) {
+                    console.error("Failed to parse selectedHeads:", e);
                   }
 
-                  // Only show heads with amount > 0 (selected ones)
-                  const additionalHeads = heads.filter(h => h.type === 'additional' && h.amount > 0);
-                  const discountHeads = heads.filter(h => h.type === 'discount' && h.amount > 0);
+                  // Robust extraction: Handle both legacy (ID array) and new (Snapshot objects)
+                  // For the details dialog, we need to show the names and amounts.
+                  // If we only have IDs, we can't show names/amounts here easily without a lookup.
+                  // But the new system snapshots the objects, so we use those.
+
+                  const activeHeads = heads.map(item => {
+                    if (typeof item === 'object' && item !== null) {
+                      return item.isSelected ? item : null;
+                    }
+                    return null; // Can't resolve name for legacy ID-only here without lookup
+                  }).filter(Boolean);
+
+                  const additionalHeads = activeHeads.filter(h => h.type === 'additional' && h.amount > 0);
+                  const discountHeads = activeHeads.filter(h => h.type === 'discount' && h.amount > 0);
 
                   if (additionalHeads.length === 0 && discountHeads.length === 0) {
-                    // Fallback for old challans without detailed breakdown
                     return selectedChallanDetails.fineAmount > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Additional Charges</span>
@@ -2126,7 +2192,8 @@ const Students = () => {
                   <span>Total Payable</span>
                   <span>PKR {Math.round(
                     (selectedChallanDetails.amount || 0) +
-                    (selectedChallanDetails.fineAmount || 0) -
+                    (selectedChallanDetails.fineAmount || 0) +
+                    (selectedChallanDetails.lateFeeFine || 0) -
                     (selectedChallanDetails.discount || 0)
                   ).toLocaleString()}</span>
                 </div>

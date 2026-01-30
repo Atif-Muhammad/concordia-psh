@@ -96,6 +96,11 @@ export class FeeManagementController {
     return await this.feeService.getFeeChallans(query);
   }
 
+  @Get('challan/bulk')
+  async getBulkChallans(@Query() query: any) {
+    return await this.feeService.getBulkChallans(query);
+  }
+
   @Patch('challan/update')
   async updateFeeChallan(
     @Query('id') id: string,

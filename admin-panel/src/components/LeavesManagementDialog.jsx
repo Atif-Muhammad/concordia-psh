@@ -16,8 +16,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     getLeaveSheet,
     upsertLeave,
-    getTeachers,
-    getEmp,
+    getAllStaff,
 } from "../../config/apis";
 import { useToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -59,18 +58,13 @@ const LeavesManagementDialog = () => {
     } = useQuery({
         queryKey: ["leaveSheet", month, activeTab],
         queryFn: () => getLeaveSheet(month, activeTab),
-        enabled: !!activeTab
+        enabled: !!month
     });
 
-    // Fetch teachers and employees for the create form
-    const { data: teachers = [] } = useQuery({
-        queryKey: ["teachers"],
-        queryFn: getTeachers,
-    });
-
-    const { data: employees = [] } = useQuery({
-        queryKey: ["employees"],
-        queryFn: () => getEmp(""),
+    // Fetch unified staff list
+    const { data: staffList = [] } = useQuery({
+        queryKey: ["allStaff"],
+        queryFn: () => getAllStaff({ status: 'ACTIVE' }),
     });
 
     // Bulk save functionality
@@ -88,8 +82,7 @@ const LeavesManagementDialog = () => {
                     days: row.days,
                     reason: row.reason || "",
                     status: row.status || "PENDING",
-                    employeeId: activeTab === "employee" ? row.id : undefined,
-                    teacherId: activeTab === "teacher" ? row.id : undefined,
+                    staffId: row.id,
                 });
             }
             toast({ title: "All leave records saved successfully" });
@@ -209,14 +202,7 @@ const LeavesManagementDialog = () => {
                 days,
                 reason: leaveFormData.reason,
                 status: "PENDING",
-                employeeId:
-                    activeTab === "employee"
-                        ? parseInt(leaveFormData.personId)
-                        : undefined,
-                teacherId:
-                    activeTab === "teacher"
-                        ? parseInt(leaveFormData.personId)
-                        : undefined,
+                staffId: parseInt(leaveFormData.personId),
             });
 
             toast({ title: "Leave request created successfully" });
@@ -239,182 +225,193 @@ const LeavesManagementDialog = () => {
     };
 
     return (
-        <div className="max-w-[95vw] h-[90vh] flex flex-col">
-            <div className="flex">
-                <div className="flex items-center gap-4">
-                    <Label>Select Month:</Label>
+        <div className="w-full h-full flex flex-col min-h-[600px]">
+            <div className="flex items-center gap-4 mb-4">
+                <div className="flex items-center gap-2">
+                    <Label>Month:</Label>
                     <Input
                         type="month"
                         value={month}
                         onChange={(e) => setMonth(e.target.value)}
-                        className="w-48"
+                        className="w-40"
                     />
+                </div>
+                <div className="flex items-center gap-2">
+                    <Label>Role:</Label>
+                    <Select value={activeTab} onValueChange={setActiveTab}>
+                        <SelectTrigger className="w-40">
+                            <SelectValue placeholder="All Staff" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Staff</SelectItem>
+                            <SelectItem value="teacher">Teachers</SelectItem>
+                            <SelectItem value="employee">Non-Teaching Staff</SelectItem>
+                        </SelectContent>
+                    </Select>
                 </div>
                 <Button
                     onClick={() => setCreateDialogOpen(true)}
                     variant="outline"
-                    className="w-fit ml-auto mb-4"
+                    className="ml-auto"
                 >
                     <Plus className="mr-2 h-4 w-4" />
                     Create Leave Request
                 </Button>
             </div>
-            <div className="flex items-center justify-between gap-4 mb-4 ml-auto">
 
-                <div className="flex gap-2">
-                    <Button
-                        onClick={handleBulkMarkApproved}
-                        disabled={selectedRows.size === 0}
-                        variant="outline"
-                    >
-                        <CheckCircle className="mr-2 h-4 w-4" />
-                        Mark as Approved ({selectedRows.size})
-                    </Button>
-                    <Button
-                        onClick={handleBulkMarkRejected}
-                        disabled={selectedRows.size === 0}
-                        variant="outline"
-                    >
-                        <XCircle className="mr-2 h-4 w-4" />
-                        Mark as Rejected ({selectedRows.size})
-                    </Button>
-                    <Button onClick={handleBulkSave} disabled={isSaving}>
-                        {isSaving ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                            <SaveAll className="mr-2 h-4 w-4" />
-                        )}
-                        Save Changes
-                    </Button>
-                </div>
+            <div className="flex items-center justify-end gap-2 mb-4">
+                <Button
+                    onClick={handleBulkMarkApproved}
+                    disabled={selectedRows.size === 0}
+                    variant="outline"
+                >
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    Approve ({selectedRows.size})
+                </Button>
+                <Button
+                    onClick={handleBulkMarkRejected}
+                    disabled={selectedRows.size === 0}
+                    variant="outline"
+                >
+                    <XCircle className="mr-2 h-4 w-4" />
+                    Reject ({selectedRows.size})
+                </Button>
+                <Button onClick={handleBulkSave} disabled={isSaving}>
+                    {isSaving ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                        <SaveAll className="mr-2 h-4 w-4" />
+                    )}
+                    Save Changes
+                </Button>
             </div>
 
-            <Tabs
-                value={activeTab}
-                onValueChange={setActiveTab}
-                className="flex-1 flex flex-col overflow-hidden"
-            >
-                <TabsList className="grid grid-cols-2">
-                    <TabsTrigger value="teacher">Teachers</TabsTrigger>
-                    <TabsTrigger value="employee">Staff (Non-Teaching)</TabsTrigger>
-                </TabsList>
-
-                <TabsContent
-                    value={activeTab}
-                    className="flex-1 overflow-auto border rounded-md"
-                >
-                    {isLoading ? (
-                        <div className="flex justify-center items-center h-full">
-                            <Loader2 className="h-8 w-8 animate-spin" />
-                        </div>
-                    ) : (
-                        <Table>
-                            <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
-                                <TableRow>
-                                    <TableHead className="w-[50px]">
+            <div className="flex-1 overflow-auto border rounded-md">
+                {isLoading ? (
+                    <div className="flex justify-center items-center h-full">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                    </div>
+                ) : (
+                    <Table>
+                        <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
+                            <TableRow>
+                                <TableHead className="w-[50px]">
+                                    <Checkbox
+                                        checked={
+                                            selectedRows.size === localData.length &&
+                                            localData.length > 0
+                                        }
+                                        onCheckedChange={handleSelectAll}
+                                    />
+                                </TableHead>
+                                <TableHead className="min-w-[200px]">
+                                    Staff Details
+                                </TableHead>
+                                <TableHead className="min-w-[120px]">From Date</TableHead>
+                                <TableHead className="min-w-[120px]">To Date</TableHead>
+                                <TableHead className="min-w-[80px]">Days</TableHead>
+                                <TableHead className="min-w-[200px]">Reason</TableHead>
+                                <TableHead className="min-w-[100px]">Status</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {localData.map((row, index) => (
+                                <TableRow key={`${row.id}-${index}`}>
+                                    <TableCell>
                                         <Checkbox
-                                            checked={
-                                                selectedRows.size === localData.length &&
-                                                localData.length > 0
+                                            checked={selectedRows.has(index)}
+                                            onCheckedChange={(checked) =>
+                                                handleRowSelect(index, checked)
                                             }
-                                            onCheckedChange={handleSelectAll}
                                         />
-                                    </TableHead>
-                                    <TableHead className="min-w-[200px]">
-                                        Employee Details
-                                    </TableHead>
-                                    <TableHead className="min-w-[150px]">Start Date</TableHead>
-                                    <TableHead className="min-w-[150px]">End Date</TableHead>
-                                    <TableHead className="min-w-[80px]">Days</TableHead>
-                                    <TableHead className="min-w-[250px]">Reason</TableHead>
-                                    <TableHead className="min-w-[100px]">Status</TableHead>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="font-medium">{row.name}</div>
+                                        <div className="text-xs text-muted-foreground">
+                                            {row.designation}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                            {row.department}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Input
+                                            type="date"
+                                            value={row.startDate?.split("T")[0] || ""}
+                                            onChange={(e) =>
+                                                handleInputChange(index, "startDate", e.target.value)
+                                            }
+                                            className="h-8 text-sm"
+                                        />
+                                    </TableCell>
+                                    <TableCell>
+                                        <Input
+                                            type="date"
+                                            value={row.endDate?.split("T")[0] || ""}
+                                            onChange={(e) =>
+                                                handleInputChange(index, "endDate", e.target.value)
+                                            }
+                                            className="h-8 text-sm"
+                                        />
+                                    </TableCell>
+                                    <TableCell>
+                                        {row.days}
+                                    </TableCell>
+                                    <TableCell>
+                                        <Input
+                                            value={row.reason || ""}
+                                            onChange={(e) =>
+                                                handleInputChange(index, "reason", e.target.value)
+                                            }
+                                            className="h-8 text-sm"
+                                        />
+                                    </TableCell>
+                                    <TableCell>
+                                        <Badge
+                                            variant={
+                                                row.status === "APPROVED"
+                                                    ? "default"
+                                                    : row.status === "REJECTED"
+                                                        ? "destructive"
+                                                        : "secondary"
+                                            }
+                                            className="cursor-pointer"
+                                            onClick={() => {
+                                                const statuses = ["PENDING", "APPROVED", "REJECTED"];
+                                                const currentIndex = statuses.indexOf(row.status);
+                                                handleInputChange(
+                                                    index,
+                                                    "status",
+                                                    statuses[(currentIndex + 1) % statuses.length]
+                                                );
+                                            }}
+                                        >
+                                            {row.status}
+                                        </Badge>
+                                    </TableCell>
                                 </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {localData.map((row, index) => (
-                                    <TableRow key={`${row.id}-${index}`}>
-                                        <TableCell>
-                                            <Checkbox
-                                                checked={selectedRows.has(index)}
-                                                onCheckedChange={(checked) =>
-                                                    handleRowSelect(index, checked)
-                                                }
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="font-medium">{row.name}</div>
-                                            <div className="text-xs text-muted-foreground">
-                                                {row.designation}
-                                            </div>
-                                            <div className="text-xs text-muted-foreground">
-                                                {row.department}
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            {row.startDate.split("T")[0]}
-                                        </TableCell>
-                                        <TableCell>
-                                            {row.endDate.split("T")[0]}
-                                        </TableCell>
-                                        <TableCell>
-                                            {row.days}
-                                        </TableCell>
-                                        <TableCell>
-                                            {row.reason}
-                                        </TableCell>
-                                        <TableCell>
-                                            <Badge
-                                                variant={
-                                                    row.status === "APPROVED"
-                                                        ? "default"
-                                                        : row.status === "REJECTED"
-                                                            ? "destructive"
-                                                            : "secondary"
-                                                }
-                                                className="cursor-pointer"
-                                                onClick={() => {
-                                                    const newData = [...localData];
-                                                    const statuses = ["PENDING", "APPROVED", "REJECTED"];
-                                                    const currentIndex = statuses.indexOf(row.status);
-                                                    newData[index].status =
-                                                        statuses[(currentIndex + 1) % statuses.length];
-                                                    setLocalData(newData);
-                                                }}
-                                            >
-                                                {row.status}
-                                            </Badge>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    )}
-                </TabsContent>
-            </Tabs>
+                            ))}
+                        </TableBody>
+                    </Table>
+                )}
+            </div>
 
             {/* Create Leave Request Dialog */}
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
                 <DialogContent className="max-w-md">
                     <DialogHeader>
                         <DialogTitle>
-                            Create Leave Request -{" "}
-                            {activeTab === "teacher" ? "Teacher" : "Employee"}
+                            Create Leave Request
                         </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
                         {/* Person Selection */}
                         <div>
-                            <Label>
-                                {activeTab === "teacher" ? "Select Teacher" : "Select Employee"}{" "}
-                                *
-                            </Label>
+                            <Label>Select Staff Member *</Label>
                             <Select
                                 value={leaveFormData.personId}
                                 onValueChange={(value) => {
-                                    const person =
-                                        activeTab === "teacher"
-                                            ? teachers.find((t) => t.id === parseInt(value))
-                                            : employees.find((e) => e.id === parseInt(value));
+                                    const person = staffList.find((s) => s.id === parseInt(value));
                                     setLeaveFormData({
                                         ...leaveFormData,
                                         personId: value,
@@ -423,21 +420,14 @@ const LeavesManagementDialog = () => {
                                 }}
                             >
                                 <SelectTrigger>
-                                    <SelectValue
-                                        placeholder={`Select ${activeTab === "teacher" ? "teacher" : "employee"
-                                            }`}
-                                    />
+                                    <SelectValue placeholder="Select staff member" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {(activeTab === "teacher" ? teachers : employees)
-                                        .filter(
-                                            (p) =>
-                                                p.status === "ACTIVE" || p.teacherStatus === "ACTIVE"
-                                        )
+                                    {staffList
+                                        .filter(p => p.status === "ACTIVE")
                                         .map((person) => (
                                             <SelectItem key={person.id} value={person.id.toString()}>
-                                                {person.name} -{" "}
-                                                {person.specialization || person.designation}
+                                                {person.name} - {person.isTeaching ? (person.specialization || "Teacher") : (person.designation || "Staff")}
                                             </SelectItem>
                                         ))}
                                 </SelectContent>
@@ -521,8 +511,8 @@ const LeavesManagementDialog = () => {
                         </div>
                     </div>
                 </DialogContent>
-            </Dialog>
-        </div>
+            </Dialog >
+        </div >
     );
 };
 

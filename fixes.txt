@@ -16,7 +16,7 @@
 	--> detail in student should show full details.
 	--> seperate tuition vs additional charges.
 
-7. bulk challan.
+7. bulk challan. -> promote/demote fix--------------------------------------------------------
 8. number for challan not alphanumeric. 12(max length)
 9. download csv for specific field(s), for teacher, student and employee.
 
@@ -42,7 +42,7 @@ examination:
 
 class:
 1. section not picking class other than 2 and 4 year. ✔
-2. promote to manual class/section.
+2. promote to manual class/section.✔
 
 hr&payroll:
 1. paid/unpaid status fix. ✔

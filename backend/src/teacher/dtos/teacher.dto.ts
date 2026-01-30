@@ -5,12 +5,12 @@ import {
   IsOptional,
 } from 'class-validator';
 
-enum TeacherType {
+enum StaffType {
   PERMANENT,
   CONTRACT,
 }
 
-enum TeacherStatus {
+enum StaffStatus {
   ACTIVE,
   TERMINATED,
   RETIRED,
@@ -48,12 +48,12 @@ export class TeacherDto {
     experienceLetter: boolean;
     cv: boolean;
   };
-  @IsEnum(TeacherType)
+  @IsEnum(StaffType)
   @IsOptional()
-  teacherType?: TeacherType;
-  @IsEnum(TeacherStatus)
+  staffType?: StaffType;
+  @IsEnum(StaffStatus)
   @IsOptional()
-  teacherStatus?: TeacherStatus;
+  status?: StaffStatus;
   @IsOptional()
   basicPay?: string;
   @IsOptional()

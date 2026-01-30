@@ -500,10 +500,10 @@ export class AttendanceService {
 
   async getTeacherAttendance(date: Date) {
     const formattedDate = date.toISOString().split('T')[0];
-    return await this.prismaService.teacherAttendance.findMany({
-      where: { date: new Date(formattedDate) },
+    return await this.prismaService.staffAttendance.findMany({
+      where: { date: new Date(formattedDate), staff: { isTeaching: true } },
       include: {
-        teacher: { select: { name: true, id: true } },
+        staff: { select: { name: true, id: true } },
         admin: {
           select: { name: true },
         },
@@ -530,17 +530,17 @@ export class AttendanceService {
     }
 
     // Check if attendance exists
-    const existing = await this.prismaService.teacherAttendance.findUnique({
+    const existing = await this.prismaService.staffAttendance.findUnique({
       where: {
-        teacherId_date: {
-          teacherId,
+        staffId_date: {
+          staffId: teacherId,
           date: targetDate,
         },
       },
     });
 
     if (existing) {
-      return await this.prismaService.teacherAttendance.update({
+      return await this.prismaService.staffAttendance.update({
         where: { id: existing.id },
         data: {
           status,
@@ -551,9 +551,9 @@ export class AttendanceService {
       });
     }
 
-    return await this.prismaService.teacherAttendance.create({
+    return await this.prismaService.staffAttendance.create({
       data: {
-        teacherId,
+        staffId: teacherId,
         date: targetDate,
         status,
         markedBy,
@@ -570,12 +570,11 @@ export class AttendanceService {
     });
   }
 
-  async generateAttendanceTeacher(date: Date) {
+  async generateAttendanceStaff(date: Date) {
     const targetDate = new Date(
       Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()),
     );
 
-    // Check for Holiday
     // Check for Non-Working Day (Weekend/Holiday)
     const dateCheck = await this.isNonWorkingDay(targetDate);
     if (dateCheck.isBlocked) {
@@ -584,29 +583,44 @@ export class AttendanceService {
       };
     }
 
-    // Fetch ALL leaves for teachers for this date (not just APPROVED)
+    // Fetch ALL leaves for ALL staff for this date
+    // specific staff leave logic might rely on teacherId or employeeId,
+    // but the unified schema likely has 'staffId' or we need to check all columns.
+    // Based on previous code: staffLeave has staffId, teacherId, employeeId.
     const leaves = await this.prismaService.staffLeave.findMany({
       where: {
-        teacherId: { not: null },
         startDate: { lte: targetDate },
         endDate: { gte: targetDate },
       },
     });
-    const leaveMap = new Map(leaves.map((l) => [l.teacherId, l]));
 
-    // get all active teachers
-    const teachers = await this.prismaService.teacher.findMany({
-      where: { teacherStatus: 'ACTIVE' },
+    // Map by staffId (preferring staffId, falling back to teacherId/employeeId if staffId is missing)
+    const leaveMap = new Map();
+    leaves.forEach(l => {
+      const id = l.staffId || l.teacherId || l.employeeId;
+      if (id) leaveMap.set(id, l);
+    });
+
+    // get all active staff (Teaching OR Non-Teaching)
+    // We filter for anyone who is active and has at least one role.
+    const allStaff = await this.prismaService.staff.findMany({
+      where: {
+        status: 'ACTIVE',
+        OR: [
+          { isTeaching: true },
+          { isNonTeaching: true }
+        ]
+      },
       select: { id: true },
     });
 
     let createdCount = 0;
-    for (const teacher of teachers) {
+    for (const staff of allStaff) {
       // Check if attendance already exists
-      const existing = await this.prismaService.teacherAttendance.findUnique({
+      const existing = await this.prismaService.staffAttendance.findUnique({
         where: {
-          teacherId_date: {
-            teacherId: teacher.id,
+          staffId_date: {
+            staffId: staff.id,
             date: targetDate,
           },
         },
@@ -616,8 +630,8 @@ export class AttendanceService {
         let status: AttendanceStatus = 'PRESENT';
         let notes: string | null = null;
 
-        if (leaveMap.has(teacher.id)) {
-          const leave = leaveMap.get(teacher.id)!;
+        if (leaveMap.has(staff.id)) {
+          const leave = leaveMap.get(staff.id)!;
           if (leave.status === 'APPROVED') {
             status = 'LEAVE';
             notes = leave.reason;
@@ -628,9 +642,9 @@ export class AttendanceService {
           // For PENDING or other statuses, keep as PRESENT
         }
 
-        await this.prismaService.teacherAttendance.create({
+        await this.prismaService.staffAttendance.create({
           data: {
-            teacherId: teacher.id,
+            staffId: staff.id,
             date: targetDate,
             status,
             notes,
@@ -641,82 +655,7 @@ export class AttendanceService {
       }
     }
     return {
-      message: `✅ Generated ${createdCount} attendance records for teachers for ${targetDate.toDateString()}.`,
-    };
-  }
-
-  async generateAttendanceEmployee(date: Date) {
-    const targetDate = new Date(
-      Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()),
-    );
-
-    // Check for Holiday
-    // Check for Non-Working Day (Weekend/Holiday)
-    const dateCheck = await this.isNonWorkingDay(targetDate);
-    if (dateCheck.isBlocked) {
-      return {
-        message: `⛔ ${dateCheck.reason} detected. No attendance generated.`,
-      };
-    }
-
-    // Fetch ALL leaves for employees for this date (not just APPROVED)
-    const leaves = await this.prismaService.staffLeave.findMany({
-      where: {
-        employeeId: { not: null },
-        startDate: { lte: targetDate },
-        endDate: { gte: targetDate },
-      },
-    });
-    const leaveMap = new Map(leaves.map((l) => [l.employeeId, l]));
-
-    // get all active employees
-    const employees = await this.prismaService.employee.findMany({
-      where: { status: 'ACTIVE' },
-      select: { id: true },
-    });
-
-    let createdCount = 0;
-    for (const employee of employees) {
-      // Check if attendance already exists
-      const existing = await this.prismaService.employeeAttendance.findUnique({
-        where: {
-          employeeId_date: {
-            employeeId: employee.id,
-            date: targetDate,
-          },
-        },
-      });
-
-      if (!existing) {
-        let status: AttendanceStatus = 'PRESENT';
-        let notes: string | null = null;
-
-        if (leaveMap.has(employee.id)) {
-          const leave = leaveMap.get(employee.id)!;
-          if (leave.status === 'APPROVED') {
-            status = 'LEAVE';
-            notes = leave.reason;
-          } else if (leave.status === 'REJECTED') {
-            status = 'ABSENT';
-            notes = `Rejected Leave: ${leave.reason}`;
-          }
-          // For PENDING or other statuses, keep as PRESENT
-        }
-
-        await this.prismaService.employeeAttendance.create({
-          data: {
-            employeeId: employee.id,
-            date: targetDate,
-            status,
-            notes,
-            autoGenerated: true,
-          },
-        });
-        createdCount++;
-      }
-    }
-    return {
-      message: `✅ Generated ${createdCount} attendance records for employees for ${targetDate.toDateString()}.`,
+      message: `✅ Generated ${createdCount} attendance records for all staff for ${targetDate.toDateString()}.`,
     };
   }
 

@@ -17,7 +17,7 @@ import {
   createFeeHead, getFeeHeads, updateFeeHead, deleteFeeHead,
   createFeeStructure, getFeeStructures, updateFeeStructure, deleteFeeStructure,
   getPrograms, getClasses,
-  getFeeChallans, updateFeeChallan, getStudentFeeHistory,
+  getFeeChallans, getBulkChallans, updateFeeChallan, getStudentFeeHistory,
   searchStudents, getRevenueOverTime, getClassCollectionStats, getFeeCollectionSummary, getDefaultFeeChallanTemplate
 } from "../../config/apis";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
@@ -41,8 +41,7 @@ const FeeManagement = () => {
   const [challanSearch, setChallanSearch] = useState("");
   const [challanFilter, setChallanFilter] = useState("all");
   const [selectedInstallment, setSelectedInstallment] = useState("all");
-  const [startDateFilter, setStartDateFilter] = useState("");
-  const [endDateFilter, setEndDateFilter] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState("");
 
   const [challanOpen, setChallanOpen] = useState(false);
   const [feeHeadOpen, setFeeHeadOpen] = useState(false);
@@ -56,6 +55,17 @@ const FeeManagement = () => {
   const [editingChallan, setEditingChallan] = useState(null);
   const [editingFeeHead, setEditingFeeHead] = useState(null);
   const [editingStructure, setEditingStructure] = useState(null);
+  const [bulkPrintOpen, setBulkPrintOpen] = useState(false);
+  const [bulkPrintFilters, setBulkPrintFilters] = useState({
+    programId: "",
+    classId: "",
+    sectionId: "",
+    month: new Date().toISOString().slice(0, 7)
+  });
+  const [bulkPrinting, setBulkPrinting] = useState(false);
+  const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
+  const [bulkPreviewContent, setBulkPreviewContent] = useState("");
+  const [bulkChallansList, setBulkChallansList] = useState([]);
 
 
   const [challanForm, setChallanForm] = useState({
@@ -113,16 +123,27 @@ const FeeManagement = () => {
   const [challanMeta, setChallanMeta] = useState(null);
 
   const { data: feeChallansData = { data: [], meta: {} }, isLoading: isChallansLoading } = useQuery({
-    queryKey: ['feeChallans', challanSearch, challanFilter, selectedInstallment, startDateFilter, endDateFilter, page, limit],
-    queryFn: () => getFeeChallans({
-      search: challanSearch,
-      status: challanFilter,
-      installmentNumber: selectedInstallment === 'all' ? '' : selectedInstallment,
-      startDate: startDateFilter,
-      endDate: endDateFilter,
-      page,
-      limit
-    }),
+    queryKey: ['feeChallans', challanSearch, challanFilter, selectedInstallment, selectedMonth, page, limit],
+    queryFn: () => {
+      let startDate = "";
+      let endDate = "";
+      if (selectedMonth) {
+        const [year, month] = selectedMonth.split('-');
+        startDate = `${year}-${month}-01`;
+        const lastDay = new Date(Number(year), Number(month), 0).getDate();
+        endDate = `${year}-${month}-${lastDay}`;
+      }
+
+      return getFeeChallans({
+        search: challanSearch,
+        status: challanFilter,
+        installmentNumber: selectedInstallment === 'all' ? '' : selectedInstallment,
+        startDate,
+        endDate,
+        page,
+        limit
+      });
+    },
     keepPreviousData: true,
   });
 
@@ -235,6 +256,9 @@ const FeeManagement = () => {
     onSuccess: () => {
       queryClient.invalidateQueries(['feeChallans']);
       toast({ title: "Challan updated successfully" });
+      setChallanOpen(false);
+      setEditingChallan(null);
+      resetChallanForm();
     },
     onError: (error) => toast({ title: error.message, variant: "destructive" })
   });
@@ -316,14 +340,18 @@ const FeeManagement = () => {
 
     const installmentNumber = parseInt(challanForm.installmentNumber) || 0;
 
-    const selectedHeadIds = challanForm.selectedHeads || [];
-    const allFeeHeadDetails = feeHeads.map(h => ({
-      id: h.id,
-      name: h.name,
-      amount: selectedHeadIds.includes(h.id) ? Math.round(h.amount) : 0,
-      type: h.isDiscount ? 'discount' : h.isTuition ? 'tuition' : 'additional',
-      isSelected: selectedHeadIds.includes(h.id)
-    }));
+    const selectedHeadIds = (challanForm.selectedHeads || []).map(id => Number(id));
+
+    // ONLY include fee heads that are actually selected
+    const allFeeHeadDetails = (feeHeads || [])
+      .filter(h => selectedHeadIds.includes(Number(h.id)))
+      .map(h => ({
+        id: Number(h.id),
+        name: h.name,
+        amount: Math.round(Number(h.amount) || 0),
+        type: h.isDiscount ? 'discount' : h.isTuition ? 'tuition' : 'additional',
+        isSelected: true
+      }));
 
     if (editingChallan) {
       updateChallanMutation.mutate({
@@ -402,22 +430,20 @@ const FeeManagement = () => {
   const confirmPayment = async () => {
     if (!itemToPay) return;
 
-    // Calculate installments covered based on amount
+    // Simplified installment tracking: just use what is already on the challan
     let coveredInstallments = '';
-    if (itemToPay.feeStructure) {
-      const perInstallment = itemToPay.feeStructure.totalAmount / itemToPay.feeStructure.installments;
 
-      // Extract tuition portion only
-      // Since we now store base tuition in 'amount', we can use it directly
-      // But we should ensure we don't count it if it's 0
+    if (itemToPay.installmentNumber > 0) {
+      // For pre-generated challans (#1, #2, etc.), just use that number
+      coveredInstallments = `${itemToPay.installmentNumber}`;
+    } else if (itemToPay.feeStructure) {
+      // Fallback logic for ad-hoc or lumped challans only
+      const perInstallment = itemToPay.feeStructure.totalAmount / itemToPay.feeStructure.installments;
       const tuitionPortion = itemToPay.amount;
 
-      // Only mark installments if tuition is being paid
       if (tuitionPortion > 0) {
         const installmentsCovered = Math.round(tuitionPortion / perInstallment);
-
         if (installmentsCovered > 0) {
-          // Fetch fresh summary to get current paid installments
           try {
             const summary = await getStudentFeeSummary(itemToPay.studentId);
             const nextInstallment = (summary?.summary?.paidInstallments || 0) + 1;
@@ -431,7 +457,6 @@ const FeeManagement = () => {
           }
         }
       }
-      // If tuitionPortion <= 0, coveredInstallments remains empty (only additional charges paid)
     }
 
     updateChallanMutation.mutate({
@@ -511,8 +536,8 @@ const FeeManagement = () => {
     const studentProgram = challan.studentProgram?.name || programs.find(p => p.id === student.programId)?.name || student.program?.name || "";
     const fullClass = `${studentProgram} ${studentClass}`.trim();
 
-    // Prepare Fee Heads Rows and Calculate Totals
-    const selectedHeadsIds = (challan.selectedHeads && typeof challan.selectedHeads === 'string')
+    // Prepare Fee Heads Rows and Calculate Totals from SNAPSHOT if possible
+    const rawHeads = (challan.selectedHeads && typeof challan.selectedHeads === 'string')
       ? JSON.parse(challan.selectedHeads)
       : (challan.selectedHeads || []);
 
@@ -521,24 +546,36 @@ const FeeManagement = () => {
       return acc;
     }, {});
 
-    let totalOtherHeads = 0;
-    const feeHeadsRowsHtml = selectedHeadsIds.map(headId => {
-      const h = headLookup[headId];
-      if (h) {
-        // Skip if it is tuition or discount (handled separately)
-        if (h.isTuition || h.isDiscount) return "";
-        const amount = h.amount || 0;
-        if (amount <= 0) return "";
-        totalOtherHeads += amount;
-        return `<tr><td>${h.name}</td><td>${amount.toLocaleString()}</td></tr>`;
+    let totalOtherHeadsFromSelection = 0;
+    const feeHeadsRowsHtml = rawHeads.map(item => {
+      // Handle both legacy (just IDs) and new snapshots (objects)
+      if (typeof item === 'object' && item !== null) {
+        // Snapshot Object: { id, name, amount, type, isSelected }
+        if (item.isSelected && (item.type === 'additional' || item.type === 'discount') && item.amount > 0) {
+          totalOtherHeadsFromSelection += (item.type === 'discount' ? -item.amount : item.amount);
+          const displayAmount = item.type === 'discount' ? `- ${item.amount.toLocaleString()}` : item.amount.toLocaleString();
+          return `<tr><td>${item.name}</td><td>${displayAmount}</td></tr>`;
+        }
+      } else {
+        // Just an ID
+        const h = headLookup[Number(item)];
+        if (h && !h.isTuition && !h.isDiscount) {
+          const amount = parseFloat(h.amount) || 0;
+          if (amount > 0) {
+            totalOtherHeadsFromSelection += amount;
+            return `<tr><td>${h.name}</td><td>${amount.toLocaleString()}</td></tr>`;
+          }
+        }
       }
       return "";
     }).join('');
 
     // Totals Calculation
-    const fineAmount = (challan.fineAmount || 0) + (challan.lateFeeFine || 0);
+    // IMPORTANT: challan.fineAmount ALREADY contains the sum of selected heads from the DB
+    // We only add lateFeeFine which is calculated at runtime.
+    const fineTotal = (challan.fineAmount || 0) + (challan.lateFeeFine || 0);
     const scholarship = (challan.discount || 0);
-    const standardTotal = (challan.amount || 0) + fineAmount + totalOtherHeads;
+    const standardTotal = (challan.amount || 0) + fineTotal;
     const netPayable = standardTotal - scholarship;
 
     // Common Date Format
@@ -561,7 +598,7 @@ const FeeManagement = () => {
 
       // Case-sensitive exact matches for temps.html
       '{{challanNo}}': challan.challanNumber,
-      '{{issueDate}}': formatDate(challan.issueDate),
+      '{{issueDate}}': formatDate(new Date()),
       '{{dueDate}}': formatDate(challan.dueDate),
       '{{studentName}}': `${student.fName} ${student.mName || ''} ${student.lName || ''}`.trim(),
       '{{fatherName}}': student.fatherOrguardian || '',
@@ -577,7 +614,7 @@ const FeeManagement = () => {
 
       // Uppercase variants for modern templates
       '{{CHALLAN_NO}}': challan.challanNumber,
-      '{{ISSUE_DATE}}': formatDate(challan.issueDate),
+      '{{ISSUE_DATE}}': formatDate(new Date()),
       '{{DUE_DATE}}': formatDate(challan.dueDate),
       '{{VALID_DATE}}': formatDate(new Date(new Date(challan.dueDate).setDate(new Date(challan.dueDate).getDate() + 7))),
       '{{STUDENT_NAME}}': `${student.fName} ${student.mName || ''} ${student.lName || ''}`.trim(),
@@ -597,8 +634,10 @@ const FeeManagement = () => {
     let finalHtml = templateContent;
 
     // Runtime Injection for legacy templates missing {{FEE_HEADS_TABLE}}
-    if (!finalHtml.includes('{{FEE_HEADS_TABLE}}')) {
-      const tuitionRowRegex = /(<tr>\s*<td>Tuition Fee<\/td>)/i;
+    if (!finalHtml.includes('{{FEE_HEADS_TABLE}}') && !finalHtml.includes('{{feeHeadsRows}}')) {
+      // Find where to inject. Usually before Tuition Fee row or within the particulars table.
+      // We look for "Tuition Fee" label or the replacement tag.
+      const tuitionRowRegex = /(<tr>\s*<td[^>]*>(?:Tuition Fee|{{Tuition Fee}})<\/td>)/i;
       if (tuitionRowRegex.test(finalHtml)) {
         finalHtml = finalHtml.replace(tuitionRowRegex, `${feeHeadsRowsHtml}$1`);
       }
@@ -612,6 +651,108 @@ const FeeManagement = () => {
     });
 
     return finalHtml;
+  };
+
+  const handleBulkPrint = async () => {
+    try {
+      setBulkPrinting(true);
+      const [year, month] = bulkPrintFilters.month.split('-');
+      const startDate = `${year}-${month}-01`;
+      const lastDay = new Date(Number(year), Number(month), 0).getDate();
+      const endDate = `${year}-${month}-${lastDay}`;
+
+      // Fetch all matching challans using the dedicated bulk API
+      const response = await getBulkChallans({
+        programId: bulkPrintFilters.programId === "all" ? "" : bulkPrintFilters.programId,
+        classId: bulkPrintFilters.classId === "all" ? "" : bulkPrintFilters.classId,
+        sectionId: bulkPrintFilters.sectionId === "all" ? "" : bulkPrintFilters.sectionId,
+        startDate,
+        endDate
+      });
+
+      const challans = response || [];
+      if (challans.length === 0) {
+        toast({ title: "No challans found", description: "No challans match the selected filters for this month.", variant: "destructive" });
+        return;
+      }
+
+      const template = await getDefaultFeeChallanTemplate();
+      if (!template || !template.htmlContent) {
+        toast({ title: "Template Missing", description: "No default challan template found.", variant: "destructive" });
+        return;
+      }
+
+      // Generate HTML with page breaks and spacing for preview (LIMIT TO 5)
+      let previewHtml = "";
+      const previewLimit = 5;
+      const previewChallans = challans.slice(0, previewLimit);
+
+      previewChallans.forEach((challan, index) => {
+        const challanHtml = generateChallanHtml(challan, template.htmlContent);
+        previewHtml += `
+          <div class="bulk-challan-item" style="margin-bottom: 40px; border-bottom: 2px dashed #e2e8f0; padding-bottom: 40px;">
+            ${challanHtml}
+          </div>
+        `;
+      });
+
+      setBulkChallansList(challans);
+      setBulkPreviewContent(previewHtml);
+      setBulkPreviewOpen(true);
+      setBulkPrintOpen(false); // Close the filter dialog
+    } catch (error) {
+      console.error("Bulk print failed:", error);
+      toast({ title: "Print error", description: "Failed to generate bulk print view.", variant: "destructive" });
+    } finally {
+      setBulkPrinting(false);
+    }
+  };
+
+  const finalizeBulkPrint = async () => {
+    try {
+      const template = await getDefaultFeeChallanTemplate();
+      if (!template || !template.htmlContent) {
+        toast({ title: "Template Missing", description: "No default challan template found.", variant: "destructive" });
+        return;
+      }
+
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
+        return;
+      }
+
+      let fullHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            @media print {
+              .page-break { page-break-after: always; }
+              @page { margin: 0; }
+              body { margin: 0; }
+            }
+          </style>
+        </head>
+        <body>
+      `;
+
+      bulkChallansList.forEach((challan, index) => {
+        const challanHtml = generateChallanHtml(challan, template.htmlContent);
+        fullHtml += `<div class="${index < bulkChallansList.length - 1 ? 'page-break' : ''}">${challanHtml}</div>`;
+      });
+
+      fullHtml += `</body></html>`;
+
+      printWindow.document.write(fullHtml);
+      printWindow.document.close();
+      printWindow.onload = () => {
+        printWindow.print();
+      };
+    } catch (error) {
+      console.error("Finalize print failed:", error);
+      toast({ title: "Print error", description: "Failed to generate full print view.", variant: "destructive" });
+    }
   };
 
   const printChallan = async challanId => {
@@ -816,37 +957,37 @@ const FeeManagement = () => {
                   </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">From Date</Label>
+                  <Label className="text-xs">Month</Label>
                   <Input
-                    type="date"
-                    value={startDateFilter}
-                    onChange={(e) => setStartDateFilter(e.target.value)}
-                    className="w-[140px]"
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="w-[160px]"
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">To Date</Label>
-                  <Input
-                    type="date"
-                    value={endDateFilter}
-                    onChange={(e) => setEndDateFilter(e.target.value)}
-                    className="w-[140px]"
-                  />
+                <div className="flex gap-2 items-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setChallanSearch("");
+                      setChallanFilter("all");
+                      setSelectedInstallment("all");
+                      setSelectedMonth("");
+                    }}
+                    className="h-9 px-2 text-muted-foreground"
+                  >
+                    Reset
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkPrintOpen(true)}
+                    className="h-9 gap-2 border-primary text-primary hover:bg-primary hover:text-white"
+                  >
+                    <Printer className="w-4 h-4" /> Bulk Print
+                  </Button>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setChallanSearch("");
-                    setChallanFilter("all");
-                    setSelectedInstallment("all");
-                    setStartDateFilter("");
-                    setEndDateFilter("");
-                  }}
-                  className="h-9 px-2 text-muted-foreground"
-                >
-                  Reset
-                </Button>
               </div>
             </CardHeader>
             <CardContent>
@@ -912,12 +1053,57 @@ const FeeManagement = () => {
                                   amount: (challan.amount || 0).toString(),
                                   dueDate: new Date(challan.dueDate).toISOString().split('T')[0],
                                   discount: (challan.discount || 0).toString(),
-                                  fineAmount: (challan.fineAmount || 0).toString(),
+                                  fineAmount: (() => {
+                                    try {
+                                      const raw = (challan.selectedHeads && typeof challan.selectedHeads === 'string')
+                                        ? JSON.parse(challan.selectedHeads)
+                                        : (challan.selectedHeads || []);
+
+                                      const selectedIds = Array.isArray(raw) ? raw.map(item => {
+                                        if (typeof item === 'object' && item !== null) return item.isSelected ? Number(item.id) : null;
+                                        return Number(item);
+                                      }).filter(id => id !== null && !isNaN(id)) : [];
+
+                                      // If we have a snapshot with amounts, use them. 
+                                      // Otherwise, fallback to looking up in the current feeHeads array.
+                                      const snapshotSum = Array.isArray(raw) ? raw.reduce((s, item) => {
+                                        if (typeof item === 'object' && item !== null && item.isSelected && item.type === 'additional') {
+                                          return s + (item.amount || 0);
+                                        }
+                                        return s;
+                                      }, 0) : 0;
+
+                                      if (snapshotSum > 0) return snapshotSum.toString();
+
+                                      // Fallback for ID-only or empty snapshot sum
+                                      const lookupSum = feeHeads
+                                        .filter(h => selectedIds.includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
+                                        .reduce((s, h) => s + (parseFloat(h.amount) || 0), 0);
+
+                                      return (lookupSum || challan.fineAmount || 0).toString();
+                                    } catch (e) {
+                                      return (challan.fineAmount || 0).toString();
+                                    }
+                                  })(),
                                   remarks: challan.remarks || "",
                                   installmentNumber: (challan.installmentNumber || 0).toString(),
-                                  selectedHeads: (Array.isArray(challan.feeHeadDetails)
-                                    ? challan.feeHeadDetails.filter(h => h.isSelected).map(h => h.id)
-                                    : [])
+                                  selectedHeads: (() => {
+                                    try {
+                                      const raw = (challan.selectedHeads && typeof challan.selectedHeads === 'string')
+                                        ? JSON.parse(challan.selectedHeads)
+                                        : (challan.selectedHeads || []);
+                                      if (!Array.isArray(raw)) return [];
+                                      return raw.map(item => {
+                                        if (typeof item === 'object' && item !== null) {
+                                          return item.isSelected ? Number(item.id) : null;
+                                        }
+                                        return Number(item);
+                                      }).filter(id => id !== null && !isNaN(id));
+                                    } catch (e) {
+                                      console.error("Failed to parse selectedHeads:", e);
+                                      return [];
+                                    }
+                                  })()
                                 });
                                 setChallanOpen(true);
                               }}>
@@ -1691,7 +1877,7 @@ const FeeManagement = () => {
           resetChallanForm();
         }
       }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Fee Challan</DialogTitle>
           </DialogHeader>
@@ -1732,36 +1918,48 @@ const FeeManagement = () => {
               />
             </div>
             <div className="col-span-2 space-y-4">
-              <Label>Select Additional Fee Heads</Label>
+              <Label>Select Additional Fee Heads (Charges/Discounts)</Label>
               <div className="grid grid-cols-2 gap-2 border rounded-md p-4 max-h-[200px] overflow-y-auto">
-                {feeHeads.filter(h => !h.isTuition && !h.isDiscount).map(head => (
+                {feeHeads.filter(h => !h.isTuition).map(head => (
                   <div key={head.id} className="flex items-center space-x-2">
                     <input
                       type="checkbox"
                       id={`head-${head.id}`}
-                      checked={challanForm.selectedHeads?.includes(head.id)}
+                      checked={(challanForm.selectedHeads || []).some(id => Number(id) === Number(head.id))}
                       onChange={(e) => {
-                        const selected = [...(challanForm.selectedHeads || [])];
+                        const headId = Number(head.id);
+                        const selected = [...(challanForm.selectedHeads || [])].map(id => Number(id));
+
                         if (e.target.checked) {
-                          selected.push(head.id);
+                          if (!selected.includes(headId)) selected.push(headId);
                         } else {
-                          const index = selected.indexOf(head.id);
+                          const index = selected.indexOf(headId);
                           if (index > -1) selected.splice(index, 1);
                         }
+                        // Calculate separate sums for charges and discounts
                         const additionalSum = feeHeads
-                          .filter(h => selected.includes(h.id))
+                          .filter(h => selected.includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
                           .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+
+                        const discountSum = feeHeads
+                          .filter(h => selected.includes(Number(h.id)) && h.isDiscount)
+                          .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+
+                        // fineAmount = additional charges only
+                        // discount = persisted scholarship + selected discount heads
+                        const baseDiscount = parseFloat(editingChallan?.discount || 0);
 
                         setChallanForm({
                           ...challanForm,
                           selectedHeads: selected,
-                          fineAmount: additionalSum
+                          fineAmount: additionalSum,
+                          discount: (baseDiscount + discountSum).toString()
                         });
                       }}
                       className="h-4 w-4 rounded border-gray-300"
                     />
-                    <Label htmlFor={`head-${head.id}`} className="text-sm font-normal">
-                      {head.name} (PKR {head.amount})
+                    <Label htmlFor={`head-${head.id}`} className={`text-sm font-normal ${head.isDiscount ? 'text-primary' : ''}`}>
+                      {head.name} (PKR {head.amount}) {head.isDiscount && '(Discount)'}
                     </Label>
                   </div>
                 ))}
@@ -1778,7 +1976,17 @@ const FeeManagement = () => {
           </div>
           <div className="flex justify-between items-center mt-4 pt-4 border-t">
             <div className="text-lg font-bold">
-              Total Payable: PKR {formatAmount(parseFloat(challanForm.amount) + (parseFloat(challanForm.fineAmount) || 0) - (parseFloat(challanForm.discount) || 0))}
+              Total Payable: PKR {formatAmount(
+                parseFloat(challanForm.amount) +
+                (parseFloat(challanForm.fineAmount) || 0) +
+                (editingChallan?.lateFeeFine || 0) -
+                (parseFloat(challanForm.discount) || 0)
+              )}
+              {editingChallan?.lateFeeFine > 0 && (
+                <span className="text-xs text-destructive block mt-1">
+                  (Includes PKR {formatAmount(editingChallan.lateFeeFine)} Late fee fine)
+                </span>
+              )}
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setChallanOpen(false)}>Cancel</Button>
@@ -1786,6 +1994,100 @@ const FeeManagement = () => {
                 {updateChallanMutation.isPending ? "Saving..." : "Update Challan"}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkPreviewOpen} onOpenChange={setBulkPreviewOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex justify-between items-center gap-4">
+              <div className="flex flex-col">
+                <span>Bulk Challan Preview</span>
+                <span className="text-xs font-normal text-muted-foreground mt-1">
+                  Showing first {Math.min(bulkChallansList.length, 5)} of {bulkChallansList.length} challans
+                </span>
+              </div>
+              <Button onClick={finalizeBulkPrint} className="gap-2 bg-success hover:bg-success/90">
+                <Printer className="w-4 h-4" /> Print All {bulkChallansList.length} Challans
+              </Button>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto p-4 bg-muted/30 rounded-lg">
+            <div dangerouslySetInnerHTML={{ __html: bulkPreviewContent }} />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkPrintOpen} onOpenChange={setBulkPrintOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Bulk Print Challans</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Program</Label>
+              <Select
+                value={bulkPrintFilters.programId}
+                onValueChange={(val) => setBulkPrintFilters({ ...bulkPrintFilters, programId: val, classId: "all", sectionId: "all" })}
+              >
+                <SelectTrigger><SelectValue placeholder="Select Program" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Programs</SelectItem>
+                  {programs.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Class</Label>
+              <Select
+                value={bulkPrintFilters.classId}
+                onValueChange={(val) => setBulkPrintFilters({ ...bulkPrintFilters, classId: val, sectionId: "all" })}
+                disabled={bulkPrintFilters.programId === "all" || !bulkPrintFilters.programId}
+              >
+                <SelectTrigger><SelectValue placeholder="Select Class" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Classes</SelectItem>
+                  {classes
+                    .filter(c => c.programId.toString() === bulkPrintFilters.programId)
+                    .map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)
+                  }
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Section</Label>
+              <Select
+                value={bulkPrintFilters.sectionId}
+                onValueChange={(val) => setBulkPrintFilters({ ...bulkPrintFilters, sectionId: val })}
+                disabled={bulkPrintFilters.classId === "all" || !bulkPrintFilters.classId}
+              >
+                <SelectTrigger><SelectValue placeholder="Select Section" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sections</SelectItem>
+                  {classes.find(c => c.id.toString() === bulkPrintFilters.classId)?.sections?.map(s => (
+                    <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Month</Label>
+              <Input
+                type="month"
+                value={bulkPrintFilters.month}
+                onChange={(e) => setBulkPrintFilters({ ...bulkPrintFilters, month: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setBulkPrintOpen(false)}>Cancel</Button>
+            <Button onClick={handleBulkPrint} disabled={bulkPrinting}>
+              {bulkPrinting ? "Preparing..." : "Print Monthly Challans"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

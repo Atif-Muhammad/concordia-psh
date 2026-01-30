@@ -23,6 +23,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2, SaveAll, CheckCircle, XCircle, Printer, MoreHorizontal, Eye } from "lucide-react";
 
 
@@ -34,7 +41,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 const PayrollManagementDialog = ({ open, onOpenChange }) => {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [activeTab, setActiveTab] = useState("teacher");
+  const [activeTab, setActiveTab] = useState("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -94,8 +101,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
           insuranceAllowance: Number(row.insuranceAllowance) || 0,
           otherAllowance: Number(row.otherAllowance) || 0,
           status: row.status || "UNPAID",
-          employeeId: activeTab === "employee" ? row.id : undefined,
-          teacherId: activeTab === "teacher" ? row.id : undefined,
+          staffId: row.id,
         });
       }
       toast({ title: "All payroll records saved successfully" });
@@ -275,7 +281,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
   // Payroll Print (History)
   const handlePrintPayrollDetails = async (row) => {
     try {
-      const historyData = await getPayrollHistory(row.id, activeTab === 'teacher' ? 'teacher' : 'employee');
+      const historyData = await getPayrollHistory(row.id, row.isTeaching ? 'teacher' : 'all');
 
       let template = templates.find(t => (t.type || '').toUpperCase().includes('SHEET') && t.isDefault);
       if (!template) {
@@ -476,18 +482,31 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
     setLocalData(newData);
   };
   return (
-    <div className="max-w-[95vw] h-[90vh] flex flex-col">
-      <div className="flex items-center justify-between gap-4 mb-4">
-        <div className="flex items-center gap-4">
-          <Label>Select Month:</Label>
+    <div className="w-full h-full flex flex-col min-h-[600px]">
+      <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center gap-2">
+          <Label>Month:</Label>
           <Input
             type="month"
             value={month}
             onChange={(e) => setMonth(e.target.value)}
-            className="w-48"
+            className="w-40"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <Label>Role:</Label>
+          <Select value={activeTab} onValueChange={setActiveTab}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="All Staff" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Staff</SelectItem>
+              <SelectItem value="teacher">Teachers</SelectItem>
+              <SelectItem value="employee">Non-Teaching Staff</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex gap-2 ml-auto">
           <Button onClick={handlePrintMonth} variant="outline">
             <Printer className="mr-2 h-4 w-4" />
             Print Sheet
@@ -503,7 +522,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
             className="text-green-600 hover:text-green-700 hover:bg-green-50"
           >
             <CheckCircle className="mr-2 h-4 w-4" />
-            Mark Paid ({selectedRows.size})
+            Paid ({selectedRows.size})
           </Button>
           <Button
             onClick={handleBulkMarkUnpaid}
@@ -512,7 +531,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
             className="text-red-600 hover:text-red-700 hover:bg-red-50"
           >
             <XCircle className="mr-2 h-4 w-4" />
-            Mark Unpaid ({selectedRows.size})
+            Unpaid ({selectedRows.size})
           </Button>
           <Button onClick={handleBulkSave} disabled={isSaving}>
             {isSaving ? (
@@ -520,426 +539,408 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
             ) : (
               <SaveAll className="mr-2 h-4 w-4" />
             )}
-            Save All Payrolls
+            Save All
           </Button>
         </div>
       </div>
 
-      <Tabs
-        value={activeTab}
-        onValueChange={setActiveTab}
-        className="flex-1 flex flex-col overflow-hidden"
-      >
-        <TabsList>
-          <TabsTrigger value="teacher">Teachers</TabsTrigger>
-          <TabsTrigger value="employee">Staff (Non-Teaching)</TabsTrigger>
-        </TabsList>
+      <div className="flex-1 overflow-auto border rounded-md">
+        {isLoading ? (
+          <div className="flex justify-center items-center h-full">
+            <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+        ) : (
+          <Table>
+            <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
+              <TableRow>
+                <TableHead className="w-[50px]">
+                  <Checkbox
+                    checked={
+                      selectedRows.size === localData.length &&
+                      localData.length > 0
+                    }
+                    onCheckedChange={handleSelectAll}
+                  />
+                </TableHead>
+                <TableHead className="min-w-[200px]">
+                  Staff Details
+                </TableHead>
+                <TableHead className="min-w-[100px]">Basic Pay</TableHead>
 
-        <TabsContent
-          value={activeTab}
-          className="flex-1 overflow-auto border rounded-md"
-        >
-          {isLoading ? (
-            <div className="flex justify-center items-center h-full">
-              <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-          ) : (
-            <Table>
-              <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
-                <TableRow>
-                  <TableHead className="w-[50px]">
+                <TableHead
+                  className="text-center border-l-2 border-red-400 bg-red-100 dark:bg-red-950/40 dark:border-red-700"
+                  colSpan={9}
+                >
+                  Deductions (PKR)
+                </TableHead>
+
+                <TableHead
+                  className="text-center border-l-2 border-green-400 bg-green-100 dark:bg-green-950/40 dark:border-green-700"
+                  colSpan={7}
+                >
+                  Allowances (PKR)
+                </TableHead>
+
+                <TableHead className="min-w-[100px] border-l font-bold">
+                  Net Salary
+                </TableHead>
+                <TableHead className="min-w-[100px]">Status</TableHead>
+                <TableHead className="min-w-[50px]"></TableHead>
+              </TableRow>
+              <TableRow>
+                <TableHead></TableHead>
+                <TableHead></TableHead>
+                <TableHead></TableHead>
+
+                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                  Security
+                </TableHead>
+                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                  Advance
+                </TableHead>
+                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                  Absent
+                </TableHead>
+                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                  Leave
+                </TableHead>
+                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                  Other
+                </TableHead>
+                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                  Tax
+                </TableHead>
+                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                  EOBI
+                </TableHead>
+                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                  Late
+                </TableHead>
+                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs font-bold border-r-2 border-red-400 dark:border-red-700">
+                  Total
+                </TableHead>
+
+                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                  Extra
+                </TableHead>
+                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                  Travel
+                </TableHead>
+                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                  Other
+                </TableHead>
+                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                  House Rent
+                </TableHead>
+                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                  Medical
+                </TableHead>
+                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                  Insurance
+                </TableHead>
+                <TableHead className="bg-green-100 dark:bg-green-950/30 text-xs font-bold border-r-2 border-green-400 dark:border-green-700">
+                  Total
+                </TableHead>
+
+                <TableHead className="border-l"></TableHead>
+                <TableHead></TableHead>
+                <TableHead></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {localData.map((row, index) => (
+                <TableRow key={row.id}>
+                  <TableCell>
                     <Checkbox
-                      checked={
-                        selectedRows.size === localData.length &&
-                        localData.length > 0
+                      checked={selectedRows.has(index)}
+                      onCheckedChange={(checked) =>
+                        handleRowSelect(index, checked)
                       }
-                      onCheckedChange={handleSelectAll}
                     />
-                  </TableHead>
-                  <TableHead className="min-w-[200px]">
-                    Employee Details
-                  </TableHead>
-                  <TableHead className="min-w-[100px]">Basic Pay</TableHead>
+                  </TableCell>
+                  <TableCell>
+                    <div className="font-medium">{row.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {row.designation}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {row.department}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {Number(row.basicSalary).toLocaleString()}
+                  </TableCell>
 
-                  {/* Deductions */}
-                  <TableHead
-                    className="text-center border-l-2 border-red-400 bg-red-100 dark:bg-red-950/40 dark:border-red-700"
-                    colSpan={9}
-                  >
-                    Deductions (PKR)
-                  </TableHead>
+                  {/* Deductions Inputs */}
+                  <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.securityDeduction}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "securityDeduction",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.advanceDeduction}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "advanceDeduction",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.absentDeduction}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "absentDeduction",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.leaveDeduction || 0}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "leaveDeduction",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.otherDeduction}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "otherDeduction",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.incomeTax}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "incomeTax",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.eobi}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "eobi",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.lateArrivalDeduction}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "lateArrivalDeduction",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-red-100 dark:bg-red-950/30 font-medium text-red-700 dark:text-red-400 border-r-2 border-red-400 dark:border-red-700">
+                    {Number(row.totalDeductions).toLocaleString()}
+                  </TableCell>
 
-                  {/* Allowances */}
-                  <TableHead
-                    className="text-center border-l-2 border-green-400 bg-green-100 dark:bg-green-950/40 dark:border-green-700"
-                    colSpan={7}
-                  >
-                    Allowances (PKR)
-                  </TableHead>
+                  {/* Allowances Inputs */}
+                  <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.extraAllowance}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "extraAllowance",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.travelAllowance}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "travelAllowance",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.otherAllowance}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "otherAllowance",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.houseRentAllowance}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "houseRentAllowance",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.medicalAllowance}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "medicalAllowance",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
+                    <Input
+                      type="number"
+                      className="h-8 w-20"
+                      value={row.insuranceAllowance}
+                      disabled={row.status === "PAID"}
+                      onChange={(e) =>
+                        handleInputChange(
+                          index,
+                          "insuranceAllowance",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="bg-green-100 dark:bg-green-950/30 font-medium text-green-700 dark:text-green-400 border-r-2 border-green-400 dark:border-green-700">
+                    {Number(row.totalAllowances).toLocaleString()}
+                  </TableCell>
 
-                  <TableHead className="min-w-[100px] border-l font-bold">
-                    Net Salary
-                  </TableHead>
-                  <TableHead className="min-w-[100px]">Status</TableHead>
-                  <TableHead className="min-w-[50px]"></TableHead>
+                  <TableCell className="border-l font-bold">
+                    {Number(row.netSalary).toLocaleString()}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        row.status === "PAID" ? "default" : "destructive"
+                      }
+                      className={row.status === "PAID" ? "opacity-80 shadow-none" : "cursor-pointer"}
+                      onClick={() => {
+                        if (row.status === "PAID") return;
+                        const newData = [...localData];
+                        newData[index].status =
+                          row.status === "PAID" ? "UNPAID" : "PAID";
+                        setLocalData(newData);
+                      }}
+                    >
+                      {row.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                          <span className="sr-only">Open menu</span>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handlePrintPayslip(row)}>
+                          <Printer className="mr-2 h-4 w-4" />
+                          Print Salary Slip
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handlePrintPayrollDetails(row)}>
+                          <Printer className="mr-2 h-4 w-4" />
+                          Payroll Print
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handlePreviewPayslip(row)}>
+                          <Printer className="mr-2 h-4 w-4" />
+                          Preview Slip
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
                 </TableRow>
-                <TableRow>
-                  <TableHead></TableHead>
-                  <TableHead></TableHead>
-                  <TableHead></TableHead>
-
-                  {/* Deduction Sub-headers */}
-                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
-                    Security
-                  </TableHead>
-                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
-                    Advance
-                  </TableHead>
-                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
-                    Absent
-                  </TableHead>
-                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
-                    Leave
-                  </TableHead>
-                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
-                    Other
-                  </TableHead>
-                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
-                    Tax
-                  </TableHead>
-                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
-                    EOBI
-                  </TableHead>
-                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
-                    Late
-                  </TableHead>
-                  <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs font-bold border-r-2 border-red-400 dark:border-red-700">
-                    Total
-                  </TableHead>
-
-                  {/* Allowance Sub-headers */}
-                  <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
-                    Extra
-                  </TableHead>
-                  <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
-                    Travel
-                  </TableHead>
-                  <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
-                    Other
-                  </TableHead>
-                  <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
-                    House Rent
-                  </TableHead>
-                  <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
-                    Medical
-                  </TableHead>
-                  <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
-                    Insurance
-                  </TableHead>
-                  <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs font-bold border-r-2 border-green-400 dark:border-green-700">
-                    Total
-                  </TableHead>
-
-                  <TableHead className="border-l"></TableHead>
-                  <TableHead></TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {localData.map((row, index) => (
-                  <TableRow key={row.id}>
-                    <TableCell>
-                      <Checkbox
-                        checked={selectedRows.has(index)}
-                        onCheckedChange={(checked) =>
-                          handleRowSelect(index, checked)
-                        }
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium">{row.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {row.designation}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {row.department}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {Number(row.basicSalary).toLocaleString()}
-                    </TableCell>
-
-                    {/* Deductions Inputs */}
-                    <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.securityDeduction}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "securityDeduction",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.advanceDeduction}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "advanceDeduction",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.absentDeduction}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "absentDeduction",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.leaveDeduction || 0}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "leaveDeduction",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.otherDeduction}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "otherDeduction",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.incomeTax}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "incomeTax",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.eobi}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "eobi",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.lateArrivalDeduction}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "lateArrivalDeduction",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-red-100 dark:bg-red-950/30 font-medium text-red-700 dark:text-red-400 border-r-2 border-red-400 dark:border-red-700">
-                      {Number(row.totalDeductions).toLocaleString()}
-                    </TableCell>
-
-                    {/* Allowances Inputs */}
-                    <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.extraAllowance}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "extraAllowance",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.travelAllowance}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "travelAllowance",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.otherAllowance}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "otherAllowance",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.houseRentAllowance}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "houseRentAllowance",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.medicalAllowance}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "medicalAllowance",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-green-50 dark:bg-green-950/20 border-r border-green-200 dark:border-green-800">
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={row.insuranceAllowance}
-                        disabled={row.status === "PAID"}
-                        onChange={(e) =>
-                          handleInputChange(
-                            index,
-                            "insuranceAllowance",
-                            e.target.value
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="bg-green-100 dark:bg-green-950/30 font-medium text-green-700 dark:text-green-400 border-r-2 border-green-400 dark:border-green-700">
-                      {Number(row.totalAllowances).toLocaleString()}
-                    </TableCell>
-
-                    <TableCell className="border-l font-bold">
-                      {Number(row.netSalary).toLocaleString()}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          row.status === "PAID" ? "default" : "destructive"
-                        }
-                        className={row.status === "PAID" ? "opacity-80 shadow-none" : "cursor-pointer"}
-                        onClick={() => {
-                          if (row.status === "PAID") return;
-                          const newData = [...localData];
-                          newData[index].status =
-                            row.status === "PAID" ? "UNPAID" : "PAID";
-                          setLocalData(newData);
-                        }}
-                      >
-                        {row.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                            <span className="sr-only">Open menu</span>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handlePrintPayslip(row)}>
-                            <Printer className="mr-2 h-4 w-4" />
-                            Print Salary Slip
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handlePrintPayrollDetails(row)}>
-                            <Printer className="mr-2 h-4 w-4" />
-                            Payroll Print
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handlePreviewPayslip(row)}>
-                            <Printer className="mr-2 h-4 w-4" />
-                            Preview Slip
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </TabsContent>
-      </Tabs>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
 
       {/* Preview Dialog */}
       <Dialog open={!!previewHtml} onOpenChange={() => setPreviewHtml(null)}>

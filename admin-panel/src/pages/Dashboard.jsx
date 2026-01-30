@@ -94,17 +94,17 @@ const Dashboard = () => {
     bgColor: "bg-primary/10",
     borderColor: "border-primary/20",
   }, {
-    title: `Fee Collection (${selectedMonth === 'overall' ? 'Year' : 'Month'})`,
+    title: `Fee Collection (${selectedMonth === 'overall' ? 'Collected' : 'Received against Billing'})`,
     value: `PKR ${(paidFees / 1000).toFixed(0)}K`,
-    change: selectedMonth === 'overall' ? "This Year" : "Month to date",
+    change: selectedMonth === 'overall' ? `Total for ${selectedYear}` : `Month to date (${selectedMonth})`,
     icon: DollarSign,
     color: "text-success",
     bgColor: "bg-success/10",
     borderColor: "border-success/20",
   }, {
-    title: "Attendance Today",
+    title: `Attendance (${selectedMonth === 'overall' ? selectedYear : selectedMonth})`,
     value: `${attendanceRate}%`,
-    change: `${presentToday} present`,
+    change: `${presentToday} records`,
     icon: ClipboardCheck,
     color: "text-secondary",
     bgColor: "bg-secondary/10",
@@ -112,7 +112,7 @@ const Dashboard = () => {
   }, {
     title: "Finance Balance",
     value: `PKR ${(finance.netBalance / 1000).toFixed(0)}K`,
-    change: selectedMonth === 'overall' ? "This Year" : "This Month",
+    change: selectedMonth === 'overall' ? `Net profit (${selectedYear})` : `Net profit (${selectedMonth})`,
     icon: UserPlus,
     color: "text-accent",
     bgColor: "bg-accent/10",
@@ -126,18 +126,18 @@ const Dashboard = () => {
     type: "system"
   }, {
     action: "Fee collection",
-    student: `PKR ${(paidFees / 1000).toFixed(0)}K collected`,
-    time: "This month",
+    student: `PKR ${(paidFees / 1000).toFixed(0)}K collected against billing`,
+    time: selectedMonth === 'overall' ? selectedYear : selectedMonth,
     type: "fee"
   }, {
-    action: "Attendance marked",
-    student: `${presentToday} students present`,
-    time: "Today",
+    action: "Attendance Summary",
+    student: `${presentToday} presence records in ${selectedMonth === 'overall' ? 'the selected year' : 'this month'}`,
+    time: selectedMonth === 'overall' ? selectedYear : selectedMonth,
     type: "attendance"
   }, {
     action: "Finance update",
-    student: `Balance: PKR ${(finance.netBalance / 1000).toFixed(0)}K`,
-    time: "This month",
+    student: `Total cash received: PKR ${(finance.monthlyIncome / 1000).toFixed(0)}K`,
+    time: selectedMonth === 'overall' ? selectedYear : selectedMonth,
     type: "finance"
   }, {
     action: "System metrics",
@@ -197,22 +197,7 @@ const Dashboard = () => {
 
   const monthlyFeeCollection = charts?.monthlyFeeCollection || [];
 
-  const attendanceTrend = [{
-    day: "Mon",
-    rate: 91
-  }, {
-    day: "Tue",
-    rate: 93
-  }, {
-    day: "Wed",
-    rate: 92
-  }, {
-    day: "Thu",
-    rate: 94
-  }, {
-    day: "Fri",
-    rate: parseFloat(attendanceRate.toString()) || 0
-  }];
+  const attendanceTrend = charts?.weeklyAttendance || [];
 
   // Module state data
   const studentStatusData = [{
@@ -391,7 +376,7 @@ const Dashboard = () => {
           <div className="lg:col-span-2 h-full">
             <Card className="shadow-sm hover:shadow-md transition-all h-full">
               <CardHeader>
-                <CardTitle>Monthly Fee Collection (PKR)</CardTitle>
+                <CardTitle>Fee Collection Trend ({selectedMonth === 'overall' ? selectedYear : `${selectedMonth} ${selectedYear}`})</CardTitle>
               </CardHeader>
               <CardContent className="p-6">
                 <div className="w-full h-[250px]">
@@ -418,7 +403,7 @@ const Dashboard = () => {
         <div>
           <Card className="shadow-sm hover:shadow-md transition-all">
             <CardHeader>
-              <CardTitle>Weekly Attendance Trend</CardTitle>
+              <CardTitle>Attendance Trend ({selectedMonth === 'overall' ? selectedYear : `${selectedMonth} ${selectedYear}`})</CardTitle>
             </CardHeader>
             <CardContent className="p-6">
               <div className="w-full h-[300px]">
@@ -508,7 +493,7 @@ const Dashboard = () => {
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base font-medium text-muted-foreground">
                   <ClipboardCheck className="w-4 h-4" />
-                  Today's Attendance
+                  {selectedMonth === 'overall' ? `Attendance (${selectedYear})` : `Attendance (${selectedMonth})`}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4">
@@ -565,8 +550,8 @@ const Dashboard = () => {
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-5 rounded-xl bg-gradient-to-r from-success/10 to-transparent border border-success/10 hover:scale-102 transition-transform duration-200">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Received</p>
-                    <p className="text-2xl font-bold text-success">PKR {(paidFees / 1000).toFixed(0)}K</p>
+                    <p className="text-sm font-medium text-muted-foreground">Total Cash Received</p>
+                    <p className="text-2xl font-bold text-success">PKR {(finance.monthlyIncome / 1000).toFixed(0)}K</p>
                   </div>
                   <div className="p-3 bg-success/20 rounded-full">
                     <TrendingUp className="w-6 h-6 text-success" />
@@ -574,8 +559,12 @@ const Dashboard = () => {
                 </div>
                 <div className="flex items-center justify-between p-5 rounded-xl bg-gradient-to-r from-warning/10 to-transparent border border-warning/10 hover:scale-102 transition-transform duration-200">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Receivable (Pending)</p>
-                    <p className="text-2xl font-bold text-warning">PKR {(finance.totalReceivable / 1000).toFixed(0)}K</p>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      {selectedMonth === 'overall' ? 'Total Receivable (All Time)' : `Pending for ${selectedMonth}`}
+                    </p>
+                    <p className="text-2xl font-bold text-warning">
+                      PKR {((selectedMonth === 'overall' ? finance.totalReceivable : finance.periodPendingFees) / 1000).toFixed(0)}K
+                    </p>
                   </div>
                   <div className="p-3 bg-warning/20 rounded-full">
                     <DollarSign className="w-6 h-6 text-warning" />
@@ -583,7 +572,7 @@ const Dashboard = () => {
                 </div>
                 <div className="flex items-center justify-between p-5 rounded-xl bg-gradient-to-r from-accent/10 to-transparent border border-accent/10 hover:scale-102 transition-transform duration-200">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Monthly Expenses</p>
+                    <p className="text-sm font-medium text-muted-foreground">Total Expenses</p>
                     <p className="text-2xl font-bold text-accent">PKR {(finance.monthlyExpense / 1000).toFixed(0)}K</p>
                   </div>
                   <div className="p-3 bg-accent/20 rounded-full">
@@ -598,4 +587,5 @@ const Dashboard = () => {
     </DashboardLayout>
   );
 };
+
 export default Dashboard;

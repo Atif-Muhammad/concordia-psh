@@ -15,6 +15,15 @@ import { UpdateFeeChallanDto } from './dtos/update-fee-challan.dto';
 export class FeeManagementService {
   constructor(private readonly prisma: PrismaService) { }
 
+  private generateNumericChallanNumber(): string {
+    // Generate a 12-digit numeric string
+    // Format: Timestamp (last 10 digits) + 2 random digits
+    const timestamp = Date.now().toString();
+    const last10 = timestamp.slice(-10);
+    const random2 = Math.floor(Math.random() * 90 + 10).toString(); // 10-99
+    return last10 + random2;
+  }
+
   // Fee Heads
   async createFeeHead(payload: CreateFeeHeadDto) {
     return await this.prisma.feeHead.create({
@@ -361,8 +370,9 @@ export class FeeManagementService {
         installmentNumber,
         studentClassId: classId, // Use calculated classId - NOT from payload
         studentProgramId: programId, // Use calculated programId - NOT from payload
+        studentSectionId: student.sectionId, // Snapshot current section
         fineAmount: payload.fineAmount || 0,
-        challanNumber: `CH-${Date.now()}-${Math.floor(Math.random() * 10)}`,
+        challanNumber: this.generateNumericChallanNumber(),
         status: 'PENDING',
         challanType: isArrearsPayment ? 'ARREARS_ONLY' : 'INSTALLMENT',
         includesArrears: isArrearsPayment || false,
@@ -420,6 +430,44 @@ export class FeeManagementService {
       where.installmentNumber = Number(installmentNumber);
     }
 
+    if (query.programId) {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { studentProgramId: Number(query.programId) },
+            { studentProgramId: null, student: { programId: Number(query.programId) } }
+          ]
+        }
+      ];
+    }
+
+    if (query.classId) {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { studentClassId: Number(query.classId) },
+            { studentClassId: null, student: { classId: Number(query.classId) } }
+          ]
+        }
+      ];
+    }
+
+    if (query.sectionId) {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { studentSectionId: Number(query.sectionId) },
+            // Fallback
+            { studentSectionId: null, student: { sectionId: Number(query.sectionId) } }
+          ]
+        }
+      ];
+    }
+
+
     if (month) {
       const year = new Date().getFullYear();
       const startOfMonth = new Date(year, Number(month) - 1, 1);
@@ -443,25 +491,13 @@ export class FeeManagementService {
       include: {
         student: true,
         feeStructure: true,
+        studentClass: true,
+        studentProgram: true,
       },
       orderBy: [
         { dueDate: 'asc' },
         { installmentNumber: 'asc' }
       ],
-    });
-
-    // Calculate dynamic late fees for pending challans
-    const now = new Date();
-    data.forEach((challan: any) => {
-      challan.lateFeeFine = 0;
-      if (challan.status === 'PENDING' && challan.dueDate && challan.student?.lateFeeFine > 0) {
-        const dueDate = new Date(challan.dueDate);
-        if (now > dueDate) {
-          const diffTime = Math.abs(now.getTime() - dueDate.getTime());
-          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-          challan.lateFeeFine = diffDays * challan.student.lateFeeFine;
-        }
-      }
     });
 
     return {
@@ -475,9 +511,89 @@ export class FeeManagementService {
     };
   }
 
+  async getBulkChallans(query: any) {
+    const { startDate, endDate, programId, classId, sectionId } = query;
+    const where: any = {};
+
+    // Prioritize Snapshot Search (OR logic for backward compatibility)
+    if (programId) {
+      where.OR = [
+        ...(where.OR || []),
+        { studentProgramId: Number(programId) },
+        { studentProgramId: null, student: { programId: Number(programId) } }
+      ];
+    }
+
+    if (classId) {
+      // Must combine with existing OR if present ??
+      // Actually simpler:
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { studentClassId: Number(classId) },
+            { studentClassId: null, student: { classId: Number(classId) } }
+          ]
+        }
+      ];
+    }
+
+    if (sectionId) {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { studentSectionId: Number(sectionId) },
+            // Fallback only useful if student hasn't moved sections
+            { studentSectionId: null, student: { sectionId: Number(sectionId) } }
+          ]
+        }
+      ];
+    }
+
+    if (startDate || endDate) {
+      where.dueDate = {};
+      if (startDate) where.dueDate.gte = new Date(startDate);
+      if (endDate) where.dueDate.lte = new Date(endDate);
+    }
+
+    const data = await this.prisma.feeChallan.findMany({
+      where,
+      include: {
+        student: true,
+        feeStructure: true,
+        studentClass: true,
+        studentProgram: true,
+      },
+      orderBy: [
+        { dueDate: 'asc' },
+        { student: { rollNumber: 'asc' } }
+      ],
+    });
+
+    // Calculate dynamic late fees
+    const now = new Date();
+    data.forEach((challan: any) => {
+      challan.lateFeeFine = 0;
+      if (challan.status === 'PENDING' && challan.dueDate && challan.student?.lateFeeFine > 0) {
+        const dueDate = new Date(challan.dueDate);
+        if (now > dueDate) {
+          const diffTime = Math.abs(now.getTime() - dueDate.getTime());
+          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+          challan.lateFeeFine = diffDays * challan.student.lateFeeFine;
+        }
+      }
+    });
+
+    return data;
+  }
+
+
   async updateFeeChallan(id: number, payload: UpdateFeeChallanDto) {
     // Handle status change logic if needed (e.g. updating paidAmount)
+    console.log(id);
     const data: any = { ...payload };
+    console.log(data);
 
     // Convert selectedHeads to JSON string if present
     if (payload.selectedHeads) {
@@ -576,150 +692,167 @@ export class FeeManagementService {
             ')',
           );
 
-          // Calculate covered installments if fee structure exists
+          // Calculate covered installments
+          let installmentsCovered = 0;
           if (challan.feeStructure && challan.feeStructure.installments > 0) {
             const structure = challan.feeStructure;
             const installmentAmount =
               structure.totalAmount / structure.installments;
 
-            // CRITICAL: Calculate based on NEW tuition payment, not cumulative total
-            const installmentsCovered = Math.floor(
-              tuitionPayment / installmentAmount,
-            );
+            // Use Math.round with a small epsilon or just Math.round to handle floating point/rounding differences
+            // If they pay the expected tuition, they cover the installment
+            installmentsCovered = Math.round(tuitionPayment / installmentAmount);
+          } else if (challan.installmentNumber > 0 && tuitionPayment > 0) {
+            // Fallback: If this is a pre-generated installment challan (number > 0) 
+            // and we're paying tuition, it covers (at least) this installment.
+            installmentsCovered = 1;
+          }
 
-            if (installmentsCovered > 0) {
-              // Priority: Use the existing installment number on the challan
-              //pre-generated challans (#7, #8, etc.) keep their numbers
-              let startInstallment = challan.installmentNumber || 1;
+          if (installmentsCovered > 0) {
+            // Priority: Use the existing installment number on the challan
+            //pre-generated challans (#7, #8, etc.) keep their numbers
+            let startInstallment = challan.installmentNumber || 1;
 
-              // If it's zero (Additional Charges) or we need to calculate specifically for arrears
-              if (challan.installmentNumber === 0 || (challan.includesArrears && challan.studentArrearId)) {
-                if (challan.includesArrears && challan.studentArrearId) {
-                  const arrear = await this.prisma.studentArrear.findUnique({
-                    where: { id: challan.studentArrearId },
-                    select: { lastInstallmentNumber: true },
-                  });
+            // If it's zero (Additional Charges) or we need to calculate specifically for arrears
+            if (challan.installmentNumber === 0 || (challan.includesArrears && challan.studentArrearId)) {
+              if (challan.includesArrears && challan.studentArrearId) {
+                const arrear = await this.prisma.studentArrear.findUnique({
+                  where: { id: challan.studentArrearId },
+                  select: { lastInstallmentNumber: true },
+                });
 
-                  if (arrear) {
-                    startInstallment = arrear.lastInstallmentNumber + 1;
-                    console.log(
-                      '🔢 Arrears payment - Starting from installment:',
-                      startInstallment,
+                if (arrear) {
+                  startInstallment = arrear.lastInstallmentNumber + 1;
+                  console.log(
+                    '🔢 Arrears payment - Starting from installment:',
+                    startInstallment,
+                  );
+                }
+              } else {
+                // For ad-hoc challans without a number, find the next available slot
+                const previousChallans = await this.prisma.feeChallan.findMany({
+                  where: {
+                    feeStructureId: challan.feeStructureId,
+                    studentId: challan.studentId,
+                    status: 'PAID',
+                    id: { not: challan.id },
+                  },
+                  select: {
+                    coveredInstallments: true,
+                    installmentNumber: true,
+                  },
+                });
+
+                let highestInstallment = 0;
+                for (const prev of previousChallans) {
+                  if (prev.coveredInstallments) {
+                    const parts = prev.coveredInstallments.split('-');
+                    const highest = parseInt(parts[parts.length - 1]) || 0;
+                    highestInstallment = Math.max(highestInstallment, highest);
+                  } else if (prev.installmentNumber) {
+                    highestInstallment = Math.max(
+                      highestInstallment,
+                      prev.installmentNumber,
                     );
                   }
-                } else {
-                  // For ad-hoc challans without a number, find the next available slot
-                  const previousChallans = await this.prisma.feeChallan.findMany({
-                    where: {
-                      feeStructureId: challan.feeStructureId,
-                      studentId: challan.studentId,
-                      status: 'PAID',
-                      id: { not: challan.id },
-                    },
-                    select: {
-                      coveredInstallments: true,
-                      installmentNumber: true,
-                    },
-                  });
+                }
 
-                  let highestInstallment = 0;
-                  for (const prev of previousChallans) {
-                    if (prev.coveredInstallments) {
-                      const parts = prev.coveredInstallments.split('-');
-                      const highest = parseInt(parts[parts.length - 1]) || 0;
-                      highestInstallment = Math.max(highestInstallment, highest);
-                    } else if (prev.installmentNumber) {
-                      highestInstallment = Math.max(
-                        highestInstallment,
-                        prev.installmentNumber,
-                      );
-                    }
-                  }
-
-                  if (highestInstallment > 0) {
-                    startInstallment = highestInstallment + 1;
-                  }
+                if (highestInstallment > 0) {
+                  startInstallment = highestInstallment + 1;
                 }
               }
-
-              const endInstallment = startInstallment + installmentsCovered - 1;
-
-              // Store as range: "7-9" or single: "7"
-              if (startInstallment === endInstallment) {
-                data.coveredInstallments = `${startInstallment}`;
-              } else {
-                data.coveredInstallments = `${startInstallment}-${endInstallment}`;
-              }
-
-              console.log(
-                '📋 Installments Covered:',
-                data.coveredInstallments,
-                '(based on payment of',
-                tuitionPayment,
-                ')',
-              );
             }
+
+            const endInstallment = startInstallment + installmentsCovered - 1;
+
+            // Store as range: "7-9" or single: "7"
+            if (startInstallment === endInstallment) {
+              data.coveredInstallments = `${startInstallment}`;
+            } else {
+              data.coveredInstallments = `${startInstallment}-${endInstallment}`;
+            }
+
+            console.log(
+              '📋 Installments Covered:',
+              data.coveredInstallments,
+              '(based on payment of',
+              tuitionPayment,
+              ')',
+            );
           }
         }
       }
-    }
 
-    const updatedChallan = await this.prisma.feeChallan.update({
-      where: { id },
-      data,
-      include: {
-        student: true,
-        feeStructure: true,
-      },
-    });
-
-    // Check if this was an Arrears Payment and update the Arrears record
-    if (updatedChallan.status === 'PAID' && updatedChallan.studentArrearId) {
-      const arrear = await this.prisma.studentArrear.findUnique({
-        where: { id: updatedChallan.studentArrearId },
+      const updatedChallan = await this.prisma.feeChallan.update({
+        where: { id },
+        data,
+        include: {
+          student: true,
+          feeStructure: true,
+        },
       });
 
-      if (arrear) {
-        // Use tuitionPaid for arrears reduction (not total paidAmount)
-        // Only tuition payments reduce arrears, not additional charges
-        const newArrearAmount = Math.max(
-          0,
-          arrear.arrearAmount - updatedChallan.tuitionPaid,
-        );
-
-        // Parse coveredInstallments to get the highest installment paid
-        let highestInstallment = arrear.lastInstallmentNumber;
-        if (updatedChallan.coveredInstallments) {
-          const parts = updatedChallan.coveredInstallments.split('-');
-          highestInstallment =
-            parseInt(parts[parts.length - 1]) || arrear.lastInstallmentNumber;
-        }
-
-        console.log(
-          '📝 Updating StudentArrear - lastInstallment:',
-          arrear.lastInstallmentNumber,
-          '→',
-          highestInstallment,
-        );
-
-        await this.prisma.studentArrear.update({
-          where: { id: arrear.id },
-          data: {
-            lastInstallmentNumber: highestInstallment,
-            arrearAmount: newArrearAmount,
-          },
+      // Check if this was an Arrears Payment and update the Arrears record
+      if (updatedChallan.status === 'PAID' && updatedChallan.studentArrearId) {
+        const arrear = await this.prisma.studentArrear.findUnique({
+          where: { id: updatedChallan.studentArrearId },
         });
 
-        // If fully paid, delete the record
-        if (newArrearAmount === 0) {
-          await this.prisma.studentArrear.delete({
+        if (arrear) {
+          // Use tuitionPaid for arrears reduction (not total paidAmount)
+          // Only tuition payments reduce arrears, not additional charges
+          const newArrearAmount = Math.max(
+            0,
+            arrear.arrearAmount - updatedChallan.tuitionPaid,
+          );
+
+          // Parse coveredInstallments to get the highest installment paid
+          let highestInstallment = arrear.lastInstallmentNumber;
+          if (updatedChallan.coveredInstallments) {
+            const parts = updatedChallan.coveredInstallments.split('-');
+            highestInstallment =
+              parseInt(parts[parts.length - 1]) || arrear.lastInstallmentNumber;
+          }
+
+          console.log(
+            '📝 Updating StudentArrear - lastInstallment:',
+            arrear.lastInstallmentNumber,
+            '→',
+            highestInstallment,
+          );
+
+          await this.prisma.studentArrear.update({
             where: { id: arrear.id },
+            data: {
+              lastInstallmentNumber: highestInstallment,
+              arrearAmount: newArrearAmount,
+            },
           });
+
+          // If fully paid, delete the record
+          if (newArrearAmount === 0) {
+            await this.prisma.studentArrear.delete({
+              where: { id: arrear.id },
+            });
+          }
         }
       }
-    }
 
-    return updatedChallan;
+      return updatedChallan;
+    } else {
+      // For non-payment updates (remarks, dueDate, selectedHeads, etc.)
+      // Just update the challan without payment-specific logic
+      const updatedChallan = await this.prisma.feeChallan.update({
+        where: { id },
+        data,
+        include: {
+          student: true,
+          feeStructure: true,
+        },
+      });
+
+      return updatedChallan;
+    }
   }
 
   async syncStudentChallans(studentId: number) {
@@ -812,7 +945,7 @@ export class FeeManagementService {
             data: {
               ...challanData,
               studentId,
-              challanNumber: `CH-${Date.now()}-${installment.installmentNumber}-${Math.floor(Math.random() * 100)}`,
+              challanNumber: this.generateNumericChallanNumber(),
               status: 'PENDING',
               installmentNumber: installment.installmentNumber,
               challanType: 'INSTALLMENT',
@@ -838,22 +971,6 @@ export class FeeManagementService {
         });
       }
     }
-  }
-
-  async removeChallansForDemotion(studentId: number, classId: number) {
-    console.log(
-      `🗑️ Removing unpaid challans for Student ${studentId} in Class ${classId} (Demotion Cleanup)`,
-    );
-    const result = await this.prisma.feeChallan.deleteMany({
-      where: {
-        studentId,
-        studentClassId: classId,
-        paidAmount: 0, // Only delete fully unpaid challans
-        status: { not: 'PAID' }, // Extra safety
-      },
-    });
-    console.log(`✅ Deleted ${result.count} unpaid challans.`);
-    return result;
   }
 
   async deleteFeeChallan(id: number) {
@@ -977,19 +1094,10 @@ export class FeeManagementService {
         0,
       );
 
-      // Robust installment counting
-      let paidInstallments = 0;
-      challans
-        .filter((c) => c.status === 'PAID')
-        .forEach((c) => {
-          if (c.coveredInstallments) {
-            const parts = c.coveredInstallments.split('-');
-            const end = parseInt(parts[parts.length - 1]);
-            paidInstallments = Math.max(paidInstallments, end);
-          } else if (c.installmentNumber) {
-            paidInstallments = Math.max(paidInstallments, c.installmentNumber);
-          }
-        });
+      // Robust installment counting: Count actual paid challans that have a tuition portion
+      const paidInstallments = challans.filter(
+        (c) => c.status === 'PAID' && c.amount > 0,
+      ).length;
 
       const totalInstallments = feeStructure?.installments || 0;
 
@@ -1372,6 +1480,39 @@ export class FeeManagementService {
     return await this.prisma.feeChallanTemplate.findMany({
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async removeChallansForDemotion(studentId: number, classId: number) {
+    if (!studentId || !classId) return;
+
+    console.log(`🧹 Cleaning up challans for student ${studentId} in class ${classId} (Demotion)`);
+
+    // Delete ONLY unpaid/pending challans for the class being left
+    // We rely on the snapshot 'studentClassId' AND the 'feeStructure.classId' to be safe
+    // Since we fixed snapshots, we should prioritize them.
+    const result = await this.prisma.feeChallan.deleteMany({
+      where: {
+        studentId,
+        paidAmount: 0, // STRICT: Only delete challans with ZERO payments. Preserves partial history.
+        status: { not: 'PAID' }, // Should be redundant if paidAmount is 0, but good for clarity.
+        AND: [
+          {
+            OR: [
+              { studentClassId: classId }, // Snapshot match
+              {
+                studentClassId: null,      // Legacy fallback
+                feeStructure: { classId: classId }
+              },
+              // FALLBACK: If no snapshot and no fee structure link (orphaned?), 
+              // we might want to check against the student's *current* class (which is still 'classId' coming in)
+              // But 'classId' arg IS the current class.
+            ]
+          }
+        ]
+      }
+    });
+
+    console.log(`✅ Deleted ${result.count} challans.`);
   }
 
   async getFeeChallanTemplateById(id: number) {

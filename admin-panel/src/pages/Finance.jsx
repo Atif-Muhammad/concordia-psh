@@ -28,6 +28,24 @@ import {
   deleteFinanceClosing
 } from "../../config/apis";
 
+// Helper to format date as YYYY-MM-DD in local time
+const toLocalDateString = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Helper to convert month to date range
+const getMonthDateRange = (month) => {
+  if (!month) return { dateFrom: '', dateTo: '' };
+  const [year, monthNum] = month.split('-');
+  const firstDay = `${year}-${monthNum}-01`;
+  const lastDay = new Date(parseInt(year), parseInt(monthNum), 0).getDate();
+  const lastDayStr = `${year}-${monthNum}-${String(lastDay).padStart(2, '0')}`;
+  return { dateFrom: firstDay, dateTo: lastDayStr };
+};
+
 const Finance = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -63,12 +81,15 @@ const Finance = () => {
 
   const [closingType, setClosingType] = useState("daily");
 
-  // Closing form data
   const [closingFormData, setClosingFormData] = useState({
     totalIncome: 0,
     totalExpense: 0,
-    remarks: ""
+    remarks: "",
+    incomeCount: 0,
+    expenseCount: 0
   });
+
+  const [closingDate, setClosingDate] = useState(toLocalDateString(new Date()));
 
   // Confirmation dialog states
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, id: null, type: '' });
@@ -77,7 +98,10 @@ const Finance = () => {
   const [editClosingData, setEditClosingData] = useState(null);
 
   // Closing filter
-  const [closingFilterMonth, setClosingFilterMonth] = useState("");
+  const [closingFilterMonth, setClosingFilterMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
 
   // Reports filter - month string or empty for overall
   // Reports filter
@@ -85,24 +109,6 @@ const Finance = () => {
   const [reportsDateTo, setReportsDateTo] = useState("");
   const [appliedReportsFilter, setAppliedReportsFilter] = useState({ dateFrom: "", dateTo: "" });
 
-
-  // Helper to format date as YYYY-MM-DD in local time
-  const toLocalDateString = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  // Helper to convert month to date range
-  const getMonthDateRange = (month) => {
-    if (!month) return { dateFrom: '', dateTo: '' };
-    const [year, monthNum] = month.split('-');
-    const firstDay = `${year}-${monthNum}-01`;
-    const lastDay = new Date(parseInt(year), parseInt(monthNum), 0).getDate();
-    const lastDayStr = `${year}-${monthNum}-${String(lastDay).padStart(2, '0')}`;
-    return { dateFrom: firstDay, dateTo: lastDayStr };
-  };
 
   // Helper to get date range based on dashboard period
   const getDashboardDateRange = () => {
@@ -304,7 +310,7 @@ const Finance = () => {
 
   const handleClosing = () => {
     const closingData = {
-      date: new Date().toISOString().split("T")[0],
+      date: closingDate,
       type: closingType,
       totalIncome: closingFormData.totalIncome,
       totalExpense: closingFormData.totalExpense,
@@ -316,21 +322,18 @@ const Finance = () => {
 
   // Calculate amounts based on closing type
   const getClosingAmounts = async () => {
-    const now = new Date();
+    const selectedDate = new Date(closingDate);
     let dateFrom, dateTo;
 
     if (closingType === 'daily') {
-      // Today
-      dateFrom = dateTo = toLocalDateString(now);
+      dateFrom = dateTo = closingDate;
     } else if (closingType === 'monthly') {
-      // Current month
-      dateFrom = toLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1));
-      dateTo = toLocalDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+      dateFrom = toLocalDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+      dateTo = toLocalDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0));
     } else { // quarterly
-      // Current quarter
-      const quarter = Math.floor(now.getMonth() / 3);
-      dateFrom = toLocalDateString(new Date(now.getFullYear(), quarter * 3, 1));
-      dateTo = toLocalDateString(new Date(now.getFullYear(), (quarter + 1) * 3, 0));
+      const quarter = Math.floor(selectedDate.getMonth() / 3);
+      dateFrom = toLocalDateString(new Date(selectedDate.getFullYear(), quarter * 3, 1));
+      dateTo = toLocalDateString(new Date(selectedDate.getFullYear(), (quarter + 1) * 3, 0));
     }
 
     try {
@@ -342,10 +345,16 @@ const Finance = () => {
       const income = incomes.reduce((sum, item) => sum + Number(item.amount), 0);
       const expense = expenses.reduce((sum, item) => sum + Number(item.amount), 0);
 
+      const periodLabel = closingType === 'daily'
+        ? closingDate
+        : `${dateFrom} to ${dateTo}`;
+
       setClosingFormData({
         totalIncome: income,
         totalExpense: expense,
-        remarks: `${closingType.charAt(0).toUpperCase() + closingType.slice(1)} closing for ${dateFrom}${dateFrom !== dateTo ? ` to ${dateTo}` : ''}`
+        incomeCount: incomes.length,
+        expenseCount: expenses.length,
+        remarks: `${closingType.charAt(0).toUpperCase() + closingType.slice(1)} closing for ${periodLabel}`
       });
     } catch (error) {
       console.error('Error calculating closing amounts:', error);
@@ -357,7 +366,7 @@ const Finance = () => {
     if (closingOpen) {
       getClosingAmounts();
     }
-  }, [closingType, closingOpen]);
+  }, [closingType, closingOpen, closingDate]);
 
   // Chart data - dynamic based on selected period
   const monthlyData = useMemo(() => {
@@ -385,9 +394,6 @@ const Finance = () => {
         });
       }
       return days;
-
-      return days;
-
     } else if (dashboardPeriod === 'overall') {
       // Last 5 years
       const years = [];
@@ -841,8 +847,8 @@ const Finance = () => {
                             size="sm"
                             variant="destructive"
                             onClick={() => setDeleteConfirm({ open: true, id: item.id, type: 'income' })}
-                            disabled={item.source === 'fee-challan-aggregated'}
-                            title={item.source === 'fee-challan-aggregated' ? 'Cannot delete aggregated fee records' : 'Delete'}
+                            disabled={!!item.source}
+                            title={!!item.source ? `Cannot delete automated ${item.category} records` : 'Delete'}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -944,8 +950,8 @@ const Finance = () => {
                           size="sm"
                           variant="destructive"
                           onClick={() => setDeleteConfirm({ open: true, id: item.id, type: 'expense' })}
-                          disabled={item.source === 'inventory-aggregated'}
-                          title={item.source === 'inventory-aggregated' ? 'Cannot delete aggregated expense records' : 'Delete'}
+                          disabled={!!item.source}
+                          title={!!item.source ? `Cannot delete automated ${item.category} records` : 'Delete'}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -1231,18 +1237,28 @@ const Finance = () => {
             <DialogTitle>Financial Closing</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <Label>Closing Type</Label>
-              <Select value={closingType} onValueChange={value => setClosingType(value)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="daily">Daily</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="quarterly">Quarterly</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Closing Type</Label>
+                <Select value={closingType} onValueChange={value => setClosingType(value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="quarterly">Quarterly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>{closingType === 'daily' ? 'Date' : 'Selection Date'}</Label>
+                <Input
+                  type="date"
+                  value={closingDate}
+                  onChange={(e) => setClosingDate(e.target.value)}
+                />
+              </div>
             </div>
             <div>
               <Label>Total Income</Label>
@@ -1273,12 +1289,16 @@ const Finance = () => {
               />
             </div>
             <div className="border rounded-lg p-4 space-y-2 bg-muted">
+              <div className="flex justify-between text-sm text-muted-foreground mb-2">
+                <span>Summary for {closingDate}</span>
+                <span>{closingFormData.incomeCount + closingFormData.expenseCount} records total</span>
+              </div>
               <div className="flex justify-between">
-                <span>Total Income:</span>
+                <span>Total Income ({closingFormData.incomeCount} records):</span>
                 <span className="font-bold text-success">PKR {closingFormData.totalIncome.toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
-                <span>Total Expense:</span>
+                <span>Total Expense ({closingFormData.expenseCount} records):</span>
                 <span className="font-bold text-destructive">PKR {closingFormData.totalExpense.toLocaleString()}</span>
               </div>
               <div className="border-t pt-2 flex justify-between">

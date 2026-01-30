@@ -6,14 +6,14 @@ import { FinanceService } from '../finance/finance.service';
 export class DashboardService {
   constructor(private prisma: PrismaService, private financeService: FinanceService) { }
   async getDashboardStats(filters?: { month?: string; year?: string }) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     let monthStart: Date;
     let monthEnd: Date;
-    let isOverall = true;
+    let isOverall = true; // Overall means current month by default if no filters
 
     if (filters?.year) {
       isOverall = false;
@@ -23,17 +23,27 @@ export class DashboardService {
         // Specific Month
         const monthIndex = new Date(Date.parse(`${filters.month} 1, ${filters.year}`)).getMonth();
         monthStart = new Date(year, monthIndex, 1);
-        monthEnd = new Date(year, monthIndex + 1, 0);
+        monthEnd = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
       } else {
         // Whole Year
         monthStart = new Date(year, 0, 1);
-        monthEnd = new Date(year, 11, 31);
+        monthEnd = new Date(year, 11, 31, 23, 59, 59, 999);
       }
     } else {
       // Default to current month
       monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-      monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
     }
+
+    // For charts: last 12 months ending at monthEnd
+    const chartEnd = new Date(monthEnd);
+    const chartStart = new Date(chartEnd.getFullYear(), chartEnd.getMonth() - 11, 1);
+
+    // For weekly trend: last 7 days ending at monthEnd
+    const weeklyEnd = new Date(monthEnd);
+    const weeklyStart = new Date(weeklyEnd);
+    weeklyStart.setDate(weeklyEnd.getDate() - 6);
+    weeklyStart.setHours(0, 0, 0, 0);
 
     // Helper to format date as YYYY-MM-DD for FinanceService
     const formatDate = (d: Date) => d.toISOString().split('T')[0];
@@ -58,12 +68,13 @@ export class DashboardService {
       attendance,
       inventory,
       rooms,
-      teachers,
-      employees,
+      teachingStaff,
+      nonTeachingStaff,
       exams,
       paidHistoryData,
       issuedHistoryData,
       receivablesAgg,
+      weeklyAttendanceRaw,
     ] = await Promise.all([
       // Students
       this.prisma.student.findMany({
@@ -94,12 +105,12 @@ export class DashboardService {
         },
       }),
 
-      // Today's Attendance
+      // Period Attendance
       this.prisma.attendance.findMany({
         where: {
           date: {
-            gte: today,
-            lt: tomorrow,
+            gte: monthStart,
+            lte: monthEnd,
           },
         },
         select: {
@@ -122,16 +133,18 @@ export class DashboardService {
         },
       }),
 
-      // Teachers
-      this.prisma.teacher.findMany({
+      // Teaching Staff
+      this.prisma.staff.findMany({
+        where: { isTeaching: true },
         select: {
-          teacherStatus: true,
+          status: true,
           specialization: true,
         },
       }),
 
-      // Employees
-      this.prisma.employee.findMany({
+      // Non-Teaching Staff
+      this.prisma.staff.findMany({
+        where: { isNonTeaching: true },
         select: {
           status: true,
           empDepartment: true,
@@ -156,7 +169,8 @@ export class DashboardService {
       this.prisma.feeChallan.findMany({
         where: {
           paidDate: {
-            gte: new Date(new Date().setMonth(new Date().getMonth() - 11)),
+            gte: chartStart,
+            lte: chartEnd,
           },
           paidAmount: {
             gt: 0
@@ -175,7 +189,8 @@ export class DashboardService {
       this.prisma.feeChallan.findMany({
         where: {
           issueDate: {
-            gte: new Date(new Date().setMonth(new Date().getMonth() - 11)),
+            gte: chartStart,
+            lte: chartEnd,
           },
         },
         select: {
@@ -202,6 +217,19 @@ export class DashboardService {
         },
       }),
 
+      // Weekly Attendance (Trend for period)
+      this.prisma.attendance.findMany({
+        where: {
+          date: {
+            gte: weeklyStart,
+            lte: weeklyEnd,
+          },
+        },
+        select: {
+          date: true,
+          status: true,
+        },
+      }),
 
     ]);
 
@@ -286,9 +314,9 @@ export class DashboardService {
     // Calculate monthly fee history
     const feeHistoryMap = new Map<string, { collected: number; pending: number }>();
 
-    // Initialize last 12 months
+    // Initialize chart months
     for (let i = 11; i >= 0; i--) {
-      const d = new Date();
+      const d = new Date(chartEnd);
       d.setMonth(d.getMonth() - i);
       const monthName = d.toLocaleString('default', { month: 'short' });
       feeHistoryMap.set(monthName, { collected: 0, pending: 0 });
@@ -359,10 +387,10 @@ export class DashboardService {
 
     // Calculate staff statistics
     const totalExams = exams.length;
-    const totalStaff = teachers.length + employees.length;
-    const teachingStaff = teachers.length;
-    const adminStaff = employees.filter(e => ['ADMIN', 'FINANCE', 'HR'].includes(e.empDepartment)).length;
-    const supportStaff = employees.length - adminStaff;
+    const totalStaff = teachingStaff.length + nonTeachingStaff.length;
+    const teachingCount = teachingStaff.length;
+    const adminStaffCount = nonTeachingStaff.filter(e => ['ADMIN', 'FINANCE', 'HR'].includes(e.empDepartment!)).length;
+    const supportStaffCount = nonTeachingStaff.length - adminStaffCount;
 
 
     // Calculate exam statistics
@@ -373,6 +401,29 @@ export class DashboardService {
       shortCourse: exams.filter((e) => e.program?.level === 'SHORT_COURSE').length,
       coaching: exams.filter((e) => e.program?.level === 'COACHING').length,
     };
+
+    // Calculate weekly attendance trend
+    const weeklyAttendanceTrend: any[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const dayName = d.toLocaleString('default', { weekday: 'short' });
+
+      const dayStats = weeklyAttendanceRaw.filter(a =>
+        new Date(a.date).toISOString().split('T')[0] === dateStr
+      );
+
+      const total = dayStats.length;
+      const present = dayStats.filter(a => a.status === 'PRESENT').length;
+      const rate = total > 0 ? Math.round((present / total) * 100) : 0;
+
+      weeklyAttendanceTrend.push({
+        day: dayName,
+        rate: rate,
+        fullDate: dateStr
+      });
+    }
 
     // Calculate finance statistics
 
@@ -418,9 +469,9 @@ export class DashboardService {
       },
       staff: {
         total: totalStaff,
-        teaching: teachingStaff,
-        admin: adminStaff,
-        support: supportStaff,
+        teaching: teachingCount,
+        admin: adminStaffCount,
+        support: supportStaffCount,
       },
       exams: {
         total: totalExams,
@@ -431,13 +482,15 @@ export class DashboardService {
         monthlyExpense,
         netBalance: monthlyIncome - monthlyExpense,
         totalReceivable,
+        periodPendingFees: pendingFees,
       },
       charts: {
         monthlyFeeCollection: monthlyFeeCollection.map(m => ({
           month: m.month,
           collected: m.collected,
           pending: m.pending
-        }))
+        })),
+        weeklyAttendance: weeklyAttendanceTrend
       }
     };
   }

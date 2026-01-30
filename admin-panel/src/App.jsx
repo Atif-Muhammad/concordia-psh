@@ -15,6 +15,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Students from "./pages/Students";
 import Teachers from "./pages/Teachers";
+import Staff from "./pages/Staff";
 import FeeManagement from "./pages/FeeManagement";
 import Attendance from "./pages/Attendance";
 import FrontOffice from "./pages/FrontOffice";
@@ -33,7 +34,8 @@ const menuOrder = [
   "Dashboard",
   "Front Office",
   "Students",
-  "Teachers",
+  "Staff",
+  // "Teachers",
   "Attendance",
   "Fee Management",
   "Examination",
@@ -49,36 +51,38 @@ const menuOrder = [
 // Get default landing path
 // ──────────────────────────────────────────────────────────────
 const getDefaultPath = (user) => {
-  if (user?.role === "Teacher") return "/attendance";
+  if (user?.role === "SUPER_ADMIN") return "/dashboard";
+
+  const pathMap = {
+    "Dashboard": "/dashboard",
+    "Front Office": "/front-office",
+    "Students": "/students",
+    "Staff": "/staff",
+    "Attendance": "/attendance",
+    "Fee Management": "/fee-management",
+    "Examination": "/examination",
+    "Academics": "/academics",
+    "HR & Payroll": "/hr-payroll",
+    "Hostel": "/hostel",
+    "Finance": "/finance",
+    "Inventory": "/inventory",
+    "Configuration": "/configuration",
+  };
 
   const modules = user?.permissions?.modules ?? [];
-  const hasModules = Array.isArray(modules) && modules.length > 0;
+  const isTeacherOrStaff = user?.role === "Teacher";
+  const hardcodedModules = isTeacherOrStaff ? ["Attendance", "Examination"] : [];
+  const allAccessibleModules = [...new Set([...(Array.isArray(modules) ? modules : []), ...hardcodedModules])];
 
-  if (hasModules) {
+  if (allAccessibleModules.length > 0) {
     // Return first allowed module in menu order
     for (const label of menuOrder) {
-      if (modules.includes(label)) {
-        const pathMap = {
-          "Dashboard": "/dashboard",
-          "Front Office": "/front-office",
-          "Students": "/students",
-          "Teachers": "/teachers",
-          "Attendance": "/attendance",
-          "Fee Management": "/fee-management",
-          "Examination": "/examination",
-          "Academics": "/academics",
-          "HR & Payroll": "/hr-payroll",
-          "Hostel": "/hostel",
-          "Finance": "/finance",
-          "Inventory": "/inventory",
-          "Configuration": "/configuration",
-        };
+      if (allAccessibleModules.includes(label)) {
         return pathMap[label] || "/dashboard";
       }
     }
   }
 
-  // No modules → fallback
   return "/dashboard";
 };
 
@@ -135,6 +139,7 @@ function PermissionRoute({ children, moduleName }) {
     },
     retry: false,
   });
+  console.log(currentUser)
 
   if (isLoading) return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
 
@@ -148,12 +153,12 @@ function PermissionRoute({ children, moduleName }) {
   }
 
   let canAccess = false;
-  if (currentUser?.role === "Teacher") {
-    canAccess = ["Attendance", "Examination"].includes(moduleName);
-  } else {
-    const modulePermissions = currentUser?.permissions?.modules ?? [];
-    canAccess = Array.isArray(modulePermissions) && modulePermissions.includes(moduleName);
-  }
+  const isTeacherOrStaff = currentUser?.role === "Teacher";
+  const hardcodedModules = isTeacherOrStaff ? ["Attendance", "Examination"] : [];
+  const modulePermissions = currentUser?.permissions?.modules ?? [];
+
+  const allAccessibleModules = [...new Set([...(Array.isArray(modulePermissions) ? modulePermissions : []), ...hardcodedModules])];
+  canAccess = allAccessibleModules.includes(moduleName);
 
   if (!canAccess) {
     return <Navigate to={getDefaultPath(currentUser)} replace />;
@@ -198,13 +203,21 @@ function App() {
                 }
               />
               <Route
+                path="/staff"
+                element={
+                  <PermissionRoute moduleName="Staff">
+                    <Staff />
+                  </PermissionRoute>
+                }
+              />
+              {/* <Route
                 path="/teachers"
                 element={
                   <PermissionRoute moduleName="Teachers">
                     <Teachers />
                   </PermissionRoute>
                 }
-              />
+              /> */}
               <Route
                 path="/attendance"
                 element={

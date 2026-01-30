@@ -8,6 +8,7 @@ import {
   Delete,
   UseGuards,
   Req,
+  Param,
 } from '@nestjs/common';
 import { JwtAccGuard } from 'src/common/guards/jwt-access.guard';
 import { PermissionsGuard } from 'src/common/guards/permission.guard';
@@ -18,10 +19,135 @@ import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { UploadedFile, UseInterceptors, ConflictException } from '@nestjs/common';
 import { HrService } from './hr.service';
 import { EmployeeDto } from './dtos/employee.dot';
+import { StaffDto } from './dtos/staff.dto';
 
 @Controller('hr')
 export class HrController {
   constructor(private readonly hrService: HrService, private readonly cloudinaryService: CloudinaryService) { }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // UNIFIED STAFF MANAGEMENT ENDPOINTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @Get('staff')
+  async getAllStaff(
+    @Query('isTeaching') isTeaching?: string,
+    @Query('isNonTeaching') isNonTeaching?: string,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+  ) {
+    return await this.hrService.getAllStaff({
+      isTeaching: isTeaching === 'true' ? true : isTeaching === 'false' ? false : undefined,
+      isNonTeaching: isNonTeaching === 'true' ? true : isNonTeaching === 'false' ? false : undefined,
+      search,
+      status,
+    });
+  }
+
+  @Get('staff/:id')
+  async getStaffById(@Param('id') id: string) {
+    return await this.hrService.getStaffById(Number(id));
+  }
+
+  @Post('staff')
+  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  async createStaff(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() payload: StaffDto,
+  ) {
+    let url: string | null = null;
+    let public_id: string | null = null;
+
+    if (file) {
+      const uploaded = await this.cloudinaryService.uploadFile(file);
+      if (!uploaded?.url || !uploaded?.public_id) {
+        throw new ConflictException('Failed to upload staff photo');
+      }
+      url = uploaded.url;
+      public_id = uploaded.public_id;
+    }
+
+    // Parse boolean strings and JSON strings from form data
+    const parsedPayload = {
+      ...payload,
+      isTeaching: payload.isTeaching === true || payload.isTeaching === 'true' as any,
+      isNonTeaching: payload.isNonTeaching === true || payload.isNonTeaching === 'true' as any,
+      permissions: typeof payload.permissions === 'string' ? JSON.parse(payload.permissions) : payload.permissions,
+      documents: typeof payload.documents === 'string' ? JSON.parse(payload.documents) : payload.documents,
+      photo_url: url || undefined,
+      photo_public_id: public_id || undefined,
+    };
+
+    return await this.hrService.createStaff(parsedPayload);
+  }
+
+  @Patch('staff/:id')
+  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  async updateStaff(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() payload: Partial<StaffDto>,
+  ) {
+    const staffId = Number(id);
+    let photo_url: string | undefined;
+    let photo_public_id: string | undefined;
+
+    if (file) {
+      // Get existing staff to delete old photo
+      const existingStaff = await this.hrService.findOne(staffId);
+      if (existingStaff?.photo_public_id) {
+        await this.cloudinaryService.removeFile(existingStaff.photo_public_id).catch(() => {
+          console.warn(`Failed to delete old photo: ${existingStaff.photo_public_id}`);
+        });
+      }
+
+      const uploadResult = await this.cloudinaryService.uploadFile(file);
+      if (!uploadResult?.url || !uploadResult?.public_id) {
+        throw new ConflictException('Failed to upload staff photo');
+      }
+      photo_url = uploadResult.url;
+      photo_public_id = uploadResult.public_id;
+    }
+
+    // Parse boolean strings and JSON strings from form data
+    const updateData: any = { ...payload };
+    if (payload.isTeaching !== undefined) {
+      updateData.isTeaching = payload.isTeaching === true || payload.isTeaching === 'true' as any;
+    }
+    if (payload.isNonTeaching !== undefined) {
+      updateData.isNonTeaching = payload.isNonTeaching === true || payload.isNonTeaching === 'true' as any;
+    }
+    if (payload.permissions !== undefined) {
+      updateData.permissions = typeof payload.permissions === 'string' ? JSON.parse(payload.permissions) : payload.permissions;
+    }
+    if (payload.documents !== undefined) {
+      updateData.documents = typeof payload.documents === 'string' ? JSON.parse(payload.documents) : payload.documents;
+    }
+    if (photo_url && photo_public_id) {
+      updateData.photo_url = photo_url;
+      updateData.photo_public_id = photo_public_id;
+    }
+
+    return await this.hrService.updateStaff(staffId, updateData);
+  }
+
+  @Delete('staff/:id')
+  async deleteStaff(@Param('id') id: string) {
+    const staffId = Number(id);
+    const existingStaff = await this.hrService.findOne(staffId);
+
+    if (existingStaff?.photo_public_id) {
+      await this.cloudinaryService.removeFile(existingStaff.photo_public_id).catch(() => {
+        console.warn(`Failed to delete staff photo: ${existingStaff.photo_public_id}`);
+      });
+    }
+
+    return await this.hrService.deleteStaff(staffId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LEGACY EMPLOYEE ENDPOINTS (kept for backward compatibility)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   @Get('get/employees')
   async getEmployees(@Query('dept') dept: string, @Query('search') search: string) {
@@ -115,7 +241,7 @@ export class HrController {
   @Get('payroll-sheet')
   async getPayrollSheet(
     @Query('month') month: string,
-    @Query('type') type: 'teacher' | 'employee',
+    @Query('type') type: 'teacher' | 'employee' | 'all',
   ) {
     return await this.hrService.getPayrollSheet(month, type);
   }
@@ -123,7 +249,7 @@ export class HrController {
   @Get('payroll-history')
   async getPayrollHistory(
     @Query('staffId') staffId: string,
-    @Query('type') type: 'teacher' | 'employee',
+    @Query('type') type: 'teacher' | 'employee' | 'all',
   ) {
     return await this.hrService.getPayrollHistory(Number(staffId), type);
   }
@@ -136,7 +262,7 @@ export class HrController {
   @Get('leave-sheet')
   async getLeaveSheet(
     @Query('month') month: string,
-    @Query('type') type: 'teacher' | 'employee',
+    @Query('type') type: 'teacher' | 'employee' | 'all',
   ) {
     return await this.hrService.getLeaveSheet(month, type);
   }
@@ -146,25 +272,27 @@ export class HrController {
     return await this.hrService.upsertLeave(payload);
   }
 
-  @Get('employee-attendance')
-  async getEmployeeAttendance(@Query('date') date: string) {
-    return await this.hrService.getEmployeeAttendance(new Date(date));
+  @Get('staff-attendance')
+  async getStaffAttendance(@Query('date') date: string) {
+    return await this.hrService.getStaffAttendance(new Date(date));
   }
 
   @UseGuards(JwtAccGuard)
-  @Post('employee-attendance')
-  async markEmployeeAttendance(
+  @Post('staff-attendance')
+  async markStaffAttendance(
     @Req() req: { user: { id: string } },
     @Body()
     payload: {
-      employeeId: number;
+      staffId?: number;
+      employeeId?: number; // legacy
+      teacherId?: number; // legacy
       date: string;
       status: string;
       notes?: string;
     },
   ) {
     const adminId = req.user?.id ? Number(req.user.id) : null;
-    return await this.hrService.markEmployeeAttendance({
+    return await this.hrService.markStaffAttendance({
       ...payload,
       markedBy: adminId,
     });
@@ -196,7 +324,7 @@ export class HrController {
   @Get('advance-salary')
   async getAdvanceSalaries(
     @Query('month') month?: string,
-    @Query('type') type?: 'teacher' | 'employee',
+    @Query('type') type?: 'teacher' | 'employee' | 'all',
   ) {
     return await this.hrService.getAdvanceSalaries(month, type);
   }

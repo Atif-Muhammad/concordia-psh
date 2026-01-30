@@ -963,7 +963,7 @@ const Academics = () => {
                       <PlusCircle className="w-4 h-4 mr-2" /> Add Program
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-2xl">
+                  <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>{editing ? "Edit" : "Add"} Program</DialogTitle>
                     </DialogHeader>
@@ -1570,7 +1570,7 @@ const Academics = () => {
                             onValueChange={(v) => setSectionForm({ ...sectionForm, sectionLetter: v })}
                           >
                             <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
+                            <SelectContent className="max-h-[200px] overflow-y-auto">
                               {["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"].map((letter) => (
                                 <SelectItem key={letter} value={letter}>{letter}</SelectItem>
                               ))}

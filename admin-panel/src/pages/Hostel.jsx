@@ -46,6 +46,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
 
 const Hostel = () => {
   const {
@@ -99,9 +100,14 @@ const Hostel = () => {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [registrationType, setRegistrationType] = useState("internal"); // "internal" or "external"
 
   const [regFormData, setRegFormData] = useState({
     studentId: "",
+    externalName: "",
+    externalInstitute: "",
+    externalGuardianName: "",
+    externalGuardianNumber: "",
     registrationDate: new Date().toISOString().split("T")[0],
     roomId: ""
   });
@@ -152,10 +158,12 @@ const Hostel = () => {
   }, [studentSearch]);
 
   const filteredRegistrations = hostelRegistrations.filter(reg => {
-    if (!reg.student) return false;
-    const studentName = `${reg.student.fName} ${reg.student.lName || ''}`.toLowerCase();
-    const rollNumber = reg.student.rollNumber?.toLowerCase() || '';
-    const programName = reg.student.program?.name || '';
+    const studentName = reg.student
+      ? `${reg.student.fName} ${reg.student.lName || ''}`.toLowerCase()
+      : (reg.externalName || '').toLowerCase();
+    const rollNumber = reg.student?.rollNumber?.toLowerCase() || 'external';
+    const programName = reg.student?.program?.name || reg.externalInstitute || '';
+
     const matchesProgram = filterProgram === "all" || programName === filterProgram;
     const matchesSearch = studentName.includes(searchQuery.toLowerCase()) || rollNumber.includes(searchQuery.toLowerCase());
     return matchesProgram && matchesSearch;
@@ -177,13 +185,24 @@ const Hostel = () => {
   const clearStudentSelection = () => {
     setSelectedStudent(null);
     setStudentSearch("");
-    setRegFormData({ ...regFormData, studentId: "" });
+    setRegFormData({
+      ...regFormData,
+      studentId: "",
+      externalName: "",
+      externalInstitute: "",
+      externalGuardianName: "",
+      externalGuardianNumber: ""
+    });
     setSearchResults([]);
   };
 
   const handleAddRegistration = async () => {
-    if (!regFormData.studentId) {
+    if (registrationType === "internal" && !regFormData.studentId) {
       toast({ title: "Please select a student", variant: "destructive" });
+      return;
+    }
+    if (registrationType === "external" && !regFormData.externalName) {
+      toast({ title: "Please enter student name", variant: "destructive" });
       return;
     }
     if (!regFormData.roomId) {
@@ -194,35 +213,50 @@ const Hostel = () => {
     try {
       if (editMode.reg) {
         // Update registration details
-        await updateHostelRegistration(editMode.reg, {
+        const updateData = {
           registrationDate: regFormData.registrationDate,
-          studentId: Number(regFormData.studentId)
-        });
+          studentId: registrationType === "internal" ? Number(regFormData.studentId) : null,
+          externalName: registrationType === "external" ? regFormData.externalName : null,
+          externalInstitute: registrationType === "external" ? regFormData.externalInstitute : null,
+          externalGuardianName: registrationType === "external" ? regFormData.externalGuardianName : null,
+          externalGuardianNumber: registrationType === "external" ? regFormData.externalGuardianNumber : null,
+        };
+
+        await updateHostelRegistration(editMode.reg, updateData);
 
         // Handle Room Change Logic
+        const studentId = registrationType === "internal" ? Number(regFormData.studentId) : null;
+        const externalName = registrationType === "external" ? regFormData.externalName : null;
+
         const currentRoom = rooms.find(r =>
-          r.allocations?.some(alloc => alloc.studentId === Number(regFormData.studentId))
+          r.allocations?.some(alloc =>
+            studentId ? alloc.studentId === studentId : alloc.externalName === externalName
+          )
         );
 
         // If room has changed or wasn't assigned
-        if (currentRoom && currentRoom.id !== Number(regFormData.roomId)) {
+        if (currentRoom && currentRoom.id !== regFormData.roomId) {
           // 1. Deallocate from old room
-          const oldAllocation = currentRoom.allocations.find(alloc => alloc.studentId === Number(regFormData.studentId));
+          const oldAllocation = currentRoom.allocations.find(alloc =>
+            studentId ? alloc.studentId === studentId : alloc.externalName === externalName
+          );
           if (oldAllocation) {
             await deallocateStudent(oldAllocation.id);
           }
 
           // 2. Allocate to new room
           await allocateRoom({
-            roomId: Number(regFormData.roomId),
-            studentId: Number(regFormData.studentId),
+            roomId: regFormData.roomId,
+            studentId: studentId,
+            externalName: externalName,
             allocationDate: regFormData.registrationDate
           });
         } else if (!currentRoom) {
           // If no room was assigned previously, just allocate
           await allocateRoom({
-            roomId: Number(regFormData.roomId),
-            studentId: Number(regFormData.studentId),
+            roomId: regFormData.roomId,
+            studentId: studentId,
+            externalName: externalName,
             allocationDate: regFormData.registrationDate
           });
         }
@@ -230,20 +264,36 @@ const Hostel = () => {
         toast({ title: "Registration updated" });
       } else {
         // Create registration
-        await createHostelRegistration({
-          studentId: regFormData.studentId,
+        const registrationData = {
           hostelName: "Main Hostel", // Default value
           registrationDate: regFormData.registrationDate,
           status: "active",
-        });
+        };
 
-        console.log(regFormData)
+        if (registrationType === "internal") {
+          registrationData.studentId = regFormData.studentId;
+        } else {
+          registrationData.externalName = regFormData.externalName;
+          registrationData.externalInstitute = regFormData.externalInstitute;
+          registrationData.externalGuardianName = regFormData.externalGuardianName;
+          registrationData.externalGuardianNumber = regFormData.externalGuardianNumber;
+        }
+
+        await createHostelRegistration(registrationData);
+
         // Allocate room
-        await allocateRoom({
+        const allocationData = {
           roomId: regFormData.roomId,
-          studentId: Number(regFormData.studentId),
           allocationDate: regFormData.registrationDate
-        });
+        };
+
+        if (registrationType === "internal") {
+          allocationData.studentId = Number(regFormData.studentId);
+        } else {
+          allocationData.externalName = regFormData.externalName;
+        }
+
+        await allocateRoom(allocationData);
 
         toast({ title: "Student registered and room allocated" });
       }
@@ -255,7 +305,15 @@ const Hostel = () => {
       setRegOpen(false);
       setEditMode({});
       clearStudentSelection();
-      setRegFormData({ studentId: "", registrationDate: new Date().toISOString().split("T")[0], roomId: "" });
+      setRegFormData({
+        studentId: "",
+        externalName: "",
+        externalInstitute: "",
+        externalGuardianName: "",
+        externalGuardianNumber: "",
+        registrationDate: new Date().toISOString().split("T")[0],
+        roomId: ""
+      });
     } catch (error) {
       toast({ title: "Error", description: error.message || "Failed to save registration", variant: "destructive" });
     }
@@ -273,10 +331,14 @@ const Hostel = () => {
     try {
       if (type === 'reg') {
         const studentRoom = rooms.find(r =>
-          r.allocations?.some(alloc => alloc.studentId === item.studentId)
+          r.allocations?.some(alloc =>
+            item.studentId ? alloc.studentId === item.studentId : alloc.externalName === item.externalName
+          )
         );
         if (studentRoom) {
-          const allocation = studentRoom.allocations.find(alloc => alloc.studentId === item.studentId);
+          const allocation = studentRoom.allocations.find(alloc =>
+            item.studentId ? alloc.studentId === item.studentId : alloc.externalName === item.externalName
+          );
           if (allocation) await deallocateStudent(allocation.id);
         }
         await deleteHostelRegistration(item.id);
@@ -418,9 +480,11 @@ const Hostel = () => {
   };
 
   // Get room for a student
-  const getStudentRoom = (studentId) => {
+  const getStudentRoom = (studentId, externalName) => {
     const room = rooms.find(r =>
-      r.allocations?.some(alloc => alloc.studentId === studentId)
+      r.allocations?.some(alloc =>
+        studentId ? alloc.studentId === studentId : (externalName && alloc.externalName === externalName)
+      )
     );
     return room;
   };
@@ -561,11 +625,15 @@ const Hostel = () => {
                     </TableHeader>
                     <TableBody>
                       {filteredRegistrations.map(reg => {
-                        const studentRoom = getStudentRoom(reg.studentId);
+                        const studentRoom = getStudentRoom(reg.studentId, reg.externalName);
+                        const studentName = reg.student ? `${reg.student.fName} ${reg.student.lName || ''}` : reg.externalName;
+                        const rollNumber = reg.student?.rollNumber || "External";
+                        const program = reg.student?.program?.name || reg.externalInstitute || "N/A";
+
                         return <TableRow key={reg.id}>
-                          <TableCell className="font-medium">{reg.student?.fName} {reg.student?.lName}</TableCell>
-                          <TableCell>{reg.student?.rollNumber}</TableCell>
-                          <TableCell>{reg.student?.program?.name}</TableCell>
+                          <TableCell className="font-medium">{studentName}</TableCell>
+                          <TableCell>{rollNumber}</TableCell>
+                          <TableCell>{program}</TableCell>
                           <TableCell>
                             {studentRoom ? (
                               <span className="text-sm">
@@ -588,11 +656,21 @@ const Hostel = () => {
                             <div className="flex gap-2">
                               <Button size="sm" variant="ghost" onClick={() => {
                                 setEditMode({ reg: reg.id });
+                                setRegistrationType(reg.studentId ? "internal" : "external");
+                                const studentRoom = getStudentRoom(reg.studentId, reg.externalName);
                                 setRegFormData({
-                                  studentId: reg.studentId,
+                                  studentId: reg.studentId || "",
+                                  externalName: reg.externalName || "",
+                                  externalInstitute: reg.externalInstitute || "",
+                                  externalGuardianName: reg.externalGuardianName || "",
+                                  externalGuardianNumber: reg.externalGuardianNumber || "",
                                   registrationDate: reg.registrationDate,
                                   roomId: studentRoom?.id ? String(studentRoom.id) : ""
                                 });
+                                if (reg.student) {
+                                  setStudentSearch(`${reg.student.fName} ${reg.student.lName || ''} (${reg.student.rollNumber})`);
+                                  setSelectedStudent(reg.student);
+                                }
                                 setRegOpen(true);
                               }}>
                                 <Edit className="h-4 w-4" />
@@ -897,65 +975,133 @@ const Hostel = () => {
               <DialogTitle>{editMode.reg ? "Edit" : "Register Student for"} Hostel</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              {/* Student Search */}
-              <div className="relative">
-                <Label>Search Student (by name or roll number)</Label>
+              <div className="flex bg-muted p-1 rounded-lg">
+                <button
+                  className={cn(
+                    "flex-1 py-1.5 text-sm font-medium rounded-md transition-all",
+                    registrationType === "internal" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                  )}
+                  onClick={() => {
+                    setRegistrationType("internal");
+                    clearStudentSelection();
+                  }}
+                >
+                  Internal Student
+                </button>
+                <button
+                  className={cn(
+                    "flex-1 py-1.5 text-sm font-medium rounded-md transition-all",
+                    registrationType === "external" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                  )}
+                  onClick={() => {
+                    setRegistrationType("external");
+                    clearStudentSelection();
+                  }}
+                >
+                  External Student
+                </button>
+              </div>
+
+              {registrationType === "internal" ? (
+                /* Student Search (Internal) */
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Type to search..."
-                    value={studentSearch}
-                    onChange={e => {
-                      setStudentSearch(e.target.value);
-                      setShowStudentDropdown(true);
-                    }}
-                    onFocus={() => setShowStudentDropdown(true)}
-                    className="pl-9 pr-9"
-                  />
-                  {studentSearch && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
-                      onClick={clearStudentSelection}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                  <Label>Search Student (by name or roll number)</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Type to search..."
+                      value={studentSearch}
+                      onChange={e => {
+                        setStudentSearch(e.target.value);
+                        setShowStudentDropdown(true);
+                      }}
+                      onFocus={() => setShowStudentDropdown(true)}
+                      className="pl-9 pr-9"
+                    />
+                    {studentSearch && (
+                      <button
+                        size="sm"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0 flex items-center justify-center text-muted-foreground hover:text-foreground"
+                        onClick={clearStudentSelection}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Student Dropdown */}
+                  {showStudentDropdown && searchResults.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-60 overflow-auto">
+                      {searchLoading && (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">Searching...</div>
+                      )}
+                      {!searchLoading && searchResults.map(student => {
+                        const isRegistered = hostelRegistrations.some(reg => reg.studentId === student.id);
+                        return (
+                          <div
+                            key={student.id}
+                            className={`px-3 py-2 border-b last:border-b-0 ${isRegistered ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent cursor-pointer'}`}
+                            onClick={() => !isRegistered && handleStudentSelect(student)}
+                          >
+                            <div className="font-medium flex justify-between">
+                              <span>{student.fName} {student.lName}</span>
+                              {isRegistered && <span className="text-xs text-red-500 font-normal">Already Registered</span>}
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              Roll: {student.rollNumber} • {student.program?.name}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {showStudentDropdown && !searchLoading && studentSearch.length >= 2 && searchResults.length === 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md px-3 py-2 text-sm text-muted-foreground">
+                      No students found
+                    </div>
                   )}
                 </div>
-
-                {/* Student Dropdown */}
-                {showStudentDropdown && searchResults.length > 0 && (
-                  <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-60 overflow-auto">
-                    {searchLoading && (
-                      <div className="px-3 py-2 text-sm text-muted-foreground">Searching...</div>
-                    )}
-                    {!searchLoading && searchResults.map(student => {
-                      const isRegistered = hostelRegistrations.some(reg => reg.studentId === student.id);
-                      return (
-                        <div
-                          key={student.id}
-                          className={`px-3 py-2 border-b last:border-b-0 ${isRegistered ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent cursor-pointer'}`}
-                          onClick={() => !isRegistered && handleStudentSelect(student)}
-                        >
-                          <div className="font-medium flex justify-between">
-                            <span>{student.fName} {student.lName}</span>
-                            {isRegistered && <span className="text-xs text-red-500 font-normal">Already Registered</span>}
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            Roll: {student.rollNumber} • {student.program?.name}
-                          </div>
-                        </div>
-                      );
-                    })}
+              ) : (
+                /* External Student Fields */
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Full Name</Label>
+                      <Input
+                        placeholder="Student Name"
+                        value={regFormData.externalName}
+                        onChange={e => setRegFormData({ ...regFormData, externalName: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Institute/Organization</Label>
+                      <Input
+                        placeholder="Institute Name"
+                        value={regFormData.externalInstitute}
+                        onChange={e => setRegFormData({ ...regFormData, externalInstitute: e.target.value })}
+                      />
+                    </div>
                   </div>
-                )}
-                {showStudentDropdown && !searchLoading && studentSearch.length >= 2 && searchResults.length === 0 && (
-                  <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md px-3 py-2 text-sm text-muted-foreground">
-                    No students found
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Parent/Guardian Name</Label>
+                      <Input
+                        placeholder="Guardian Name"
+                        value={regFormData.externalGuardianName}
+                        onChange={e => setRegFormData({ ...regFormData, externalGuardianName: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Guardian Contact Number</Label>
+                      <Input
+                        placeholder="Contact Number"
+                        value={regFormData.externalGuardianNumber}
+                        onChange={e => setRegFormData({ ...regFormData, externalGuardianNumber: e.target.value })}
+                      />
+                    </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Room Selection */}
               <div>
@@ -989,7 +1135,7 @@ const Hostel = () => {
                 <Input type="date" value={regFormData.registrationDate} onChange={e => setRegFormData({ ...regFormData, registrationDate: e.target.value })} />
               </div>
             </div>
-            <Button onClick={handleAddRegistration} disabled={!selectedStudent && !regFormData.studentId}>
+            <Button onClick={handleAddRegistration} disabled={registrationType === "internal" ? !regFormData.studentId : !regFormData.externalName}>
               {editMode.reg ? "Update" : "Register"}
             </Button>
           </DialogContent>
