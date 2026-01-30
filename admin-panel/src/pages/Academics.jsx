@@ -320,7 +320,6 @@ const Academics = () => {
         level: programForm.level,
         departmentId: Number(programForm.departmentId),
         duration: finalDuration,
-        duration: finalDuration,
         rollPrefix: programForm.rollPrefix || null,
       };
     }
