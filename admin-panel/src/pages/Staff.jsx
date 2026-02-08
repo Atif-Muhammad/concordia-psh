@@ -1074,7 +1074,7 @@ export default function Staff() {
                                                     <SelectTrigger>
                                                         <SelectValue placeholder="Select Department" />
                                                     </SelectTrigger>
-                                                    <SelectContent>
+                                                    <SelectContent className="max-h-60 overflow-y-auto">
                                                         {departments.map((d) => (
                                                             <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
                                                         ))}
@@ -1129,7 +1129,7 @@ export default function Staff() {
                                                     <SelectTrigger>
                                                         <SelectValue placeholder="Select Department" />
                                                     </SelectTrigger>
-                                                    <SelectContent>
+                                                    <SelectContent className="max-h-60 overflow-y-auto">
                                                         {EMP_DEPARTMENTS.map((d) => (
                                                             <SelectItem key={d} value={d}>{d.replace("_", " ")}</SelectItem>
                                                         ))}
