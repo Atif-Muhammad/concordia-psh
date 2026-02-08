@@ -17,7 +17,7 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class HrService {
-  constructor(private prismService: PrismaService) {}
+  constructor(private prismService: PrismaService) { }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // UNIFIED STAFF MANAGEMENT (Teaching + Non-Teaching)
@@ -87,25 +87,41 @@ export class HrService {
       hashedPass = await bcrypt.hash(payload.password, 10);
     }
 
+    // Explicitly parse boolean strings from FormData if necessary
+    const isTeaching =
+      payload.isTeaching === true || payload.isTeaching === ('true' as any);
+    const isNonTeaching =
+      payload.isNonTeaching === true || payload.isNonTeaching === ('true' as any);
+
     // Validate: at least one role must be selected
-    if (!payload.isTeaching && !payload.isNonTeaching) {
+    if (!isTeaching && !isNonTeaching) {
       throw new BadRequestException(
         'Staff must have at least one role (Teaching or Non-Teaching)',
       );
     }
 
+    // Parse JSON strings if necessary
+    const permissions =
+      typeof payload.permissions === 'string'
+        ? JSON.parse(payload.permissions)
+        : payload.permissions;
+    const documents =
+      typeof payload.documents === 'string'
+        ? JSON.parse(payload.documents)
+        : payload.documents;
+
     try {
       return await this.prismService.staff.create({
         data: {
           name: payload.name,
-          fatherName: payload.fatherName,
+          fatherName: payload.fatherName || null,
           email: payload.email || null,
           password: hashedPass,
-          phone: payload.phone,
-          cnic: payload.cnic,
-          address: payload.address,
-          photo_url: payload.photo_url,
-          photo_public_id: payload.photo_public_id,
+          phone: payload.phone || null,
+          cnic: payload.cnic || null,
+          address: payload.address || null,
+          photo_url: payload.photo_url || null,
+          photo_public_id: payload.photo_public_id || null,
           staffType: payload.staffType as unknown as StaffType,
           status: (payload.status as unknown as StaffStatus) || 'ACTIVE',
           basicPay:
@@ -122,36 +138,35 @@ export class HrService {
               : null,
           contractStart:
             payload.contractStart &&
-            !isNaN(new Date(payload.contractStart).getTime())
+              !isNaN(new Date(payload.contractStart).getTime())
               ? new Date(payload.contractStart)
               : null,
           contractEnd:
             payload.contractEnd &&
-            !isNaN(new Date(payload.contractEnd).getTime())
+              !isNaN(new Date(payload.contractEnd).getTime())
               ? new Date(payload.contractEnd)
               : null,
 
           // Role flags
-          isTeaching: payload.isTeaching ?? false,
-          isNonTeaching: payload.isNonTeaching ?? false,
+          isTeaching,
+          isNonTeaching,
 
-          permissions:
-            (payload.permissions as unknown as Prisma.JsonObject) || undefined,
+          permissions: (permissions as unknown as Prisma.JsonObject) || undefined,
 
           // Teaching-specific fields
-          specialization: payload.isTeaching ? payload.specialization : null,
-          highestDegree: payload.isTeaching ? payload.highestDegree : null,
+          specialization: isTeaching ? payload.specialization : null,
+          highestDegree: isTeaching ? payload.highestDegree : null,
           departmentId:
-            payload.departmentId && Number(payload.departmentId) > 0
+            isTeaching && payload.departmentId && Number(payload.departmentId) > 0
               ? Number(payload.departmentId)
-              : undefined,
-          documents: payload.isTeaching
-            ? (payload.documents as unknown as Prisma.JsonObject)
-            : undefined,
+              : null,
+          documents: isTeaching
+            ? (documents as unknown as Prisma.JsonObject)
+            : Prisma.JsonNull,
 
           // Non-teaching specific fields
-          designation: payload.isNonTeaching ? payload.designation : null,
-          empDepartment: payload.isNonTeaching
+          designation: isNonTeaching ? payload.designation : null,
+          empDepartment: isNonTeaching
             ? (payload.empDepartment as unknown as EmployeeDepartment)
             : null,
         },
@@ -172,17 +187,43 @@ export class HrService {
       hashedPass = await bcrypt.hash(payload.password, 10);
     }
 
-    // Validate: at least one role must be selected if changing roles
-    if (
-      payload.isTeaching !== undefined ||
-      payload.isNonTeaching !== undefined
-    ) {
-      if (!payload.isTeaching && !payload.isNonTeaching) {
-        throw new BadRequestException(
-          'Staff must have at least one role (Teaching or Non-Teaching)',
-        );
-      }
+    // Get existing staff to handle role logic
+    const existing = await this.prismService.staff.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Staff not found');
     }
+
+    // Explicitly parse values from payload (which may be strings from FormData)
+    const isTeaching =
+      payload.isTeaching !== undefined
+        ? payload.isTeaching === true || payload.isTeaching === ('true' as any)
+        : existing.isTeaching;
+    const isNonTeaching =
+      payload.isNonTeaching !== undefined
+        ? payload.isNonTeaching === true ||
+        payload.isNonTeaching === ('true' as any)
+        : existing.isNonTeaching;
+
+    // Validate: at least one role must be selected
+    if (!isTeaching && !isNonTeaching) {
+      throw new BadRequestException(
+        'Staff must have at least one role (Teaching or Non-Teaching)',
+      );
+    }
+
+    const permissions =
+      payload.permissions !== undefined
+        ? typeof payload.permissions === 'string'
+          ? JSON.parse(payload.permissions)
+          : payload.permissions
+        : undefined;
+
+    const documents =
+      payload.documents !== undefined
+        ? typeof payload.documents === 'string'
+          ? JSON.parse(payload.documents)
+          : payload.documents
+        : undefined;
 
     try {
       return await this.prismService.staff.update({
@@ -200,54 +241,69 @@ export class HrService {
           staffType: payload.staffType as unknown as StaffType,
           status: payload.status as unknown as StaffStatus,
           basicPay:
-            payload.basicPay && !isNaN(parseFloat(payload.basicPay))
-              ? parseFloat(payload.basicPay)
+            payload.basicPay !== undefined
+              ? payload.basicPay && !isNaN(parseFloat(payload.basicPay))
+                ? parseFloat(payload.basicPay)
+                : null
               : undefined,
           joinDate:
-            payload.joinDate && !isNaN(new Date(payload.joinDate).getTime())
-              ? new Date(payload.joinDate)
+            payload.joinDate !== undefined
+              ? payload.joinDate && !isNaN(new Date(payload.joinDate).getTime())
+                ? new Date(payload.joinDate)
+                : null
               : undefined,
           leaveDate:
-            payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime())
-              ? new Date(payload.leaveDate)
+            payload.leaveDate !== undefined
+              ? payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime())
+                ? new Date(payload.leaveDate)
+                : null
               : undefined,
           contractStart:
-            payload.contractStart &&
-            !isNaN(new Date(payload.contractStart).getTime())
-              ? new Date(payload.contractStart)
+            payload.contractStart !== undefined
+              ? payload.contractStart &&
+                !isNaN(new Date(payload.contractStart).getTime())
+                ? new Date(payload.contractStart)
+                : null
               : undefined,
           contractEnd:
-            payload.contractEnd &&
-            !isNaN(new Date(payload.contractEnd).getTime())
-              ? new Date(payload.contractEnd)
+            payload.contractEnd !== undefined
+              ? payload.contractEnd &&
+                !isNaN(new Date(payload.contractEnd).getTime())
+                ? new Date(payload.contractEnd)
+                : null
               : undefined,
 
-          // Role flags (only update if provided)
-          ...(payload.isTeaching !== undefined && {
-            isTeaching: payload.isTeaching,
-          }),
-          ...(payload.isNonTeaching !== undefined && {
-            isNonTeaching: payload.isNonTeaching,
-          }),
+          // Role flags
+          isTeaching,
+          isNonTeaching,
 
-          ...(payload.permissions !== undefined && {
-            permissions: payload.permissions as unknown as Prisma.JsonObject,
+          ...(permissions !== undefined && {
+            permissions: permissions as unknown as Prisma.JsonObject,
           }),
 
           // Teaching-specific fields
-          specialization: payload.specialization,
-          highestDegree: payload.highestDegree,
-          departmentId:
-            payload.departmentId && Number(payload.departmentId) > 0
+          specialization: isTeaching ? payload.specialization : null,
+          highestDegree: isTeaching ? payload.highestDegree : null,
+          departmentId: isTeaching
+            ? payload.departmentId && Number(payload.departmentId) > 0
               ? Number(payload.departmentId)
-              : undefined,
-          documents: payload.documents as unknown as Prisma.JsonObject,
+              : payload.departmentId === '' || payload.departmentId === null ? null : undefined
+            : null,
+          documents: isTeaching
+            ? documents !== undefined
+              ? (documents as unknown as Prisma.JsonObject)
+              : undefined // keep current documents if not provided and isTeaching
+            : Prisma.JsonNull,
 
           // Non-teaching specific fields
-          designation: payload.designation,
-          empDepartment: payload.empDepartment as unknown as EmployeeDepartment,
+          designation: isNonTeaching ? payload.designation : null,
+          empDepartment: isNonTeaching
+            ? (payload.empDepartment as unknown as EmployeeDepartment)
+            : null,
         },
       });
+
+
     } catch (error: any) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2002') {
@@ -435,7 +491,7 @@ export class HrService {
         photo_public_id: payload.photo_public_id,
         contractStart:
           payload.contractStart &&
-          !isNaN(new Date(payload.contractStart).getTime())
+            !isNaN(new Date(payload.contractStart).getTime())
             ? new Date(payload.contractStart)
             : null,
         contractEnd:
@@ -475,7 +531,7 @@ export class HrService {
         photo_public_id: payload.photo_public_id,
         contractStart:
           payload.contractStart &&
-          !isNaN(new Date(payload.contractStart).getTime())
+            !isNaN(new Date(payload.contractStart).getTime())
             ? new Date(payload.contractStart)
             : undefined,
         contractEnd:

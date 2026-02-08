@@ -82,11 +82,9 @@ export class StaffDto {
 
   // Role flags
   @IsOptional()
-  @IsBoolean()
   isTeaching?: boolean;
 
   @IsOptional()
-  @IsBoolean()
   isNonTeaching?: boolean;
 
   // Teaching-specific fields

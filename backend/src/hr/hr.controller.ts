@@ -30,7 +30,7 @@ export class HrController {
   constructor(
     private readonly hrService: HrService,
     private readonly cloudinaryService: CloudinaryService,
-  ) {}
+  ) { }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // UNIFIED STAFF MANAGEMENT ENDPOINTS
@@ -86,27 +86,14 @@ export class HrController {
       public_id = uploaded.public_id;
     }
 
-    // Parse boolean strings and JSON strings from form data
-    const parsedPayload = {
+    // photo_url and photo_public_id are handled by the controller since they come from file upload
+    const finalPayload = {
       ...payload,
-      isTeaching:
-        payload.isTeaching === true || payload.isTeaching === ('true' as any),
-      isNonTeaching:
-        payload.isNonTeaching === true ||
-        payload.isNonTeaching === ('true' as any),
-      permissions:
-        typeof payload.permissions === 'string'
-          ? JSON.parse(payload.permissions)
-          : payload.permissions,
-      documents:
-        typeof payload.documents === 'string'
-          ? JSON.parse(payload.documents)
-          : payload.documents,
       photo_url: url || undefined,
       photo_public_id: public_id || undefined,
     };
 
-    return await this.hrService.createStaff(parsedPayload);
+    return await this.hrService.createStaff(finalPayload);
   }
 
   @Patch('staff/:id')
@@ -143,29 +130,8 @@ export class HrController {
       photo_public_id = uploadResult.public_id;
     }
 
-    // Parse boolean strings and JSON strings from form data
+    // photo_url and photo_public_id are handled by the controller since they come from file upload
     const updateData: any = { ...payload };
-    if (payload.isTeaching !== undefined) {
-      updateData.isTeaching =
-        payload.isTeaching === true || payload.isTeaching === ('true' as any);
-    }
-    if (payload.isNonTeaching !== undefined) {
-      updateData.isNonTeaching =
-        payload.isNonTeaching === true ||
-        payload.isNonTeaching === ('true' as any);
-    }
-    if (payload.permissions !== undefined) {
-      updateData.permissions =
-        typeof payload.permissions === 'string'
-          ? JSON.parse(payload.permissions)
-          : payload.permissions;
-    }
-    if (payload.documents !== undefined) {
-      updateData.documents =
-        typeof payload.documents === 'string'
-          ? JSON.parse(payload.documents)
-          : payload.documents;
-    }
     if (photo_url && photo_public_id) {
       updateData.photo_url = photo_url;
       updateData.photo_public_id = photo_public_id;

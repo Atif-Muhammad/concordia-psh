@@ -345,8 +345,13 @@ export default function Staff() {
                 // Skip these, handled separately or as permissions
             } else if (key === "password" && !formData[key]) {
                 // Skip empty password on edit
+            } else if (key === "departmentId") {
+                submitData.append(key, formData[key] === "" ? "" : formData[key]); // Backend handles empty string as null
             } else {
-                submitData.append(key, formData[key]);
+                const value = formData[key];
+                if (value !== "" || key === "name") { // name is required, others can be skipped if empty and not explicitly handled
+                    submitData.append(key, value);
+                }
             }
         });
 
