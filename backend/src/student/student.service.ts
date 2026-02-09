@@ -12,7 +12,7 @@ export class StudentService {
   constructor(
     private prismaService: PrismaService,
     private feeManagementService: FeeManagementService,
-  ) {}
+  ) { }
 
   async findOne(id: number) {
     return await this.prismaService.student.findFirst({
@@ -209,7 +209,10 @@ export class StudentService {
         dob: new Date(payload.dob),
         classId: Number(payload.classId),
         programId: Number(payload.programId),
-        sectionId: Number(payload.sectionId),
+        sectionId:
+          payload.sectionId && payload.sectionId !== ""
+            ? Number(payload.sectionId)
+            : null,
         inquiryId: payload.inquiryId ? Number(payload.inquiryId) : null,
         status: (payload.status as any) || 'ACTIVE',
         statusDate: new Date(),
@@ -292,8 +295,8 @@ export class StudentService {
             });
             throw new BadRequestException(
               `Cannot promote student. Outstanding fees for current class (${currentClass?.name || 'Unknown Class'}). ` +
-                `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
-                `Amount: ${totalPaid}/${targetAmount}`,
+              `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
+              `Amount: ${totalPaid}/${targetAmount}`,
             );
           }
         }
@@ -366,7 +369,7 @@ export class StudentService {
       if (typeof payload.installments === 'string') {
         try {
           installmentsData = JSON.parse(payload.installments);
-        } catch (e) {}
+        } catch (e) { }
       } else if (Array.isArray(payload.installments)) {
         installmentsData = payload.installments;
       }
@@ -550,9 +553,9 @@ export class StudentService {
                   status: c.status,
                   balance: Math.round(
                     (c.amount || 0) +
-                      (c.fineAmount || 0) -
-                      (c.discount || 0) -
-                      (c.paidAmount || 0),
+                    (c.fineAmount || 0) -
+                    (c.discount || 0) -
+                    (c.paidAmount || 0),
                   ),
                   dueDate: c.dueDate,
                 }))

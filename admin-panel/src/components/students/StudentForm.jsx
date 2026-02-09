@@ -193,24 +193,58 @@ const StudentForm = ({
         }
     };
 
+    const redistributeInstallments = (total, installments, targetCount = null) => {
+        const totalAmount = Number(total) || 0;
+        let currentInstallments = [...installments];
+
+        // If targetCount is provided, adjust the array size
+        if (targetCount !== null) {
+            const count = parseInt(targetCount) || 1;
+            if (currentInstallments.length < count) {
+                // Add new empty installments
+                const toAdd = count - currentInstallments.length;
+                for (let i = 0; i < toAdd; i++) {
+                    currentInstallments.push({ installmentNumber: currentInstallments.length + 1, amount: 0, dueDate: "" });
+                }
+            } else if (currentInstallments.length > count) {
+                // Remove extra installments
+                currentInstallments = currentInstallments.slice(0, count);
+            }
+        }
+
+        if (!currentInstallments.length) return [];
+
+        const finalCount = currentInstallments.length;
+        const baseAmount = Math.floor(totalAmount / finalCount);
+        const remainder = totalAmount - (baseAmount * finalCount);
+
+        return currentInstallments.map((inst, index) => ({
+            ...inst,
+            installmentNumber: index + 1,
+            amount: index === finalCount - 1 ? baseAmount + remainder : baseAmount
+        }));
+    };
+
     const handleAddInstallment = () => {
         const nextNum = formData.installments.length + 1;
-        const totalAmount = Number(formData.tuitionFee) || 0;
-        const installmentAmount = Math.floor(totalAmount / (formData.installments.length + 1));
+        const newInstallments = [
+            ...formData.installments,
+            { installmentNumber: nextNum, amount: 0, dueDate: "" }
+        ];
 
         setFormData(prev => ({
             ...prev,
-            installments: [
-                ...prev.installments,
-                { installmentNumber: nextNum, amount: installmentAmount, dueDate: "" }
-            ]
+            numberOfInstallments: newInstallments.length.toString(),
+            installments: redistributeInstallments(prev.tuitionFee, newInstallments)
         }));
     };
 
     const handleRemoveInstallment = (index) => {
+        const newInstallments = formData.installments.filter((_, i) => i !== index);
         setFormData(prev => ({
             ...prev,
-            installments: prev.installments.filter((_, i) => i !== index)
+            numberOfInstallments: newInstallments.length.toString(),
+            installments: redistributeInstallments(prev.tuitionFee, newInstallments)
         }));
     };
 
@@ -424,17 +458,26 @@ const StudentForm = ({
                                 value={formData.classId.toString()}
                                 onValueChange={(v) => {
                                     const prog = programs.find(p => p.id.toString() === formData.programId.toString());
-                                    // Find class within program.classes because it contains feeStructures
                                     const clsWithFee = prog?.classes?.find(c => c.id.toString() === v);
                                     const fee = clsWithFee?.feeStructures?.[0];
+                                    const stdFeeAmount = fee?.totalAmount?.toString() || "";
+                                    const stdInstallmentsCount = fee?.installments || 1;
 
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        classId: v,
-                                        sectionId: "",
-                                        tuitionFee: !isEditing ? (fee?.totalAmount?.toString() || "") : prev.tuitionFee,
-                                        numberOfInstallments: !isEditing ? (fee?.installments?.toString() || "1") : prev.numberOfInstallments
-                                    }));
+                                    setFormData(prev => {
+                                        const newTuitionFee = !isEditing ? stdFeeAmount : prev.tuitionFee;
+                                        const newNumInst = !isEditing ? stdInstallmentsCount.toString() : prev.numberOfInstallments;
+
+                                        return {
+                                            ...prev,
+                                            classId: v,
+                                            sectionId: "",
+                                            tuitionFee: newTuitionFee,
+                                            numberOfInstallments: newNumInst,
+                                            installments: !isEditing
+                                                ? redistributeInstallments(newTuitionFee, [], stdInstallmentsCount)
+                                                : prev.installments
+                                        };
+                                    });
                                 }}
                                 disabled={!formData.programId}
                             >
@@ -449,14 +492,15 @@ const StudentForm = ({
                             </Select>
                         </div>
                         <div>
-                            <Label>Section {hasSections ? "*" : ""}</Label>
+                            <Label>Section (Optional)</Label>
                             <Select
-                                value={formData.sectionId.toString()}
-                                onValueChange={(v) => setFormData({ ...formData, sectionId: v })}
+                                value={formData.sectionId?.toString() || ""}
+                                onValueChange={(v) => setFormData({ ...formData, sectionId: v === "none" ? "" : v })}
                                 disabled={!formData.classId || !hasSections}
                             >
                                 <SelectTrigger><SelectValue placeholder="Select Section" /></SelectTrigger>
                                 <SelectContent>
+                                    <SelectItem value="none">No Section</SelectItem>
                                     {availableSections.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
                                 </SelectContent>
                             </Select>
@@ -520,7 +564,26 @@ const StudentForm = ({
                                 type="number"
                                 className="pl-8 font-bold text-primary"
                                 value={formData.tuitionFee}
-                                onChange={e => setFormData({ ...formData, tuitionFee: e.target.value })}
+                                onChange={e => {
+                                    const standardFee = selectedClass?.feeStructures?.[0]?.totalAmount || 0;
+                                    let val = e.target.value;
+
+                                    // Restrict agreed amount to be <= standard tution fee
+                                    if (standardFee > 0 && Number(val) > standardFee) {
+                                        val = standardFee.toString();
+                                        toast({
+                                            title: "Fee Restricted",
+                                            description: `Agreed fee cannot exceed the standard fee of Rs. ${standardFee}`,
+                                            variant: "default"
+                                        });
+                                    }
+
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        tuitionFee: val,
+                                        installments: redistributeInstallments(val, prev.installments)
+                                    }));
+                                }}
                             />
                             <span className="absolute left-3 top-2.5 text-muted-foreground text-sm font-medium">Rs.</span>
                         </div>
