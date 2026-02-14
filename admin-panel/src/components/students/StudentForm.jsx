@@ -204,7 +204,14 @@ const StudentForm = ({
                 // Add new empty installments
                 const toAdd = count - currentInstallments.length;
                 for (let i = 0; i < toAdd; i++) {
-                    currentInstallments.push({ installmentNumber: currentInstallments.length + 1, amount: 0, dueDate: "" });
+                    const nextDate = new Date();
+                    nextDate.setMonth(nextDate.getMonth() + currentInstallments.length);
+
+                    currentInstallments.push({
+                        installmentNumber: currentInstallments.length + 1,
+                        amount: 0,
+                        dueDate: nextDate.toISOString().split('T')[0]
+                    });
                 }
             } else if (currentInstallments.length > count) {
                 // Remove extra installments
@@ -227,9 +234,17 @@ const StudentForm = ({
 
     const handleAddInstallment = () => {
         const nextNum = formData.installments.length + 1;
+
+        const nextDate = new Date();
+        nextDate.setMonth(nextDate.getMonth() + formData.installments.length);
+
         const newInstallments = [
             ...formData.installments,
-            { installmentNumber: nextNum, amount: 0, dueDate: "" }
+            {
+                installmentNumber: nextNum,
+                amount: 0,
+                dueDate: nextDate.toISOString().split('T')[0]
+            }
         ];
 
         setFormData(prev => ({
@@ -268,6 +283,27 @@ const StudentForm = ({
         // Validation
         if (!formData.fName || !formData.rollNumber || !formData.programId || !formData.classId) {
             toast({ title: "Please fill all required fields", variant: "destructive" });
+            return;
+        }
+
+        // Installments validation
+        if (!formData.installments || formData.installments.length === 0) {
+            toast({
+                title: "Validation Error",
+                description: "Please define at least one installment in the fee plan.",
+                variant: "destructive"
+            });
+            return;
+        }
+
+        // Date validation for installments
+        const hasInvalidDates = formData.installments.some(inst => !inst.dueDate || isNaN(new Date(inst.dueDate).getTime()));
+        if (hasInvalidDates) {
+            toast({
+                title: "Validation Error",
+                description: "All installments must have a valid due date.",
+                variant: "destructive"
+            });
             return;
         }
 

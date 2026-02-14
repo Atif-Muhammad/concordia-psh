@@ -222,11 +222,19 @@ export class StudentService {
           : 1,
         lateFeeFine: payload.lateFeeFine ? Number(payload.lateFeeFine) : 0,
         feeInstallments: {
-          create: installmentsData.map((i) => ({
-            installmentNumber: Number(i.installmentNumber),
-            amount: Number(i.amount),
-            dueDate: new Date(i.dueDate),
-          })),
+          create: installmentsData.map((i) => {
+            const dueDate = new Date(i.dueDate);
+            if (isNaN(dueDate.getTime())) {
+              throw new BadRequestException(
+                `Invalid due date provided for installment ${i.installmentNumber}`,
+              );
+            }
+            return {
+              installmentNumber: Number(i.installmentNumber),
+              amount: Number(i.amount),
+              dueDate: dueDate,
+            };
+          }),
         },
       },
     });
@@ -377,11 +385,19 @@ export class StudentService {
       // We replace all installments for simplicity
       data.feeInstallments = {
         deleteMany: {},
-        create: installmentsData.map((i) => ({
-          installmentNumber: Number(i.installmentNumber),
-          amount: Number(i.amount),
-          dueDate: new Date(i.dueDate),
-        })),
+        create: installmentsData.map((i) => {
+          const dueDate = new Date(i.dueDate);
+          if (isNaN(dueDate.getTime())) {
+            throw new BadRequestException(
+              `Invalid due date provided for installment ${i.installmentNumber}`,
+            );
+          }
+          return {
+            installmentNumber: Number(i.installmentNumber),
+            amount: Number(i.amount),
+            dueDate: dueDate,
+          };
+        }),
       };
     }
 
