@@ -1,0 +1,26 @@
+1. fix internel server error for student update.
+2. fix fee management
+	1. challan should not be generated for months/installments as they create un-necessary 
+	cognitive load + shows wrong amount in collectables(as collectable are for amount that 
+	is needed to be paid by student but now all challans shows as collectables. 
+	i.e., collectables = 500000
+	for 3 installments -> maybe paid all at once, maybe in last month of session, 
+	or maybe paid in next session)
+	suggestion:
+		maybe add a functionality to set fee installments settings and later when admin generate 
+		challan(s), create challan according to settings.
+	2. allow challans to be paid partial.
+
+	scenario:
+		set settings for fee installments. a student may not pay the full challan amount at once. 
+		i.e., a student requests to pay 10k from installemnt amuont of 20k.
+		-> allow generating the 10k amount for challan and also:
+			-> for the remaining days to next challan date/month, allow generating challans
+			for the same installment till the amount becomes 0.
+		-> when next month arrive/the next installment month arive -> put the remaining
+		un-paid amount in 'Arears' of the new/next month installment with a marker of 'Arears'
+	3. allow generating challans for random amounts. i.e., fee heads, fines etc
+		
+3. fix payroll 
+	-> allow update payroll with stamp of 'who created and who updated it/them'
+	
