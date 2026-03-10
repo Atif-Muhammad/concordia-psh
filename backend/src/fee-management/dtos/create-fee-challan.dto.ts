@@ -74,4 +74,8 @@ export class CreateFeeChallanDto {
   @IsNumber()
   @IsOptional()
   paidAmount?: number;
+
+  @IsNumber()
+  @IsOptional()
+  customArrearsAmount?: number;
 }

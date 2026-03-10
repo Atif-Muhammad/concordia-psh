@@ -106,6 +106,7 @@ model Class {
   feeStructures FeeStructure[]
   challanSnapshots FeeChallan[] @relation("ChallanStudentClass")
   studentArrears   StudentArrear[]
+  studentFeeInstallments StudentFeeInstallment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -896,6 +897,12 @@ enum ChallanStatus {
   PARTIAL
 }
 
+enum InstallmentStatus {
+  PENDING
+  PARTIAL
+  PAID
+}
+
 enum ChallanType {
   INSTALLMENT      // Regular installment payment
   ARREARS_ONLY     // Only paying previous arrears
@@ -948,6 +955,9 @@ model FeeChallan {
   studentProgram   Program? @relation(name: "ChallanStudentProgram", fields: [studentProgramId], references: [id])
   studentSection   Section? @relation(name: "ChallanStudentSection", fields: [studentSectionId], references: [id])
   
+  studentFeeInstallmentId Int?
+  studentFeeInstallment   StudentFeeInstallment? @relation(fields: [studentFeeInstallmentId], references: [id])
+
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -1212,12 +1222,19 @@ model StudentFeeInstallment {
   id                Int      @id @default(autoincrement())
   studentId         Int
   student           Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classId           Int
+  class             Class    @relation(fields: [classId], references: [id])
   installmentNumber Int
   amount            Int
+  paidAmount        Float    @default(0)
+  status            InstallmentStatus @default(PENDING)
   dueDate           DateTime
   
+  challans          FeeChallan[]
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  @@unique([studentId, installmentNumber])
+  @@unique([studentId, classId, installmentNumber])
+  @@index([studentId, classId])
 }

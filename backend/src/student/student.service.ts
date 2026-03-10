@@ -233,14 +233,12 @@ export class StudentService {
               installmentNumber: Number(i.installmentNumber),
               amount: Number(i.amount),
               dueDate: dueDate,
+              classId: Number(payload.classId),
             };
           }),
         },
       },
     });
-
-    // Sync challans after creation
-    await this.feeManagementService.syncStudentChallans(result.id);
 
     return result;
   }
@@ -350,14 +348,13 @@ export class StudentService {
       data.class = { connect: { id: Number(classId) } };
     }
 
-    if (
-      sectionId !== undefined &&
-      sectionId !== null &&
-      !isNaN(Number(sectionId))
-    ) {
-      data.section = { connect: { id: Number(sectionId) } };
-    } else if (sectionId === null) {
-      data.section = { disconnect: true };
+    if (sectionId !== undefined) {
+      const sId = Number(sectionId);
+      if (sectionId !== null && sectionId !== "" && sId > 0) {
+        data.section = { connect: { id: sId } };
+      } else {
+        data.section = { disconnect: true };
+      }
     }
 
     // Optional: handle photo_url / photo_public_id from controller
@@ -382,32 +379,57 @@ export class StudentService {
         installmentsData = payload.installments;
       }
 
-      // We replace all installments for simplicity
-      data.feeInstallments = {
-        deleteMany: {},
-        create: installmentsData.map((i) => {
-          const dueDate = new Date(i.dueDate);
-          if (isNaN(dueDate.getTime())) {
-            throw new BadRequestException(
-              `Invalid due date provided for installment ${i.installmentNumber}`,
-            );
+      const targetClassId = Number(payload.classId || student.classId);
+
+      // Fetch existing installments for this class
+      const existingInstallments = await this.prismaService.studentFeeInstallment.findMany({
+        where: {
+          studentId: id,
+          classId: targetClassId,
+        },
+      });
+
+      for (const i of installmentsData) {
+        const installmentNumber = Number(i.installmentNumber);
+        const amount = Number(i.amount);
+        const dueDate = new Date(i.dueDate);
+
+        if (isNaN(dueDate.getTime())) {
+          throw new BadRequestException(
+            `Invalid due date provided for installment ${installmentNumber}`,
+          );
+        }
+
+        const existing = existingInstallments.find(ei => ei.installmentNumber === installmentNumber);
+
+        if (existing) {
+          // Check if data changed
+          const existingDate = new Date(existing.dueDate);
+          if (existing.amount !== amount || existingDate.getTime() !== dueDate.getTime()) {
+            await this.prismaService.studentFeeInstallment.update({
+              where: { id: existing.id },
+              data: { amount, dueDate },
+            });
           }
-          return {
-            installmentNumber: Number(i.installmentNumber),
-            amount: Number(i.amount),
-            dueDate: dueDate,
-          };
-        }),
-      };
+        } else {
+          // Create new
+          await this.prismaService.studentFeeInstallment.create({
+            data: {
+              studentId: id,
+              classId: targetClassId,
+              installmentNumber,
+              amount,
+              dueDate,
+            },
+          });
+        }
+      }
     }
 
     const updatedStudent = await this.prismaService.student.update({
       where: { id },
       data,
     });
-
-    // Sync challans after update
-    await this.feeManagementService.syncStudentChallans(id);
 
     return updatedStudent;
   }
@@ -721,6 +743,7 @@ export class StudentService {
         this.prismaService.studentFeeInstallment.createMany({
           data: newInstallments.map((i) => ({
             studentId: id,
+            classId: nextClass.id,
             installmentNumber: i.installmentNumber,
             amount: i.amount,
             dueDate: i.dueDate,
@@ -728,8 +751,6 @@ export class StudentService {
         }),
       ]);
 
-      // D. Sync Challans (strictly scoped to the NEW classId already set)
-      await this.feeManagementService.syncStudentChallans(id);
       console.log(
         `✅ Success: Auto-generated ${installmentCount} fees for Student ${id} in Class ${nextClass.name}`,
       );
@@ -859,17 +880,13 @@ export class StudentService {
       this.prismaService.studentFeeInstallment.createMany({
         data: newInstallments.map((i) => ({
           studentId: id,
+          classId: prevClass.id,
           installmentNumber: i.installmentNumber,
           amount: i.amount,
           dueDate: i.dueDate,
         })),
       }),
     ]);
-
-    // Resync challans for the new (demoted) class state
-    // This will match the new (restored) installments against any PAID receipts from the previous time they were in this class
-    // or create new pending ones if they owe for this class.
-    await this.feeManagementService.syncStudentChallans(id);
 
     return updatedStudent[0];
   }

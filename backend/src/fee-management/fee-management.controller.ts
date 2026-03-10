@@ -18,7 +18,7 @@ import { FeeReportQueryDto } from './dtos/fee-report-query.dto';
 
 @Controller('fee-management')
 export class FeeManagementController {
-  constructor(private readonly feeService: FeeManagementService) {}
+  constructor(private readonly feeService: FeeManagementService) { }
 
   // Fee Heads
   @Post('head/create')
@@ -127,6 +127,16 @@ export class FeeManagementController {
   @Get('student/arrears')
   async getStudentArrears(@Query('studentId') studentId: string) {
     return await this.feeService.getStudentArrears(Number(studentId));
+  }
+
+  @Get('installment-plans')
+  async getInstallmentPlans(@Query() query: any) {
+    return await this.feeService.getInstallmentPlans(query);
+  }
+
+  @Post('challan/generate-from-plan')
+  async generateChallansFromPlan(@Body() payload: any) {
+    return await this.feeService.generateChallansFromPlan(payload);
   }
 
   // Fee Challan Templates

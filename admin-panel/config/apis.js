@@ -1,8 +1,8 @@
 import axios from "axios";
 import { formatLocalDate } from "../src/lib/utils";
 
-// const base_url = "http://localhost:3003/api";
-const base_url = "http://69.62.117.175:3003/api";
+const base_url = "http://localhost:3003/api";
+// const base_url = "http://69.62.117.175:3003/api";
 
 export const userWho = async () => {
   try {
@@ -2216,6 +2216,38 @@ export const getStudentArrears = async (studentId) => {
       error.response?.data?.error ||
       error.message ||
       "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getInstallmentPlans = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params.append(key, value);
+      }
+    });
+
+    const url = `${base_url}/fee-management/installment-plans${params.toString() ? '?' + params.toString() : ''}`;
+    const response = await axios.get(url, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const generateChallansFromPlan = async (data) => {
+  try {
+    const response = await axios.post(`${base_url}/fee-management/challan/generate-from-plan`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }
 };

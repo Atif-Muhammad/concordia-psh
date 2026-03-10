@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect, useRef } from "react";
-import { DollarSign, Plus, CheckCircle2, Edit, Trash2, Receipt, TrendingUp, Layers, Printer, Eye } from "lucide-react";
+import { DollarSign, Plus, CheckCircle2, Edit, Trash2, Receipt, TrendingUp, Layers, Printer, Eye, Calendar as CalendarIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -18,13 +18,16 @@ import {
   createFeeStructure, getFeeStructures, updateFeeStructure, deleteFeeStructure,
   getPrograms, getClasses,
   getFeeChallans, getBulkChallans, updateFeeChallan, getStudentFeeHistory,
-  searchStudents, getRevenueOverTime, getClassCollectionStats, getFeeCollectionSummary, getDefaultFeeChallanTemplate
+  searchStudents, getRevenueOverTime, getClassCollectionStats, getFeeCollectionSummary, getDefaultFeeChallanTemplate,
+  getInstallmentPlans, generateChallansFromPlan
 } from "../../config/apis";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown } from "lucide-react";
+import { format, startOfMonth, endOfMonth, parseISO } from "date-fns";
+import { Calendar } from "@/components/ui/calendar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 const FeeManagement = () => {
 
@@ -66,6 +69,28 @@ const FeeManagement = () => {
   const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
   const [bulkPreviewContent, setBulkPreviewContent] = useState("");
   const [bulkChallansList, setBulkChallansList] = useState([]);
+  const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
+  const [generateForm, setGenerateForm] = useState({
+    month: new Date().toISOString().slice(0, 7),
+    studentId: "",
+    classId: "",
+    sectionId: "",
+    programId: "all"
+  });
+  const [generateResults, setGenerateResults] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateMode, setGenerateMode] = useState("bulk"); // "bulk" or "student"
+  const [genStudentSearch, setGenStudentSearch] = useState("");
+  const [genStudentResults, setGenStudentResults] = useState([]);
+  const [genSelectedStudent, setGenSelectedStudent] = useState(null);
+  const [genStudentPlan, setGenStudentPlan] = useState([]);
+  const [isSearchingGenStudent, setIsSearchingGenStudent] = useState(false);
+  const [genStudentSearchOpen, setGenStudentSearchOpen] = useState(false);
+  const [genCustomAmount, setGenCustomAmount] = useState("");
+  const [genSelectedHeads, setGenSelectedHeads] = useState([]);
+  const [genRemarks, setGenRemarks] = useState("");
+  const [genDueDate, setGenDueDate] = useState("");
+  const [genCustomArrears, setGenCustomArrears] = useState("");
 
 
   const [challanForm, setChallanForm] = useState({
@@ -78,7 +103,8 @@ const FeeManagement = () => {
     installmentNumber: "",
     selectedHeads: [],
     isArrearsPayment: false,
-    arrearsInstallments: 1
+    arrearsInstallments: 1,
+    arrearsAmount: ""
   });
 
   const [feeHeadForm, setFeeHeadForm] = useState({
@@ -117,6 +143,14 @@ const FeeManagement = () => {
     queryKey: ['feeStructures'],
     queryFn: getFeeStructures
   });
+
+  useEffect(() => {
+    if (generateForm.month) {
+      // Set to 10th of that month by default
+      const [year, month] = generateForm.month.split('-').map(Number);
+      setGenDueDate(new Date(year, month - 1, 10));
+    }
+  }, [generateForm.month]);
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -215,16 +249,18 @@ const FeeManagement = () => {
     setChallanForm({
       studentId: "",
       amount: "",
-      dueDate: "",
+      dueDate: null,
       discount: "",
       fineAmount: 0,
       remarks: "",
       installmentNumber: "",
       selectedHeads: [],
       isArrearsPayment: false,
-      arrearsInstallments: 1
+      arrearsInstallments: 1,
+      arrearsAmount: ""
     });
     setEditingChallan(null);
+    setGenStudentPlan([]);
   };
 
   const searchTimeoutRef = useRef(null);
@@ -261,6 +297,23 @@ const FeeManagement = () => {
       resetChallanForm();
     },
     onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
+
+  const generateChallansMutation = useMutation({
+    mutationFn: generateChallansFromPlan,
+    onSuccess: (data) => {
+      setGenerateResults(data);
+      setIsGenerating(false);
+      setGenCustomAmount("");
+      setGenSelectedHeads([]);
+      setGenRemarks("");
+      queryClient.invalidateQueries(['feeChallans']);
+      toast({ title: "Challan generation process completed" });
+    },
+    onError: (error) => {
+      setIsGenerating(false);
+      toast({ title: error.message, variant: "destructive" });
+    }
   });
 
 
@@ -359,12 +412,13 @@ const FeeManagement = () => {
         data: {
           studentId: parseInt(challanForm.studentId),
           amount: tuitionToStore,
-          dueDate: challanForm.dueDate,
+          dueDate: challanForm.dueDate ? format(challanForm.dueDate, "yyyy-MM-dd") : undefined,
           discount: discountToStore,
           fineAmount: additionalToStore,
           remarks: challanForm.remarks,
           installmentNumber: installmentNumber,
-          selectedHeads: allFeeHeadDetails
+          selectedHeads: allFeeHeadDetails,
+          customArrearsAmount: (challanForm.arrearsAmount !== "" && challanForm.arrearsAmount !== undefined) ? parseFloat(challanForm.arrearsAmount) : undefined
         }
       });
     }
@@ -987,6 +1041,17 @@ const FeeManagement = () => {
                   >
                     <Printer className="w-4 h-4" /> Bulk Print
                   </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => {
+                      setGenerateResults(null);
+                      setGenerateDialogOpen(true);
+                    }}
+                    className="h-9 gap-2"
+                  >
+                    <Plus className="w-4 h-4" /> Generate Challans
+                  </Button>
                 </div>
               </div>
             </CardHeader>
@@ -1046,12 +1111,12 @@ const FeeManagement = () => {
                               }}>
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={() => {
+                              {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={async () => {
                                 setEditingChallan(challan);
                                 setChallanForm({
                                   studentId: challan.studentId.toString(),
                                   amount: (challan.amount || 0).toString(),
-                                  dueDate: new Date(challan.dueDate).toISOString().split('T')[0],
+                                  dueDate: new Date(challan.dueDate),
                                   discount: (challan.discount || 0).toString(),
                                   fineAmount: (() => {
                                     try {
@@ -1106,6 +1171,16 @@ const FeeManagement = () => {
                                   })()
                                 });
                                 setChallanOpen(true);
+                                // Fetch installment plan for current class to show arrears in breakdown
+                                try {
+                                  const results = await getInstallmentPlans({
+                                    studentId: challan.studentId,
+                                    classId: challan.studentClassId || (challan.student?.classId)
+                                  });
+                                  setGenStudentPlan(results[0]?.feeInstallments || []);
+                                } catch (error) {
+                                  console.error("Failed to fetch plan on Edit:", error);
+                                }
                               }}>
                                 <Edit className="w-4 h-4" />
                               </Button>}
@@ -1877,123 +1952,237 @@ const FeeManagement = () => {
           resetChallanForm();
         }
       }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Fee Challan</DialogTitle>
+        <DialogContent className="max-w-4xl p-3 md:p-4 max-h-[96vh] flex flex-col overflow-hidden">
+          <DialogHeader className="pb-1 border-b mb-2">
+            <DialogTitle className="text-base font-bold">Edit Fee Challan</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Student</Label>
-              <Input
-                value={editingChallan?.student ? `${editingChallan.student.fName} ${editingChallan.student.lName} (${editingChallan.student.rollNumber})` : ""}
-                disabled
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Installment #</Label>
-              <Input value={challanForm.installmentNumber} disabled />
-            </div>
-            <div className="space-y-2">
-              <Label>Standard Tuition</Label>
-              <Input
-                value={challanForm.amount}
-                disabled
-                className="bg-muted"
-              />
-            </div>
-            <div className="space-y-2 text-destructive">
-              <Label>Persisted Scholarship</Label>
-              <Input
-                value={challanForm.discount}
-                disabled
-                className="bg-muted text-destructive"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Due Date</Label>
-              <Input
-                type="date"
-                value={challanForm.dueDate}
-                onChange={(e) => setChallanForm({ ...challanForm, dueDate: e.target.value })}
-              />
-            </div>
-            <div className="col-span-2 space-y-4">
-              <Label>Select Additional Fee Heads (Charges/Discounts)</Label>
-              <div className="grid grid-cols-2 gap-2 border rounded-md p-4 max-h-[200px] overflow-y-auto">
-                {feeHeads.filter(h => !h.isTuition).map(head => (
-                  <div key={head.id} className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id={`head-${head.id}`}
-                      checked={(challanForm.selectedHeads || []).some(id => Number(id) === Number(head.id))}
-                      onChange={(e) => {
-                        const headId = Number(head.id);
-                        const selected = [...(challanForm.selectedHeads || [])].map(id => Number(id));
 
-                        if (e.target.checked) {
-                          if (!selected.includes(headId)) selected.push(headId);
-                        } else {
-                          const index = selected.indexOf(headId);
-                          if (index > -1) selected.splice(index, 1);
-                        }
-                        // Calculate separate sums for charges and discounts
-                        const additionalSum = feeHeads
-                          .filter(h => selected.includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
-                          .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+          <div className="space-y-2 py-0 overflow-y-auto overflow-x-hidden pr-1 flex-1 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+            <div className="grid grid-cols-2 gap-2 border rounded-lg p-2 bg-muted/15">
+              <div className="space-y-1">
+                <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Student</Label>
+                <Input
+                  value={editingChallan?.student ? `${editingChallan.student.fName} ${editingChallan.student.lName} (${editingChallan.student.rollNumber})` : ""}
+                  disabled
+                  className="bg-muted/50 h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Installment Details</Label>
+                <Input
+                  value={challanForm.installmentNumber ? `Installment #${challanForm.installmentNumber}` : "Additional Charges"}
+                  disabled
+                  className="bg-muted/50 h-8 text-sm"
+                />
+              </div>
 
-                        const discountSum = feeHeads
-                          .filter(h => selected.includes(Number(h.id)) && h.isDiscount)
-                          .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
-
-                        // fineAmount = additional charges only
-                        // discount = persisted scholarship + selected discount heads
-                        const baseDiscount = parseFloat(editingChallan?.discount || 0);
-
-                        setChallanForm({
-                          ...challanForm,
-                          selectedHeads: selected,
-                          fineAmount: additionalSum,
-                          discount: (baseDiscount + discountSum).toString()
-                        });
+              <div className="space-y-1">
+                <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Due Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={"outline"}
+                      className={cn(
+                        "w-full h-8 text-xs justify-start text-left font-normal",
+                        !challanForm.dueDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-3 w-3" />
+                      {challanForm.dueDate ? format(challanForm.dueDate, "PPP") : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={challanForm.dueDate}
+                      onSelect={(date) => setChallanForm({ ...challanForm, dueDate: date })}
+                      initialFocus
+                      disabled={(date) => {
+                        if (!editingChallan) return false;
+                        const originalDate = new Date(editingChallan.dueDate);
+                        const start = startOfMonth(originalDate);
+                        const end = endOfMonth(originalDate);
+                        return date < start || date > end;
                       }}
-                      className="h-4 w-4 rounded border-gray-300"
                     />
-                    <Label htmlFor={`head-${head.id}`} className={`text-sm font-normal ${head.isDiscount ? 'text-primary' : ''}`}>
-                      {head.name} (PKR {head.amount}) {head.isDiscount && '(Discount)'}
-                    </Label>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Billing Amount (Tuition)</Label>
+                <div className="relative">
+                  <span className="absolute left-2 top-2 text-[10px] text-muted-foreground font-bold">Rs.</span>
+                  <Input
+                    type="number"
+                    value={challanForm.amount}
+                    onChange={(e) => setChallanForm({ ...challanForm, amount: e.target.value })}
+                    className="pl-8 h-8 text-sm font-semibold text-orange-700"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Previous Arrears</Label>
+                <div className="relative">
+                  <span className="absolute left-2 top-2 text-[10px] text-muted-foreground font-bold">Rs.</span>
+                  <Input
+                    type="number"
+                    value={challanForm.arrearsAmount}
+                    onChange={(e) => setChallanForm({ ...challanForm, arrearsAmount: e.target.value })}
+                    className="pl-8 h-8 text-sm font-semibold text-red-700"
+                  />
+                </div>
+              </div>
+
+              <div className="col-span-2 space-y-1 pt-1.5 border-t text-sm">
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Additional Fee Heads</Label>
+                  <div className="grid grid-cols-2 gap-1 border rounded-md p-1.5 max-h-[85px] overflow-y-auto bg-white/40 shadow-inner scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+                    {feeHeads.filter(h => !h.isTuition).map(head => (
+                      <div key={head.id} className="flex items-center space-x-2 p-1.5 hover:bg-orange-50 rounded transition-colors group">
+                        <input
+                          type="checkbox"
+                          id={`edit-head-${head.id}`}
+                          className="accent-orange-600 h-3.5 w-3.5 rounded"
+                          checked={(challanForm.selectedHeads || []).some(id => Number(id) === Number(head.id))}
+                          onChange={(e) => {
+                            const headId = Number(head.id);
+                            const selected = [...(challanForm.selectedHeads || [])].map(id => Number(id));
+
+                            if (e.target.checked) {
+                              if (!selected.includes(headId)) selected.push(headId);
+                            } else {
+                              const index = selected.indexOf(headId);
+                              if (index > -1) selected.splice(index, 1);
+                            }
+
+                            const additionalSum = feeHeads
+                              .filter(h => selected.includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
+                              .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+
+                            const discountSum = feeHeads
+                              .filter(h => selected.includes(Number(h.id)) && h.isDiscount)
+                              .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+
+                            const baseDiscount = parseFloat(editingChallan?.discount || 0);
+
+                            setChallanForm({
+                              ...challanForm,
+                              selectedHeads: selected,
+                              fineAmount: additionalSum,
+                              discount: (baseDiscount + discountSum).toString()
+                            });
+                          }}
+                        />
+                        <label htmlFor={`edit-head-${head.id}`} className="text-[11px] cursor-pointer flex-1 flex justify-between items-center">
+                          <span className="truncate group-hover:text-orange-700">{head.name}</span>
+                          <span className="text-muted-foreground pl-1 italic">Rs. {head.amount.toLocaleString()}</span>
+                        </label>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Remarks</Label>
+                  <Textarea
+                    placeholder="Optional notes for this challan"
+                    value={challanForm.remarks}
+                    onChange={(e) => setChallanForm({ ...challanForm, remarks: e.target.value })}
+                    className="text-xs min-h-[40px] h-[40px] resize-none py-1 px-2"
+                  />
+                </div>
+
+                <div className="pt-2 border-t bg-orange-50/10 -mx-2 -mb-2 p-2 rounded-b-lg border-orange-100">
+                  {(() => {
+                    const originalDate = editingChallan ? new Date(editingChallan.dueDate) : new Date();
+                    const selYear = originalDate.getFullYear();
+                    const selMonth = originalDate.getMonth() + 1;
+
+                    const targetInst = genStudentPlan.find(inst => {
+                      const d = new Date(inst.dueDate);
+                      return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+                    });
+
+                    // For editing, "paid" should exclude the current challan if possible,
+                    // but usually challans are edited before being paid.
+                    // If PAID, the paidAmount on installment includes this challan.
+                    // This is just a UI preview.
+                    const tuitionTotal = targetInst ? targetInst.amount : (parseFloat(editingChallan?.amount) || 0);
+                    const tuitionPaid = targetInst ? (targetInst.paidAmount || 0) : (parseFloat(editingChallan?.paidAmount) || 0);
+                    const tuitionSelected = parseFloat(challanForm.amount) || 0;
+                    const tuitionPending = Math.max(0, tuitionTotal - tuitionPaid); // This is static based on DB
+
+                    const arrears = (challanForm.arrearsAmount !== "" && challanForm.arrearsAmount !== undefined)
+                      ? (parseFloat(challanForm.arrearsAmount) || 0)
+                      : genStudentPlan.filter(inst => {
+                        const d = new Date(inst.dueDate);
+                        return targetInst ? d < new Date(targetInst.dueDate) : false;
+                      }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0);
+
+                    const selectedHeadIds = (challanForm.selectedHeads || []).map(id => Number(id));
+                    const additionalSum = feeHeads
+                      .filter(h => selectedHeadIds.includes(Number(h.id)) && !h.isDiscount)
+                      .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+
+                    const discountSum = feeHeads
+                      .filter(h => selectedHeadIds.includes(Number(h.id)) && h.isDiscount)
+                      .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+
+                    const grandTotal = tuitionSelected + arrears + additionalSum - discountSum + (editingChallan?.lateFeeFine || 0);
+
+                    return (
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between items-center text-[10px] text-muted-foreground uppercase font-bold px-1 border-b border-orange-200/50 pb-1">
+                          <span>Payment Breakdown (Editing)</span>
+                          <span className="text-orange-700">Detailed View</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] px-1">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Inst. Total:</span>
+                            <span className="font-semibold">Rs. {tuitionTotal.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Already Paid:</span>
+                            <span className="text-success font-semibold">Rs. {tuitionPaid.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between bg-orange-100/30 px-1 rounded">
+                            <span className="text-orange-800 font-bold">New Amount:</span>
+                            <span className="text-orange-800 font-bold">Rs. {tuitionSelected.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between border-t border-orange-200 pt-0.5 mt-0.5">
+                            <span className="text-muted-foreground">Prev. Arrears:</span>
+                            <span className="font-semibold">Rs. {arrears.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between border-t border-orange-200 pt-0.5 mt-0.5">
+                            <span className="text-muted-foreground">Extra Heads:</span>
+                            <span className="font-semibold">Rs. {(additionalSum - discountSum).toLocaleString()}</span>
+                          </div>
+                          {editingChallan?.lateFeeFine > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-destructive font-semibold italic">Late Fee Fine:</span>
+                              <span className="text-destructive font-semibold">Rs. {editingChallan.lateFeeFine.toLocaleString()}</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="pt-1.5 mt-1 border-t border-orange-300 flex justify-between items-center px-1">
+                          <span className="text-[10px] font-black text-orange-800 uppercase">Grand Total Payable</span>
+                          <span className="text-lg font-black text-orange-700">Rs. {grandTotal.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
-            <div className="col-span-2 space-y-2">
-              <Label>Remarks</Label>
-              <Textarea
-                value={challanForm.remarks}
-                onChange={(e) => setChallanForm({ ...challanForm, remarks: e.target.value })}
-                placeholder="Add any specific notes for this challan..."
-              />
-            </div>
           </div>
-          <div className="flex justify-between items-center mt-4 pt-4 border-t">
-            <div className="text-lg font-bold">
-              Total Payable: PKR {formatAmount(
-                parseFloat(challanForm.amount) +
-                (parseFloat(challanForm.fineAmount) || 0) +
-                (editingChallan?.lateFeeFine || 0) -
-                (parseFloat(challanForm.discount) || 0)
-              )}
-              {editingChallan?.lateFeeFine > 0 && (
-                <span className="text-xs text-destructive block mt-1">
-                  (Includes PKR {formatAmount(editingChallan.lateFeeFine)} Late fee fine)
-                </span>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setChallanOpen(false)}>Cancel</Button>
-              <Button onClick={handleSubmitChallan} disabled={updateChallanMutation.isPending}>
-                {updateChallanMutation.isPending ? "Saving..." : "Update Challan"}
-              </Button>
-            </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t">
+            <Button variant="outline" size="sm" onClick={() => setChallanOpen(false)} className="h-8 text-xs">Cancel</Button>
+            <Button size="sm" onClick={handleSubmitChallan} disabled={updateChallanMutation.isPending} className="h-8 text-xs bg-orange-600 hover:bg-orange-700">
+              {updateChallanMutation.isPending ? "Saving..." : "Update Challan"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -2104,6 +2293,489 @@ const FeeManagement = () => {
                 __html: generateChallanHtml(selectedChallanDetails)
               }}
             />
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={generateDialogOpen} onOpenChange={(open) => {
+        setGenerateDialogOpen(open);
+        if (!open) {
+          setGenerateResults(null);
+          setGenStudentSearch("");
+          setGenDueDate(null);
+          setGenRemarks("");
+          setGenSelectedHeads([]);
+        }
+      }}>
+        <DialogContent className="max-w-4xl p-3 md:p-4 max-h-[96vh] flex flex-col overflow-hidden">
+          <DialogHeader className="pb-1 border-b mb-2">
+            <DialogTitle className="text-base font-bold">Generate Monthly Challans</DialogTitle>
+          </DialogHeader>
+
+          {!generateResults ? (
+            <div className="space-y-2 py-0 overflow-y-auto overflow-x-hidden pr-1 flex-1 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+              <div className="flex justify-center mb-1">
+                <Tabs value={generateMode} onValueChange={setGenerateMode} className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 h-8">
+                    <TabsTrigger value="bulk" className="text-xs py-1">Bulk (Class/Section)</TabsTrigger>
+                    <TabsTrigger value="student" className="text-xs py-1">Individual Student</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Select Month</Label>
+                    <Input
+                      type="month"
+                      value={generateForm.month}
+                      onChange={(e) => setGenerateForm({ ...generateForm, month: e.target.value })}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  {generateMode === "bulk" && (
+                    <div className="space-y-2">
+                      <Label>Program (Optional)</Label>
+                      <Select
+                        value={generateForm.programId}
+                        onValueChange={(v) => setGenerateForm({ ...generateForm, programId: v, classId: "", sectionId: "" })}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="All Programs" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Programs</SelectItem>
+                          {programs.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+
+                {generateMode === "bulk" ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Class (Optional)</Label>
+                      <Select
+                        value={generateForm.classId}
+                        onValueChange={(v) => setGenerateForm({ ...generateForm, classId: v, sectionId: "" })}
+                        disabled={!generateForm.programId || generateForm.programId === "all"}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="All Classes" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Classes</SelectItem>
+                          {classes
+                            .filter(c => c.programId === Number(generateForm.programId))
+                            .map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Section (Optional)</Label>
+                      <Select
+                        value={generateForm.sectionId}
+                        onValueChange={(v) => setGenerateForm({ ...generateForm, sectionId: v })}
+                        disabled={!generateForm.classId || generateForm.classId === "all"}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="All Sections" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Sections</SelectItem>
+                          {classes.find(c => c.id === Number(generateForm.classId))?.sections?.map(s => (
+                            <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Search Student</Label>
+                      <Popover open={genStudentSearchOpen} onOpenChange={setGenStudentSearchOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            className="w-full justify-between h-8 text-xs"
+                          >
+                            {genSelectedStudent ? `${genSelectedStudent.fName} ${genSelectedStudent.lName || ""} (${genSelectedStudent.rollNumber})` : "Select Student..."}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-full p-0" align="start">
+                          <Command shouldFilter={false}>
+                            <CommandInput
+                              placeholder="Search by name or ID..."
+                              value={genStudentSearch}
+                              onValueChange={async (val) => {
+                                setGenStudentSearch(val);
+                                if (val.length > 2) {
+                                  setIsSearchingGenStudent(true);
+                                  try {
+                                    const results = await searchStudents(val);
+                                    setGenStudentResults(results);
+                                  } catch (error) {
+                                    console.error(error);
+                                  } finally {
+                                    setIsSearchingGenStudent(false);
+                                  }
+                                }
+                              }}
+                            />
+                            <CommandList>
+                              {isSearchingGenStudent && <CommandEmpty>Searching...</CommandEmpty>}
+                              {!isSearchingGenStudent && genStudentResults.length === 0 && genStudentSearch.length > 2 && (
+                                <CommandEmpty>No student found.</CommandEmpty>
+                              )}
+                              <CommandGroup>
+                                {genStudentResults.map((student) => (
+                                  <CommandItem
+                                    key={student.id}
+                                    value={student.id.toString()}
+                                    onSelect={async () => {
+                                      setGenSelectedStudent(student);
+                                      setGenStudentSearchOpen(false);
+                                      // Fetch installment plan for this student's current class
+                                      try {
+                                        const results = await getInstallmentPlans({
+                                          studentId: student.id,
+                                          classId: student.classId
+                                        });
+                                        const installments = results[0]?.feeInstallments || [];
+                                        setGenStudentPlan(installments);
+                                        const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                                        const targetInst = installments.find(inst => {
+                                          const d = new Date(inst.dueDate);
+                                          return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+                                        });
+                                        if (targetInst) {
+                                          const arrearsAmount = installments.filter(inst => {
+                                            const d = new Date(inst.dueDate);
+                                            return targetInst ? d < new Date(targetInst.dueDate) : false;
+                                          }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0);
+                                          setGenCustomArrears(arrearsAmount.toString());
+                                          setGenCustomAmount((targetInst.amount - (targetInst.paidAmount || 0)).toString());
+                                          setGenDueDate(new Date(targetInst.dueDate));
+                                        } else {
+                                          setGenCustomAmount("");
+                                          setGenCustomArrears("");
+                                          const [y, m] = generateForm.month.split('-').map(Number);
+                                          setGenDueDate(new Date(y, m - 1, 10));
+                                        }
+                                      } catch (error) {
+                                        console.error("Failed to fetch plan:", error);
+                                        toast({
+                                          title: "Error",
+                                          description: "Failed to fetch student's installment plan.",
+                                          variant: "destructive"
+                                        });
+                                      }
+                                    }}
+                                    className="aria-selected:bg-orange-600 aria-selected:text-white cursor-pointer px-3 py-2 flex items-center gap-2"
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "h-4 w-4 shrink-0",
+                                        genSelectedStudent?.id === student.id ? "opacity-100" : "opacity-0"
+                                      )}
+                                    />
+                                    <div className="flex flex-col">
+                                      <span className="font-semibold text-sm leading-tight text-inherit">
+                                        {student.fName} {student.mName || ""} {student.lName || ""}
+                                      </span>
+                                      <span className="text-[11px] opacity-80 leading-tight text-inherit">
+                                        Roll: {student.rollNumber} • {student.class?.name} / {student.section?.name || "No Section"}
+                                      </span>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
+                    {genSelectedStudent && genStudentPlan.length > 0 && (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                        <div className="grid grid-cols-2 gap-2 border rounded-lg p-2 bg-muted/15">
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Student</Label>
+                            <Input
+                              value={`${genSelectedStudent.fName} ${genSelectedStudent.lName || ""} (${genSelectedStudent.rollNumber})`}
+                              disabled
+                              className="bg-muted/50 h-8 text-sm"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Installment Details</Label>
+                            {(() => {
+                              const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                              const targetInst = genStudentPlan.find(inst => {
+                                const d = new Date(inst.dueDate);
+                                return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+                              });
+                              return (
+                                <Input
+                                  value={targetInst ? `Installment #${targetInst.installmentNumber}` : "Ad-hoc Challan"}
+                                  disabled
+                                  className="bg-muted/50 h-8 text-sm"
+                                />
+                              );
+                            })()}
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Due Date</Label>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant={"outline"}
+                                  className={cn(
+                                    "w-full h-8 text-xs justify-start text-left font-normal",
+                                    !genDueDate && "text-muted-foreground"
+                                  )}
+                                >
+                                  <CalendarIcon className="mr-2 h-3 w-3" />
+                                  {genDueDate ? format(genDueDate, "PPP") : <span>Pick a date</span>}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  mode="single"
+                                  selected={genDueDate}
+                                  onSelect={setGenDueDate}
+                                  initialFocus
+                                  disabled={(date) => {
+                                    if (!generateForm.month) return false;
+                                    const [year, month] = generateForm.month.split('-').map(Number);
+                                    const start = startOfMonth(new Date(year, month - 1));
+                                    const end = endOfMonth(new Date(year, month - 1));
+                                    return date < start || date > end;
+                                  }}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Billing Amount (Tuition)</Label>
+                            <div className="relative">
+                              <span className="absolute left-2 top-2 text-[10px] text-muted-foreground font-bold">Rs.</span>
+                              <Input
+                                type="number"
+                                value={genCustomAmount}
+                                onChange={(e) => setGenCustomAmount(e.target.value)}
+                                className="pl-8 h-8 text-sm font-semibold text-orange-700"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Previous Arrears</Label>
+                            <div className="relative">
+                              <span className="absolute left-2 top-2 text-[10px] text-muted-foreground font-bold">Rs.</span>
+                              <Input
+                                type="number"
+                                value={genCustomArrears}
+                                onChange={(e) => setGenCustomArrears(e.target.value)}
+                                className="pl-8 h-8 text-sm font-semibold text-red-700"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="col-span-2 space-y-2 pt-1.5 border-t text-sm">
+                            <div className="flex justify-between items-center text-[11px] px-2 py-1 bg-red-50 text-red-700 rounded border border-red-100 font-semibold tracking-tight">
+                              <div className="flex items-center gap-2">
+                                <TrendingUp className="h-3.5 w-3.5" /> Total Outstanding Arrears:
+                              </div>
+                              <span className="font-bold">
+                                Rs. {(() => {
+                                  const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                                  const targetInst = genStudentPlan.find(inst => {
+                                    const d = new Date(inst.dueDate);
+                                    return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+                                  });
+                                  return genStudentPlan.filter(inst => {
+                                    const d = new Date(inst.dueDate);
+                                    return targetInst ? d < new Date(targetInst.dueDate) : false;
+                                  }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0).toLocaleString();
+                                })()}
+                              </span>
+                            </div>
+
+                            <div className="space-y-1">
+                              <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Additional Fee Heads</Label>
+                              <div className="grid grid-cols-2 gap-1 border rounded-md p-1.5 max-h-[85px] overflow-y-auto bg-white/40 shadow-inner scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+                                {feeHeads.filter(h => !h.isTuition).map(head => (
+                                  <div key={head.id} className="flex items-center space-x-2 p-1.5 hover:bg-orange-50 rounded transition-colors group">
+                                    <input
+                                      type="checkbox"
+                                      id={`gen-head-${head.id}`}
+                                      className="accent-orange-600 h-3.5 w-3.5 rounded"
+                                      checked={genSelectedHeads.includes(head.id)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setGenSelectedHeads([...genSelectedHeads, head.id]);
+                                        } else {
+                                          setGenSelectedHeads(genSelectedHeads.filter(id => id !== head.id));
+                                        }
+                                      }}
+                                    />
+                                    <label htmlFor={`gen-head-${head.id}`} className="text-[11px] cursor-pointer flex-1 flex justify-between items-center">
+                                      <span className="truncate group-hover:text-orange-700">{head.name}</span>
+                                      <span className="text-muted-foreground pl-1 italic">Rs. {head.amount.toLocaleString()}</span>
+                                    </label>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Remarks</Label>
+                              <Textarea
+                                placeholder="Optional notes for this challan"
+                                value={genRemarks}
+                                onChange={(e) => setGenRemarks(e.target.value)}
+                                className="text-xs min-h-[40px] h-[40px] resize-none py-1 px-2"
+                              />
+                            </div>
+
+                            <div className="pt-2 border-t bg-orange-50/10 -mx-2 -mb-2 p-2 rounded-b-lg border-orange-100">
+                              {(() => {
+                                const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                                const targetInst = genStudentPlan.find(inst => {
+                                  const d = new Date(inst.dueDate);
+                                  return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+                                });
+
+                                const tuitionTotal = targetInst ? targetInst.amount : 0;
+                                const tuitionPaid = targetInst ? (targetInst.paidAmount || 0) : 0;
+                                const tuitionSelected = parseFloat(genCustomAmount) || 0;
+                                const tuitionPending = Math.max(0, tuitionTotal - tuitionPaid - tuitionSelected);
+
+                                const arrears = genCustomArrears !== "" ? (parseFloat(genCustomArrears) || 0) : genStudentPlan.filter(inst => {
+                                  const d = new Date(inst.dueDate);
+                                  return targetInst ? d < new Date(targetInst.dueDate) : false;
+                                }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0);
+
+                                const additionalSum = feeHeads
+                                  .filter(h => genSelectedHeads.includes(h.id) && !h.isDiscount)
+                                  .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+
+                                const discountSum = feeHeads
+                                  .filter(h => genSelectedHeads.includes(h.id) && h.isDiscount)
+                                  .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+
+                                const grandTotal = tuitionSelected + arrears + additionalSum - discountSum;
+
+                                return (
+                                  <div className="space-y-1.5">
+                                    <div className="flex justify-between items-center text-[10px] text-muted-foreground uppercase font-bold px-1 border-b border-orange-200/50 pb-1">
+                                      <span>Payment Breakdown</span>
+                                      <span className="text-orange-700">Detailed View</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] px-1">
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Inst. Total:</span>
+                                        <span className="font-semibold">Rs. {tuitionTotal.toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Inst. Paid:</span>
+                                        <span className="text-success font-semibold">Rs. {tuitionPaid.toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between bg-orange-100/30 px-1 rounded">
+                                        <span className="text-orange-800 font-bold">Selected:</span>
+                                        <span className="text-orange-800 font-bold">Rs. {tuitionSelected.toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Remaining:</span>
+                                        <span className="text-destructive font-semibold">Rs. {tuitionPending.toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between border-t border-orange-200 pt-0.5 mt-0.5">
+                                        <span className="text-muted-foreground">Prev. Arrears:</span>
+                                        <span className="font-semibold">Rs. {arrears.toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between border-t border-orange-200 pt-0.5 mt-0.5">
+                                        <span className="text-muted-foreground">Extra Heads:</span>
+                                        <span className="font-semibold">Rs. {(additionalSum - discountSum).toLocaleString()}</span>
+                                      </div>
+                                    </div>
+                                    <div className="pt-1.5 mt-1 border-t border-orange-300 flex justify-between items-center px-1">
+                                      <span className="text-[10px] font-black text-orange-800 uppercase">Grand Total Payable</span>
+                                      <span className="text-lg font-black text-orange-700">Rs. {grandTotal.toLocaleString()}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {genSelectedStudent && genStudentPlan.length === 0 && (
+                      <div className="p-4 text-center border border-dashed rounded-md bg-yellow-50 text-yellow-700 text-sm">
+                        No installment plan found for this student in their current class.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2 border-t bg-muted/10 -mx-3 -mb-3 p-3">
+                <Button variant="outline" onClick={() => {
+                  setGenerateDialogOpen(false);
+                  setGenSelectedStudent(null);
+                  setGenStudentPlan([]);
+                }}>Cancel</Button>
+                <Button
+                  onClick={() => {
+                    setIsGenerating(true);
+                    generateChallansMutation.mutate({
+                      month: generateForm.month,
+                      studentId: generateMode === "student" ? genSelectedStudent?.id : "",
+                      programId: generateMode === "bulk" && generateForm.programId !== "all" ? generateForm.programId : "",
+                      classId: generateMode === "bulk" && generateForm.classId !== "all" ? generateForm.classId : "",
+                      sectionId: generateMode === "bulk" && generateForm.sectionId !== "all" ? generateForm.sectionId : "",
+                      // Custom fields for individual student
+                      customAmount: generateMode === "student" && genCustomAmount ? parseFloat(genCustomAmount) : undefined,
+                      selectedHeads: generateMode === "student" && genSelectedHeads.length > 0 ? genSelectedHeads : undefined,
+                      customArrearsAmount: (generateMode === "student" && genCustomArrears !== "") ? parseFloat(genCustomArrears) : undefined,
+                      remarks: generateMode === "student" ? genRemarks : undefined,
+                      dueDate: generateMode === "student" && genDueDate ? format(genDueDate, "yyyy-MM-dd") : undefined
+                    });
+                  }}
+                  disabled={isGenerating || (generateMode === "student" && (!genSelectedStudent || genStudentPlan.length === 0))}
+                  className="bg-orange-600 hover:bg-orange-700 text-white font-semibold transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isGenerating ? "Generating..." : "Generate Challans"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 py-4">
+              <div className="rounded-lg border p-4 bg-muted/50 max-h-[400px] overflow-y-auto">
+                <h4 className="font-semibold mb-2">Generation Results</h4>
+                <div className="space-y-2">
+                  {generateResults.map((res, i) => (
+                    <div key={i} className="flex items-center justify-between text-sm">
+                      <span>{res.studentName} ({res.studentId})</span>
+                      <Badge variant={res.status === 'CREATED' ? 'default' : 'secondary'}>
+                        {res.status === 'CREATED' ? `Success: ${res.challanNumber}` : res.reason}
+                      </Badge>
+                    </div>
+                  ))}
+                  {generateResults.length === 0 && <p className="text-muted-foreground">No students found for selection.</p>}
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={() => setGenerateDialogOpen(false)}>Close</Button>
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>
