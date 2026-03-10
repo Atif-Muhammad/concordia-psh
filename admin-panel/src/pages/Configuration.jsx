@@ -835,6 +835,7 @@ const Configuration = () => {
     facebook: "",
     instagram: "",
     logo: "",
+    challanPrefix: "",
   });
   const [branchForm, setBranchForm] = useState({
     name: "",
@@ -1084,6 +1085,7 @@ const Configuration = () => {
           facebook: settings.facebook || '',
           instagram: settings.instagram || '',
           logo: settings.logo || '',
+          challanPrefix: settings.challanPrefix || '',
         });
       } catch (error) {
         console.error("Failed to fetch institute settings:", error);
@@ -1380,6 +1382,20 @@ const Configuration = () => {
                       })
                     }
                   />
+                </div>
+                <div>
+                  <Label>Challan Number Prefix</Label>
+                  <Input
+                    placeholder="e.g. CPC, HMS, PSH..."
+                    value={configForm.challanPrefix}
+                    onChange={(e) =>
+                      setConfigForm({
+                        ...configForm,
+                        challanPrefix: e.target.value,
+                      })
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Sets the prefix for generated challan numbers (e.g. CPC-000001)</p>
                 </div>
                 <Button onClick={handleConfigUpdate}>Save Configuration</Button>
               </CardContent>

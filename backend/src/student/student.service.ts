@@ -91,14 +91,27 @@ export class StudentService {
   }
 
   async search(query: string, status?: string) {
+    const trimmed = query.trim();
+    const words = trimmed.split(/\s+/).filter(Boolean);
+
     const where: any = {
       OR: [
-        { fName: { contains: query } },
-        { mName: { contains: query } },
-        { lName: { contains: query } },
-        { rollNumber: { contains: query } },
+        { fName: { contains: trimmed } },
+        { mName: { contains: trimmed } },
+        { lName: { contains: trimmed } },
+        { rollNumber: { contains: trimmed } },
       ],
     };
+
+    // Multi-word: also match fName + lName combination
+    if (words.length >= 2) {
+      where.OR.push({
+        AND: [
+          { fName: { contains: words[0] } },
+          { lName: { contains: words[words.length - 1] } },
+        ],
+      });
+    }
 
     if (status) {
       where.status = status;

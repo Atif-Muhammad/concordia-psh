@@ -55,6 +55,7 @@ const FeeManagement = () => {
   const [selectedChallanDetails, setSelectedChallanDetails] = useState(null);
   const [itemToDelete, setItemToDelete] = useState(null);
   const [itemToPay, setItemToPay] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
   const [editingChallan, setEditingChallan] = useState(null);
   const [editingFeeHead, setEditingFeeHead] = useState(null);
   const [editingStructure, setEditingStructure] = useState(null);
@@ -91,6 +92,14 @@ const FeeManagement = () => {
   const [genRemarks, setGenRemarks] = useState("");
   const [genDueDate, setGenDueDate] = useState("");
   const [genCustomArrears, setGenCustomArrears] = useState("");
+
+  // Extra Challans tab state
+  const [extraStudentSearchOpen, setExtraStudentSearchOpen] = useState(false);
+  const [extraStudentResults, setExtraStudentResults] = useState([]);
+  const [extraSelectedStudent, setExtraSelectedStudent] = useState(null);
+  const [extraSelectedHeads, setExtraSelectedHeads] = useState([]);
+  const [extraDueDate, setExtraDueDate] = useState(null);
+  const [extraRemarks, setExtraRemarks] = useState("");
 
 
   const [challanForm, setChallanForm] = useState({
@@ -478,54 +487,45 @@ const FeeManagement = () => {
 
   const handlePayment = (challan) => {
     setItemToPay(challan);
+    // Default to full net payable
+    const netPayable = (challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.discount || 0) - (challan.paidAmount || 0);
+    setPaymentAmount(Math.max(0, netPayable).toString());
     setPaymentDialogOpen(true);
   };
 
   const confirmPayment = async () => {
     if (!itemToPay) return;
 
-    // Simplified installment tracking: just use what is already on the challan
+    const amount = parseFloat(paymentAmount) || 0;
+    if (amount <= 0) {
+      toast({ title: "Please enter a valid payment amount", variant: "destructive" });
+      return;
+    }
+
+    const netPayable = (itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0) - (itemToPay.discount || 0);
+    const totalPaidAfter = (itemToPay.paidAmount || 0) + amount;
+    const isFullPayment = totalPaidAfter >= netPayable;
+
+    // Simplified installment tracking
     let coveredInstallments = '';
-
     if (itemToPay.installmentNumber > 0) {
-      // For pre-generated challans (#1, #2, etc.), just use that number
       coveredInstallments = `${itemToPay.installmentNumber}`;
-    } else if (itemToPay.feeStructure) {
-      // Fallback logic for ad-hoc or lumped challans only
-      const perInstallment = itemToPay.feeStructure.totalAmount / itemToPay.feeStructure.installments;
-      const tuitionPortion = itemToPay.amount;
-
-      if (tuitionPortion > 0) {
-        const installmentsCovered = Math.round(tuitionPortion / perInstallment);
-        if (installmentsCovered > 0) {
-          try {
-            const summary = await getStudentFeeSummary(itemToPay.studentId);
-            const nextInstallment = (summary?.summary?.paidInstallments || 0) + 1;
-            const lastInstallment = nextInstallment + installmentsCovered - 1;
-            coveredInstallments = installmentsCovered === 1 ?
-              `${nextInstallment}` :
-              `${nextInstallment}-${lastInstallment}`;
-          } catch (error) {
-            console.error('Error fetching fee summary:', error);
-            coveredInstallments = installmentsCovered === 1 ? '1' : `1-${installmentsCovered}`;
-          }
-        }
-      }
     }
 
     updateChallanMutation.mutate({
       id: itemToPay.id,
       data: {
-        status: "PAID",
+        status: isFullPayment ? "PAID" : "PARTIAL",
         paidDate: new Date().toISOString().split("T")[0],
-        paidAmount: itemToPay.amount - itemToPay.discount + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0),
+        paidAmount: totalPaidAfter,
         coveredInstallments
       }
     }, {
       onSuccess: () => {
-        toast({ title: "Payment recorded successfully" });
+        toast({ title: isFullPayment ? "Payment recorded successfully" : "Partial payment recorded" });
         setPaymentDialogOpen(false);
         setItemToPay(null);
+        setPaymentAmount("");
       }
     });
   };
@@ -643,12 +643,25 @@ const FeeManagement = () => {
     };
 
     // Replacements Map
+    const tuitionOnly = (challan.amount || 0) - (challan.arrearsAmount || 0);
     const replacements = {
       // General Info
       '{{INSTITUTE_NAME}}': 'Concordia College Peshawar',
       '{{INSTITUTE_ADDRESS}}': '60-C, Near NCS School, University Town Peshawar',
       '{{INSTITUTE_PHONE}}': '091-5619915 | 0332-8581222',
       '{{CHALLAN_TITLE}}': challan.feeStructure?.title || "Fee Challan",
+
+      // camelCase variants (used by seed template)
+      '{{challanNumber}}': challan.challanNumber,
+      '{{rollNumber}}': student.rollNumber,
+      '{{className}}': studentClass,
+      '{{programName}}': studentProgram,
+      '{{installmentNumber}}': challan.installmentNumber > 0 ? `#${challan.installmentNumber}` : 'Additional',
+      '{{amount}}': tuitionOnly.toLocaleString(),
+      '{{fineAmount}}': fineTotal.toLocaleString(),
+      '{{netPayable}}': netPayable.toLocaleString(),
+      '{{instituteName}}': 'Concordia College Peshawar',
+      '{{instituteAddress}}': '60-C, Near NCS School, University Town Peshawar',
 
       // Case-sensitive exact matches for temps.html
       '{{challanNo}}': challan.challanNumber,
@@ -660,7 +673,7 @@ const FeeManagement = () => {
       '{{class}}': studentClass,
       '{{section}}': '',
       '{{feeHeadsRows}}': feeHeadsRowsHtml,
-      '{{Tuition Fee}}': (challan.amount - (challan.arrearsAmount || 0)).toLocaleString(),
+      '{{Tuition Fee}}': tuitionOnly.toLocaleString(),
       '{{arrears}}': (challan.arrearsAmount || 0).toLocaleString(),
       '{{discount}}': scholarship.toLocaleString(),
       '{{totalPayable}}': netPayable.toLocaleString(),
@@ -923,8 +936,10 @@ const FeeManagement = () => {
       </div>
 
       <Tabs defaultValue="challans" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto gap-1">
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 h-auto gap-1">
           <TabsTrigger value="challans"><Receipt className="w-4 h-4 mr-2" />Challans</TabsTrigger>
+          <TabsTrigger value="extra-challans"><Plus className="w-4 h-4 mr-2" />Extra Challans</TabsTrigger>
+          <TabsTrigger value="student-history"><Eye className="w-4 h-4 mr-2" />Student History</TabsTrigger>
           <TabsTrigger value="feeheads"><Layers className="w-4 h-4 mr-2" />Fee Heads</TabsTrigger>
           <TabsTrigger value="structures"><TrendingUp className="w-4 h-4 mr-2" />Fee Structures</TabsTrigger>
           <TabsTrigger value="reports"><DollarSign className="w-4 h-4 mr-2" />Reports</TabsTrigger>
@@ -991,6 +1006,7 @@ const FeeManagement = () => {
                     <SelectContent>
                       <SelectItem value="all">All Status</SelectItem>
                       <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="partial">Partial</SelectItem>
                       <SelectItem value="paid">Paid</SelectItem>
                       <SelectItem value="overdue">Overdue</SelectItem>
                     </SelectContent>
@@ -1004,7 +1020,7 @@ const FeeManagement = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Installments</SelectItem>
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(num => (
+                      {Array.from({ length: Math.max(...feeStructures.map(s => s.installments || 0), 12) }, (_, i) => i + 1).map(num => (
                         <SelectItem key={num} value={num.toString()}>Installment # {num}</SelectItem>
                       ))}
                     </SelectContent>
@@ -1099,7 +1115,7 @@ const FeeManagement = () => {
                             )}
                           </TableCell>
                           <TableCell>
-                            <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : "secondary"}>
+                            <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "warning" : "secondary"}>
                               {challan.status}
                             </Badge>
                           </TableCell>
@@ -1224,6 +1240,165 @@ const FeeManagement = () => {
                     Next
                   </Button>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="extra-challans" className="space-y-6">
+          <Card className="shadow-soft">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Extra / Fee-Head-Only Challans</CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">Generate challans for specific fee heads (exam fee, registration, lab, etc.) not tied to installments.</p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase text-muted-foreground">Search Student</Label>
+                    <Popover open={extraStudentSearchOpen} onOpenChange={setExtraStudentSearchOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" role="combobox" className="w-full justify-between h-9 text-sm">
+                          {extraSelectedStudent ? `${extraSelectedStudent.fName} ${extraSelectedStudent.lName || ''} (${extraSelectedStudent.rollNumber})` : "Select Student..."}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-full p-0" align="start">
+                        <Command shouldFilter={false}>
+                          <CommandInput placeholder="Search by name or roll..." onValueChange={v => handleStudentSearch(v, setExtraStudentResults)} />
+                          <CommandList>
+                            <CommandEmpty>No student found.</CommandEmpty>
+                            <CommandGroup>
+                              {extraStudentResults.map(student => (
+                                <CommandItem
+                                  key={student.id}
+                                  value={student.id.toString()}
+                                  onSelect={() => {
+                                    setExtraSelectedStudent(student);
+                                    setExtraStudentSearchOpen(false);
+                                  }}
+                                >
+                                  <Check className={cn("mr-2 h-4 w-4", extraSelectedStudent?.id === student.id ? "opacity-100" : "opacity-0")} />
+                                  {student.rollNumber} ({student.fName} {student.mName || ''} {student.lName || ''})
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase text-muted-foreground">Due Date</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className={cn("w-full h-9 text-sm justify-start text-left font-normal", !extraDueDate && "text-muted-foreground")}>
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {extraDueDate ? format(extraDueDate, "PPP") : "Pick a date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar mode="single" selected={extraDueDate} onSelect={setExtraDueDate} initialFocus />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+
+                {extraSelectedStudent && (
+                  <div className="space-y-3 border rounded-lg p-4 bg-muted/10">
+                    <div>
+                      <Label className="text-xs font-semibold uppercase text-muted-foreground">Select Fee Heads</Label>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                        {feeHeads.filter(h => !h.isTuition).map(head => (
+                          <div key={head.id} className="flex items-center space-x-2 p-2 border rounded hover:bg-orange-50 transition-colors">
+                            <input
+                              type="checkbox"
+                              id={`extra-head-${head.id}`}
+                              className="accent-orange-600 h-4 w-4"
+                              checked={extraSelectedHeads.includes(head.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setExtraSelectedHeads([...extraSelectedHeads, head.id]);
+                                } else {
+                                  setExtraSelectedHeads(extraSelectedHeads.filter(id => id !== head.id));
+                                }
+                              }}
+                            />
+                            <label htmlFor={`extra-head-${head.id}`} className="text-sm cursor-pointer flex-1 flex justify-between">
+                              <span>{head.name}</span>
+                              <span className="text-muted-foreground italic">PKR {head.amount.toLocaleString()}</span>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold uppercase text-muted-foreground">Remarks</Label>
+                      <Textarea value={extraRemarks} onChange={e => setExtraRemarks(e.target.value)} placeholder="Optional notes..." className="text-sm min-h-[60px]" />
+                    </div>
+
+                    {extraSelectedHeads.length > 0 && (() => {
+                      const charges = feeHeads.filter(h => extraSelectedHeads.includes(h.id) && !h.isDiscount).reduce((s, h) => s + h.amount, 0);
+                      const discounts = feeHeads.filter(h => extraSelectedHeads.includes(h.id) && h.isDiscount).reduce((s, h) => s + h.amount, 0);
+                      return (
+                        <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
+                          <div className="flex justify-between text-sm">
+                            <span>Charges:</span><span className="font-semibold">PKR {charges.toLocaleString()}</span>
+                          </div>
+                          {discounts > 0 && <div className="flex justify-between text-sm text-destructive">
+                            <span>Discounts:</span><span>-PKR {discounts.toLocaleString()}</span>
+                          </div>}
+                          <div className="flex justify-between font-bold border-t border-orange-300 mt-1 pt-1">
+                            <span>Total:</span><span>PKR {(charges - discounts).toLocaleString()}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="flex justify-end">
+                      <Button
+                        className="bg-orange-600 hover:bg-orange-700"
+                        disabled={extraSelectedHeads.length === 0 || !extraDueDate || isGenerating}
+                        onClick={async () => {
+                          setIsGenerating(true);
+                          try {
+                            const result = await generateChallansFromPlan({
+                              month: format(extraDueDate, "yyyy-MM"),
+                              studentId: extraSelectedStudent.id,
+                              customAmount: 0,
+                              selectedHeads: extraSelectedHeads,
+                              customArrearsAmount: 0,
+                              remarks: extraRemarks || "Extra fee head challan",
+                              dueDate: format(extraDueDate, "yyyy-MM-dd"),
+                            });
+
+                            if (result && result.length > 0 && result[0].status === 'CREATED') {
+                              toast({ title: "Extra challan created successfully" });
+                              queryClient.invalidateQueries(['feeChallans']);
+                              setExtraSelectedStudent(null);
+                              setExtraSelectedHeads([]);
+                              setExtraRemarks("");
+                            } else {
+                              const reason = result?.[0]?.reason || "Could not create challan. Student may not have an installment plan for this month.";
+                              toast({ title: reason, variant: "destructive" });
+                            }
+                          } catch (err) {
+                            toast({ title: err.message || "Failed to create extra challan", variant: "destructive" });
+                          } finally {
+                            setIsGenerating(false);
+                          }
+                        }}
+                      >
+                        {isGenerating ? "Creating..." : "Create Extra Challan"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1897,28 +2072,62 @@ const FeeManagement = () => {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+      <AlertDialog open={paymentDialogOpen} onOpenChange={(open) => {
+        setPaymentDialogOpen(open);
+        if (!open) { setItemToPay(null); setPaymentAmount(""); }
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Payment</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to mark this challan as PAID?
-              {itemToPay && (
-                <div className="mt-2 p-2 bg-muted rounded-md space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span>Standard Amt + Extras:</span>
-                    <span>PKR {formatAmount((itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0))}</span>
-                  </div>
-                  <div className="flex justify-between text-destructive">
-                    <span>Scholarship Discount:</span>
-                    <span>-PKR {formatAmount(itemToPay.discount || 0)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold border-t pt-1">
-                    <span>Net Payable:</span>
-                    <span>PKR {formatAmount((itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0) - (itemToPay.discount || 0))}</span>
-                  </div>
-                </div>
-              )}
+            <AlertDialogTitle>Record Payment</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                {itemToPay && (() => {
+                  const netPayable = (itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0) - (itemToPay.discount || 0);
+                  const remaining = Math.max(0, netPayable - (itemToPay.paidAmount || 0));
+                  return (
+                    <div className="mt-2 space-y-3">
+                      <div className="p-2 bg-muted rounded-md space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span>Standard Amt + Extras:</span>
+                          <span>PKR {formatAmount((itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0))}</span>
+                        </div>
+                        <div className="flex justify-between text-destructive">
+                          <span>Scholarship Discount:</span>
+                          <span>-PKR {formatAmount(itemToPay.discount || 0)}</span>
+                        </div>
+                        {(itemToPay.paidAmount || 0) > 0 && (
+                          <div className="flex justify-between text-success">
+                            <span>Already Paid:</span>
+                            <span>PKR {formatAmount(itemToPay.paidAmount)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-bold border-t pt-1">
+                          <span>Remaining Due:</span>
+                          <span>PKR {formatAmount(remaining)}</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs font-semibold">Payment Amount (PKR)</Label>
+                        <Input
+                          type="number"
+                          value={paymentAmount}
+                          onChange={(e) => setPaymentAmount(e.target.value)}
+                          placeholder={`Max: ${remaining}`}
+                          className="font-semibold"
+                        />
+                        <div className="flex gap-2 mt-1">
+                          <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => setPaymentAmount(remaining.toString())}>
+                            Full Amount
+                          </Button>
+                          <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => setPaymentAmount(Math.round(remaining / 2).toString())}>
+                            Half
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

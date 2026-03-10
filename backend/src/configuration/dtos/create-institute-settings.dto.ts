@@ -28,4 +28,8 @@ export class CreateInstituteSettingsDto {
   @IsOptional()
   @IsString()
   logo?: string;
+
+  @IsOptional()
+  @IsString()
+  challanPrefix?: string;
 }

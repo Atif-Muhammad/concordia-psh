@@ -15,13 +15,22 @@ import { UpdateFeeChallanDto } from './dtos/update-fee-challan.dto';
 export class FeeManagementService {
   constructor(private readonly prisma: PrismaService) { }
 
-  private generateNumericChallanNumber(): string {
-    // Generate a 12-digit numeric string
-    // Format: Timestamp (last 10 digits) + 2 random digits
-    const timestamp = Date.now().toString();
-    const last10 = timestamp.slice(-10);
-    const random2 = Math.floor(Math.random() * 90 + 10).toString(); // 10-99
-    return last10 + random2;
+  private async generateChallanNumber(): Promise<string> {
+    // Fetch challan prefix from institute settings
+    const settings = await this.prisma.instituteSettings.findFirst({
+      select: { challanPrefix: true },
+    });
+    const prefix = settings?.challanPrefix?.trim() || '';
+
+    // Find the last challan ordered by id to get the next sequence number
+    const lastChallan = await this.prisma.feeChallan.findFirst({
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    });
+    const nextSeq = (lastChallan?.id || 0) + 1;
+    const seqStr = String(nextSeq).padStart(6, '0');
+
+    return prefix ? `${prefix}-${seqStr}` : seqStr;
   }
 
   // Fee Heads
@@ -379,7 +388,7 @@ export class FeeManagementService {
         studentProgramId: programId, // Use calculated programId - NOT from payload
         studentSectionId: student.sectionId, // Snapshot current section
         fineAmount: payload.fineAmount || 0,
-        challanNumber: this.generateNumericChallanNumber(),
+        challanNumber: await this.generateChallanNumber(),
         status: 'PENDING',
         challanType: isArrearsPayment ? 'ARREARS_ONLY' : 'INSTALLMENT',
         includesArrears: isArrearsPayment || false,
@@ -413,17 +422,30 @@ export class FeeManagementService {
     const where: any = studentId ? { studentId: Number(studentId) } : {};
 
     if (search) {
+      const searchTrimmed = search.trim();
+      const words = searchTrimmed.split(/\s+/).filter(Boolean);
+
       const searchConditions: any[] = [
-        { challanNumber: { contains: search } },
-        { student: { fName: { contains: search } } },
-        { student: { mName: { contains: search } } },
-        { student: { lName: { contains: search } } },
-        { student: { rollNumber: { contains: search } } },
+        { challanNumber: { contains: searchTrimmed } },
+        { student: { fName: { contains: searchTrimmed } } },
+        { student: { mName: { contains: searchTrimmed } } },
+        { student: { lName: { contains: searchTrimmed } } },
+        { student: { rollNumber: { contains: searchTrimmed } } },
       ];
 
+      // Multi-word search: match across first + last name
+      if (words.length >= 2) {
+        searchConditions.push({
+          AND: [
+            { student: { fName: { contains: words[0] } } },
+            { student: { lName: { contains: words[words.length - 1] } } },
+          ],
+        });
+      }
+
       // If search is a number, also check for installmentNumber
-      if (!isNaN(Number(search))) {
-        searchConditions.push({ installmentNumber: Number(search) });
+      if (!isNaN(Number(searchTrimmed))) {
+        searchConditions.push({ installmentNumber: Number(searchTrimmed) });
       }
 
       where.AND = [...(where.AND || []), { OR: searchConditions }];
@@ -657,21 +679,24 @@ export class FeeManagementService {
   async generateChallansFromPlan(payload: {
     month: string; // YYYY-MM
     studentId?: number;
+    programId?: number;
     classId?: number;
     sectionId?: number;
-    customAmount?: number; // For individual student: custom billing amount
+    customAmount?: number; // For individual student: custom billing amount (tuition portion)
     selectedHeads?: number[]; // For individual student: custom fee heads to add
     customArrearsAmount?: number; // For individual student: custom arrears amount to include
     remarks?: string;
+    dueDate?: string; // For individual student: custom due date (YYYY-MM-DD)
   }) {
-    const { month, studentId, classId, sectionId, customAmount, selectedHeads, customArrearsAmount, remarks } = payload;
+    const { month, studentId, programId, classId, sectionId, customAmount, selectedHeads, customArrearsAmount, remarks, dueDate } = payload;
     const [year, monthNum] = month.split('-').map(Number);
 
     // 1. Find target students
     const studentWhere: any = { passedOut: false };
-    if (studentId) studentWhere.id = studentId;
-    if (classId) studentWhere.classId = classId;
-    if (sectionId) studentWhere.sectionId = sectionId;
+    if (studentId) studentWhere.id = Number(studentId);
+    if (programId) studentWhere.programId = Number(programId);
+    if (classId) studentWhere.classId = Number(classId);
+    if (sectionId) studentWhere.sectionId = Number(sectionId);
 
     const students = await this.prisma.student.findMany({
       where: studentWhere,
@@ -690,7 +715,10 @@ export class FeeManagementService {
         return d.getFullYear() === year && d.getMonth() + 1 === monthNum;
       });
 
-      if (!targetInstallment) {
+      // Fee-head-only challan: no installment required when customAmount is 0 and heads are selected
+      const isFeeHeadOnly = studentId && customAmount === 0 && selectedHeads && selectedHeads.length > 0;
+
+      if (!targetInstallment && !isFeeHeadOnly) {
         results.push({
           studentId: student.id,
           studentName: `${student.fName} ${student.lName || ''}`,
@@ -700,7 +728,62 @@ export class FeeManagementService {
         continue;
       }
 
-      // 3. Check if challan already exists
+      // For fee-head-only challans, create directly without installment linkage
+      if (isFeeHeadOnly) {
+        const heads = await this.prisma.feeHead.findMany({
+          where: { id: { in: selectedHeads } }
+        });
+        const charges = heads.filter(h => !h.isDiscount).reduce((sum, h) => sum + h.amount, 0);
+        const discountsFromHeads = heads.filter(h => h.isDiscount).reduce((sum, h) => sum + h.amount, 0);
+        const headSnapshot = JSON.stringify(heads.map(h => ({
+          id: h.id, name: h.name, amount: h.amount,
+          type: h.isDiscount ? 'discount' : h.isTuition ? 'tuition' : 'additional',
+          isSelected: true,
+        })));
+
+        // Find fee structure for the student
+        let structureId: any = null;
+        if (student.programId && student.classId) {
+          const structure = await this.prisma.feeStructure.findUnique({
+            where: { programId_classId: { programId: student.programId, classId: student.classId } },
+          });
+          if (structure) structureId = structure.id;
+        }
+
+        const challanDueDate = dueDate ? new Date(dueDate) : new Date(year, monthNum - 1, 10);
+
+        const challan = await this.prisma.feeChallan.create({
+          data: {
+            studentId: student.id,
+            amount: 0,
+            fineAmount: charges,
+            discount: discountsFromHeads,
+            dueDate: challanDueDate,
+            installmentNumber: 0,
+            studentClassId: student.classId,
+            studentProgramId: student.programId,
+            studentSectionId: student.sectionId,
+            feeStructureId: structureId,
+            arrearsAmount: 0,
+            includesArrears: false,
+            challanType: 'FEE_HEADS_ONLY',
+            selectedHeads: headSnapshot,
+            remarks: remarks || 'Fee head only challan',
+            challanNumber: await this.generateChallanNumber(),
+          },
+        });
+
+        results.push({
+          studentId: student.id,
+          studentName: `${student.fName} ${student.lName || ''}`,
+          status: 'CREATED',
+          challanId: challan.id,
+          challanNumber: challan.challanNumber,
+        });
+        continue;
+      }
+
+      // 3. Check if challan already exists (skip for individual regeneration)
       const existingChallan = await this.prisma.feeChallan.findFirst({
         where: {
           studentId: student.id,
@@ -733,7 +816,7 @@ export class FeeManagementService {
         return sum + (inst.amount - (inst as any).paidAmount);
       }, 0);
 
-      // 5. Calculate Discount/Scholarship (Mirror syncStudentChallans logic)
+      // 5. Calculate Discount/Scholarship
       let standardInstallmentAmount = 0;
       let structureId: any = null;
       if (student.programId && student.classId) {
@@ -754,57 +837,70 @@ export class FeeManagementService {
       }
 
       const agreedAmount = targetInstallment.amount;
-      let finalAmount = agreedAmount;
+      let tuitionAmount = agreedAmount;
       let scholarshipDiscount = 0;
 
       if (standardInstallmentAmount > agreedAmount) {
-        finalAmount = standardInstallmentAmount;
+        tuitionAmount = standardInstallmentAmount;
         scholarshipDiscount = standardInstallmentAmount - agreedAmount;
       }
 
-      // 6. Handle Custom Individual Billing
-      let totalAmount = finalAmount + arrearsAmount;
+      // 6. Individual student custom billing overrides
+      const finalArrears = customArrearsAmount !== undefined ? customArrearsAmount : arrearsAmount;
+      let finalTuition = tuitionAmount;
       let finalChallanType: any = 'INSTALLMENT';
 
-      // If specific custom amount provided for individual student
       if (studentId && customAmount !== undefined) {
-        totalAmount = customAmount + (customArrearsAmount !== undefined ? customArrearsAmount : arrearsAmount);
-        finalChallanType = 'MIXED';
-      } else if (customArrearsAmount !== undefined) {
-        // Individual student but only arrears customized
-        totalAmount = finalAmount + customArrearsAmount;
+        finalTuition = customAmount;
         finalChallanType = 'MIXED';
       }
 
+      // amount = tuition + arrears (base billable amount for the challan)
+      const challanAmount = finalTuition + finalArrears;
+
       // 7. Calculate additional fee heads if any
       let additionalCharges = 0;
+      let headSnapshot: any = null;
       if (studentId && selectedHeads && selectedHeads.length > 0) {
         const heads = await this.prisma.feeHead.findMany({
           where: { id: { in: selectedHeads } }
         });
-        additionalCharges = heads.reduce((sum, h) => sum + h.amount, 0);
-        totalAmount += additionalCharges;
+        additionalCharges = heads.filter(h => !h.isDiscount).reduce((sum, h) => sum + h.amount, 0);
+        const discountFromHeads = heads.filter(h => h.isDiscount).reduce((sum, h) => sum + h.amount, 0);
+        scholarshipDiscount += discountFromHeads;
         finalChallanType = 'MIXED';
+        headSnapshot = JSON.stringify(heads.map(h => ({
+          id: h.id,
+          name: h.name,
+          amount: h.amount,
+          type: h.isDiscount ? 'discount' : h.isTuition ? 'tuition' : 'additional',
+          isSelected: true,
+        })));
       }
 
-      // 8. Create Challan
+      // Use custom due date if provided for individual student, else use installment due date
+      const challanDueDate = (studentId && dueDate) ? new Date(dueDate) : targetInstallment.dueDate;
+
+      // 8. Create Challan with proper field separation
       const challan = await this.prisma.feeChallan.create({
         data: {
           studentId: student.id,
-          amount: totalAmount,
+          amount: challanAmount,
+          fineAmount: additionalCharges,
           discount: scholarshipDiscount,
-          dueDate: targetInstallment.dueDate,
+          dueDate: challanDueDate,
           installmentNumber: targetInstallment.installmentNumber,
           studentClassId: student.classId,
           studentProgramId: student.programId,
           studentSectionId: student.sectionId,
           studentFeeInstallmentId: targetInstallment.id,
-          arrearsAmount: customArrearsAmount !== undefined ? customArrearsAmount : arrearsAmount,
-          includesArrears: (customArrearsAmount !== undefined ? customArrearsAmount : arrearsAmount) > 0,
+          feeStructureId: structureId,
+          arrearsAmount: finalArrears,
+          includesArrears: finalArrears > 0,
           challanType: finalChallanType,
-          selectedHeads: selectedHeads ? JSON.stringify(selectedHeads) : null,
+          selectedHeads: headSnapshot,
           remarks: remarks || `Challan for ${month}`,
-          challanNumber: `CHL-${Date.now()}-${student.id}`, // Temporary numeric unique
+          challanNumber: await this.generateChallanNumber(),
         },
       });
 
@@ -847,7 +943,7 @@ export class FeeManagementService {
       delete data.customArrearsAmount;
     }
 
-    if (payload.status === 'PAID') {
+    if (payload.status === 'PAID' || payload.status === 'PARTIAL') {
       if (!data.paidDate) {
         data.paidDate = new Date();
       }
