@@ -19,7 +19,8 @@ import {
   getPrograms, getClasses,
   getFeeChallans, getBulkChallans, updateFeeChallan, getStudentFeeHistory,
   searchStudents, getRevenueOverTime, getClassCollectionStats, getFeeCollectionSummary, getDefaultFeeChallanTemplate,
-  getInstallmentPlans, generateChallansFromPlan
+  getInstallmentPlans, generateChallansFromPlan,
+  getInstituteSettings, updateInstituteSettings
 } from "../../config/apis";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -160,6 +161,28 @@ const FeeManagement = () => {
       setGenDueDate(new Date(year, month - 1, 10));
     }
   }, [generateForm.month]);
+
+  const { data: instituteSettings } = useQuery({
+    queryKey: ['instituteSettings'],
+    queryFn: getInstituteSettings
+  });
+
+  const [lateFeeFine, setLateFeeFine] = useState(0);
+
+  useEffect(() => {
+    if (instituteSettings?.lateFeeFine !== undefined) {
+      setLateFeeFine(instituteSettings.lateFeeFine);
+    }
+  }, [instituteSettings]);
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: updateInstituteSettings,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['instituteSettings']);
+      toast({ title: "Settings updated successfully" });
+    },
+    onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -936,13 +959,14 @@ const FeeManagement = () => {
       </div>
 
       <Tabs defaultValue="challans" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 h-auto gap-1">
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-7 h-auto gap-1">
           <TabsTrigger value="challans"><Receipt className="w-4 h-4 mr-2" />Challans</TabsTrigger>
           <TabsTrigger value="extra-challans"><Plus className="w-4 h-4 mr-2" />Extra Challans</TabsTrigger>
           <TabsTrigger value="student-history"><Eye className="w-4 h-4 mr-2" />Student History</TabsTrigger>
           <TabsTrigger value="feeheads"><Layers className="w-4 h-4 mr-2" />Fee Heads</TabsTrigger>
           <TabsTrigger value="structures"><TrendingUp className="w-4 h-4 mr-2" />Fee Structures</TabsTrigger>
           <TabsTrigger value="reports"><DollarSign className="w-4 h-4 mr-2" />Reports</TabsTrigger>
+          <TabsTrigger value="settings"><Edit className="w-4 h-4 mr-2" />Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="challans" className="space-y-6">
@@ -1748,6 +1772,40 @@ const FeeManagement = () => {
               </Card>
             </div>
           </div>
+        </TabsContent>
+
+        <TabsContent value="settings" className="space-y-6">
+          <Card className="shadow-soft">
+            <CardHeader>
+              <CardTitle>Institute Settings</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Configure global parameters for the institute.</p>
+            </CardHeader>
+            <CardContent>
+              <div className="max-w-md space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="lateFeeFine">Late Fee Fine (Per Day)</Label>
+                  <div className="flex gap-4 items-center">
+                    <Input
+                      id="lateFeeFine"
+                      type="number"
+                      value={lateFeeFine}
+                      onChange={(e) => setLateFeeFine(parseFloat(e.target.value) || 0)}
+                      placeholder="Enter amount per day"
+                    />
+                    <Button 
+                      onClick={() => updateSettingsMutation.mutate({ lateFeeFine })}
+                      disabled={updateSettingsMutation.isPending}
+                    >
+                      {updateSettingsMutation.isPending ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground italic">
+                    This fine will be applied automatically to all overdue challans.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

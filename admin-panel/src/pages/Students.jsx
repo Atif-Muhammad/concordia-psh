@@ -1190,7 +1190,7 @@ const Students = () => {
                                   <TableHead>Paid</TableHead>
                                   <TableHead>Status</TableHead>
                                   <TableHead>Installments</TableHead>
-                                  <TableHead>Due Date</TableHead>
+                                  <TableHead>Installment Month</TableHead>
                                   <TableHead>Actions</TableHead>
                                 </TableRow>
                               </TableHeader>
@@ -1213,7 +1213,7 @@ const Students = () => {
                                         </Badge>
                                       </TableCell>
                                       <TableCell>{fee.coveredInstallments || fee.installmentNumber || "-"}</TableCell>
-                                      <TableCell>{fee.dueDate ? new Date(fee.dueDate).toLocaleDateString() : "-"}</TableCell>
+                                      <TableCell>{fee.dueDate ? format(new Date(fee.dueDate), "MMM yyyy") : "-"}</TableCell>
                                       <TableCell>
                                         <Button
                                           variant="ghost"

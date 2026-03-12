@@ -611,19 +611,21 @@ export class FeeManagementService {
     });
 
     // Calculate dynamic late fees
+    const instituteSettings = await this.prisma.instituteSettings.findFirst();
+    const globalLateFee = instituteSettings?.lateFeeFine || 0;
     const now = new Date();
     data.forEach((challan: any) => {
       challan.lateFeeFine = 0;
       if (
         challan.status === 'PENDING' &&
         challan.dueDate &&
-        challan.student?.lateFeeFine > 0
+        globalLateFee > 0
       ) {
         const dueDate = new Date(challan.dueDate);
         if (now > dueDate) {
           const diffTime = Math.abs(now.getTime() - dueDate.getTime());
           const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-          challan.lateFeeFine = diffDays * challan.student.lateFeeFine;
+          challan.lateFeeFine = diffDays * globalLateFee;
         }
       }
     });
@@ -959,18 +961,20 @@ export class FeeManagementService {
 
       if (challan) {
         // Calculate dynamic late fee
+        const instituteSettings = await this.prisma.instituteSettings.findFirst();
+        const globalLateFee = instituteSettings?.lateFeeFine || 0;
         let dynamicLateFee = 0;
         if (
           challan.status === 'PENDING' &&
           challan.dueDate &&
-          (challan.student as any)?.lateFeeFine > 0
+          globalLateFee > 0
         ) {
           const now = new Date();
           const dueDate = new Date(challan.dueDate);
           if (now > dueDate) {
             const diffTime = Math.abs(now.getTime() - dueDate.getTime());
             const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-            dynamicLateFee = diffDays * (challan.student as any).lateFeeFine;
+            dynamicLateFee = diffDays * globalLateFee;
           }
         }
 
@@ -1271,19 +1275,21 @@ export class FeeManagementService {
     });
 
     // Calculate dynamic late fees
+    const instituteSettings = await this.prisma.instituteSettings.findFirst();
+    const globalLateFee = instituteSettings?.lateFeeFine || 0;
     const now = new Date();
     history.forEach((challan: any) => {
       challan.lateFeeFine = 0;
       if (
         challan.status === 'PENDING' &&
         challan.dueDate &&
-        challan.student?.lateFeeFine > 0
+        globalLateFee > 0
       ) {
         const dueDate = new Date(challan.dueDate);
         if (now > dueDate) {
           const diffTime = Math.abs(now.getTime() - dueDate.getTime());
           const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-          challan.lateFeeFine = diffDays * challan.student.lateFeeFine;
+          challan.lateFeeFine = diffDays * globalLateFee;
         }
       }
     });
@@ -1647,14 +1653,17 @@ export class FeeManagementService {
     });
 
     const now = new Date();
+    const instituteSettings = await this.prisma.instituteSettings.findFirst();
+    const globalLateFee = instituteSettings?.lateFeeFine || 0;
+
     const totalOutstanding = outstandingAggr.reduce((sum, c: any) => {
       let dynamicLateFee = 0;
-      if (c.dueDate && c.student?.lateFeeFine > 0) {
+      if (c.dueDate && globalLateFee > 0) {
         const dueDate = new Date(c.dueDate);
         if (now > dueDate) {
           const diffTime = Math.abs(now.getTime() - dueDate.getTime());
           const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-          dynamicLateFee = diffDays * c.student.lateFeeFine;
+          dynamicLateFee = diffDays * globalLateFee;
         }
       }
 
@@ -1702,18 +1711,21 @@ export class FeeManagementService {
     });
 
     const now = new Date();
+    const instituteSettings = await this.prisma.instituteSettings.findFirst();
+    const globalLateFee = instituteSettings?.lateFeeFine || 0;
+
     challans.forEach((c: any) => {
       // Determine class name from history (studentClassId) or nothing
       let className = 'Unknown Class';
       let dynamicLateFee = 0;
 
       // Calculate dynamic late fee for pending/overdue
-      if (c.status === 'PENDING' && c.dueDate && c.student?.lateFeeFine > 0) {
+      if (c.status === 'PENDING' && c.dueDate && globalLateFee > 0) {
         const dueDate = new Date(c.dueDate);
         if (now > dueDate) {
           const diffTime = Math.abs(now.getTime() - dueDate.getTime());
           const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-          dynamicLateFee = diffDays * c.student.lateFeeFine;
+          dynamicLateFee = diffDays * globalLateFee;
         }
       }
 

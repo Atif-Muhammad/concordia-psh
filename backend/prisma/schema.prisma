@@ -1150,6 +1150,7 @@ model InstituteSettings {
   instagram     String?  @db.VarChar(255)
   logo          String?  @db.VarChar(500)
   challanPrefix String?  @db.VarChar(20) @default("")
+  lateFeeFine   Float?   @default(0)
   
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

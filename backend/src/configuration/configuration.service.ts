@@ -181,9 +181,12 @@ export class ConfigurationService {
         data,
       });
     } else {
-      // Create new with provided data
+      // Create new with provided data + required defaults
       return this.prisma.instituteSettings.create({
-        data: data as CreateInstituteSettingsDto,
+        data: {
+          instituteName: 'My Institute',
+          ...data,
+        },
       });
     }
   }

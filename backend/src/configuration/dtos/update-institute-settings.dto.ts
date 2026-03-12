@@ -32,4 +32,7 @@ export class UpdateInstituteSettingsDto {
   @IsOptional()
   @IsString()
   challanPrefix?: string;
+
+  @IsOptional()
+  lateFeeFine?: number;
 }

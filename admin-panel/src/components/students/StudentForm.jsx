@@ -624,18 +624,6 @@ const StudentForm = ({
                             <span className="absolute left-3 top-2.5 text-muted-foreground text-sm font-medium">Rs.</span>
                         </div>
                     </div>
-                    <div className="space-y-2">
-                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Late Fee Fine (Per Day)</Label>
-                        <div className="relative">
-                            <Input
-                                type="number"
-                                className="pl-8"
-                                value={formData.lateFeeFine}
-                                onChange={e => setFormData({ ...formData, lateFeeFine: Number(e.target.value) })}
-                            />
-                            <span className="absolute left-3 top-2.5 text-muted-foreground text-sm font-medium">Rs.</span>
-                        </div>
-                    </div>
                 </div>
 
                 {formData.installments.length > 0 ? (
@@ -645,7 +633,7 @@ const StudentForm = ({
                                 <tr>
                                     <th className="px-4 py-2 text-left">Inst. #</th>
                                     <th className="px-4 py-2 text-left">Amount (Rs.)</th>
-                                    <th className="px-4 py-2 text-left">Due Date</th>
+                                    <th className="px-4 py-2 text-left">Installment Month</th>
                                     <th className="px-4 py-2 text-right">Action</th>
                                 </tr>
                             </thead>
@@ -669,9 +657,9 @@ const StudentForm = ({
                                         </td>
                                         <td className="px-4 py-2">
                                             <Input
-                                                type="date"
-                                                value={inst.dueDate ? inst.dueDate.split('T')[0] : ""}
-                                                onChange={e => handleInstallmentChange(index, "dueDate", e.target.value)}
+                                                type="month"
+                                                value={inst.dueDate ? inst.dueDate.split('T')[0].substring(0, 7) : ""}
+                                                onChange={e => handleInstallmentChange(index, "dueDate", e.target.value + "-01")}
                                             />
                                         </td>
                                         <td className="px-4 py-2 text-right">
