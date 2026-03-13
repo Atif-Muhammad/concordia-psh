@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect, useRef } from "react";
-import { DollarSign, Plus, CheckCircle2, Edit, Trash2, Receipt, TrendingUp, Layers, Printer, Eye, Calendar as CalendarIcon } from "lucide-react";
+import { DollarSign, Plus, CheckCircle2, Edit, Trash2, Receipt, TrendingUp, Layers, Printer, Eye, History, Calendar as CalendarIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -107,7 +107,6 @@ const FeeManagement = () => {
     studentId: "",
     amount: "",
     dueDate: "",
-    discount: "",
     fineAmount: 0,
     remarks: "",
     installmentNumber: "",
@@ -121,7 +120,6 @@ const FeeManagement = () => {
     name: "",
     amount: "",
     type: "monthly",
-    isDiscount: false,
     isTuition: false,
     isFine: false,
     isLabFee: false,
@@ -240,7 +238,7 @@ const FeeManagement = () => {
     queryFn: () => getClassCollectionStats({ period: reportFilter })
   });
 
-  const { data: feeCollectionSummary = { totalRevenue: 0, totalOutstanding: 0, totalDiscounts: 0 } } = useQuery({
+  const { data: feeCollectionSummary = { totalRevenue: 0, totalOutstanding: 0 } } = useQuery({
     queryKey: ['feeCollectionSummary', reportFilter],
     queryFn: () => getFeeCollectionSummary({ period: reportFilter })
   });
@@ -253,7 +251,6 @@ const FeeManagement = () => {
   // Derived state for summary cards (using fetched summary instead of local calc)
   const totalReceived = feeCollectionSummary.totalRevenue;
   const totalPending = feeCollectionSummary.totalOutstanding;
-  const totalDiscount = feeCollectionSummary.totalDiscounts;
 
   // Helper function to format amounts as integers (no decimals)
   const formatAmount = (amount) => {
@@ -282,7 +279,6 @@ const FeeManagement = () => {
       studentId: "",
       amount: "",
       dueDate: null,
-      discount: "",
       fineAmount: 0,
       remarks: "",
       installmentNumber: "",
@@ -421,7 +417,7 @@ const FeeManagement = () => {
 
     const tuitionToStore = Math.round(parseFloat(challanForm.amount) || 0);
     const additionalToStore = Math.round(Number(challanForm.fineAmount) || 0);
-    const discountToStore = Math.round(Number(challanForm.discount) || 0);
+    const discountToStore = 0;
 
     const installmentNumber = parseInt(challanForm.installmentNumber) || 0;
 
@@ -434,7 +430,7 @@ const FeeManagement = () => {
         id: Number(h.id),
         name: h.name,
         amount: Math.round(Number(h.amount) || 0),
-        type: h.isDiscount ? 'discount' : h.isTuition ? 'tuition' : 'additional',
+        type: h.isTuition ? 'tuition' : 'additional',
         isSelected: true
       }));
 
@@ -445,7 +441,6 @@ const FeeManagement = () => {
           studentId: parseInt(challanForm.studentId),
           amount: tuitionToStore,
           dueDate: challanForm.dueDate ? format(challanForm.dueDate, "yyyy-MM-dd") : undefined,
-          discount: discountToStore,
           fineAmount: additionalToStore,
           remarks: challanForm.remarks,
           installmentNumber: installmentNumber,
@@ -467,7 +462,6 @@ const FeeManagement = () => {
       amount: parseFloat(feeHeadForm.amount),
       description: feeHeadForm.description,
       type: feeHeadForm.type,
-      isDiscount: feeHeadForm.isDiscount,
       isTuition: feeHeadForm.isTuition,
       isFine: feeHeadForm.isFine,
       isLabFee: feeHeadForm.isLabFee,
@@ -511,7 +505,7 @@ const FeeManagement = () => {
   const handlePayment = (challan) => {
     setItemToPay(challan);
     // Default to full net payable
-    const netPayable = (challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.discount || 0) - (challan.paidAmount || 0);
+    const netPayable = (challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.paidAmount || 0);
     setPaymentAmount(Math.max(0, netPayable).toString());
     setPaymentDialogOpen(true);
   };
@@ -519,15 +513,16 @@ const FeeManagement = () => {
   const confirmPayment = async () => {
     if (!itemToPay) return;
 
-    const amount = parseFloat(paymentAmount) || 0;
-    if (amount <= 0) {
-      toast({ title: "Please enter a valid payment amount", variant: "destructive" });
+    const netPayable = (itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0);
+    const remaining = Math.max(0, netPayable - (itemToPay.paidAmount || 0));
+
+    if (remaining <= 0) {
+      toast({ title: "Challan is already fully paid", variant: "destructive" });
+      setPaymentDialogOpen(false);
       return;
     }
 
-    const netPayable = (itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0) - (itemToPay.discount || 0);
-    const totalPaidAfter = (itemToPay.paidAmount || 0) + amount;
-    const isFullPayment = totalPaidAfter >= netPayable;
+    const totalPaidAfter = (itemToPay.paidAmount || 0) + remaining;
 
     // Simplified installment tracking
     let coveredInstallments = '';
@@ -538,14 +533,14 @@ const FeeManagement = () => {
     updateChallanMutation.mutate({
       id: itemToPay.id,
       data: {
-        status: isFullPayment ? "PAID" : "PARTIAL",
+        status: "PAID",
         paidDate: new Date().toISOString().split("T")[0],
         paidAmount: totalPaidAfter,
         coveredInstallments
       }
     }, {
       onSuccess: () => {
-        toast({ title: isFullPayment ? "Payment recorded successfully" : "Partial payment recorded" });
+        toast({ title: "Payment recorded successfully" });
         setPaymentDialogOpen(false);
         setItemToPay(null);
         setPaymentAmount("");
@@ -568,7 +563,6 @@ const FeeManagement = () => {
       name: "",
       description: "",
       amount: "",
-      isDiscount: false,
       isTuition: false,
       isFine: false,
       isLabFee: false,
@@ -628,9 +622,9 @@ const FeeManagement = () => {
       // Handle both legacy (just IDs) and new snapshots (objects)
       if (typeof item === 'object' && item !== null) {
         // Snapshot Object: { id, name, amount, type, isSelected }
-        if (item.isSelected && (item.type === 'additional' || item.type === 'discount') && item.amount > 0) {
-          totalOtherHeadsFromSelection += (item.type === 'discount' ? -item.amount : item.amount);
-          const displayAmount = item.type === 'discount' ? `- ${item.amount.toLocaleString()}` : item.amount.toLocaleString();
+        if (item.isSelected && item.type === 'additional' && item.amount > 0) {
+          totalOtherHeadsFromSelection += item.amount;
+          const displayAmount = item.amount.toLocaleString();
           return `<tr><td>${item.name}</td><td>${displayAmount}</td></tr>`;
         }
       } else {
@@ -651,9 +645,9 @@ const FeeManagement = () => {
     // IMPORTANT: challan.fineAmount ALREADY contains the sum of selected heads from the DB
     // We only add lateFeeFine which is calculated at runtime.
     const fineTotal = (challan.fineAmount || 0) + (challan.lateFeeFine || 0);
-    const scholarship = (challan.discount || 0);
+    const scholarship = 0;
     const standardTotal = (challan.amount || 0) + fineTotal;
-    const netPayable = standardTotal - scholarship;
+    const netPayable = standardTotal;
 
     // Common Date Format
     const formatDate = (date) => {
@@ -993,17 +987,6 @@ const FeeManagement = () => {
                 </div>
               </CardContent>
             </Card>
-            <Card className="shadow-soft">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Discounts</p>
-                    <p className="text-2xl font-bold text-primary">PKR {formatAmount(totalDiscount)}</p>
-                  </div>
-                  <DollarSign className="w-8 h-8 text-primary" />
-                </div>
-              </CardContent>
-            </Card>
           </div>
 
           <Card className="shadow-soft">
@@ -1104,7 +1087,6 @@ const FeeManagement = () => {
                       <TableHead>Student</TableHead>
                       <TableHead>Installment</TableHead>
                       <TableHead>Standard Amt</TableHead>
-                      <TableHead>Scholarship</TableHead>
                       <TableHead>Net Payable</TableHead>
                       <TableHead>Paid Amount</TableHead>
                       <TableHead>Due Date</TableHead>
@@ -1127,8 +1109,7 @@ const FeeManagement = () => {
                             </Badge>
                           </TableCell>
                           <TableCell>PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0))}</TableCell>
-                          <TableCell className="text-destructive">-PKR {formatAmount(challan.discount || 0)}</TableCell>
-                          <TableCell className="font-bold">PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.discount || 0))}</TableCell>
+                          <TableCell className="font-bold">PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0))}</TableCell>
                           <TableCell className="text-success">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
                           <TableCell>
                             <div>{new Date(challan.dueDate).toLocaleDateString()}</div>
@@ -1157,7 +1138,6 @@ const FeeManagement = () => {
                                   studentId: challan.studentId.toString(),
                                   amount: (challan.amount || 0).toString(),
                                   dueDate: new Date(challan.dueDate),
-                                  discount: (challan.discount || 0).toString(),
                                   fineAmount: (() => {
                                     try {
                                       const raw = (challan.selectedHeads && typeof challan.selectedHeads === 'string')
@@ -1182,7 +1162,7 @@ const FeeManagement = () => {
 
                                       // Fallback for ID-only or empty snapshot sum
                                       const lookupSum = feeHeads
-                                        .filter(h => selectedIds.includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
+                                        .filter(h => selectedIds.includes(Number(h.id)) && !h.isTuition)
                                         .reduce((s, h) => s + (parseFloat(h.amount) || 0), 0);
 
                                       return (lookupSum || challan.fineAmount || 0).toString();
@@ -1368,17 +1348,13 @@ const FeeManagement = () => {
 
                     {extraSelectedHeads.length > 0 && (() => {
                       const charges = feeHeads.filter(h => extraSelectedHeads.includes(h.id) && !h.isDiscount).reduce((s, h) => s + h.amount, 0);
-                      const discounts = feeHeads.filter(h => extraSelectedHeads.includes(h.id) && h.isDiscount).reduce((s, h) => s + h.amount, 0);
                       return (
                         <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
                           <div className="flex justify-between text-sm">
                             <span>Charges:</span><span className="font-semibold">PKR {charges.toLocaleString()}</span>
                           </div>
-                          {discounts > 0 && <div className="flex justify-between text-sm text-destructive">
-                            <span>Discounts:</span><span>-PKR {discounts.toLocaleString()}</span>
-                          </div>}
                           <div className="flex justify-between font-bold border-t border-orange-300 mt-1 pt-1">
-                            <span>Total:</span><span>PKR {(charges - discounts).toLocaleString()}</span>
+                            <span>Total:</span><span>PKR {charges.toLocaleString()}</span>
                           </div>
                         </div>
                       );
@@ -1480,12 +1456,12 @@ const FeeManagement = () => {
                       <TableHead>Challan No</TableHead>
                       <TableHead>Installment</TableHead>
                       <TableHead>Standard Amt</TableHead>
-                      <TableHead>Scholarship</TableHead>
                       <TableHead>Net Payable</TableHead>
                       <TableHead>Due Date</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Paid Date</TableHead>
                       <TableHead>Paid Amount</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1496,8 +1472,7 @@ const FeeManagement = () => {
                           <Badge variant="outline">#{challan.installmentNumber}</Badge>
                         </TableCell>
                         <TableCell>PKR {formatAmount(challan.amount)}</TableCell>
-                        <TableCell className="text-destructive">-PKR {formatAmount(challan.discount)}</TableCell>
-                        <TableCell className="font-bold">PKR {formatAmount((challan.amount || 0) - (challan.discount || 0))}</TableCell>
+                        <TableCell className="font-bold">PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0))}</TableCell>
                         <TableCell>{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
                         <TableCell>
                           <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : "secondary"}>
@@ -1506,9 +1481,17 @@ const FeeManagement = () => {
                         </TableCell>
                         <TableCell>{challan.paidDate ? new Date(challan.paidDate).toLocaleDateString() : '-'}</TableCell>
                         <TableCell>{challan.paidAmount ? `PKR ${formatAmount(challan.paidAmount)}` : '-'}</TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" onClick={() => {
+                            setSelectedChallanDetails(challan);
+                            setDetailsDialogOpen(true);
+                          }}>
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
-                    {studentFeeHistory.length === 0 && <TableRow><TableCell colSpan={7} className="text-center">No history found</TableCell></TableRow>}
+                    {studentFeeHistory.length === 0 && <TableRow><TableCell colSpan={9} className="text-center">No history found</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </div>
@@ -1545,11 +1528,9 @@ const FeeManagement = () => {
                     {feeHeads.map(head => <TableRow key={head.id}>
                       <TableCell className="font-medium">{head.name}</TableCell>
                       <TableCell>{head.description}</TableCell>
-                      <TableCell>PKR {head.amount.toLocaleString()}</TableCell>
+                      <TableCell>PKR {(head.amount || 0).toLocaleString()}</TableCell>
                       <TableCell>
-                        <Badge variant={head.isDiscount ? "secondary" : "default"}>
-                          {head.isDiscount ? "Discount" : "Charge"}
-                        </Badge>
+                        <Badge>Charge</Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-2">
@@ -1559,7 +1540,6 @@ const FeeManagement = () => {
                               name: head.name,
                               description: head.description,
                               amount: head.amount.toString(),
-                              isDiscount: head.isDiscount || false,
                               isTuition: head.isTuition || false,
                               isFine: head.isFine || false,
                               isLabFee: head.isLabFee || false,
@@ -1686,15 +1666,11 @@ const FeeManagement = () => {
                 <div className="space-y-4">
                   <div className="flex justify-between p-4 border rounded-lg">
                     <span>Total Revenue</span>
-                    <span className="font-bold text-2xl">PKR {totalReceived.toLocaleString()}</span>
+                    <span className="font-bold text-2xl">PKR {totalReceived?.toLocaleString() || "0"}</span>
                   </div>
                   <div className="flex justify-between p-4 border rounded-lg">
                     <span>Outstanding</span>
-                    <span className="font-bold text-2xl text-warning">PKR {totalPending.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between p-4 border rounded-lg">
-                    <span>Total Discounts Given</span>
-                    <span className="font-bold text-2xl text-primary">PKR {totalDiscount.toLocaleString()}</span>
+                    <span className="font-bold text-2xl text-warning">PKR {totalPending?.toLocaleString() || "0"}</span>
                   </div>
                 </div>
               </CardContent>
@@ -1792,7 +1768,7 @@ const FeeManagement = () => {
                       onChange={(e) => setLateFeeFine(parseFloat(e.target.value) || 0)}
                       placeholder="Enter amount per day"
                     />
-                    <Button 
+                    <Button
                       onClick={() => updateSettingsMutation.mutate({ lateFeeFine })}
                       disabled={updateSettingsMutation.isPending}
                     >
@@ -1839,28 +1815,9 @@ const FeeManagement = () => {
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div className="flex items-center space-x-2">
-                <input type="checkbox" id="isDiscount" checked={feeHeadForm.isDiscount} onChange={e => setFeeHeadForm({
-                  ...feeHeadForm,
-                  isDiscount: e.target.checked,
-                  isTuition: false,
-                  isFine: false,
-                  isLabFee: false,
-                  isLibraryFee: false,
-                  isRegistrationFee: false,
-                  isAdmissionFee: false,
-                  isProspectusFee: false,
-                  isExaminationFee: false,
-                  isAlliedCharges: false,
-                  isHostelFee: false,
-                  isOther: false
-                })} className="w-4 h-4" />
-                <Label htmlFor="isDiscount">Discount</Label>
-              </div>
-              <div className="flex items-center space-x-2">
                 <input type="checkbox" id="isTuition" checked={feeHeadForm.isTuition} onChange={e => setFeeHeadForm({
                   ...feeHeadForm,
                   isTuition: e.target.checked,
-                  isDiscount: false,
                   isFine: false,
                   isLabFee: false,
                   isLibraryFee: false,
@@ -1878,7 +1835,6 @@ const FeeManagement = () => {
                 <input type="checkbox" id="isFine" checked={feeHeadForm.isFine} onChange={e => setFeeHeadForm({
                   ...feeHeadForm,
                   isFine: e.target.checked,
-                  isDiscount: false,
                   isTuition: false,
                   isLabFee: false,
                   isLibraryFee: false,
@@ -1895,8 +1851,6 @@ const FeeManagement = () => {
               <div className="flex items-center space-x-2">
                 <input type="checkbox" id="isLabFee" checked={feeHeadForm.isLabFee} onChange={e => setFeeHeadForm({
                   ...feeHeadForm,
-                  isLabFee: e.target.checked,
-                  isDiscount: false,
                   isTuition: false,
                   isFine: false,
                   isLibraryFee: false,
@@ -1914,7 +1868,6 @@ const FeeManagement = () => {
                 <input type="checkbox" id="isLibraryFee" checked={feeHeadForm.isLibraryFee} onChange={e => setFeeHeadForm({
                   ...feeHeadForm,
                   isLibraryFee: e.target.checked,
-                  isDiscount: false,
                   isTuition: false,
                   isFine: false,
                   isLabFee: false,
@@ -1931,7 +1884,6 @@ const FeeManagement = () => {
                 <input type="checkbox" id="isRegistrationFee" checked={feeHeadForm.isRegistrationFee} onChange={e => setFeeHeadForm({
                   ...feeHeadForm,
                   isRegistrationFee: e.target.checked,
-                  isDiscount: false,
                   isTuition: false,
                   isFine: false,
                   isLabFee: false,
@@ -1948,7 +1900,6 @@ const FeeManagement = () => {
                 <input type="checkbox" id="isAdmissionFee" checked={feeHeadForm.isAdmissionFee} onChange={e => setFeeHeadForm({
                   ...feeHeadForm,
                   isAdmissionFee: e.target.checked,
-                  isDiscount: false,
                   isTuition: false,
                   isFine: false,
                   isLabFee: false,
@@ -1965,7 +1916,6 @@ const FeeManagement = () => {
                 <input type="checkbox" id="isProspectusFee" checked={feeHeadForm.isProspectusFee} onChange={e => setFeeHeadForm({
                   ...feeHeadForm,
                   isProspectusFee: e.target.checked,
-                  isDiscount: false,
                   isTuition: false,
                   isFine: false,
                   isLabFee: false,
@@ -1982,7 +1932,6 @@ const FeeManagement = () => {
                 <input type="checkbox" id="isExaminationFee" checked={feeHeadForm.isExaminationFee} onChange={e => setFeeHeadForm({
                   ...feeHeadForm,
                   isExaminationFee: e.target.checked,
-                  isDiscount: false,
                   isTuition: false,
                   isFine: false,
                   isLabFee: false,
@@ -1999,7 +1948,6 @@ const FeeManagement = () => {
                 <input type="checkbox" id="isAlliedCharges" checked={feeHeadForm.isAlliedCharges} onChange={e => setFeeHeadForm({
                   ...feeHeadForm,
                   isAlliedCharges: e.target.checked,
-                  isDiscount: false,
                   isTuition: false,
                   isFine: false,
                   isLabFee: false,
@@ -2016,7 +1964,6 @@ const FeeManagement = () => {
                 <input type="checkbox" id="isHostelFee" checked={feeHeadForm.isHostelFee} onChange={e => setFeeHeadForm({
                   ...feeHeadForm,
                   isHostelFee: e.target.checked,
-                  isDiscount: false,
                   isTuition: false,
                   isFine: false,
                   isLabFee: false,
@@ -2034,7 +1981,6 @@ const FeeManagement = () => {
                 <input type="checkbox" id="isOther" checked={feeHeadForm.isOther} onChange={e => setFeeHeadForm({
                   ...feeHeadForm,
                   isOther: e.target.checked,
-                  isDiscount: false,
                   isTuition: false,
                   isFine: false,
                   isLabFee: false,
@@ -2140,47 +2086,26 @@ const FeeManagement = () => {
             <AlertDialogDescription asChild>
               <div>
                 {itemToPay && (() => {
-                  const netPayable = (itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0) - (itemToPay.discount || 0);
+                  const netPayable = (itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0);
                   const remaining = Math.max(0, netPayable - (itemToPay.paidAmount || 0));
                   return (
                     <div className="mt-2 space-y-3">
                       <div className="p-2 bg-muted rounded-md space-y-1 text-sm">
-                        <div className="flex justify-between">
-                          <span>Standard Amt + Extras:</span>
-                          <span>PKR {formatAmount((itemToPay.amount || 0) + (itemToPay.fineAmount || 0) + (itemToPay.lateFeeFine || 0))}</span>
-                        </div>
-                        <div className="flex justify-between text-destructive">
-                          <span>Scholarship Discount:</span>
-                          <span>-PKR {formatAmount(itemToPay.discount || 0)}</span>
-                        </div>
                         {(itemToPay.paidAmount || 0) > 0 && (
                           <div className="flex justify-between text-success">
                             <span>Already Paid:</span>
                             <span>PKR {formatAmount(itemToPay.paidAmount)}</span>
                           </div>
                         )}
-                        <div className="flex justify-between font-bold border-t pt-1">
+                        <div className="flex justify-between font-bold">
                           <span>Remaining Due:</span>
                           <span>PKR {formatAmount(remaining)}</span>
                         </div>
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold">Payment Amount (PKR)</Label>
-                        <Input
-                          type="number"
-                          value={paymentAmount}
-                          onChange={(e) => setPaymentAmount(e.target.value)}
-                          placeholder={`Max: ${remaining}`}
-                          className="font-semibold"
-                        />
-                        <div className="flex gap-2 mt-1">
-                          <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => setPaymentAmount(remaining.toString())}>
-                            Full Amount
-                          </Button>
-                          <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => setPaymentAmount(Math.round(remaining / 2).toString())}>
-                            Half
-                          </Button>
-                        </div>
+                      <div className="p-2 bg-primary/5 border border-primary/20 rounded-md">
+                        <p className="text-xs text-center font-medium text-primary">
+                          Confirming this will record the full amount of <strong>PKR {formatAmount(remaining)}</strong> as paid.
+                        </p>
                       </div>
                     </div>
                   );
@@ -2328,17 +2253,11 @@ const FeeManagement = () => {
                               .filter(h => selected.includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
                               .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
 
-                            const discountSum = feeHeads
-                              .filter(h => selected.includes(Number(h.id)) && h.isDiscount)
-                              .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
-
-                            const baseDiscount = parseFloat(editingChallan?.discount || 0);
-
                             setChallanForm({
                               ...challanForm,
                               selectedHeads: selected,
                               fineAmount: additionalSum,
-                              discount: (baseDiscount + discountSum).toString()
+                              discount: "0"
                             });
                           }}
                         />
@@ -2378,62 +2297,66 @@ const FeeManagement = () => {
                     // This is just a UI preview.
                     const tuitionTotal = targetInst ? targetInst.amount : (parseFloat(editingChallan?.amount) || 0);
                     const tuitionPaid = targetInst ? (targetInst.paidAmount || 0) : (parseFloat(editingChallan?.paidAmount) || 0);
+                    const tuitionPending = targetInst ? (targetInst.pendingAmount || 0) : 0;
+                    const tuitionRemaining = targetInst ? (targetInst.remainingAmount || 0) : 0;
+
                     const tuitionSelected = parseFloat(challanForm.amount) || 0;
-                    const tuitionPending = Math.max(0, tuitionTotal - tuitionPaid); // This is static based on DB
 
                     const arrears = (challanForm.arrearsAmount !== "" && challanForm.arrearsAmount !== undefined)
                       ? (parseFloat(challanForm.arrearsAmount) || 0)
                       : genStudentPlan.filter(inst => {
                         const d = new Date(inst.dueDate);
                         return targetInst ? d < new Date(targetInst.dueDate) : false;
-                      }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0);
+                      }).reduce((sum, inst) => sum + (inst.remainingAmount || 0), 0);
 
                     const selectedHeadIds = (challanForm.selectedHeads || []).map(id => Number(id));
                     const additionalSum = feeHeads
-                      .filter(h => selectedHeadIds.includes(Number(h.id)) && !h.isDiscount)
+                      .filter(h => selectedHeadIds.includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
                       .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
 
-                    const discountSum = feeHeads
-                      .filter(h => selectedHeadIds.includes(Number(h.id)) && h.isDiscount)
-                      .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
-
-                    const grandTotal = tuitionSelected + arrears + additionalSum - discountSum + (editingChallan?.lateFeeFine || 0);
+                    const grandTotal = tuitionSelected + arrears + additionalSum + (editingChallan?.lateFeeFine || 0);
 
                     return (
                       <div className="space-y-1.5">
                         <div className="flex justify-between items-center text-[10px] text-muted-foreground uppercase font-bold px-1 border-b border-orange-200/50 pb-1">
-                          <span>Payment Breakdown (Editing)</span>
-                          <span className="text-orange-700">Detailed View</span>
+                          <span>Inst. Overview</span>
+                          <span className="text-orange-700">Total: Rs. {tuitionTotal.toLocaleString()}</span>
                         </div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] px-1">
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Inst. Total:</span>
-                            <span className="font-semibold">Rs. {tuitionTotal.toLocaleString()}</span>
+                        <div className="grid grid-cols-4 gap-1 text-center py-1">
+                          <div className="flex flex-col border rounded bg-white p-1">
+                            <span className="text-[8px] text-muted-foreground uppercase font-bold">Paid</span>
+                            <span className="text-[10px] font-bold text-success">Rs. {tuitionPaid.toLocaleString()}</span>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Already Paid:</span>
-                            <span className="text-success font-semibold">Rs. {tuitionPaid.toLocaleString()}</span>
+                          <div className="flex flex-col border rounded bg-orange-50 p-1 border-orange-100">
+                            <span className="text-[8px] text-orange-600 uppercase font-bold">Pending</span>
+                            <span className="text-[10px] font-bold text-orange-700">Rs. {tuitionPending.toLocaleString()}</span>
                           </div>
-                          <div className="flex justify-between bg-orange-100/30 px-1 rounded">
-                            <span className="text-orange-800 font-bold">New Amount:</span>
-                            <span className="text-orange-800 font-bold">Rs. {tuitionSelected.toLocaleString()}</span>
+                          <div className="flex flex-col border rounded bg-blue-50 p-1 border-blue-100">
+                            <span className="text-[8px] text-blue-600 uppercase font-bold">Available</span>
+                            <span className="text-[10px] font-bold text-blue-700">Rs. {tuitionRemaining.toLocaleString()}</span>
                           </div>
-                          <div className="flex justify-between border-t border-orange-200 pt-0.5 mt-0.5">
-                            <span className="text-muted-foreground">Prev. Arrears:</span>
-                            <span className="font-semibold">Rs. {arrears.toLocaleString()}</span>
+                          <div className="flex flex-col border rounded bg-orange-600 p-1 border-orange-700 text-white">
+                            <span className="text-[8px] uppercase font-bold opacity-80">This Bill</span>
+                            <span className="text-[10px] font-bold">Rs. {tuitionSelected.toLocaleString()}</span>
                           </div>
-                          <div className="flex justify-between border-t border-orange-200 pt-0.5 mt-0.5">
-                            <span className="text-muted-foreground">Extra Heads:</span>
-                            <span className="font-semibold">Rs. {(additionalSum - discountSum).toLocaleString()}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] px-1 border-t pt-1">
+                          <div className="flex justify-between text-red-600">
+                            <span className="font-semibold italic flex items-center gap-1"><History className="h-2.5 w-2.5" /> Arrears:</span>
+                            <span className="font-bold">Rs. {arrears.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between text-blue-600">
+                            <span className="font-semibold italic flex items-center gap-1"><Plus className="h-2.5 w-2.5" /> Extra:</span>
+                            <span className="font-bold">Rs. {additionalSum.toLocaleString()}</span>
                           </div>
                           {editingChallan?.lateFeeFine > 0 && (
-                            <div className="flex justify-between">
+                            <div className="col-span-2 flex justify-between border-t border-dashed pt-0.5 mt-0.5">
                               <span className="text-destructive font-semibold italic">Late Fee Fine:</span>
-                              <span className="text-destructive font-semibold">Rs. {editingChallan.lateFeeFine.toLocaleString()}</span>
+                              <span className="text-destructive font-bold">Rs. {editingChallan.lateFeeFine.toLocaleString()}</span>
                             </div>
                           )}
                         </div>
-                        <div className="pt-1.5 mt-1 border-t border-orange-300 flex justify-between items-center px-1">
+                        <div className="pt-1 mt-1 border-t-2 border-orange-300 flex justify-between items-center px-1">
                           <span className="text-[10px] font-black text-orange-800 uppercase">Grand Total Payable</span>
                           <span className="text-lg font-black text-orange-700">Rs. {grandTotal.toLocaleString()}</span>
                         </div>
@@ -2551,15 +2474,166 @@ const FeeManagement = () => {
       <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
         <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Challan Preview</DialogTitle>
+            <DialogTitle className="flex justify-between items-center">
+              <span>Challan Preview & Details</span>
+              {selectedChallanDetails && (
+                <Button variant="outline" size="sm" onClick={() => printChallan(selectedChallanDetails.id)} className="gap-2">
+                  <Printer className="w-4 h-4" /> Print Challan
+                </Button>
+              )}
+            </DialogTitle>
           </DialogHeader>
+          
           {selectedChallanDetails && (
-            <div
-              className="w-full"
-              dangerouslySetInnerHTML={{
-                __html: generateChallanHtml(selectedChallanDetails)
-              }}
-            />
+            <div className="space-y-6">
+              {/* Structured Summary Card */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card className="shadow-soft border-primary/10">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <Receipt className="w-4 h-4 text-primary" />
+                      Payment Breakdown
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex justify-between items-center py-2 border-b border-dashed">
+                      <span className="text-sm">Tuition Amount</span>
+                      <span className="font-semibold">PKR {(selectedChallanDetails.amount - (selectedChallanDetails.arrearsAmount || 0)).toLocaleString()}</span>
+                    </div>
+                    
+                    {selectedChallanDetails.arrearsAmount > 0 && (
+                      <div className="flex justify-between items-center py-2 border-b border-dashed text-red-600">
+                        <span className="text-sm flex items-center gap-1"><History className="w-3 h-3" /> Previous Arrears</span>
+                        <span className="font-semibold">PKR {selectedChallanDetails.arrearsAmount.toLocaleString()}</span>
+                      </div>
+                    )}
+
+                    {/* Dynamic Fee Heads Section */}
+                    {(() => {
+                      try {
+                        const raw = (selectedChallanDetails.selectedHeads && typeof selectedChallanDetails.selectedHeads === 'string')
+                          ? JSON.parse(selectedChallanDetails.selectedHeads)
+                          : (selectedChallanDetails.selectedHeads || []);
+                        
+                        const activeHeads = Array.isArray(raw) ? raw.filter(h => 
+                          (typeof h === 'object' && h !== null && h.isSelected && h.amount > 0) || 
+                          (typeof h === 'number')
+                        ) : [];
+
+                        if (activeHeads.length === 0) return null;
+
+                        return (
+                          <div className="pt-2">
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Additional Heads</p>
+                            <div className="space-y-2">
+                              {activeHeads.map((item, idx) => {
+                                let name = "Additional Head";
+                                let amount = 0;
+
+                                if (typeof item === 'object' && item !== null) {
+                                  name = item.name;
+                                  amount = item.amount;
+                                } else {
+                                  // Fallback for ID-only legacy snapshots
+                                  const head = (feeHeads || []).find(h => Number(h.id) === Number(item));
+                                  if (head) {
+                                    name = head.name;
+                                    amount = parseFloat(head.amount) || 0;
+                                  }
+                                }
+
+                                return (
+                                  <div key={idx} className="flex justify-between items-center py-1 text-xs text-muted-foreground">
+                                    <span>{name}</span>
+                                    <span>PKR {amount.toLocaleString()}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      } catch (e) {
+                        return null;
+                      }
+                    })()}
+
+                    {selectedChallanDetails.lateFeeFine > 0 && (
+                      <div className="flex justify-between items-center py-2 border-b border-dashed text-destructive">
+                        <span className="text-sm font-medium">Late Fee Fine</span>
+                        <span className="font-bold">PKR {selectedChallanDetails.lateFeeFine.toLocaleString()}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between items-center pt-4 border-t-2 border-primary/20 mt-2">
+                      <span className="text-base font-bold text-primary">Total Amount</span>
+                      <span className="text-xl font-black text-primary">PKR {((selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0)).toLocaleString()}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-soft border-success/10 bg-success/5">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-bold uppercase tracking-wider text-success flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Collection Status
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 bg-white rounded-lg border border-success/20 shadow-sm">
+                        <p className="text-[10px] font-bold text-success uppercase">Paid Amount</p>
+                        <p className="text-lg font-black text-success">PKR {(selectedChallanDetails.paidAmount || 0).toLocaleString()}</p>
+                      </div>
+                      <div className="p-3 bg-white rounded-lg border border-warning/20 shadow-sm">
+                        <p className="text-[10px] font-bold text-warning-700 uppercase">Balance Due</p>
+                        <p className="text-lg font-black text-warning-700">
+                          PKR {Math.max(0, ((selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0)) - (selectedChallanDetails.paidAmount || 0)).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 mt-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Status:</span>
+                        <Badge variant={selectedChallanDetails.status === "PAID" ? "default" : "secondary"}>{selectedChallanDetails.status}</Badge>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Issue Date:</span>
+                        <span className="font-medium">{new Date(selectedChallanDetails.issueDate).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Due Date:</span>
+                        <span className="font-medium text-destructive">{new Date(selectedChallanDetails.dueDate).toLocaleDateString()}</span>
+                      </div>
+                      {selectedChallanDetails.paidDate && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Payment Date:</span>
+                          <span className="font-bold text-success">{new Date(selectedChallanDetails.paidDate).toLocaleDateString()}</span>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Print Preview Divider */}
+              <div className="relative py-4">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-dashed border-muted-foreground/30"></span>
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-4 text-muted-foreground font-semibold tracking-widest">Official Print Preview</span>
+                </div>
+              </div>
+
+              {/* HTML Preview */}
+              <div
+                className="w-full border rounded-xl p-8 bg-white shadow-inner overflow-x-auto"
+                dangerouslySetInnerHTML={{
+                  __html: generateChallanHtml(selectedChallanDetails)
+                }}
+              />
+            </div>
           )}
         </DialogContent>
       </Dialog>
@@ -2719,20 +2793,15 @@ const FeeManagement = () => {
                                           const d = new Date(inst.dueDate);
                                           return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
                                         });
-                                        if (targetInst) {
-                                          const arrearsAmount = installments.filter(inst => {
-                                            const d = new Date(inst.dueDate);
-                                            return targetInst ? d < new Date(targetInst.dueDate) : false;
-                                          }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0);
-                                          setGenCustomArrears(arrearsAmount.toString());
-                                          setGenCustomAmount((targetInst.amount - (targetInst.paidAmount || 0)).toString());
-                                          setGenDueDate(new Date(targetInst.dueDate));
-                                        } else {
-                                          setGenCustomAmount("");
-                                          setGenCustomArrears("");
-                                          const [y, m] = generateForm.month.split('-').map(Number);
-                                          setGenDueDate(new Date(y, m - 1, 10));
-                                        }
+
+                                        const unpaidArrears = installments.filter(inst => {
+                                          const d = new Date(inst.dueDate);
+                                          return targetInst ? d < new Date(targetInst.dueDate) : false;
+                                        }).reduce((sum, inst) => sum + (inst.remainingAmount || 0), 0);
+
+                                        setGenCustomArrears(unpaidArrears.toString());
+                                        setGenCustomAmount(targetInst ? targetInst.remainingAmount.toString() : "");
+                                        setGenDueDate(targetInst ? new Date(targetInst.dueDate) : new Date(selYear, selMonth - 1, 10));
                                       } catch (error) {
                                         console.error("Failed to fetch plan:", error);
                                         toast({
@@ -2855,142 +2924,167 @@ const FeeManagement = () => {
                             </div>
                           </div>
 
-                          <div className="col-span-2 space-y-2 pt-1.5 border-t text-sm">
-                            <div className="flex justify-between items-center text-[11px] px-2 py-1 bg-red-50 text-red-700 rounded border border-red-100 font-semibold tracking-tight">
-                              <div className="flex items-center gap-2">
-                                <TrendingUp className="h-3.5 w-3.5" /> Total Outstanding Arrears:
-                              </div>
-                              <span className="font-bold">
-                                Rs. {(() => {
-                                  const [selYear, selMonth] = generateForm.month.split('-').map(Number);
-                                  const targetInst = genStudentPlan.find(inst => {
-                                    const d = new Date(inst.dueDate);
-                                    return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
-                                  });
-                                  return genStudentPlan.filter(inst => {
-                                    const d = new Date(inst.dueDate);
-                                    return targetInst ? d < new Date(targetInst.dueDate) : false;
-                                  }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0).toLocaleString();
-                                })()}
-                              </span>
-                            </div>
+                          <div className="col-span-2 space-y-2 pt-1 border-t text-sm bg-orange-50/20 -mx-2 px-2 pb-1 rounded-b-lg">
+                            {(() => {
+                              const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                              const targetInst = genStudentPlan.find(inst => {
+                                const d = new Date(inst.dueDate);
+                                return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+                              });
 
-                            <div className="space-y-1">
-                              <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Additional Fee Heads</Label>
-                              <div className="grid grid-cols-2 gap-1 border rounded-md p-1.5 max-h-[85px] overflow-y-auto bg-white/40 shadow-inner scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
-                                {feeHeads.filter(h => !h.isTuition).map(head => (
-                                  <div key={head.id} className="flex items-center space-x-2 p-1.5 hover:bg-orange-50 rounded transition-colors group">
-                                    <input
-                                      type="checkbox"
-                                      id={`gen-head-${head.id}`}
-                                      className="accent-orange-600 h-3.5 w-3.5 rounded"
-                                      checked={genSelectedHeads.includes(head.id)}
-                                      onChange={(e) => {
-                                        if (e.target.checked) {
-                                          setGenSelectedHeads([...genSelectedHeads, head.id]);
-                                        } else {
-                                          setGenSelectedHeads(genSelectedHeads.filter(id => id !== head.id));
-                                        }
-                                      }}
-                                    />
-                                    <label htmlFor={`gen-head-${head.id}`} className="text-[11px] cursor-pointer flex-1 flex justify-between items-center">
-                                      <span className="truncate group-hover:text-orange-700">{head.name}</span>
-                                      <span className="text-muted-foreground pl-1 italic">Rs. {head.amount.toLocaleString()}</span>
-                                    </label>
+                              if (!targetInst) return null;
+
+                              return (
+                                <div className="space-y-1.5 pt-1">
+                                  <div className="flex justify-between items-center text-[10px] text-muted-foreground uppercase font-bold px-1 border-b border-orange-200/50 pb-1">
+                                    <span>Installment Tracking</span>
+                                    <span className="text-orange-700">Month: {generateForm.month}</span>
                                   </div>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="space-y-1">
-                              <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Remarks</Label>
-                              <Textarea
-                                placeholder="Optional notes for this challan"
-                                value={genRemarks}
-                                onChange={(e) => setGenRemarks(e.target.value)}
-                                className="text-xs min-h-[40px] h-[40px] resize-none py-1 px-2"
-                              />
-                            </div>
-
-                            <div className="pt-2 border-t bg-orange-50/10 -mx-2 -mb-2 p-2 rounded-b-lg border-orange-100">
-                              {(() => {
-                                const [selYear, selMonth] = generateForm.month.split('-').map(Number);
-                                const targetInst = genStudentPlan.find(inst => {
-                                  const d = new Date(inst.dueDate);
-                                  return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
-                                });
-
-                                const tuitionTotal = targetInst ? targetInst.amount : 0;
-                                const tuitionPaid = targetInst ? (targetInst.paidAmount || 0) : 0;
-                                const tuitionSelected = parseFloat(genCustomAmount) || 0;
-                                const tuitionPending = Math.max(0, tuitionTotal - tuitionPaid - tuitionSelected);
-
-                                const arrears = genCustomArrears !== "" ? (parseFloat(genCustomArrears) || 0) : genStudentPlan.filter(inst => {
-                                  const d = new Date(inst.dueDate);
-                                  return targetInst ? d < new Date(targetInst.dueDate) : false;
-                                }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0);
-
-                                const additionalSum = feeHeads
-                                  .filter(h => genSelectedHeads.includes(h.id) && !h.isDiscount)
-                                  .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
-
-                                const discountSum = feeHeads
-                                  .filter(h => genSelectedHeads.includes(h.id) && h.isDiscount)
-                                  .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
-
-                                const grandTotal = tuitionSelected + arrears + additionalSum - discountSum;
-
-                                return (
-                                  <div className="space-y-1.5">
-                                    <div className="flex justify-between items-center text-[10px] text-muted-foreground uppercase font-bold px-1 border-b border-orange-200/50 pb-1">
-                                      <span>Payment Breakdown</span>
-                                      <span className="text-orange-700">Detailed View</span>
+                                  <div className="grid grid-cols-3 gap-2 text-center">
+                                    <div className="flex flex-col border rounded bg-white p-1">
+                                      <span className="text-[9px] text-muted-foreground uppercase font-bold">Total</span>
+                                      <span className="text-xs font-bold">Rs. {targetInst.amount.toLocaleString()}</span>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] px-1">
-                                      <div className="flex justify-between">
-                                        <span className="text-muted-foreground">Inst. Total:</span>
-                                        <span className="font-semibold">Rs. {tuitionTotal.toLocaleString()}</span>
-                                      </div>
-                                      <div className="flex justify-between">
-                                        <span className="text-muted-foreground">Inst. Paid:</span>
-                                        <span className="text-success font-semibold">Rs. {tuitionPaid.toLocaleString()}</span>
-                                      </div>
-                                      <div className="flex justify-between bg-orange-100/30 px-1 rounded">
-                                        <span className="text-orange-800 font-bold">Selected:</span>
-                                        <span className="text-orange-800 font-bold">Rs. {tuitionSelected.toLocaleString()}</span>
-                                      </div>
-                                      <div className="flex justify-between">
-                                        <span className="text-muted-foreground">Remaining:</span>
-                                        <span className="text-destructive font-semibold">Rs. {tuitionPending.toLocaleString()}</span>
-                                      </div>
-                                      <div className="flex justify-between border-t border-orange-200 pt-0.5 mt-0.5">
-                                        <span className="text-muted-foreground">Prev. Arrears:</span>
-                                        <span className="font-semibold">Rs. {arrears.toLocaleString()}</span>
-                                      </div>
-                                      <div className="flex justify-between border-t border-orange-200 pt-0.5 mt-0.5">
-                                        <span className="text-muted-foreground">Extra Heads:</span>
-                                        <span className="font-semibold">Rs. {(additionalSum - discountSum).toLocaleString()}</span>
-                                      </div>
+                                    <div className="flex flex-col border rounded bg-emerald-50 p-1 border-emerald-100">
+                                      <span className="text-[9px] text-emerald-600 uppercase font-bold">Paid</span>
+                                      <span className="text-xs font-bold text-emerald-700">Rs. {(targetInst.paidAmount || 0).toLocaleString()}</span>
                                     </div>
-                                    <div className="pt-1.5 mt-1 border-t border-orange-300 flex justify-between items-center px-1">
-                                      <span className="text-[10px] font-black text-orange-800 uppercase">Grand Total Payable</span>
-                                      <span className="text-lg font-black text-orange-700">Rs. {grandTotal.toLocaleString()}</span>
+                                    <div className="flex flex-col border rounded bg-orange-50 p-1 border-orange-100">
+                                      <span className="text-[9px] text-orange-600 uppercase font-bold">Pending</span>
+                                      <span className="text-xs font-bold text-orange-700">Rs. {(targetInst.pendingAmount || 0).toLocaleString()}</span>
                                     </div>
                                   </div>
-                                );
-                              })()}
+                                  <div className="flex justify-between items-center px-1 pt-0.5">
+                                    <div className="flex items-center gap-1.5 text-[11px] font-semibold text-orange-800 bg-orange-100/50 px-2 py-0.5 rounded-full border border-orange-200">
+                                      <TrendingUp className="h-3 w-3" /> Available: Rs. {targetInst.remainingAmount.toLocaleString()}
+                                    </div>
+                                    <div className="text-[11px] font-bold text-red-600 flex items-center gap-1">
+                                      <History className="h-3 w-3" /> Arrears: Rs. {genStudentPlan.filter(inst => {
+                                        const d = new Date(inst.dueDate);
+                                        return targetInst ? d < new Date(targetInst.dueDate) : false;
+                                      }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0).toLocaleString()}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Additional Fee Heads</Label>
+                            <div className="grid grid-cols-2 gap-1 border rounded-md p-1.5 max-h-[85px] overflow-y-auto bg-white/40 shadow-inner scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+                              {feeHeads.filter(h => !h.isTuition).map(head => (
+                                <div key={head.id} className="flex items-center space-x-2 p-1.5 hover:bg-orange-50 rounded transition-colors group">
+                                  <input
+                                    type="checkbox"
+                                    id={`gen-head-${head.id}`}
+                                    className="accent-orange-600 h-3.5 w-3.5 rounded"
+                                    checked={genSelectedHeads.includes(head.id)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setGenSelectedHeads([...genSelectedHeads, head.id]);
+                                      } else {
+                                        setGenSelectedHeads(genSelectedHeads.filter(id => id !== head.id));
+                                      }
+                                    }}
+                                  />
+                                  <label htmlFor={`gen-head-${head.id}`} className="text-[11px] cursor-pointer flex-1 flex justify-between items-center">
+                                    <span className="truncate group-hover:text-orange-700">{head.name}</span>
+                                    <span className="text-muted-foreground pl-1 italic">Rs. {head.amount.toLocaleString()}</span>
+                                  </label>
+                                </div>
+                              ))}
                             </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Remarks</Label>
+                            <Textarea
+                              placeholder="Optional notes for this challan"
+                              value={genRemarks}
+                              onChange={(e) => setGenRemarks(e.target.value)}
+                              className="text-xs min-h-[40px] h-[40px] resize-none py-1 px-2"
+                            />
+                          </div>
+
+                          <div className="pt-2 border-t bg-orange-50/10 -mx-2 -mb-2 p-2 rounded-b-lg border-orange-100">
+                            {(() => {
+                              const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                              const targetInst = genStudentPlan.find(inst => {
+                                const d = new Date(inst.dueDate);
+                                return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+                              });
+
+                              const tuitionTotal = targetInst ? targetInst.amount : 0;
+                              const tuitionPaid = targetInst ? (targetInst.paidAmount || 0) : 0;
+                              const tuitionSelected = parseFloat(genCustomAmount) || 0;
+                              const tuitionPending = Math.max(0, tuitionTotal - tuitionPaid - tuitionSelected);
+
+                              const arrears = genCustomArrears !== "" ? (parseFloat(genCustomArrears) || 0) : genStudentPlan.filter(inst => {
+                                const d = new Date(inst.dueDate);
+                                return targetInst ? d < new Date(targetInst.dueDate) : false;
+                              }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0);
+
+                              const additionalSum = feeHeads
+                                .filter(h => genSelectedHeads.includes(h.id) && !h.isDiscount && !h.isTuition)
+                                .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+
+                              const grandTotal = tuitionSelected + arrears + additionalSum;
+
+                              return (
+                                <div className="space-y-1.5">
+                                  <div className="flex justify-between items-center text-[10px] text-muted-foreground uppercase font-bold px-1 border-b border-orange-200/50 pb-1">
+                                    <span>Inst. Overview</span>
+                                    <span className="text-orange-700">Total: Rs. {tuitionTotal.toLocaleString()}</span>
+                                  </div>
+                                  <div className="grid grid-cols-4 gap-1 text-center py-1">
+                                    <div className="flex flex-col border rounded bg-white p-1">
+                                      <span className="text-[8px] text-muted-foreground uppercase font-bold">Paid</span>
+                                      <span className="text-[10px] font-bold text-success">Rs. {tuitionPaid.toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex flex-col border rounded bg-orange-50 p-1 border-orange-100">
+                                      <span className="text-[8px] text-orange-600 uppercase font-bold">Pending</span>
+                                      <span className="text-[10px] font-bold text-orange-700">Rs. {(targetInst?.pendingAmount || 0).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex flex-col border rounded bg-blue-50 p-1 border-blue-100">
+                                      <span className="text-[8px] text-blue-600 uppercase font-bold">Available</span>
+                                      <span className="text-[10px] font-bold text-blue-700">Rs. {(targetInst?.remainingAmount || 0).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex flex-col border rounded bg-orange-600 p-1 border-orange-700 text-white">
+                                      <span className="text-[8px] uppercase font-bold opacity-80">This Bill</span>
+                                      <span className="text-[10px] font-bold">Rs. {tuitionSelected.toLocaleString()}</span>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] px-1 border-t pt-1">
+                                    <div className="flex justify-between text-red-600">
+                                      <span className="font-semibold italic flex items-center gap-1"><History className="h-2.5 w-2.5" /> Arrears:</span>
+                                      <span className="font-bold">Rs. {arrears.toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between text-blue-600">
+                                      <span className="font-semibold italic flex items-center gap-1"><Plus className="h-2.5 w-2.5" /> Extra:</span>
+                                      <span className="font-bold">Rs. {additionalSum.toLocaleString()}</span>
+                                    </div>
+                                  </div>
+                                  <div className="pt-1 mt-1 border-t-2 border-orange-300 flex justify-between items-center px-1">
+                                    <span className="text-[10px] font-black text-orange-800 uppercase">Grand Total Payable</span>
+                                    <span className="text-lg font-black text-orange-700">Rs. {grandTotal.toLocaleString()}</span>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>
-                    )}
+                    )
+                    }
                     {genSelectedStudent && genStudentPlan.length === 0 && (
-                      <div className="p-4 text-center border border-dashed rounded-md bg-yellow-50 text-yellow-700 text-sm">
+                      <div className="p-4 text-center border border-dashed rounded-md bg-yellow-50 text-yellow-700 text-sm mt-4">
                         No installment plan found for this student in their current class.
                       </div>
                     )}
                   </div>
-                )}
+                )
+                }
               </div>
 
               <div className="pt-2 flex justify-end gap-2 border-t bg-muted/10 -mx-3 -mb-3 p-3">
@@ -3046,7 +3140,8 @@ const FeeManagement = () => {
           )}
         </DialogContent>
       </Dialog>
-    </div >
-  </DashboardLayout >;
+    </div>
+  </DashboardLayout>;
 };
+
 export default FeeManagement;

@@ -19,9 +19,6 @@ export class CreateFeeHeadDto {
   @IsOptional()
   description?: string;
 
-  @IsBoolean()
-  @IsOptional()
-  isDiscount?: boolean;
 
   @IsBoolean()
   @IsOptional()

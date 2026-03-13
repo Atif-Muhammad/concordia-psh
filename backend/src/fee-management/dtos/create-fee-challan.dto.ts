@@ -24,9 +24,6 @@ export class CreateFeeChallanDto {
   @IsNotEmpty()
   dueDate: string;
 
-  @IsNumber()
-  @IsOptional()
-  discount?: number;
 
   @IsNumber()
   @IsOptional()

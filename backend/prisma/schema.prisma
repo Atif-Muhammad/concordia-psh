@@ -1229,6 +1229,8 @@ model StudentFeeInstallment {
   installmentNumber Int
   amount            Int
   paidAmount        Float    @default(0)
+  pendingAmount     Float    @default(0)
+  remainingAmount   Float    @default(0)
   status            InstallmentStatus @default(PENDING)
   dueDate           DateTime
   
