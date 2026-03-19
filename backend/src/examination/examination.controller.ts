@@ -2,13 +2,15 @@ import {
   Controller,
   Post,
   Get,
-  Put,
+  Patch,
   Delete,
   Body,
   Param,
   Query,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
-import { CreateExamDto } from './dtos/exam.dto';
+import { CreateExamDto, UpdateExamDto } from './dtos/exam.dto';
 import { ExaminationService } from './examination.service';
 import {
   CreateMarksDto,
@@ -16,73 +18,94 @@ import {
   BulkCreateMarksDto,
 } from './dtos/marks.dto';
 import { CreateResultDto, UpdateResultDto } from './dtos/result.dto';
-import { CreatePositionDto, UpdatePositionDto } from './dtos/position.dto';
+import { JwtAccGuard } from 'src/common/guards/jwt-access.guard';
+import { UpdatePositionDto } from './dtos/position.dto';
 
 @Controller('exams')
 export class ExaminationController {
-  constructor(private readonly examService: ExaminationService) {}
+  constructor(private readonly examinationService: ExaminationService) {}
+
   // exams
-  @Post('create')
-  create(@Body() dto: CreateExamDto) {
-    return this.examService.create(dto);
+  @UseGuards(JwtAccGuard)
+  @Post()
+  create(@Body() createExamDto: CreateExamDto, @Req() req: any) {
+    return this.examinationService.create(createExamDto, req.user);
   }
 
-  @Get('all')
-  findAll() {
-    return this.examService.findAll();
+  @UseGuards(JwtAccGuard)
+  @Get()
+  findAll(@Req() req: any) {
+    return this.examinationService.findAll(req.user);
   }
 
-  @Put('update')
-  update(@Query('id') id: string, @Body() dto: Partial<CreateExamDto>) {
-    return this.examService.update(Number(id), dto);
+  @UseGuards(JwtAccGuard)
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() updateExamDto: UpdateExamDto,
+    @Req() req: any,
+  ) {
+    return this.examinationService.update(+id, updateExamDto, req.user);
   }
 
-  @Delete('delete')
-  remove(@Query('id') id: string) {
-    return this.examService.delete(Number(id));
+  @UseGuards(JwtAccGuard)
+  @Delete(':id')
+  remove(@Param('id') id: string, @Req() req: any) {
+    return this.examinationService.delete(+id, req.user);
   }
 
   //   marks
-  @Post('marks/create')
-  createMarks(@Body() dto: CreateMarksDto) {
-    return this.examService.createMarks(dto);
+  @UseGuards(JwtAccGuard)
+  @Post('marks')
+  createMarks(@Body() createMarksDto: CreateMarksDto, @Req() req: any) {
+    return this.examinationService.createMarks(createMarksDto, req.user);
   }
 
-  @Post('marks/bulk-create')
-  createMarksBulk(@Body() dto: BulkCreateMarksDto) {
-    return this.examService.bulkCreateMarks(dto);
+  @UseGuards(JwtAccGuard)
+  @Post('marks/bulk')
+  bulkCreateMarks(@Body() dto: BulkCreateMarksDto, @Req() req: any) {
+    return this.examinationService.bulkCreateMarks(dto, req.user);
   }
 
-  @Get('marks/all')
+  @UseGuards(JwtAccGuard)
+  @Get('marks')
   findAllMarks(
-    @Query('examId') examId?: string,
-    @Query('sectionId') sectionId?: string,
+    @Query('examId') examId: string,
+    @Query('sectionId') sectionId: string,
+    @Req() req: any,
   ) {
-    return this.examService.findAllMarks(
-      examId ? Number(examId) : undefined,
-      sectionId ? Number(sectionId) : undefined,
+    return this.examinationService.findAllMarks(
+      examId ? +examId : undefined,
+      sectionId ? +sectionId : undefined,
+      req.user,
     );
   }
 
-  @Put('marks/update')
-  updateMarks(@Query('id') id: string, @Body() dto: UpdateMarksDto) {
-    return this.examService.updateMarks(id, dto);
+  @UseGuards(JwtAccGuard)
+  @Patch('marks/:id')
+  updateMarks(
+    @Param('id') id: string,
+    @Body() updateMarksDto: UpdateMarksDto,
+    @Req() req: any,
+  ) {
+    return this.examinationService.updateMarks(id, updateMarksDto, req.user);
   }
 
   @Delete('marks/delete')
   removeMarks(@Query('id') id: string) {
-    return this.examService.deleteMarks(id);
+    return this.examinationService.deleteMarks(id);
   }
 
   //results
   @Post('result/create')
   createResult(@Body() dto: CreateResultDto) {
-    return this.examService.createResult(dto);
+    return this.examinationService.createResult(dto);
   }
 
+  @UseGuards(JwtAccGuard)
   @Get('result/all')
-  findAllResults() {
-    return this.examService.findAllResults();
+  findAllResults(@Req() req: any) {
+    return this.examinationService.findAllResults(req.user);
   }
 
   @Post('result/generate')
@@ -90,20 +113,20 @@ export class ExaminationController {
     @Query('examId') examId: string,
     @Query('classId') classId?: string,
   ) {
-    return this.examService.generateResultsForExam(
+    return this.examinationService.generateResultsForExam(
       Number(examId),
       classId ? Number(classId) : undefined,
     );
   }
 
-  @Put('result/update')
+  @Patch('result/update')
   updateResult(@Query('id') id: string, @Body() dto: UpdateResultDto) {
-    return this.examService.updateResult(id, dto);
+    return this.examinationService.updateResult(id, dto);
   }
 
   @Delete('result/delete')
   removeResult(@Query('id') id: string) {
-    return this.examService.deleteResult(id);
+    return this.examinationService.deleteResult(id);
   }
 
   @Get('result/student')
@@ -111,7 +134,10 @@ export class ExaminationController {
     @Query('studentId') studentId: string,
     @Query('examId') examId: string,
   ) {
-    return this.examService.getStudentResult(Number(studentId), Number(examId));
+    return this.examinationService.getStudentResult(
+      Number(studentId),
+      Number(examId),
+    );
   }
 
   //positions
@@ -120,30 +146,33 @@ export class ExaminationController {
     @Query('examId') examId: string,
     @Query('classId') classId?: string,
   ) {
-    return this.examService.generatePositionsForExam(
+    return this.examinationService.generatePositionsForExam(
       Number(examId),
       classId ? Number(classId) : undefined,
     );
   }
 
+  @UseGuards(JwtAccGuard)
   @Get('positions/all')
   findAllPositions(
-    @Query('examId') examId?: string,
-    @Query('classId') classId?: string,
+    @Query('examId') examId: string,
+    @Query('classId') classId: string,
+    @Req() req: any,
   ) {
-    return this.examService.findAllPositions(
+    return this.examinationService.findAllPositions(
       examId ? Number(examId) : undefined,
       classId ? Number(classId) : undefined,
+      req.user,
     );
   }
 
-  @Put('positions/update')
+  @Patch('positions/update')
   updatePosition(@Query('id') id: string, @Body() dto: UpdatePositionDto) {
-    return this.examService.updatePosition(id, dto);
+    return this.examinationService.updatePosition(id, dto);
   }
 
   @Delete('positions/delete')
   removePosition(@Query('id') id: string) {
-    return this.examService.deletePosition(id);
+    return this.examinationService.deletePosition(id);
   }
 }

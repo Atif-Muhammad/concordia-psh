@@ -39,6 +39,7 @@ import {
   Trash2,
   Shield,
   Eye,
+  Settings,
   GraduationCap,
   MoreVertical,
   Check,
@@ -1285,11 +1286,16 @@ const Configuration = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium">
-          <h2 className="text-2xl font-bold mb-2">System Configuration</h2>
-          <p className="text-primary-foreground/90">
-            Configure institute settings, users, and system preferences
-          </p>
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <Settings className="w-8 h-8 text-primary" />
+              System Configuration
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Configure institute settings, users, and system preferences
+            </p>
+          </div>
         </div>
 
         <Tabs defaultValue="institute" className="space-y-6">

@@ -152,6 +152,7 @@ const STAFF_MODULES = [
     "Front Office",
     "Hostel",
     "Inventory",
+    "Complaints",
     "Configuration",
 ];
 
@@ -1142,9 +1143,10 @@ export default function Staff() {
                                             <Label className="mb-2 block">System Access Rights</Label>
                                             <div className="grid grid-cols-3 gap-2 p-3 bg-background rounded-md border">
                                                 {STAFF_MODULES.map((module) => (
-                                                    <label key={module} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 p-1 rounded transition-colors">
+                                                    <label key={module} className={`flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 p-1 rounded transition-colors ${((formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(module)) || (formData.isNonTeaching && module === "Complaints")) ? "opacity-70" : ""}`}>
                                                         <Checkbox
-                                                            checked={formData.accessRights?.includes(module)}
+                                                            checked={formData.accessRights?.includes(module) || (formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(module)) || (formData.isNonTeaching && module === "Complaints")}
+                                                            disabled={(formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(module)) || (formData.isNonTeaching && module === "Complaints")}
                                                             onCheckedChange={(checked) => {
                                                                 const rights = formData.accessRights || [];
                                                                 if (checked) {
@@ -1154,7 +1156,9 @@ export default function Staff() {
                                                                 }
                                                             }}
                                                         />
-                                                        {module}
+                                                        <span className={((formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(module)) || (formData.isNonTeaching && module === "Complaints")) ? "font-semibold text-primary/80" : ""}>
+                                                            {module} {((formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(module)) || (formData.isNonTeaching && module === "Complaints")) && <span className="text-[10px] opacity-70">(Fixed)</span>}
+                                                        </span>
                                                     </label>
                                                 ))}
                                             </div>
@@ -1443,7 +1447,7 @@ function StaffDetailView({ staffId, onBack, onEdit }) {
                         )}
 
                         {/* System Access Rights */}
-                        {staff.isNonTeaching && staff.permissions?.modules?.length > 0 && (
+                        {(staff.isTeaching || staff.isNonTeaching) && (
                             <Card className="col-span-2">
                                 <CardHeader>
                                     <CardTitle className="text-lg flex items-center gap-2">
@@ -1453,12 +1457,18 @@ function StaffDetailView({ staffId, onBack, onEdit }) {
                                 </CardHeader>
                                 <CardContent>
                                     <div className="flex flex-wrap gap-2">
-                                        {staff.permissions.modules.map((module) => (
-                                            <Badge key={module} variant="secondary" className="bg-orange-50 text-orange-700 border-orange-100">
+                                        {[...new Set([
+                                            ...(staff.permissions?.modules || []),
+                                            ...(staff.isTeaching ? ["Attendance", "Examination", "Complaints"] : ["Complaints"])
+                                        ])].map((module) => (
+                                            <Badge key={module} variant="secondary" className="bg-orange-50 text-orange-700 border-orange-100 font-medium">
                                                 {module}
                                             </Badge>
                                         ))}
                                     </div>
+                                    <p className="text-[10px] text-muted-foreground mt-3 italic">
+                                        * {staff.isTeaching ? "Attendance, Examination, and Complaints" : "Complaints"} are standard rights for this role.
+                                    </p>
                                 </CardContent>
                             </Card>
                         )}

@@ -6,12 +6,15 @@ import {
   Patch,
   Post,
   Query,
+  Param,
 } from '@nestjs/common';
 import { InquiryDto } from './dtos/inquiry.dto';
 import { FrontOfficeService } from './front-office.service';
 import { VisitorDto } from './dtos/visitor.dto';
 import { ComplaintDto } from './dtos/complaint.dto';
 import { ContactDto } from './dtos/Contact.dto';
+import { Req, UseGuards } from '@nestjs/common';
+import { JwtAccGuard } from 'src/common/guards/jwt-access.guard';
 
 @Controller('front-office')
 export class FrontOfficeController {
@@ -78,8 +81,52 @@ export class FrontOfficeController {
     @Query('date') date?: string,
     @Query('start') start?: string,
     @Query('end') end?: string,
+    @Query('assignedToId') assignedToId?: string,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
   ) {
-    return this.frontOfficeService.getComplaints(date, start, end);
+    return this.frontOfficeService.getComplaints(
+      date,
+      start,
+      end,
+      assignedToId ? Number(assignedToId) : undefined,
+      month ? Number(month) : undefined,
+      year ? Number(year) : undefined,
+    );
+  }
+
+  @UseGuards(JwtAccGuard)
+  @Get('get/my-complaints')
+  async getMyComplaints(
+    @Req() req: any,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+  ) {
+    const staffId = req.user?.isStaff ? Number(req.user.id) : null;
+    if (!staffId) return [];
+    return this.frontOfficeService.getComplaints(
+      undefined,
+      undefined,
+      undefined,
+      staffId,
+      month ? Number(month) : undefined,
+      year ? Number(year) : undefined,
+    );
+  }
+
+  @UseGuards(JwtAccGuard)
+  @Post('complaint/:id/remark')
+  async addRemark(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() payload: { remark: string },
+  ) {
+    const authorId = Number(req.user.id);
+    return await this.frontOfficeService.addComplaintRemark(
+      Number(id),
+      authorId,
+      payload.remark,
+    );
   }
   @Patch('update/complaint')
   async updateComplaint(

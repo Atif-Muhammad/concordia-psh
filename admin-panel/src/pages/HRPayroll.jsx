@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
-import { UserPlus, Edit, Trash2, DollarSign, Calendar as CalendarIcon, CheckCircle2, XCircle, TrendingUp, Users, IdCard, Settings, UserCheck, Clock, Eye } from "lucide-react";
+import { UserPlus, Edit, Trash2, DollarSign, Calendar as CalendarIcon, CheckCircle2, XCircle, TrendingUp, Users, IdCard, Settings, UserCheck, Clock, Eye, Wallet } from "lucide-react";
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -565,11 +565,16 @@ const HRPayroll = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="bg-gradient-to-r from-primary to-primary/80 rounded-2xl p-6 text-primary-foreground shadow-lg">
-          <h2 className="text-2xl font-bold mb-2">HR & Payroll Management</h2>
-          <p className="text-primary-foreground/90">
-            Manage employees, payroll, attendance, and leaves
-          </p>
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <Wallet className="w-8 h-8 text-primary" />
+              HR & Payroll Management
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Manage employees, payroll, attendance, and leaves
+            </p>
+          </div>
         </div>
 
         {/* Stats Cards */}

@@ -79,6 +79,7 @@ import {
   delPosition,
   getStudentResult,
   getDefaultReportCardTemplate,
+  getTeacherClasses
 } from "../../config/apis";
 
 const Examination = () => {
@@ -217,17 +218,44 @@ const Examination = () => {
   });
 
   // === REACT QUERY DATA FETCHING ===
-  const { data: programs = [] } = useQuery({ queryKey: ["programs"], queryFn: getProgramNames });
-  const { data: exams = [] } = useQuery({ queryKey: ["exams"], queryFn: getExams });
-  const { data: students = [] } = useQuery({ queryKey: ["students"], queryFn: () => getStudents("", "", "", "") });
-  const { data: subjects = [] } = useQuery({ queryKey: ["subjects"], queryFn: getSubjects });
+  const currentUser = queryClient.getQueryData(["currentUser"]);
+  const isTeacher =
+    currentUser?.role === "TEACHER" || currentUser?.role === "Teacher";
+
+  const { data: teacherClassMappings = [] } = useQuery({
+    queryKey: ["teacherClasses"],
+    queryFn: getTeacherClasses,
+    enabled: isTeacher,
+  });
+
+  const { data: programs = [] } = useQuery({
+    queryKey: ["programs"],
+    queryFn: getProgramNames,
+  });
+  const { data: exams = [] } = useQuery({
+    queryKey: ["exams"],
+    queryFn: getExams,
+  });
+  const { data: students = [] } = useQuery({
+    queryKey: ["students"],
+    queryFn: () => getStudents("", "", "", ""),
+  });
+  const { data: subjects = [] } = useQuery({
+    queryKey: ["subjects"],
+    queryFn: getSubjects,
+  });
   const { data: marks = [] } = useQuery({
     queryKey: ["marks", marksFilterExam, marksFilterSection],
-    queryFn: () => getMarks(
-      marksFilterExam && marksFilterExam !== "*" ? marksFilterExam : undefined,
-      marksFilterSection && marksFilterSection !== "*" ? marksFilterSection : undefined
-    ),
-    enabled: !!(marksFilterExam && marksFilterExam !== "*") || !!(marksFilterSection && marksFilterSection !== "*") // Only fetch when at least one filter is selected
+    queryFn: () =>
+      getMarks(
+        marksFilterExam && marksFilterExam !== "*" ? marksFilterExam : undefined,
+        marksFilterSection && marksFilterSection !== "*"
+          ? marksFilterSection
+          : undefined
+      ),
+    enabled:
+      !!(marksFilterExam && marksFilterExam !== "*") ||
+      !!(marksFilterSection && marksFilterSection !== "*"), // Only fetch when at least one filter is selected
   });
 
   const selectedExamForMarks = exams.find(e => e.id.toString() === (bulkExamId || marksFilterExam));
@@ -312,7 +340,12 @@ const Examination = () => {
 
   // Classes from selected program
   const selectedProgram = programs.find((p) => p.id === Number(examForm.program));
-  const availableClasses = selectedProgram?.classes || [];
+  const availableClasses = isTeacher
+    ? teacherClassMappings
+        .filter((m) => m.class?.programId === Number(examForm.program))
+        .map((m) => m.class)
+        .filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx)
+    : selectedProgram?.classes || [];
   // === MUTATIONS ===
   const createExam = useMutation({
     mutationFn: createExamApi,
@@ -953,11 +986,16 @@ const Examination = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium">
-          <h2 className="text-2xl font-bold mb-2">Examination Management</h2>
-          <p className="text-primary-foreground/90">
-            Create exams, enter marks, and generate results
-          </p>
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <FileText className="w-8 h-8 text-primary" />
+              Examination Management
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Create exams, enter marks, and generate results
+            </p>
+          </div>
         </div>
 
         <Tabs defaultValue="exams" className="space-y-6">
@@ -1690,10 +1728,28 @@ const Examination = () => {
                               <SelectContent>
                                 <SelectItem value="*">All Sections</SelectItem>
                                 {(() => {
-                                  const exam = exams?.find(e => e.id === Number(bulkExamId));
-                                  return exam?.class?.sections?.map(s => (
-                                    <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
-                                  ));
+                                  const exam = exams?.find(
+                                    (e) => e.id === Number(bulkExamId)
+                                  );
+                                  return exam?.class?.sections
+                                    ?.filter((s) =>
+                                      isTeacher
+                                        ? teacherClassMappings.some(
+                                            (m) =>
+                                              m.classId === exam.classId &&
+                                              (m.sectionId === s.id ||
+                                                m.sectionId === null)
+                                          )
+                                        : true
+                                    )
+                                    ?.map((s) => (
+                                      <SelectItem
+                                        key={s.id}
+                                        value={s.id.toString()}
+                                      >
+                                        {s.name}
+                                      </SelectItem>
+                                    ));
                                 })()}
                               </SelectContent>
                             </Select>
@@ -1969,9 +2025,21 @@ const Examination = () => {
                                   <SelectValue placeholder="Select exam" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {exams?.map((exam) => (
-                                    <SelectItem key={exam.id} value={exam.id.toString()}>
-                                      {exam.examName} - {exam.session} ({formatDateTimeDisplay(exam.startDate)})
+                                 {exams
+                                  ?.filter((e) =>
+                                    isTeacher
+                                      ? teacherClassMappings.some(
+                                          (m) => m.classId === e.classId
+                                        )
+                                      : true
+                                  )
+                                  ?.map((exam) => (
+                                    <SelectItem
+                                      key={exam.id}
+                                      value={exam.id.toString()}
+                                    >
+                                      {exam.examName} - {exam.session} (
+                                      {exam.class?.name})
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -2031,11 +2099,22 @@ const Examination = () => {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="*">All Programs</SelectItem>
-                            {programs?.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.name} {p.department?.name ? `— ${p.department.name} ` : ''}
-                              </SelectItem>
-                            ))}
+                            {programs
+                              ?.filter((p) =>
+                                isTeacher
+                                  ? teacherClassMappings.some(
+                                      (m) => m.class?.programId === p.id
+                                    )
+                                  : true
+                              )
+                              ?.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                  {p.name}{" "}
+                                  {p.department?.name
+                                    ? `— ${p.department.name} `
+                                    : ""}
+                                </SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
                       </div>
@@ -2051,21 +2130,37 @@ const Examination = () => {
                           <SelectContent>
                             <SelectItem value="*">All Classes</SelectItem>
                             {programs
-                              ?.find(p => p.id === Number(resultFilterProgram)) // Agar specific program select hai
-                              ?.classes
+                              ?.find((p) => p.id === Number(resultFilterProgram))
+                              ?.classes?.filter((cls) =>
+                                isTeacher
+                                  ? teacherClassMappings.some(
+                                      (m) => m.classId === cls.id
+                                    )
+                                  : true
+                              )
                               ?.map((cls) => (
                                 <SelectItem key={cls.id} value={cls.id.toString()}>
                                   {cls.name}
                                 </SelectItem>
                               ))}
-                            {/* Show all classes when program filter is * (All Programs) */}
                             {resultFilterProgram === "*" &&
-                              programs?.flatMap(p => p.classes || []).map((cls) => (
-                                <SelectItem key={cls.id} value={cls.id.toString()}>
-                                  {cls.name}
-                                </SelectItem>
-                              ))
-                            }
+                              programs
+                                ?.flatMap((p) => p.classes || [])
+                                ?.filter((cls) =>
+                                  isTeacher
+                                    ? teacherClassMappings.some(
+                                        (m) => m.classId === cls.id
+                                      )
+                                    : true
+                                )
+                                ?.map((cls) => (
+                                  <SelectItem
+                                    key={cls.id}
+                                    value={cls.id.toString()}
+                                  >
+                                    {cls.name}
+                                  </SelectItem>
+                                ))}
                           </SelectContent>
                         </Select>
                       </div>

@@ -12,8 +12,27 @@ import { CreatePositionDto, UpdatePositionDto } from './dtos/position.dto';
 @Injectable()
 export class ExaminationService {
   constructor(private prisma: PrismaService) {}
+
+  private async checkTeacherClassAssignment(teacherId: number, classId: number) {
+    const mapping = await this.prisma.teacherClassSectionMapping.findFirst({
+      where: {
+        teacherId,
+        classId,
+      },
+    });
+    if (!mapping) {
+      throw new Error('You are not assigned to this class.');
+    }
+  }
+
   // exam
-  create(dto: CreateExamDto) {
+  async create(dto: CreateExamDto, requestingUser?: any) {
+    if (requestingUser?.role === 'Teacher') {
+      await this.checkTeacherClassAssignment(
+        Number(requestingUser.id),
+        Number(dto.classId),
+      );
+    }
     const { schedule, ...examData } = dto;
     return this.prisma.exam.create({
       data: {
@@ -35,8 +54,19 @@ export class ExaminationService {
     });
   }
 
-  findAll() {
+  async findAll(requestingUser?: any) {
+    const where: any = {};
+    if (requestingUser?.role === 'Teacher') {
+      const mappings = await this.prisma.teacherClassSectionMapping.findMany({
+        where: { teacherId: Number(requestingUser.id) },
+        select: { classId: true },
+      });
+      const classIds = mappings.map((m) => m.classId);
+      where.classId = { in: classIds };
+    }
+
     return this.prisma.exam.findMany({
+      where,
       include: {
         program: true,
         class: {
@@ -50,7 +80,18 @@ export class ExaminationService {
     });
   }
 
-  update(id: number, dto: Partial<CreateExamDto>) {
+  async update(id: number, dto: Partial<CreateExamDto>, requestingUser?: any) {
+    if (requestingUser?.role === 'Teacher') {
+      const exam = await this.prisma.exam.findUnique({ where: { id } });
+      if (!exam) throw new NotFoundException('Exam not found');
+      if (exam.classId === null) {
+        throw new NotFoundException('Exam has no class assigned');
+      }
+      await this.checkTeacherClassAssignment(
+        Number(requestingUser.id),
+        exam.classId,
+      );
+    }
     const { schedule, startDate, endDate, ...examData } = dto;
     const data: any = { ...examData };
 
@@ -76,12 +117,33 @@ export class ExaminationService {
     });
   }
 
-  delete(id: number) {
+  async delete(id: number, requestingUser?: any) {
+    if (requestingUser?.role === 'Teacher') {
+      const exam = await this.prisma.exam.findUnique({ where: { id } });
+      if (!exam) throw new NotFoundException('Exam not found');
+      if (exam.classId === null) {
+        throw new NotFoundException('Exam has no class assigned');
+      }
+      await this.checkTeacherClassAssignment(
+        Number(requestingUser.id),
+        exam.classId,
+      );
+    }
     return this.prisma.exam.delete({ where: { id } });
   }
 
   //   marks
-  async createMarks(dto: CreateMarksDto) {
+  async createMarks(dto: CreateMarksDto, requestingUser?: any) {
+    if (requestingUser?.role === 'Teacher') {
+      const student = await this.prisma.student.findUnique({
+        where: { id: Number(dto.studentId) },
+      });
+      if (!student) throw new NotFoundException('Student not found');
+      await this.checkTeacherClassAssignment(
+        Number(requestingUser.id),
+        student.classId,
+      );
+    }
     // Check if marks already exist for this student, exam, and subject
     const existingMarks = await this.prisma.marks.findFirst({
       where: {
@@ -115,9 +177,22 @@ export class ExaminationService {
     return mark;
   }
 
-  async bulkCreateMarks(dto: BulkCreateMarksDto) {
+  async bulkCreateMarks(dto: BulkCreateMarksDto, requestingUser?: any) {
     const { marks } = dto;
     if (!marks || marks.length === 0) return [];
+
+    if (requestingUser?.role === 'Teacher') {
+      // Assuming all marks in bulk are for the same exam/class, check the first one
+      const student = await this.prisma.student.findUnique({
+        where: { id: Number(marks[0].studentId) },
+      });
+      if (student) {
+        await this.checkTeacherClassAssignment(
+          Number(requestingUser.id),
+          student.classId,
+        );
+      }
+    }
 
     const examId = Number(marks[0].examId);
 
@@ -172,19 +247,65 @@ export class ExaminationService {
     return results;
   }
 
-  findAllMarks(examId?: number, sectionId?: number) {
-    const whereClause: any = {};
-    if (examId) whereClause.examId = examId;
-    if (sectionId) whereClause.student = { sectionId };
+  async findAllMarks(examId?: number, sectionId?: number, requestingUser?: any) {
+    const where: any = {};
+    if (examId) where.examId = examId;
+
+    if (requestingUser?.role === 'Teacher') {
+      const mappings = await this.prisma.teacherClassSectionMapping.findMany({
+        where: { teacherId: Number(requestingUser.id) },
+        select: { classId: true, sectionId: true },
+      });
+      const classIds = mappings.map((m) => m.classId);
+      const sectionIds = mappings.map((m) => m.sectionId).filter(Boolean);
+
+      // Intersection of requested and allowed
+      if (examId) {
+        const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
+        if (
+          exam &&
+          (exam.classId === null || !classIds.includes(exam.classId))
+        ) {
+          return []; // Not allowed
+        }
+      } else {
+        where.exam = { classId: { in: classIds } };
+      }
+
+      if (sectionId) {
+        if (!sectionIds.includes(sectionId)) return [];
+        where.student = { sectionId };
+      } else if (sectionIds.length > 0) {
+        where.student = { sectionId: { in: sectionIds } };
+      }
+    } else if (sectionId) {
+      where.student = { sectionId };
+    }
 
     return this.prisma.marks.findMany({
-      where: whereClause,
-      include: { student: true, exam: true },
+      where,
+      include: {
+        student: { include: { section: true, class: true } },
+        exam: true,
+      },
       orderBy: { student: { rollNumber: 'asc' } },
     });
   }
 
-  async updateMarks(id: string, dto: UpdateMarksDto) {
+  async updateMarks(id: string, dto: UpdateMarksDto, requestingUser?: any) {
+    if (requestingUser?.role === 'Teacher') {
+      const mark = await this.prisma.marks.findUnique({ where: { id } });
+      if (!mark) throw new NotFoundException('Marks not found');
+      const student = await this.prisma.student.findUnique({
+        where: { id: mark.studentId },
+      });
+      if (student) {
+        await this.checkTeacherClassAssignment(
+          Number(requestingUser.id),
+          student.classId,
+        );
+      }
+    }
     const mark = await this.prisma.marks.update({
       where: { id },
       data: {
@@ -223,8 +344,19 @@ export class ExaminationService {
       },
     });
   }
-  findAllResults() {
+  async findAllResults(requestingUser?: any) {
+    const where: any = {};
+    if (requestingUser?.role === 'Teacher') {
+      const mappings = await this.prisma.teacherClassSectionMapping.findMany({
+        where: { teacherId: Number(requestingUser.id) },
+        select: { classId: true },
+      });
+      const classIds = mappings.map((m) => m.classId);
+      where.exam = { classId: { in: classIds } };
+    }
+
     return this.prisma.result.findMany({
+      where,
       include: {
         exam: { include: { program: true } },
         student: true,
@@ -510,13 +642,31 @@ export class ExaminationService {
     }
   }
 
-  findAllPositions(examId?: number, classId?: number) {
-    const whereClause: any = {};
-    if (examId) whereClause.examId = examId;
-    if (classId) whereClause.classId = classId;
+  async findAllPositions(
+    examId?: number,
+    classId?: number,
+    requestingUser?: any,
+  ) {
+    const where: any = {};
+    if (examId) where.examId = examId;
+    if (classId) where.classId = classId;
+
+    if (requestingUser?.role === 'Teacher') {
+      const mappings = await this.prisma.teacherClassSectionMapping.findMany({
+        where: { teacherId: Number(requestingUser.id) },
+        select: { classId: true },
+      });
+      const classIds = mappings.map((m) => m.classId);
+
+      if (classId) {
+        if (!classIds.includes(classId)) return [];
+      } else {
+        where.classId = { in: classIds };
+      }
+    }
 
     return this.prisma.position.findMany({
-      where: whereClause,
+      where,
       include: {
         student: { include: { class: true } },
         exam: { include: { program: true } },

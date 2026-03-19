@@ -27,6 +27,8 @@ import Finance from "./pages/Finance";
 import Configuration from "./pages/Configuration";
 import Inventory from "./pages/Inventory";
 import NotFound from "./pages/NotFound";
+import { lazy, Suspense } from "react";
+const Complaints = lazy(() => import("./pages/Complaints"));
 import { refreshTokens, userWho } from "../config/apis";
 
 // Menu order for default landing
@@ -153,8 +155,10 @@ function PermissionRoute({ children, moduleName }) {
   }
 
   let canAccess = false;
-  const isTeacherOrStaff = currentUser?.role === "Teacher";
-  const hardcodedModules = isTeacherOrStaff ? ["Attendance", "Examination"] : [];
+  const role = currentUser?.role;
+  const hardcodedModules = role === "Teacher" 
+    ? ["Attendance", "Examination", "Complaints"] 
+    : (role === "Staff" ? ["Complaints"] : []);
   const modulePermissions = currentUser?.permissions?.modules ?? [];
 
   const allAccessibleModules = [...new Set([...(Array.isArray(modulePermissions) ? modulePermissions : []), ...hardcodedModules])];
@@ -175,124 +179,134 @@ function App() {
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<RootRoutes />} />
+            <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div></div>}>
+              <Routes>
+                <Route path="/" element={<RootRoutes />} />
 
-              <Route
-                path="/dashboard"
-                element={
-                  <PermissionRoute moduleName="Dashboard">
-                    <Dashboard />
-                  </PermissionRoute>
-                }
-              />
-              <Route
-                path="/front-office"
-                element={
-                  <PermissionRoute moduleName="Front Office">
-                    <FrontOffice />
-                  </PermissionRoute>
-                }
-              />
-              <Route
-                path="/students"
-                element={
-                  <PermissionRoute moduleName="Students">
-                    <Students />
-                  </PermissionRoute>
-                }
-              />
-              <Route
-                path="/staff"
-                element={
-                  <PermissionRoute moduleName="Staff">
-                    <Staff />
-                  </PermissionRoute>
-                }
-              />
-              {/* <Route
-                path="/teachers"
-                element={
-                  <PermissionRoute moduleName="Teachers">
-                    <Teachers />
-                  </PermissionRoute>
-                }
-              /> */}
-              <Route
-                path="/attendance"
-                element={
-                  <PermissionRoute moduleName="Attendance">
-                    <Attendance />
-                  </PermissionRoute>
-                }
-              />
-              <Route
-                path="/fee-management"
-                element={
-                  <PermissionRoute moduleName="Fee Management">
-                    <FeeManagement />
-                  </PermissionRoute>
-                }
-              />
-              <Route
-                path="/examination"
-                element={
-                  <PermissionRoute moduleName="Examination">
-                    <Examination />
-                  </PermissionRoute>
-                }
-              />
-              <Route
-                path="/academics"
-                element={
-                  <PermissionRoute moduleName="Academics">
-                    <Academics />
-                  </PermissionRoute>
-                }
-              />
-              <Route
-                path="/hr-payroll"
-                element={
-                  <PermissionRoute moduleName="HR & Payroll">
-                    <HRPayroll />
-                  </PermissionRoute>
-                }
-              />
-              <Route
-                path="/hostel"
-                element={
-                  <PermissionRoute moduleName="Hostel">
-                    <Hostel />
-                  </PermissionRoute>
-                }
-              />
-              <Route
-                path="/finance"
-                element={
-                  <PermissionRoute moduleName="Finance">
-                    <Finance />
-                  </PermissionRoute>
-                }
-              />
-              <Route
-                path="/inventory"
-                element={
-                  <PermissionRoute moduleName="Inventory">
-                    <Inventory />
-                  </PermissionRoute>
-                }
-              />
-              <Route
-                path="/configuration"
-                element={
-                  <PermissionRoute moduleName="Configuration">
-                    <Configuration />
-                  </PermissionRoute>
-                }
-              />
+                <Route
+                  path="/dashboard"
+                  element={
+                    <PermissionRoute moduleName="Dashboard">
+                      <Dashboard />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/front-office"
+                  element={
+                    <PermissionRoute moduleName="Front Office">
+                      <FrontOffice />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/students"
+                  element={
+                    <PermissionRoute moduleName="Students">
+                      <Students />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/staff"
+                  element={
+                    <PermissionRoute moduleName="Staff">
+                      <Staff />
+                    </PermissionRoute>
+                  }
+                />
+                {/* <Route
+                  path="/teachers"
+                  element={
+                    <PermissionRoute moduleName="Teachers">
+                      <Teachers />
+                    </PermissionRoute>
+                  }
+                /> */}
+                <Route
+                  path="/attendance"
+                  element={
+                    <PermissionRoute moduleName="Attendance">
+                      <Attendance />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/fee-management"
+                  element={
+                    <PermissionRoute moduleName="Fee Management">
+                      <FeeManagement />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/examination"
+                  element={
+                    <PermissionRoute moduleName="Examination">
+                      <Examination />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/complaints"
+                  element={
+                    <PermissionRoute moduleName="Complaints">
+                      <Complaints />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/academics"
+                  element={
+                    <PermissionRoute moduleName="Academics">
+                      <Academics />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/hr-payroll"
+                  element={
+                    <PermissionRoute moduleName="HR & Payroll">
+                      <HRPayroll />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/hostel"
+                  element={
+                    <PermissionRoute moduleName="Hostel">
+                      <Hostel />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/finance"
+                  element={
+                    <PermissionRoute moduleName="Finance">
+                      <Finance />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/inventory"
+                  element={
+                    <PermissionRoute moduleName="Inventory">
+                      <Inventory />
+                    </PermissionRoute>
+                  }
+                />
+                <Route
+                  path="/configuration"
+                  element={
+                    <PermissionRoute moduleName="Configuration">
+                      <Configuration />
+                    </PermissionRoute>
+                  }
+                />
 
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
           </BrowserRouter>
         </TooltipProvider>
       </DataProvider>

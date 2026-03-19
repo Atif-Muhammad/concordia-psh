@@ -261,19 +261,20 @@ const Dashboard = () => {
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
         {/* Welcome Section */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-r from-primary/90 to-primary/70 rounded-2xl p-8 text-white shadow-lg relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none" />
-          <div className="relative z-10">
-            <h2 className="text-3xl font-bold mb-2">Welcome to Concordia College</h2>
-            <p className="text-white/90 text-lg">
-              Management Dashboard - Track and manage all college operations
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              {/* <Building className="w-8 h-8 text-primary" /> */}
+              Concordia College Management Dashboard
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Welcome back! Here's what's happening in your school today.
             </p>
           </div>
 
-          <div className="relative z-10 flex gap-2">
+          <div className="flex gap-2">
             <Select value={selectedYear} onValueChange={setSelectedYear}>
-              <SelectTrigger className="w-[100px] bg-white/10 text-white border-white/20">
+              <SelectTrigger className="w-[100px]">
                 <SelectValue placeholder="Year" />
               </SelectTrigger>
               <SelectContent>
@@ -284,7 +285,7 @@ const Dashboard = () => {
               </SelectContent>
             </Select>
             <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-              <SelectTrigger className="w-[140px] bg-white/10 text-white border-white/20">
+              <SelectTrigger className="w-[140px]">
                 <SelectValue placeholder="Month" />
               </SelectTrigger>
               <SelectContent>

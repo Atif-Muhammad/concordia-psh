@@ -525,11 +525,16 @@ const Hostel = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="bg-gradient-to-r from-primary to-primary/80 rounded-2xl p-6 text-primary-foreground shadow-lg">
-          <h2 className="text-2xl font-bold mb-2">Hostel Management</h2>
-          <p className="text-primary-foreground/90">
-            Manage rooms, students, mess, and hostel finances
-          </p>
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <Home className="w-8 h-8 text-primary" />
+              Hostel Management
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Manage rooms, students, mess, and hostel finances
+            </p>
+          </div>
         </div>
 
         {/* Stats Cards */}

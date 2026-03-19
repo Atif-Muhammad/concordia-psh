@@ -56,23 +56,29 @@ export class AttendanceController {
     );
   }
 
+  @UseGuards(JwtAccGuard)
   @Get('student/fetch')
   async fetchStudentAttendance(
+    @Req() req: any,
     @Query('classId') classId: string,
     @Query('sectionId') sectionId: string,
     @Query('subjectId') subjectId: string,
     @Query('date') date: string,
   ) {
+    const { user } = req;
     return await this.attendanceService.fetchClassAttendance(
       Number(classId),
       sectionId ? Number(sectionId) : null,
       Number(subjectId),
       date,
+      user,
     );
   }
 
+  @UseGuards(JwtAccGuard)
   @Patch('student/update')
   async updateStudentAttendance(
+    @Req() req: any,
     @Body()
     payload: {
       classId: number;
@@ -86,6 +92,7 @@ export class AttendanceController {
       }[];
     },
   ) {
+    const { user } = req;
     return await this.attendanceService.updateAttendance(
       payload.classId,
       payload.sectionId,
@@ -93,6 +100,7 @@ export class AttendanceController {
       payload.teacherId ?? null,
       payload.date,
       payload.students,
+      user,
     );
   }
 

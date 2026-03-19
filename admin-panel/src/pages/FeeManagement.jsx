@@ -16,7 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import {
   createFeeHead, getFeeHeads, updateFeeHead, deleteFeeHead,
   createFeeStructure, getFeeStructures, updateFeeStructure, deleteFeeStructure,
-  getPrograms, getClasses,
+  getPrograms, getClasses, getStudents,
   getFeeChallans, getBulkChallans, updateFeeChallan, getStudentFeeHistory,
   searchStudents, getRevenueOverTime, getClassCollectionStats, getFeeCollectionSummary, getDefaultFeeChallanTemplate,
   getInstallmentPlans, generateChallansFromPlan,
@@ -60,17 +60,6 @@ const FeeManagement = () => {
   const [editingChallan, setEditingChallan] = useState(null);
   const [editingFeeHead, setEditingFeeHead] = useState(null);
   const [editingStructure, setEditingStructure] = useState(null);
-  const [bulkPrintOpen, setBulkPrintOpen] = useState(false);
-  const [bulkPrintFilters, setBulkPrintFilters] = useState({
-    programId: "",
-    classId: "",
-    sectionId: "",
-    month: new Date().toISOString().slice(0, 7)
-  });
-  const [bulkPrinting, setBulkPrinting] = useState(false);
-  const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
-  const [bulkPreviewContent, setBulkPreviewContent] = useState("");
-  const [bulkChallansList, setBulkChallansList] = useState([]);
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
   const [generateForm, setGenerateForm] = useState({
     month: new Date().toISOString().slice(0, 7),
@@ -92,7 +81,26 @@ const FeeManagement = () => {
   const [genSelectedHeads, setGenSelectedHeads] = useState([]);
   const [genRemarks, setGenRemarks] = useState("");
   const [genDueDate, setGenDueDate] = useState("");
+  const [bulkDueDate, setBulkDueDate] = useState(null);
   const [genCustomArrears, setGenCustomArrears] = useState("");
+  const [genSelectedArrears, setGenSelectedArrears] = useState([]); // Array of installment IDs selected for billing
+  const [bulkStudents, setBulkStudents] = useState([]);
+  const [selectedBulkStudents, setSelectedBulkStudents] = useState([]);
+  const [bulkArrearsStudents, setBulkArrearsStudents] = useState([]);
+  const [isFetchingBulkStudents, setIsFetchingBulkStudents] = useState(false);
+
+  // Bulk Printing state
+  const [bulkPrintOpen, setBulkPrintOpen] = useState(false);
+  const [bulkPrinting, setBulkPrinting] = useState(false);
+  const [bulkPrintFilters, setBulkPrintFilters] = useState({
+    programId: "all",
+    classId: "all",
+    sectionId: "all",
+    month: new Date().toISOString().slice(0, 7)
+  });
+  const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
+  const [bulkPreviewContent, setBulkPreviewContent] = useState("");
+  const [bulkChallansList, setBulkChallansList] = useState([]);
 
   // Extra Challans tab state
   const [extraStudentSearchOpen, setExtraStudentSearchOpen] = useState(false);
@@ -113,7 +121,8 @@ const FeeManagement = () => {
     selectedHeads: [],
     isArrearsPayment: false,
     arrearsInstallments: 1,
-    arrearsAmount: ""
+    arrearsAmount: "",
+    arrearsSelections: [] // Added for granular arrears in Edit dialog
   });
 
   const [feeHeadForm, setFeeHeadForm] = useState({
@@ -142,6 +151,19 @@ const FeeManagement = () => {
 
   const queryClient = useQueryClient();
 
+  const calculateLateFee = (dueDate, finePerDay) => {
+    if (!dueDate || !finePerDay) return 0;
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const due = new Date(dueDate);
+    // Late fee starts from the 1st of the NEXT month after the due date's month
+    const lateStart = new Date(due.getFullYear(), due.getMonth() + 1, 1);
+    if (now < lateStart) return 0;
+    const diffTime = Math.abs(now.getTime() - lateStart.getTime());
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 because April 1st itself is day 1
+    return diffDays * finePerDay;
+  };
+
   const { data: feeHeads = [] } = useQuery({
     queryKey: ['feeHeads'],
     queryFn: getFeeHeads
@@ -156,9 +178,46 @@ const FeeManagement = () => {
     if (generateForm.month) {
       // Set to 10th of that month by default
       const [year, month] = generateForm.month.split('-').map(Number);
-      setGenDueDate(new Date(year, month - 1, 10));
+      const defaultDate = new Date(year, month - 1, 10);
+      setGenDueDate(defaultDate);
+      setBulkDueDate(defaultDate);
     }
   }, [generateForm.month]);
+
+  // Bulk student fetcher
+  useEffect(() => {
+    const fetchBulkStudentsData = async () => {
+      if (!generateDialogOpen || generateMode !== "bulk") return;
+      if (!generateForm.programId || generateForm.programId === "all") {
+        setBulkStudents([]);
+        setSelectedBulkStudents([]);
+        return;
+      }
+
+      setIsFetchingBulkStudents(true);
+      try {
+        const results = await getStudents(
+          generateForm.programId !== "all" ? generateForm.programId : "",
+          generateForm.classId !== "all" ? generateForm.classId : "",
+          generateForm.sectionId !== "all" ? generateForm.sectionId : "",
+          "", // search
+          "ACTIVE", // status
+          "", "", // dates
+          1, 1000 // page/limit
+        );
+        const studentList = results.students || [];
+        setBulkStudents(studentList);
+        setSelectedBulkStudents(studentList.map(s => s.id));
+        setBulkArrearsStudents(studentList.map(s => s.id));
+      } catch (error) {
+        console.error("Failed to fetch bulk students:", error);
+      } finally {
+        setIsFetchingBulkStudents(false);
+      }
+    };
+
+    fetchBulkStudentsData();
+  }, [generateDialogOpen, generateMode, generateForm.programId, generateForm.classId, generateForm.sectionId]);
 
   const { data: instituteSettings } = useQuery({
     queryKey: ['instituteSettings'],
@@ -285,7 +344,8 @@ const FeeManagement = () => {
       selectedHeads: [],
       isArrearsPayment: false,
       arrearsInstallments: 1,
-      arrearsAmount: ""
+      arrearsAmount: "",
+      arrearsSelections: []
     });
     setEditingChallan(null);
     setGenStudentPlan([]);
@@ -439,13 +499,14 @@ const FeeManagement = () => {
         id: editingChallan.id,
         data: {
           studentId: parseInt(challanForm.studentId),
-          amount: tuitionToStore,
+          amount: tuitionToStore + (parseFloat(challanForm.arrearsAmount) || 0), // Base billable (tuition + arrears)
           dueDate: challanForm.dueDate ? format(challanForm.dueDate, "yyyy-MM-dd") : undefined,
           fineAmount: additionalToStore,
           remarks: challanForm.remarks,
           installmentNumber: installmentNumber,
           selectedHeads: allFeeHeadDetails,
-          customArrearsAmount: (challanForm.arrearsAmount !== "" && challanForm.arrearsAmount !== undefined) ? parseFloat(challanForm.arrearsAmount) : undefined
+          customArrearsAmount: (challanForm.arrearsAmount !== "" && challanForm.arrearsAmount !== undefined) ? parseFloat(challanForm.arrearsAmount) : undefined,
+          arrearsLateFee: (challanForm.arrearsSelections || []).reduce((sum, a) => sum + a.lateFee, 0)
         }
       });
     }
@@ -618,7 +679,7 @@ const FeeManagement = () => {
     }, {});
 
     let totalOtherHeadsFromSelection = 0;
-    const feeHeadsRowsHtml = rawHeads.map(item => {
+    let feeHeadsRowsHtml = rawHeads.map(item => {
       // Handle both legacy (just IDs) and new snapshots (objects)
       if (typeof item === 'object' && item !== null) {
         // Snapshot Object: { id, name, amount, type, isSelected }
@@ -640,6 +701,11 @@ const FeeManagement = () => {
       }
       return "";
     }).join('');
+
+    // Append dynamic late fine if applicable
+    if (challan.lateFeeFine && challan.lateFeeFine > 0) {
+      feeHeadsRowsHtml += `<tr><td>Late Fee (Overdue)</td><td>${challan.lateFeeFine.toLocaleString()}</td></tr>`;
+    }
 
     // Totals Calculation
     // IMPORTANT: challan.fineAmount ALREADY contains the sum of selected heads from the DB
@@ -682,7 +748,7 @@ const FeeManagement = () => {
 
       // Case-sensitive exact matches for temps.html
       '{{challanNo}}': challan.challanNumber,
-      '{{issueDate}}': formatDate(new Date()),
+      '{{issueDate}}': formatDate(challan.issueDate || challan.createdAt),
       '{{dueDate}}': formatDate(challan.dueDate),
       '{{studentName}}': `${student.fName} ${student.mName || ''} ${student.lName || ''}`.trim(),
       '{{fatherName}}': student.fatherOrguardian || '',
@@ -945,12 +1011,17 @@ const FeeManagement = () => {
 
   return <DashboardLayout>
     <div className="space-y-6 max-w-full overflow-x-hidden">
-      <div className="flex items-center justify-between gap-4">
-        <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium flex-1">
-          <h2 className="text-2xl font-bold mb-2">Fee Management</h2>
-          <p className="text-primary-foreground/90">Comprehensive fee tracking and management system</p>
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <Receipt className="w-8 h-8 text-primary" />
+              Fee Management
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Comprehensive fee tracking and management system
+            </p>
+          </div>
         </div>
-      </div>
 
       <Tabs defaultValue="challans" className="w-full">
         <TabsList className="grid w-full grid-cols-3 sm:grid-cols-7 h-auto gap-1">
@@ -1056,14 +1127,14 @@ const FeeManagement = () => {
                   >
                     Reset
                   </Button>
-                  <Button
+                  {/* <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setBulkPrintOpen(true)}
                     className="h-9 gap-2 border-primary text-primary hover:bg-primary hover:text-white"
                   >
                     <Printer className="w-4 h-4" /> Bulk Print
-                  </Button>
+                  </Button> */}
                   <Button
                     variant="default"
                     size="sm"
@@ -1134,10 +1205,44 @@ const FeeManagement = () => {
                               </Button>
                               {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={async () => {
                                 setEditingChallan(challan);
+                                
+                                // Fetch plan for the student to show arrears checklist
+                                let fetchedPlan = [];
+                                try {
+                                  const results = await getInstallmentPlans({
+                                    studentId: challan.studentId,
+                                  });
+                                  fetchedPlan = results[0]?.feeInstallments || [];
+                                  setGenStudentPlan(fetchedPlan);
+                                } catch (error) {
+                                  console.error("Failed to fetch plan for edit:", error);
+                                }
+
+                                // Pre-populate arrears selections from covered installments
+                                const coveredNums = challan.coveredInstallments
+                                  ? challan.coveredInstallments.split(',').map(Number)
+                                  : [];
+                                const originalDate = new Date(challan.dueDate);
+                                const currentInstNum = challan.installmentNumber || 0;
+                                // Find past installments that were covered by this challan (excluding the current one)
+                                const preSelectedArrears = fetchedPlan
+                                  .filter(inst => {
+                                    const instNum = inst.installmentNumber;
+                                    return coveredNums.includes(instNum) && instNum !== currentInstNum;
+                                  })
+                                  .map(inst => ({
+                                    id: inst.id,
+                                    amount: inst.remainingAmount || (inst.amount - (inst.paidAmount || 0)),
+                                    lateFee: calculateLateFee(inst.dueDate, lateFeeFine)
+                                  }));
+                                const preSelectedArrearsTotal = preSelectedArrears.reduce((sum, a) => sum + a.amount, 0);
+
                                 setChallanForm({
                                   studentId: challan.studentId.toString(),
-                                  amount: (challan.amount || 0).toString(),
+                                  amount: ((challan.amount || 0) - (challan.arrearsAmount || 0)).toString(),
                                   dueDate: new Date(challan.dueDate),
+                                  arrearsAmount: preSelectedArrearsTotal > 0 ? preSelectedArrearsTotal.toString() : ((challan.arrearsAmount !== undefined && challan.arrearsAmount !== null) ? challan.arrearsAmount.toString() : "0"),
+                                  arrearsSelections: preSelectedArrears,
                                   fineAmount: (() => {
                                     try {
                                       const raw = (challan.selectedHeads && typeof challan.selectedHeads === 'string')
@@ -1149,8 +1254,6 @@ const FeeManagement = () => {
                                         return Number(item);
                                       }).filter(id => id !== null && !isNaN(id)) : [];
 
-                                      // If we have a snapshot with amounts, use them. 
-                                      // Otherwise, fallback to looking up in the current feeHeads array.
                                       const snapshotSum = Array.isArray(raw) ? raw.reduce((s, item) => {
                                         if (typeof item === 'object' && item !== null && item.isSelected && item.type === 'additional') {
                                           return s + (item.amount || 0);
@@ -1160,7 +1263,6 @@ const FeeManagement = () => {
 
                                       if (snapshotSum > 0) return snapshotSum.toString();
 
-                                      // Fallback for ID-only or empty snapshot sum
                                       const lookupSum = feeHeads
                                         .filter(h => selectedIds.includes(Number(h.id)) && !h.isTuition)
                                         .reduce((s, h) => s + (parseFloat(h.amount) || 0), 0);
@@ -1191,16 +1293,6 @@ const FeeManagement = () => {
                                   })()
                                 });
                                 setChallanOpen(true);
-                                // Fetch installment plan for current class to show arrears in breakdown
-                                try {
-                                  const results = await getInstallmentPlans({
-                                    studentId: challan.studentId,
-                                    classId: challan.studentClassId || (challan.student?.classId)
-                                  });
-                                  setGenStudentPlan(results[0]?.feeInstallments || []);
-                                } catch (error) {
-                                  console.error("Failed to fetch plan on Edit:", error);
-                                }
                               }}>
                                 <Edit className="w-4 h-4" />
                               </Button>}
@@ -2146,7 +2238,9 @@ const FeeManagement = () => {
       }}>
         <DialogContent className="max-w-4xl p-3 md:p-4 max-h-[96vh] flex flex-col overflow-hidden">
           <DialogHeader className="pb-1 border-b mb-2">
-            <DialogTitle className="text-base font-bold">Edit Fee Challan</DialogTitle>
+            <DialogTitle className="text-base font-bold">
+              {challanForm.installmentNumber ? "Edit Fee Challan" : "Edit Extra Fee Challan"}
+            </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-2 py-0 overflow-y-auto overflow-x-hidden pr-1 flex-1 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
@@ -2159,14 +2253,16 @@ const FeeManagement = () => {
                   className="bg-muted/50 h-8 text-sm"
                 />
               </div>
-              <div className="space-y-1">
-                <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Installment Details</Label>
-                <Input
-                  value={challanForm.installmentNumber ? `Installment #${challanForm.installmentNumber}` : "Additional Charges"}
-                  disabled
-                  className="bg-muted/50 h-8 text-sm"
-                />
-              </div>
+              {challanForm.installmentNumber > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Installment Details</Label>
+                  <Input
+                    value={`Installment #${challanForm.installmentNumber}`}
+                    disabled
+                    className="bg-muted/50 h-8 text-sm"
+                  />
+                </div>
+              )}
 
               <div className="space-y-1">
                 <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Due Date</Label>
@@ -2201,29 +2297,94 @@ const FeeManagement = () => {
                 </Popover>
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Billing Amount (Tuition)</Label>
-                <div className="relative">
-                  <span className="absolute left-2 top-2 text-[10px] text-muted-foreground font-bold">Rs.</span>
-                  <Input
-                    type="number"
-                    value={challanForm.amount}
-                    onChange={(e) => setChallanForm({ ...challanForm, amount: e.target.value })}
-                    className="pl-8 h-8 text-sm font-semibold text-orange-700"
-                  />
+              {challanForm.installmentNumber > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Billing Amount (Tuition)</Label>
+                  <div className="relative">
+                    <span className="absolute left-2 top-2 text-[10px] text-muted-foreground font-bold">Rs.</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={challanForm.amount}
+                      onChange={(e) => setChallanForm({ ...challanForm, amount: e.target.value })}
+                      className="pl-8 h-8 text-sm font-semibold text-orange-700"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div className="space-y-1">
-                <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Previous Arrears</Label>
-                <div className="relative">
-                  <span className="absolute left-2 top-2 text-[10px] text-muted-foreground font-bold">Rs.</span>
-                  <Input
-                    type="number"
-                    value={challanForm.arrearsAmount}
-                    onChange={(e) => setChallanForm({ ...challanForm, arrearsAmount: e.target.value })}
-                    className="pl-8 h-8 text-sm font-semibold text-red-700"
-                  />
+              <div className="col-span-2 space-y-1 pt-1 border-t">
+                <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Unpaid Arrears / Past Installments</Label>
+                <div className="border rounded-md overflow-hidden bg-white/40 shadow-inner">
+                  <Table>
+                    <TableHeader className="bg-muted/50 h-7">
+                      <TableRow className="hover:bg-transparent border-b-0">
+                        <TableHead className="w-[30px] p-0 text-center"></TableHead>
+                        <TableHead className="text-[9px] uppercase font-bold p-1">Month</TableHead>
+                        <TableHead className="text-[9px] uppercase font-bold p-1">Class</TableHead>
+                        <TableHead className="text-[9px] uppercase font-bold p-1 text-right">Balance</TableHead>
+                        <TableHead className="text-[9px] uppercase font-bold p-1 text-right">Late Fee</TableHead>
+                        <TableHead className="text-[9px] uppercase font-bold p-1 text-right">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(() => {
+                        if (!editingChallan) return null;
+                        const originalDate = new Date(editingChallan.dueDate);
+                        const targetInst = genStudentPlan.find(inst => {
+                          const d = new Date(inst.dueDate);
+                          return d.getFullYear() === originalDate.getFullYear() && (d.getMonth() + 1) === (originalDate.getMonth() + 1);
+                        });
+                        const pastUnpaid = genStudentPlan.filter(inst => {
+                          const d = new Date(inst.dueDate);
+                          return targetInst ? d < new Date(targetInst.dueDate) : true;
+                        }).filter(inst => (inst.amount - (inst.paidAmount || 0)) > 0);
+
+                        if (pastUnpaid.length === 0) {
+                          return <TableRow><TableCell colSpan={5} className="text-[10px] text-center py-2 text-muted-foreground">No unpaid past installments</TableCell></TableRow>;
+                        }
+
+                        return pastUnpaid.map(inst => {
+                          const balance = inst.amount - (inst.paidAmount || 0);
+                          const lateFee = calculateLateFee(inst.dueDate, lateFeeFine);
+                          const rowTotal = balance + lateFee;
+                          const isSelected = (challanForm.arrearsSelections || []).some(a => a.id === inst.id);
+                          
+                          return (
+                            <TableRow key={inst.id} className={cn("hover:bg-orange-50/50 border-b border-muted/20 h-8", isSelected && "bg-orange-50/30")}>
+                              <TableCell className="p-0 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="accent-orange-600 h-3 w-3 cursor-pointer"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    let newSelections = [...(challanForm.arrearsSelections || [])];
+                                    if (e.target.checked) {
+                                      newSelections.push({ id: inst.id, amount: balance, lateFee });
+                                    } else {
+                                      newSelections = newSelections.filter(a => a.id !== inst.id);
+                                    }
+                                    
+                                    const totalArrears = newSelections.reduce((sum, a) => sum + a.amount, 0);
+                                    setChallanForm({
+                                      ...challanForm,
+                                      arrearsSelections: newSelections,
+                                      arrearsAmount: totalArrears.toString()
+                                    });
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell className="text-[10px] p-1 font-medium">{format(new Date(inst.dueDate), "MMM yyyy")}</TableCell>
+                              <TableCell className="text-[10px] p-1 truncate max-w-[60px]">{inst.class?.name || "---"}</TableCell>
+                              <TableCell className="text-[10px] p-1 text-right">Rs. {balance.toLocaleString()}</TableCell>
+                              <TableCell className="text-[10px] p-1 text-right text-red-600 font-medium">+{lateFee.toLocaleString()}</TableCell>
+                              <TableCell className="text-[10px] p-1 text-right font-bold">Rs. {rowTotal.toLocaleString()}</TableCell>
+                            </TableRow>
+                          );
+                        });
+                      })()}
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
 
@@ -2302,44 +2463,49 @@ const FeeManagement = () => {
 
                     const tuitionSelected = parseFloat(challanForm.amount) || 0;
 
-                    const arrears = (challanForm.arrearsAmount !== "" && challanForm.arrearsAmount !== undefined)
-                      ? (parseFloat(challanForm.arrearsAmount) || 0)
-                      : genStudentPlan.filter(inst => {
-                        const d = new Date(inst.dueDate);
-                        return targetInst ? d < new Date(targetInst.dueDate) : false;
-                      }).reduce((sum, inst) => sum + (inst.remainingAmount || 0), 0);
+                    const arrears = (challanForm.arrearsSelections || []).reduce((sum, a) => sum + a.amount, 0);
+                    const arrearsLateFee = (challanForm.arrearsSelections || []).reduce((sum, a) => sum + a.lateFee, 0);
 
                     const selectedHeadIds = (challanForm.selectedHeads || []).map(id => Number(id));
                     const additionalSum = feeHeads
                       .filter(h => selectedHeadIds.includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
                       .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
 
-                    const grandTotal = tuitionSelected + arrears + additionalSum + (editingChallan?.lateFeeFine || 0);
+                    const currentChallanLateFee = editingChallan?.lateFeeFine || 0;
+                    const grandTotal = tuitionSelected + arrears + additionalSum + arrearsLateFee + currentChallanLateFee;
 
                     return (
                       <div className="space-y-1.5">
-                        <div className="flex justify-between items-center text-[10px] text-muted-foreground uppercase font-bold px-1 border-b border-orange-200/50 pb-1">
-                          <span>Inst. Overview</span>
-                          <span className="text-orange-700">Total: Rs. {tuitionTotal.toLocaleString()}</span>
-                        </div>
-                        <div className="grid grid-cols-4 gap-1 text-center py-1">
-                          <div className="flex flex-col border rounded bg-white p-1">
-                            <span className="text-[8px] text-muted-foreground uppercase font-bold">Paid</span>
-                            <span className="text-[10px] font-bold text-success">Rs. {tuitionPaid.toLocaleString()}</span>
+                        {challanForm.installmentNumber > 0 ? (
+                          <>
+                            <div className="flex justify-between items-center text-[10px] text-muted-foreground uppercase font-bold px-1 border-b border-orange-200/50 pb-1">
+                              <span>Inst. Overview</span>
+                              <span className="text-orange-700">Total: Rs. {tuitionTotal.toLocaleString()}</span>
+                            </div>
+                            <div className="grid grid-cols-4 gap-1 text-center py-1">
+                              <div className="flex flex-col border rounded bg-white p-1">
+                                <span className="text-[8px] text-muted-foreground uppercase font-bold">Paid</span>
+                                <span className="text-[10px] font-bold text-success">Rs. {tuitionPaid.toLocaleString()}</span>
+                              </div>
+                              <div className="flex flex-col border rounded bg-orange-50 p-1 border-orange-100">
+                                <span className="text-[8px] text-orange-600 uppercase font-bold">Pending</span>
+                                <span className="text-[10px] font-bold text-orange-700">Rs. {tuitionPending.toLocaleString()}</span>
+                              </div>
+                              <div className="flex flex-col border rounded bg-blue-50 p-1 border-blue-100">
+                                <span className="text-[8px] text-blue-600 uppercase font-bold">Available</span>
+                                <span className="text-[10px] font-bold text-blue-700">Rs. {tuitionRemaining.toLocaleString()}</span>
+                              </div>
+                              <div className="flex flex-col border rounded bg-orange-600 p-1 border-orange-700 text-white">
+                                <span className="text-[8px] uppercase font-bold opacity-80">This Bill</span>
+                                <span className="text-[10px] font-bold">Rs. {tuitionSelected.toLocaleString()}</span>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex justify-between items-center text-[10px] text-muted-foreground uppercase font-bold px-1 border-b border-orange-200/50 pb-1">
+                            <span>Extra Fee Bill</span>
                           </div>
-                          <div className="flex flex-col border rounded bg-orange-50 p-1 border-orange-100">
-                            <span className="text-[8px] text-orange-600 uppercase font-bold">Pending</span>
-                            <span className="text-[10px] font-bold text-orange-700">Rs. {tuitionPending.toLocaleString()}</span>
-                          </div>
-                          <div className="flex flex-col border rounded bg-blue-50 p-1 border-blue-100">
-                            <span className="text-[8px] text-blue-600 uppercase font-bold">Available</span>
-                            <span className="text-[10px] font-bold text-blue-700">Rs. {tuitionRemaining.toLocaleString()}</span>
-                          </div>
-                          <div className="flex flex-col border rounded bg-orange-600 p-1 border-orange-700 text-white">
-                            <span className="text-[8px] uppercase font-bold opacity-80">This Bill</span>
-                            <span className="text-[10px] font-bold">Rs. {tuitionSelected.toLocaleString()}</span>
-                          </div>
-                        </div>
+                        )}
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] px-1 border-t pt-1">
                           <div className="flex justify-between text-red-600">
                             <span className="font-semibold italic flex items-center gap-1"><History className="h-2.5 w-2.5" /> Arrears:</span>
@@ -2642,15 +2808,29 @@ const FeeManagement = () => {
         if (!open) {
           setGenerateResults(null);
           setGenStudentSearch("");
+          setGenStudentResults([]);
+          setGenSelectedStudent(null);
+          setGenStudentPlan([]);
+          setGenCustomAmount("");
           setGenDueDate(null);
+          setBulkDueDate(null);
           setGenRemarks("");
           setGenSelectedHeads([]);
+          setGenCustomArrears("");
+          setGenSelectedArrears([]);
+          setBulkStudents([]);
+          setSelectedBulkStudents([]);
+          setBulkArrearsStudents([]);
         }
       }}>
         <DialogContent className="max-w-4xl p-3 md:p-4 max-h-[96vh] flex flex-col overflow-hidden">
           <DialogHeader className="pb-1 border-b mb-2">
             <DialogTitle className="text-base font-bold">Generate Monthly Challans</DialogTitle>
           </DialogHeader>
+
+          <div className="mx-4 mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-[11px] text-yellow-800 leading-tight">
+            <strong>Hint:</strong> To generate challans for fee heads like Fine, Lab Fee, Library Fee, etc. (not tied to installments), please use the <strong>"Extra Challans"</strong> tab.
+          </div>
 
           {!generateResults ? (
             <div className="space-y-2 py-0 overflow-y-auto overflow-x-hidden pr-1 flex-1 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
@@ -2664,7 +2844,7 @@ const FeeManagement = () => {
               </div>
 
               <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
+                <div className={cn("grid gap-2", generateMode === "bulk" ? "grid-cols-3" : "grid-cols-2")}>
                   <div className="space-y-1">
                     <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Select Month</Label>
                     <Input
@@ -2675,21 +2855,48 @@ const FeeManagement = () => {
                     />
                   </div>
                   {generateMode === "bulk" && (
-                    <div className="space-y-2">
-                      <Label>Program (Optional)</Label>
-                      <Select
-                        value={generateForm.programId}
-                        onValueChange={(v) => setGenerateForm({ ...generateForm, programId: v, classId: "", sectionId: "" })}
-                      >
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue placeholder="All Programs" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Programs</SelectItem>
-                          {programs.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <>
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Due Date</Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant={"outline"}
+                              className={cn(
+                                "w-full h-8 text-xs justify-start text-left font-normal px-2",
+                                !bulkDueDate && "text-muted-foreground"
+                              )}
+                            >
+                              <CalendarIcon className="mr-2 h-3 w-3" />
+                              {bulkDueDate ? format(bulkDueDate, "PP") : <span>Pick a date</span>}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={bulkDueDate}
+                              onSelect={setBulkDueDate}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Program (Optional)</Label>
+                        <Select
+                          value={generateForm.programId}
+                          onValueChange={(v) => setGenerateForm({ ...generateForm, programId: v, classId: "", sectionId: "" })}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder="All Programs" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Programs</SelectItem>
+                            {programs.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
                   )}
                 </div>
 
@@ -2702,7 +2909,7 @@ const FeeManagement = () => {
                         onValueChange={(v) => setGenerateForm({ ...generateForm, classId: v, sectionId: "" })}
                         disabled={!generateForm.programId || generateForm.programId === "all"}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="h-8 text-xs">
                           <SelectValue placeholder="All Classes" />
                         </SelectTrigger>
                         <SelectContent>
@@ -2731,6 +2938,138 @@ const FeeManagement = () => {
                         </SelectContent>
                       </Select>
                     </div>
+
+                    {bulkStudents.length > 0 && (
+                      <div className="col-span-2 space-y-2 pt-2 border-t">
+                        <div className="flex justify-between items-center px-1">
+                          <Label className="text-[10px] font-bold text-muted-foreground uppercase italic">Select Students ({selectedBulkStudents.length}/{bulkStudents.length})</Label>
+                          <div className="flex gap-2">
+                             <Button 
+                               variant="ghost" 
+                               size="xs" 
+                               className="text-[10px] h-6 px-2 text-primary"
+                               onClick={() => {
+                                 setSelectedBulkStudents(bulkStudents.map(s => s.id));
+                                 setBulkArrearsStudents(bulkStudents.map(s => s.id));
+                               }}
+                             >
+                               Select All
+                             </Button>
+                             <Button 
+                               variant="ghost" 
+                               size="xs" 
+                               className="text-[10px] h-6 px-2 text-muted-foreground"
+                               onClick={() => {
+                                 setSelectedBulkStudents([]);
+                                 setBulkArrearsStudents([]);
+                               }}
+                             >
+                               Deselect All
+                             </Button>
+                          </div>
+                        </div>
+                        <div className="border rounded-md overflow-hidden bg-white/40 shadow-inner max-h-[300px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200">
+                          <Table>
+                            <TableHeader className="bg-muted/50 h-8 sticky top-0 z-10">
+                              <TableRow className="hover:bg-transparent border-b">
+                                <TableHead className="w-[40px] p-0 text-center"></TableHead>
+                                <TableHead className="text-[10px] uppercase font-bold p-2">Student</TableHead>
+                                <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Inst. Amt</TableHead>
+                                <TableHead className="text-[10px] uppercase font-bold p-2 text-center">Arrears?</TableHead>
+                                <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Arrears</TableHead>
+                                <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Total Due</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {bulkStudents.map((student) => {
+                                const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                                const currentInst = (student.feeInstallments || []).find(inst => {
+                                  const d = new Date(inst.dueDate);
+                                  return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+                                });
+
+                                const arrearsData = (student.feeInstallments || []).filter(inst => {
+                                  const d = new Date(inst.dueDate);
+                                  const targetDate = currentInst ? new Date(currentInst.dueDate) : new Date(selYear, selMonth - 1, 1);
+                                  return d < targetDate && (inst.remainingAmount > 0);
+                                }).map(inst => {
+                                  const amount = inst.remainingAmount || 0;
+                                  const lateFee = calculateLateFee(inst.dueDate, lateFeeFine);
+                                  return { amount, lateFee };
+                                });
+
+                                const arrearsAmount = arrearsData.reduce((sum, a) => sum + a.amount, 0);
+                                const arrearsLateFee = arrearsData.reduce((sum, a) => sum + a.lateFee, 0);
+
+                                const instAmt = currentInst ? (currentInst.remainingAmount || 0) : 0;
+                                const isSelected = selectedBulkStudents.includes(student.id);
+
+                                return (
+                                  <TableRow key={student.id} className={cn("hover:bg-orange-50/50 border-b border-muted/20 h-10", isSelected && "bg-orange-50/10")}>
+                                    <TableCell className="p-0 text-center">
+                                      <input
+                                        type="checkbox"
+                                        className="accent-orange-600 h-3.5 w-3.5 cursor-pointer"
+                                        checked={isSelected}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setSelectedBulkStudents([...selectedBulkStudents, student.id]);
+                                          } else {
+                                            setSelectedBulkStudents(selectedBulkStudents.filter(id => id !== student.id));
+                                          }
+                                        }}
+                                      />
+                                    </TableCell>
+                                    <TableCell className="p-2">
+                                      <div className="flex flex-col">
+                                        <span className="text-xs font-bold">{student.fName} {student.lName || ""}</span>
+                                        <span className="text-[9px] text-muted-foreground uppercase">{student.rollNumber}</span>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="text-xs p-2 text-right font-medium">Rs. {instAmt.toLocaleString()}</TableCell>
+                                    <TableCell className="p-0 text-center">
+                                      <input
+                                        type="checkbox"
+                                        className="accent-red-600 h-3 w-3 cursor-pointer"
+                                        disabled={!isSelected}
+                                        checked={bulkArrearsStudents.includes(student.id)}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setBulkArrearsStudents([...bulkArrearsStudents, student.id]);
+                                          } else {
+                                            setBulkArrearsStudents(bulkArrearsStudents.filter(id => id !== student.id));
+                                          }
+                                        }}
+                                      />
+                                    </TableCell>
+                                    <TableCell className="text-xs p-2 text-right text-red-600 font-medium">
+                                      <div>Rs. {arrearsAmount.toLocaleString()}</div>
+                                      {arrearsLateFee > 0 && <div className="text-[9px] font-bold">+{arrearsLateFee.toLocaleString()} Fine</div>}
+                                    </TableCell>
+                                    <TableCell className="text-xs p-2 text-right font-black text-orange-700">
+                                      Rs. {(instAmt + (bulkArrearsStudents.includes(student.id) ? (arrearsAmount + arrearsLateFee) : 0)).toLocaleString()}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {isFetchingBulkStudents && (
+                      <div className="col-span-2 py-8 text-center text-muted-foreground animate-pulse">
+                        <TrendingUp className="w-5 h-5 mx-auto mb-2 opacity-20" />
+                        <p className="text-xs">Fetching students and balances...</p>
+                      </div>
+                    )}
+
+                    {!isFetchingBulkStudents && bulkStudents.length === 0 && generateForm.programId !== "all" && (
+                      <div className="col-span-2 py-6 text-center border border-dashed rounded-lg bg-muted/5">
+                        <p className="text-xs text-muted-foreground italic">No students found matching filters.</p>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -2784,7 +3123,6 @@ const FeeManagement = () => {
                                       try {
                                         const results = await getInstallmentPlans({
                                           studentId: student.id,
-                                          classId: student.classId
                                         });
                                         const installments = results[0]?.feeInstallments || [];
                                         setGenStudentPlan(installments);
@@ -2904,6 +3242,7 @@ const FeeManagement = () => {
                               <span className="absolute left-2 top-2 text-[10px] text-muted-foreground font-bold">Rs.</span>
                               <Input
                                 type="number"
+                                min="0"
                                 value={genCustomAmount}
                                 onChange={(e) => setGenCustomAmount(e.target.value)}
                                 className="pl-8 h-8 text-sm font-semibold text-orange-700"
@@ -2911,16 +3250,69 @@ const FeeManagement = () => {
                             </div>
                           </div>
 
-                          <div className="space-y-1">
-                            <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Previous Arrears</Label>
-                            <div className="relative">
-                              <span className="absolute left-2 top-2 text-[10px] text-muted-foreground font-bold">Rs.</span>
-                              <Input
-                                type="number"
-                                value={genCustomArrears}
-                                onChange={(e) => setGenCustomArrears(e.target.value)}
-                                className="pl-8 h-8 text-sm font-semibold text-red-700"
-                              />
+                          <div className="col-span-2 space-y-1 pt-1 border-t">
+                            <Label className="text-[10px] font-bold text-muted-foreground uppercase italic px-1">Unpaid Arrears / Past Installments</Label>
+                            <div className="border rounded-md overflow-hidden bg-white/40 shadow-inner">
+                              <Table>
+                                <TableHeader className="bg-muted/50 h-7">
+                                  <TableRow className="hover:bg-transparent border-b-0">
+                                    <TableHead className="w-[30px] p-0 text-center"></TableHead>
+                                    <TableHead className="text-[9px] uppercase font-bold p-1">Month</TableHead>
+                                    <TableHead className="text-[9px] uppercase font-bold p-1">Class</TableHead>
+                                    <TableHead className="text-[9px] uppercase font-bold p-1 text-right">Balance</TableHead>
+                                    <TableHead className="text-[9px] uppercase font-bold p-1 text-right">Late Fee</TableHead>
+                                    <TableHead className="text-[9px] uppercase font-bold p-1 text-right">Total</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {(() => {
+                                    const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                                    const targetInst = genStudentPlan.find(inst => {
+                                      const d = new Date(inst.dueDate);
+                                      return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+                                    });
+                                    const pastUnpaid = genStudentPlan.filter(inst => {
+                                      const d = new Date(inst.dueDate);
+                                      return targetInst ? d < new Date(targetInst.dueDate) : true;
+                                    }).filter(inst => (inst.amount - (inst.paidAmount || 0)) > 0);
+
+                                    if (pastUnpaid.length === 0) {
+                                      return <TableRow><TableCell colSpan={5} className="text-[10px] text-center py-2 text-muted-foreground">No unpaid past installments</TableCell></TableRow>;
+                                    }
+
+                                    return pastUnpaid.map(inst => {
+                                      const balance = Math.max(0, inst.amount - (inst.paidAmount || 0));
+                                      const lateFee = calculateLateFee(inst.dueDate, lateFeeFine);
+                                      const rowTotal = balance + lateFee;
+                                      const isSelected = genSelectedArrears.some(a => a.id === inst.id);
+                                      
+                                      return (
+                                        <TableRow key={inst.id} className={cn("hover:bg-orange-50/50 border-b border-muted/20 h-8", isSelected && "bg-orange-50/30")}>
+                                          <TableCell className="p-0 text-center">
+                                            <input
+                                              type="checkbox"
+                                              className="accent-orange-600 h-3 w-3 cursor-pointer"
+                                              checked={isSelected}
+                                              onChange={(e) => {
+                                                if (e.target.checked) {
+                                                  setGenSelectedArrears([...genSelectedArrears, { id: inst.id, amount: balance, lateFee }]);
+                                                } else {
+                                                  setGenSelectedArrears(genSelectedArrears.filter(a => a.id !== inst.id));
+                                                }
+                                              }}
+                                            />
+                                          </TableCell>
+                                          <TableCell className="text-[10px] p-1 font-medium">{format(new Date(inst.dueDate), "MMM yyyy")}</TableCell>
+                                          <TableCell className="text-[10px] p-1 truncate max-w-[60px]">{inst.class?.name || "---"}</TableCell>
+                                          <TableCell className="text-[10px] p-1 text-right">Rs. {balance.toLocaleString()}</TableCell>
+                                          <TableCell className="text-[10px] p-1 text-right text-red-600 font-medium">+{lateFee.toLocaleString()}</TableCell>
+                                          <TableCell className="text-[10px] p-1 text-right font-bold">Rs. {rowTotal.toLocaleString()}</TableCell>
+                                        </TableRow>
+                                      );
+                                    });
+                                  })()}
+                                </TableBody>
+                              </Table>
                             </div>
                           </div>
 
@@ -2945,24 +3337,29 @@ const FeeManagement = () => {
                                       <span className="text-[9px] text-muted-foreground uppercase font-bold">Total</span>
                                       <span className="text-xs font-bold">Rs. {targetInst.amount.toLocaleString()}</span>
                                     </div>
-                                    <div className="flex flex-col border rounded bg-emerald-50 p-1 border-emerald-100">
-                                      <span className="text-[9px] text-emerald-600 uppercase font-bold">Paid</span>
-                                      <span className="text-xs font-bold text-emerald-700">Rs. {(targetInst.paidAmount || 0).toLocaleString()}</span>
+                                    <div className="flex flex-col border rounded bg-emerald-50 p-1 border-emerald-100 relative group">
+                                      <span className="text-[9px] text-emerald-600 uppercase font-bold text-center">Paid</span>
+                                      <span className="text-xs font-bold text-emerald-700 text-center">Rs. {(targetInst.paidAmount || 0).toLocaleString()}</span>
+                                      {(targetInst.paidAmount || 0) > targetInst.amount && (
+                                        <div className="absolute -top-2 -right-1 bg-emerald-600 text-white text-[8px] px-1 rounded-full font-bold shadow-sm">
+                                          EXCESS
+                                        </div>
+                                      )}
                                     </div>
                                     <div className="flex flex-col border rounded bg-orange-50 p-1 border-orange-100">
-                                      <span className="text-[9px] text-orange-600 uppercase font-bold">Pending</span>
-                                      <span className="text-xs font-bold text-orange-700">Rs. {(targetInst.pendingAmount || 0).toLocaleString()}</span>
+                                      <span className="text-[9px] text-orange-600 uppercase font-bold text-center">Pending</span>
+                                      <span className="text-xs font-bold text-orange-700 text-center">Rs. {(targetInst.pendingAmount || 0).toLocaleString()}</span>
                                     </div>
                                   </div>
                                   <div className="flex justify-between items-center px-1 pt-0.5">
                                     <div className="flex items-center gap-1.5 text-[11px] font-semibold text-orange-800 bg-orange-100/50 px-2 py-0.5 rounded-full border border-orange-200">
-                                      <TrendingUp className="h-3 w-3" /> Available: Rs. {targetInst.remainingAmount.toLocaleString()}
+                                      <TrendingUp className="h-3 w-3" /> Available: Rs. {Math.max(0, targetInst.remainingAmount).toLocaleString()}
                                     </div>
                                     <div className="text-[11px] font-bold text-red-600 flex items-center gap-1">
-                                      <History className="h-3 w-3" /> Arrears: Rs. {genStudentPlan.filter(inst => {
+                                      <History className="h-3 w-3" /> Arrears: Rs. {Math.max(0, genStudentPlan.filter(inst => {
                                         const d = new Date(inst.dueDate);
                                         return targetInst ? d < new Date(targetInst.dueDate) : false;
-                                      }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0).toLocaleString()}
+                                      }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0)).toLocaleString()}
                                     </div>
                                   </div>
                                 </div>
@@ -3020,16 +3417,15 @@ const FeeManagement = () => {
                               const tuitionSelected = parseFloat(genCustomAmount) || 0;
                               const tuitionPending = Math.max(0, tuitionTotal - tuitionPaid - tuitionSelected);
 
-                              const arrears = genCustomArrears !== "" ? (parseFloat(genCustomArrears) || 0) : genStudentPlan.filter(inst => {
-                                const d = new Date(inst.dueDate);
-                                return targetInst ? d < new Date(targetInst.dueDate) : false;
-                              }).reduce((sum, inst) => sum + (inst.amount - (inst.paidAmount || 0)), 0);
+                              const arrears = genSelectedArrears.reduce((sum, a) => sum + a.amount, 0);
+                              const arrearsLateFee = genSelectedArrears.reduce((sum, a) => sum + a.lateFee, 0);
 
                               const additionalSum = feeHeads
                                 .filter(h => genSelectedHeads.includes(h.id) && !h.isDiscount && !h.isTuition)
                                 .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
 
-                              const grandTotal = tuitionSelected + arrears + additionalSum;
+                              const currentLateFee = calculateLateFee(targetInst?.dueDate, lateFeeFine);
+                              const grandTotal = tuitionSelected + arrears + additionalSum + arrearsLateFee + currentLateFee;
 
                               return (
                                 <div className="space-y-1.5">
@@ -3038,9 +3434,14 @@ const FeeManagement = () => {
                                     <span className="text-orange-700">Total: Rs. {tuitionTotal.toLocaleString()}</span>
                                   </div>
                                   <div className="grid grid-cols-4 gap-1 text-center py-1">
-                                    <div className="flex flex-col border rounded bg-white p-1">
+                                    <div className="flex flex-col border rounded bg-white p-1 relative">
                                       <span className="text-[8px] text-muted-foreground uppercase font-bold">Paid</span>
                                       <span className="text-[10px] font-bold text-success">Rs. {tuitionPaid.toLocaleString()}</span>
+                                      {tuitionPaid > tuitionTotal && (
+                                        <div className="absolute -top-1.5 -right-0.5 bg-emerald-600 text-white text-[7px] px-1 rounded-full font-bold shadow-sm">
+                                          EXCESS
+                                        </div>
+                                      )}
                                     </div>
                                     <div className="flex flex-col border rounded bg-orange-50 p-1 border-orange-100">
                                       <span className="text-[8px] text-orange-600 uppercase font-bold">Pending</span>
@@ -3048,7 +3449,7 @@ const FeeManagement = () => {
                                     </div>
                                     <div className="flex flex-col border rounded bg-blue-50 p-1 border-blue-100">
                                       <span className="text-[8px] text-blue-600 uppercase font-bold">Available</span>
-                                      <span className="text-[10px] font-bold text-blue-700">Rs. {(targetInst?.remainingAmount || 0).toLocaleString()}</span>
+                                      <span className="text-[10px] font-bold text-blue-700">Rs. {Math.max(0, targetInst?.remainingAmount || 0).toLocaleString()}</span>
                                     </div>
                                     <div className="flex flex-col border rounded bg-orange-600 p-1 border-orange-700 text-white">
                                       <span className="text-[8px] uppercase font-bold opacity-80">This Bill</span>
@@ -3064,6 +3465,12 @@ const FeeManagement = () => {
                                       <span className="font-semibold italic flex items-center gap-1"><Plus className="h-2.5 w-2.5" /> Extra:</span>
                                       <span className="font-bold">Rs. {additionalSum.toLocaleString()}</span>
                                     </div>
+                                    {arrearsLateFee > 0 && (
+                                      <div className="flex justify-between text-destructive col-span-2 border-t border-destructive/20 pt-1 mt-1">
+                                        <span className="font-semibold italic flex items-center gap-1">Late Fee (Overdue Arrears):</span>
+                                        <span className="font-bold">Rs. {arrearsLateFee.toLocaleString()}</span>
+                                      </div>
+                                    )}
                                   </div>
                                   <div className="pt-1 mt-1 border-t-2 border-orange-300 flex justify-between items-center px-1">
                                     <span className="text-[10px] font-black text-orange-800 uppercase">Grand Total Payable</span>
@@ -3083,8 +3490,7 @@ const FeeManagement = () => {
                       </div>
                     )}
                   </div>
-                )
-                }
+                )}
               </div>
 
               <div className="pt-2 flex justify-end gap-2 border-t bg-muted/10 -mx-3 -mb-3 p-3">
@@ -3099,18 +3505,58 @@ const FeeManagement = () => {
                     generateChallansMutation.mutate({
                       month: generateForm.month,
                       studentId: generateMode === "student" ? genSelectedStudent?.id : "",
-                      programId: generateMode === "bulk" && generateForm.programId !== "all" ? generateForm.programId : "",
-                      classId: generateMode === "bulk" && generateForm.classId !== "all" ? generateForm.classId : "",
-                      sectionId: generateMode === "bulk" && generateForm.sectionId !== "all" ? generateForm.sectionId : "",
+                      studentIds: generateMode === "bulk" ? selectedBulkStudents : [],
+                      excludedArrearsStudentIds: generateMode === "bulk" 
+                        ? selectedBulkStudents.filter(id => !bulkArrearsStudents.includes(id)) 
+                        : [],
+                      programId: generateMode === "bulk" && generateForm.programId !== "all" && selectedBulkStudents.length === 0 ? generateForm.programId : "",
+                      classId: generateMode === "bulk" && generateForm.classId !== "all" && selectedBulkStudents.length === 0 ? generateForm.classId : "",
+                      sectionId: generateMode === "bulk" && generateForm.sectionId !== "all" && selectedBulkStudents.length === 0 ? generateForm.sectionId : "",
                       // Custom fields for individual student
                       customAmount: generateMode === "student" && genCustomAmount ? parseFloat(genCustomAmount) : undefined,
                       selectedHeads: generateMode === "student" && genSelectedHeads.length > 0 ? genSelectedHeads : undefined,
-                      customArrearsAmount: (generateMode === "student" && genCustomArrears !== "") ? parseFloat(genCustomArrears) : undefined,
+                      customArrearsAmount: (generateMode === "student" && genSelectedArrears.length > 0) ? genSelectedArrears.reduce((sum, a) => sum + a.amount, 0) : undefined,
+                      arrearsLateFee: (generateMode === "student" && genSelectedArrears.length > 0) ? genSelectedArrears.reduce((sum, a) => sum + a.lateFee, 0) : undefined,
+                      selectedArrears: generateMode === "student" && genSelectedArrears.length > 0 ? genSelectedArrears : undefined,
                       remarks: generateMode === "student" ? genRemarks : undefined,
-                      dueDate: generateMode === "student" && genDueDate ? format(genDueDate, "yyyy-MM-dd") : undefined
+                      dueDate: generateMode === "student" 
+                        ? (genDueDate ? format(genDueDate, "yyyy-MM-dd") : undefined)
+                        : (bulkDueDate ? format(bulkDueDate, "yyyy-MM-dd") : undefined)
                     });
                   }}
-                  disabled={isGenerating || (generateMode === "student" && (!genSelectedStudent || genStudentPlan.length === 0))}
+                  disabled={(() => {
+                    if (isGenerating) return true;
+                    if (generateMode === "bulk") {
+                      return selectedBulkStudents.length === 0;
+                    }
+                    if (generateMode === "student") {
+                      if (!genSelectedStudent || genStudentPlan.length === 0) return true;
+                      
+                      const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                      const targetInst = genStudentPlan.find(inst => {
+                        const d = new Date(inst.dueDate);
+                        return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+                      });
+
+                      // Determine if trying to generate a standard tuition bill when it's already paid
+                      const isFullyPaid = targetInst && (targetInst.paidAmount || 0) >= targetInst.amount;
+                      
+                      const isArrearsOnly = (genCustomAmount === "" || genCustomAmount === "0") && genSelectedArrears.length > 0;
+                      const isFeeHeadOnly = (genCustomAmount === "" || genCustomAmount === "0") && genSelectedHeads.length > 0;
+                      const hasIndividualBilling = (parseFloat(genCustomAmount) > 0 || genSelectedHeads.length > 0 || genSelectedArrears.length > 0);
+
+                      // Prevent generation if fully paid and not explicitly generating a special alternate bill
+                      if (isFullyPaid && !isArrearsOnly && !isFeeHeadOnly) {
+                        return true;
+                      }
+
+                      // Also prevent if nothing selected at all
+                      if (!hasIndividualBilling && (!targetInst || (targetInst.remainingAmount || 0) <= 0)) {
+                        return true;
+                      }
+                    }
+                    return false;
+                  })()}
                   className="bg-orange-600 hover:bg-orange-700 text-white font-semibold transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isGenerating ? "Generating..." : "Generate Challans"}
@@ -3120,17 +3566,121 @@ const FeeManagement = () => {
           ) : (
             <div className="space-y-4 py-4">
               <div className="rounded-lg border p-4 bg-muted/50 max-h-[400px] overflow-y-auto">
-                <h4 className="font-semibold mb-2">Generation Results</h4>
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="font-semibold">Generation Results</h4>
+                  {generateResults.some(r => (r.status === 'CREATED' || (r.status === 'SKIPPED' && r.challan))) && (
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-7 text-[10px] gap-1 bg-success/10 hover:bg-success/20 text-success border-success/30"
+                      onClick={() => {
+                        const printableChallans = generateResults
+                          .filter(r => (r.status === 'CREATED' || (r.status === 'SKIPPED' && r.challan)) && r.challan)
+                          .map(r => r.challan);
+                        
+                        if (printableChallans.length > 0) {
+                          printableChallans.forEach((c, idx) => {
+                            setTimeout(() => {
+                              const template = feeChallanTemplates.find(t => t.isDefault);
+                              if (template) {
+                                const finalHtml = generateChallanHtml(c, template.htmlContent);
+                                const printWindow = window.open('', '_blank');
+                                if (printWindow) {
+                                  printWindow.document.write(finalHtml);
+                                  printWindow.document.close();
+                                  printWindow.onload = () => printWindow.print();
+                                }
+                              }
+                            }, idx * 1000);
+                          });
+                        }
+                      }}
+                    >
+                      <Printer className="w-3 h-3" /> Print All
+                    </Button>
+                  )}
+                </div>
                 <div className="space-y-2">
                   {generateResults.map((res, i) => (
-                    <div key={i} className="flex items-center justify-between text-sm">
-                      <span>{res.studentName} ({res.studentId})</span>
-                      <Badge variant={res.status === 'CREATED' ? 'default' : 'secondary'}>
-                        {res.status === 'CREATED' ? `Success: ${res.challanNumber}` : res.reason}
-                      </Badge>
+                    <div key={i} className="flex items-center justify-between text-sm py-1 border-b border-muted last:border-0 hover:bg-muted/30 px-1 rounded transition-colors group">
+                      <div className="flex flex-col">
+                        <span className="font-medium">{res.studentName}</span>
+                        <span className="text-[10px] text-muted-foreground">ID: {res.studentId}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge 
+                          variant={res.status === 'CREATED' ? 'default' : res.status === 'EXCEEDS_TOTAL_PLAN' ? 'warning' : 'secondary'} 
+                          className="text-[10px] h-5"
+                        >
+                          {res.status === 'CREATED' ? `Success: ${res.challanNumber}` : res.reason}
+                        </Badge>
+
+                        {res.status === 'EXCEEDS_TOTAL_PLAN' && (
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="h-7 text-[10px] px-2 font-bold border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 animate-pulse"
+                            onClick={() => {
+                              // Re-trigger generation capping tuition and adding the excess as a custom head object
+                              generateChallansMutation.mutate({
+                                month: generateForm.month,
+                                studentId: res.studentId,
+                                customAmount: res.maxAllowed, // Cap to what's available
+                                selectedHeads: [
+                                  ...(genSelectedHeads || []), 
+                                  { name: "Overflow Tuition / Extra Head", amount: res.excessAmount }
+                                ],
+                                customArrearsAmount: genSelectedArrears.reduce((sum, a) => sum + a.amount, 0),
+                                arrearsLateFee: genSelectedArrears.reduce((sum, a) => sum + a.lateFee, 0),
+                                selectedArrears: genSelectedArrears,
+                                remarks: genRemarks,
+                                dueDate: genDueDate ? format(genDueDate, "yyyy-MM-dd") : undefined
+                              });
+                            }}
+                          >
+                            Bill Excess as Extra Head?
+                          </Button>
+                        )}
+
+                        {(res.status === 'CREATED' || (res.status === 'SKIPPED' && res.challan)) && res.challan && (
+                          <div className="flex items-center gap-1">
+                            {res.status === 'SKIPPED' && <span className="text-[9px] text-muted-foreground italic">(Existing)</span>}
+                            <Button 
+                              size="icon" 
+                              variant="ghost" 
+                              className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                              onClick={() => {
+                                setSelectedChallanDetails(res.challan);
+                                setDetailsDialogOpen(true);
+                              }}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button 
+                              size="icon" 
+                              variant="ghost" 
+                              className="h-7 w-7 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                              onClick={() => {
+                                const template = feeChallanTemplates.find(t => t.isDefault);
+                                if (template) {
+                                  const finalHtml = generateChallanHtml(res.challan, template.htmlContent);
+                                  const printWindow = window.open('', '_blank');
+                                  if (printWindow) {
+                                    printWindow.document.write(finalHtml);
+                                    printWindow.document.close();
+                                    printWindow.onload = () => printWindow.print();
+                                  }
+                                }
+                              }}
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
-                  {generateResults.length === 0 && <p className="text-muted-foreground">No students found for selection.</p>}
+                  {generateResults.length === 0 && <p className="text-muted-foreground italic text-center py-4">No students found for selection.</p>}
                 </div>
               </div>
               <div className="flex justify-end">

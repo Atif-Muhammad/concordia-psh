@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, DollarSign, ClipboardCheck, GraduationCap,
   BookOpen, Settings, BriefcaseBusiness, Home, FileText, TrendingUp,
-  Menu, X, LogOut, Bell, ChevronLeft, ChevronRight, Package, UserCircle, Lock, User, UsersRound
+  Menu, X, LogOut, Bell, ChevronLeft, ChevronRight, Package, UserCircle, Lock, User, UsersRound, MessageSquare
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -35,6 +35,7 @@ const menuItems = [
   { icon: Home, label: "Hostel", path: "/hostel" },
   { icon: TrendingUp, label: "Finance", path: "/finance" },
   { icon: Package, label: "Inventory", path: "/inventory" },
+  { icon: MessageSquare, label: "Complaints", path: "/complaints" },
   { icon: Settings, label: "Configuration", path: "/configuration" },
 ];
 
@@ -96,7 +97,11 @@ const DashboardLayout = ({ children }) => {
     }
 
     // Hardcoded permissions for all staff (teaching/non-teaching)
-    if (isTeacherOrStaff && ["Attendance", "Examination"].includes(label)) {
+    const role = currentUser?.role;
+    if (role === "Teacher" && ["Attendance", "Examination", "Complaints"].includes(label)) {
+      return true;
+    }
+    if (role === "Staff" && label === "Complaints") {
       return true;
     }
 

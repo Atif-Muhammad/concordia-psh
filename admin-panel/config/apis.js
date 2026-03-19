@@ -1,8 +1,8 @@
 import axios from "axios";
 import { formatLocalDate } from "../src/lib/utils";
 
-const base_url = "http://localhost:3003/api";
-// const base_url = "http://69.62.117.175:3003/api";
+// const base_url = "http://localhost:3003/api";
+const base_url = "http://69.62.117.175:3003/api";
 
 export const userWho = async () => {
   try {
@@ -2362,6 +2362,47 @@ export const getComplaints = async (date) => {
     }
     const { data } = await axios.get(
       url,
+      {
+        withCredentials: true,
+      }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getMyComplaints = async (month, year) => {
+  try {
+    const params = new URLSearchParams();
+    if (month) params.append("month", month);
+    if (year) params.append("year", year);
+
+    const { data } = await axios.get(
+      `${base_url}/front-office/get/my-complaints?${params.toString()}`,
+      { withCredentials: true }
+    );
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const addComplaintRemark = async (complaintId, payload) => {
+  try {
+    const { data } = await axios.post(
+      `${base_url}/front-office/complaint/${complaintId}/remark`,
+      payload,
       {
         withCredentials: true,
       }

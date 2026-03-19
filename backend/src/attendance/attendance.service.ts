@@ -160,7 +160,23 @@ export class AttendanceService {
     sectionId: number | null,
     subjectId: number,
     date: string,
+    requestingUser?: any,
   ) {
+    // RBAC check for teachers
+    if (requestingUser?.role === 'Teacher') {
+      const mapping = await this.prismaService.teacherClassSectionMapping.findFirst({
+        where: {
+          teacherId: Number(requestingUser.id),
+          classId,
+          OR: [
+            { sectionId: null },
+            ...(sectionId ? [{ sectionId }] : []),
+          ],
+        },
+      });
+      if (!mapping) throw new ForbiddenException('You are not assigned to this class/section');
+    }
+
     const targetDate = new Date(date);
     targetDate.setUTCHours(0, 0, 0, 0);
 
@@ -207,7 +223,23 @@ export class AttendanceService {
     teacherId: number | null,
     date: string,
     payload: { studentId: string; status: AttendanceStatus }[],
+    requestingUser?: any,
   ) {
+    // RBAC check for teachers
+    if (requestingUser?.role === 'Teacher') {
+      const mapping = await this.prismaService.teacherClassSectionMapping.findFirst({
+        where: {
+          teacherId: Number(requestingUser.id),
+          classId,
+          OR: [
+            { sectionId: null },
+            ...(sectionId ? [{ sectionId }] : []),
+          ],
+        },
+      });
+      if (!mapping) throw new ForbiddenException('You are not assigned to this class/section');
+    }
+
     // Validate date is not weekend/holiday
     const targetDate = new Date(date);
     const dateCheck = await this.isNonWorkingDay(targetDate);

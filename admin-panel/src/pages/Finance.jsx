@@ -601,17 +601,19 @@ const Finance = () => {
 
   return <DashboardLayout>
     <div className="space-y-6 max-w-full overflow-x-hidden">
-      <div className="bg-gradient-to-r from-primary to-primary/80 rounded-2xl p-6 text-primary-foreground shadow-lg">
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center mb-8">
           <div>
-            <h2 className="text-2xl font-bold mb-2">Finance Management</h2>
-            <p className="text-primary-foreground/90">
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <TrendingUp className="w-8 h-8 text-primary" />
+              Finance Management
+            </h1>
+            <p className="text-muted-foreground mt-1">
               Track income, expenses, and financial reports
             </p>
           </div>
-          <div className="bg-white/10 rounded-lg p-2">
+          <div>
             <Select value={dashboardPeriod} onValueChange={setDashboardPeriod}>
-              <SelectTrigger className="w-[140px] bg-white text-primary border-0">
+              <SelectTrigger className="w-[140px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -623,7 +625,6 @@ const Finance = () => {
             </Select>
           </div>
         </div>
-      </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

@@ -14,5 +14,13 @@ export class ComplaintDto {
   @IsNotEmpty({ message: 'complaint status must be provided' })
   status: string;
   @IsOptional()
-  assignedToId?: number;
+  assignedToIds?: number[];
+}
+
+export class ComplaintRemarkDto {
+  @IsNotEmpty({ message: 'complaint id must be provided' })
+  complaintId: number;
+
+  @IsNotEmpty({ message: 'remark must be provided' })
+  remark: string;
 }

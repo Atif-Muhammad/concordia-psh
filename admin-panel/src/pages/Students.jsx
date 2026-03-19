@@ -93,8 +93,10 @@ import {
   Check,
   ChevronsUpDown,
   UserX,
+  User,
   UserMinus,
   RotateCcw,
+  Users,
 } from "lucide-react";
 
 const EMPTY_OBJECT = {};
@@ -443,7 +445,7 @@ const Students = () => {
       dob: student.dob ? new Date(student.dob).toISOString().split("T")[0] : "",
       tuitionFee: student.tuitionFee?.toString() || "",
       numberOfInstallments: student.numberOfInstallments?.toString() || "1",
-      installments: student.feeInstallments || [],
+      installments: (student.feeInstallments || []).filter(inst => inst.classId === student.classId),
     });
     setOpen(true);
   };
@@ -698,31 +700,30 @@ const Students = () => {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold mb-2">Student Management</h2>
-              <p>Total Students: {studentsData?.length || 0}</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-
-              {/* <Button size="sm" onClick={() => setMeritOpen(true)} variant="outline" className="gap-2">
-                <Award className="w-4 h-4" /> Merit List
-              </Button> */}
-              <Button size="sm" onClick={() => setPromoteOpen(true)} variant="outline" className="gap-2">
-                <TrendingUp className="w-4 h-4" /> Promote
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  resetForm();
-                  setOpen(true);
-                }}
-                className="gap-2"
-              >
-                <UserPlus className="w-4 h-4" /> Add Student
-              </Button>
-            </div>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <Users className="w-8 h-8 text-primary" />
+              Student Management
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Total Students: {studentsData?.length || 0}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => setPromoteOpen(true)} variant="outline" className="gap-2">
+              <TrendingUp className="w-4 h-4" /> Promote
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                resetForm();
+                setOpen(true);
+              }}
+              className="gap-2"
+            >
+              <UserPlus className="w-4 h-4" /> Add Student
+            </Button>
           </div>
         </div>
         {/* filters */}
@@ -842,6 +843,7 @@ const Students = () => {
                   <TableHead>Photo</TableHead>
                   <TableHead>Roll No</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Admission Date</TableHead>
                   <TableHead>Program</TableHead>
                   <TableHead>{selectedStatus === "ACTIVE" ? "Class" : "Last Class"}</TableHead>
                   <TableHead>Section</TableHead>
@@ -852,7 +854,7 @@ const Students = () => {
               <TableBody>
                 {currentStudents?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={selectedStatus === "ACTIVE" ? 7 : 6} className="text-center py-8">
+                  <TableCell colSpan={selectedStatus === "ACTIVE" ? 9 : 8} className="text-center py-8">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <p className="text-muted-foreground">
                           {selectedStatus === "ACTIVE"
@@ -888,6 +890,9 @@ const Students = () => {
                         </TableCell>
                         <TableCell className="font-medium">{student.rollNumber}</TableCell>
                         <TableCell>{student.fName} {student.mName} {student.lName}</TableCell>
+                        <TableCell>
+                          {student.createdAt ? format(new Date(student.createdAt), "dd MMM yyyy") : "-"}
+                        </TableCell>
                         <TableCell><Badge variant="outline">{prog?.name || "-"}</Badge></TableCell>
                         <TableCell>
                           {cls?.name || "-"}
@@ -1027,23 +1032,24 @@ const Students = () => {
                       <p className="text-muted-foreground">{viewStudent.rollNumber}</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div><span className="font-semibold">Program:</span> {programData.find((p) => p.id === viewStudent.programId)?.name}</div>
-                    <div><span className="font-semibold">Class:</span> {programData.flatMap((p) => p.classes).find((c) => c.id === viewStudent.classId)?.name}</div>
-                    <div><span className="font-semibold">Section:</span> {programData.flatMap((p) => p.classes).flatMap((c) => c.sections).find((s) => s.id === viewStudent.sectionId)?.name || "N/A"}</div>
-                    <div><span className="font-semibold">Parent Email:</span> {viewStudent.parentOrGuardianEmail || "-"}</div>
-                    <div><span className="font-semibold">Parent Phone:</span> {viewStudent.parentOrGuardianPhone || "-"}</div>
-                    <div><span className="font-semibold">DOB:</span> {viewStudent.dob ? new Date(viewStudent.dob).toLocaleDateString() : "-"}</div>
-                    <div className="flex items-center gap-2">
-                      <TrendingUp className="w-4 h-4 text-blue-600" />
-                      <span className="font-semibold">Total Tuition Fee:</span>
-                      <span className="font-mono font-bold">Rs. {viewStudent.tuitionFee?.toLocaleString()}</span>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div><span className="font-semibold">Admission Date:</span> {viewStudent.createdAt ? format(new Date(viewStudent.createdAt), "dd MMMM yyyy") : "-"}</div>
+                      <div><span className="font-semibold">Program:</span> {programData.find((p) => p.id === viewStudent.programId)?.name}</div>
+                      <div><span className="font-semibold">Class:</span> {programData.flatMap((p) => p.classes).find((c) => c.id === viewStudent.classId)?.name}</div>
+                      <div><span className="font-semibold">Section:</span> {programData.flatMap((p) => p.classes).flatMap((c) => c.sections).find((s) => s.id === viewStudent.sectionId)?.name || "N/A"}</div>
+                      <div><span className="font-semibold">Parent Email:</span> {viewStudent.parentOrGuardianEmail || "-"}</div>
+                      <div><span className="font-semibold">Parent Phone:</span> {viewStudent.parentOrGuardianPhone || "-"}</div>
+                      <div><span className="font-semibold">DOB:</span> {viewStudent.dob ? new Date(viewStudent.dob).toLocaleDateString() : "-"}</div>
+                      <div className="flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-blue-600" />
+                        <span className="font-semibold">Total Tuition Fee:</span>
+                        <span className="font-mono font-bold">Rs. {viewStudent.tuitionFee?.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="font-semibold">Installments:</span>
+                        <span className="ml-2">{viewStudent.numberOfInstallments} {viewStudent.numberOfInstallments === 1 ? "Installment" : "Installments"}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="font-semibold">Installments:</span>
-                      <span className="ml-2">{viewStudent.numberOfInstallments} {viewStudent.numberOfInstallments === 1 ? "Installment" : "Installments"}</span>
-                    </div>
-                  </div>
 
                   {/* Documents */}
                   <div className="mt-6">

@@ -64,9 +64,9 @@ import {
   Check,
   X,
   CalendarIcon,
-  Badge as BadgeIcon,
   Undo2,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import {
@@ -271,7 +271,7 @@ const FrontOffice = () => {
     details: "",
     subject: "",
     status: "Pending",
-    assignedToId: null,
+    assignedToIds: [],
   });
 
   const [contactForm, setContactForm] = useState({
@@ -556,6 +556,7 @@ const FrontOffice = () => {
       details: "",
       subject: "",
       status: "Pending",
+      assignedToIds: [],
     });
     setEditingComplaint(null);
     setComplaintDialog(false);
@@ -767,7 +768,7 @@ const FrontOffice = () => {
     setComplaintForm({
       ...complaint,
       details: complaint.description || "",
-      assignedToId: complaint.assignedToId || null,
+      assignedToIds: complaint.assignedTo?.map(a => a.id) || [],
     });
     setEditingComplaint(complaint);
     setComplaintDialog(true);
@@ -823,17 +824,16 @@ const FrontOffice = () => {
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
       case "pending":
-        return "bg-yellow-200 text-yellow-900";
-      case "approved":
+        return "bg-yellow-50 text-yellow-700 border-yellow-200";
+      case "in_progress":
+      case "in progress":
+        return "bg-blue-50 text-blue-700 border-blue-200";
       case "resolved":
-        return "bg-green-100 text-green-700";
+        return "bg-green-50 text-green-700 border-green-200";
       case "rejected":
-        return "bg-red-200 text-red-900";
-      case "in-progress":
-      case "follow_up":
-        return "bg-yellow-100 text-yellow-700";
+        return "bg-red-50 text-red-700 border-red-200";
       default:
-        return "bg-gray-100 text-gray-700";
+        return "bg-gray-50 text-gray-700 border-gray-200";
     }
   };
   const handlePrintTable = () => {
@@ -874,11 +874,16 @@ const FrontOffice = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium">
-          <h2 className="text-2xl font-bold mb-2">Front Office Management</h2>
-          <p className="text-primary-foreground/90">
-            Handle inquiries, visitors, complaints, and contacts
-          </p>
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <MessageSquare className="w-8 h-8 text-primary" />
+              Front Office Management
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Handle inquiries, visitors, complaints, and contacts
+            </p>
+          </div>
         </div>
 
         <Tabs defaultValue="inquiry" className="w-full">
@@ -1487,19 +1492,36 @@ const FrontOffice = () => {
                         </div>
 
                         <div>
-                          <Label>Assign To Employee</Label>
+                          <Label>Assign To Employees</Label>
                           <Popover>
                             <PopoverTrigger asChild>
                               <Button
                                 variant="outline"
                                 role="combobox"
-                                className="w-full justify-between mt-1"
+                                className="w-full justify-between mt-1 h-auto min-h-[40px] py-2"
                               >
-                                {complaintForm.assignedToId
-                                  ? employees.find(
-                                    (employee) => employee.id === complaintForm.assignedToId
-                                  )?.name || "Select Employee"
-                                  : "Select Employee"}
+                                <div className="flex flex-wrap gap-1">
+                                  {complaintForm.assignedToIds?.length > 0 ? (
+                                    complaintForm.assignedToIds.map((id) => (
+                                      <Badge key={id} variant="secondary" className="flex items-center gap-1">
+                                        {employees.find(e => e.id === id)?.name || id}
+                                        <X
+                                          className="h-3 w-3 cursor-pointer hover:text-destructive"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const ids = complaintForm.assignedToIds || [];
+                                            setComplaintForm({
+                                              ...complaintForm,
+                                              assignedToIds: ids.filter(aid => aid !== id),
+                                            });
+                                          }}
+                                        />
+                                      </Badge>
+                                    ))
+                                  ) : (
+                                    "Select Employees"
+                                  )}
+                                </div>
                                 <Users className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                               </Button>
                             </PopoverTrigger>
@@ -1517,14 +1539,18 @@ const FrontOffice = () => {
                                         key={employee.id}
                                         value={employee.name}
                                         onSelect={() => {
+                                          const ids = complaintForm.assignedToIds || [];
+                                          const newIds = ids.includes(employee.id)
+                                            ? ids.filter(id => id !== employee.id)
+                                            : [...ids, employee.id];
                                           setComplaintForm({
                                             ...complaintForm,
-                                            assignedToId: employee.id,
+                                            assignedToIds: newIds,
                                           });
                                         }}
                                       >
                                         <Check
-                                          className={`mr-2 h-4 w-4 ${complaintForm.assignedToId === employee.id
+                                          className={`mr-2 h-4 w-4 ${complaintForm.assignedToIds?.includes(employee.id)
                                             ? "opacity-100"
                                             : "opacity-0"
                                             }`}
@@ -1578,14 +1604,17 @@ const FrontOffice = () => {
                       <TableCell className="font-medium">{complaint.complainantName}</TableCell>
                       <TableCell className="font-medium italic">{complaint.subject}</TableCell>
                       <TableCell>
-                        {complaint.assignedTo ? (
-                          <div className="flex items-center gap-2">
-                            <Users className="w-3 h-3 text-muted-foreground" />
-                            <span>{complaint.assignedTo.name}</span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground italic text-xs">Unassigned</span>
-                        )}
+                        <div className="flex flex-wrap gap-1 max-w-[200px]">
+                          {complaint.assignedTo?.length > 0 ? (
+                            complaint.assignedTo.map((emp) => (
+                              <Badge key={emp.id} variant="secondary" className="text-[10px] h-5">
+                                {emp.name}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-muted-foreground italic text-xs">Unassigned</span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Select
@@ -1593,7 +1622,7 @@ const FrontOffice = () => {
                           onValueChange={(v) =>
                             updateComplaint({
                               id: complaint.id,
-                              payload: { ...complaint, status: v },
+                              payload: { status: v },
                             })
                           }
                         >
@@ -1826,10 +1855,9 @@ const FrontOffice = () => {
                 {/* Primary Info Section */}
                 <div className="grid grid-cols-2 gap-4">
                   {Object.entries(viewDetailsDialog.data)
-                    .filter(([key]) => !["id", "assignedToId", "updatedAt", "description", "details", "documents"].includes(key))
+                    .filter(([key]) => !["id", "assignedToId", "assignedTo", "remarks", "updatedAt", "description", "details", "documents"].includes(key))
                     .map(([key, value]) => {
                       // Formatting logic
-                      if (key === "assignedTo" && !value) return null;
                       if (!value && value !== 0) return null;
 
                       let displayValue = typeof value === "object" && value?.name ? value.name : String(value);
@@ -1876,8 +1904,48 @@ const FrontOffice = () => {
                   </div>
                 )}
 
-                {/* Assigned Employee Section Specifics */}
-                {viewDetailsDialog.data.assignedTo && (
+                {/* Assigned Employees Section Specifics */}
+                {viewDetailsDialog.type === "complaint" && viewDetailsDialog.data.assignedTo?.length > 0 && (
+                  <div className="space-y-3 pt-4 border-t">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Assigned Employees</h4>
+                    <div className="flex flex-wrap gap-4">
+                      {viewDetailsDialog.data.assignedTo.map((emp) => (
+                        <div key={emp.id} className="flex items-center gap-2 bg-muted/50 p-2 rounded-lg">
+                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                            {emp.name?.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{emp.name}</p>
+                            <p className="text-xs text-muted-foreground">{emp.empDepartment}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Complaint Remarks Section */}
+                {viewDetailsDialog.type === "complaint" && viewDetailsDialog.data.remarks?.length > 0 && (
+                  <div className="space-y-3 pt-4 border-t">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status History & Remarks</h4>
+                    <div className="space-y-3">
+                      {viewDetailsDialog.data.remarks.map((remark) => (
+                        <div key={remark.id} className="bg-muted/30 p-3 rounded-md text-sm">
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="font-semibold text-primary">{remark.author?.name || "Staff"}</span>
+                            <span className="text-[10px] text-muted-foreground italic">
+                              {new Date(remark.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-muted-foreground leading-snug">{remark.remark}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Single Assigned Employee (for other types if needed) */}
+                {viewDetailsDialog.type !== "complaint" && viewDetailsDialog.data.assignedTo && (
                   <div className="space-y-1 pt-4 border-t">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Assigned Employee</h4>
                     <div className="flex items-center gap-2">
@@ -1924,9 +1992,9 @@ const FrontOffice = () => {
                   </div>
                   <div>
                     <p className="text-muted-foreground">Program Interested</p>
-                    <BadgeIcon className="inline-block" variant="outline">
+                    <Badge className="inline-block" variant="outline">
                       {programs?.find(p => p.id === selectedInquiryForAccept.programInterest)?.name || selectedInquiryForAccept.program?.name || "N/A"}
-                    </BadgeIcon>
+                    </Badge>
                   </div>
                 </div>
               </div>

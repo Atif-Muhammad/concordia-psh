@@ -179,63 +179,117 @@ export class FrontOfficeService {
         contact: payload.contact,
         subject: payload.subject,
         description: payload.details,
-        assignedToId: payload.assignedToId
-          ? Number(payload.assignedToId)
-          : undefined,
+        assignedTo: {
+          connect: payload.assignedToIds?.map((id) => ({ id: Number(id) })) || [],
+        },
       },
     });
   }
 
-  async getComplaints(date?: string, start?: string, end?: string) {
-    if (start && end) {
-      return await this.prismaService.complaint.findMany({
-        where: {
-          createdAt: {
-            gte: new Date(start),
-            lte: new Date(end),
-          },
-        },
-        include: { assignedTo: true },
-        orderBy: { createdAt: 'desc' },
-      });
-    }
-
-    if (date) {
+  async getComplaints(
+    date?: string,
+    start?: string,
+    end?: string,
+    assignedToId?: number,
+    month?: number,
+    year?: number,
+  ) {
+    const where: any = {};
+    if (year && month) {
+      const s = new Date(year, month - 1, 1);
+      const e = new Date(year, month, 0, 23, 59, 59);
+      where.createdAt = {
+        gte: s,
+        lte: e,
+      };
+    } else if (year) {
+      const s = new Date(year, 0, 1);
+      const e = new Date(year, 11, 31, 23, 59, 59);
+      where.createdAt = {
+        gte: s,
+        lte: e,
+      };
+    } else if (start && end) {
+      where.createdAt = {
+        gte: new Date(start),
+        lte: new Date(end),
+      };
+    } else if (date) {
       const s = new Date(date);
       const e = new Date(date);
       e.setHours(23, 59, 59);
+      where.createdAt = {
+        gte: s,
+        lte: e,
+      };
+    }
 
-      return await this.prismaService.complaint.findMany({
-        where: {
-          createdAt: {
-            gte: s,
-            lte: e,
-          },
-        },
-        include: { assignedTo: true },
-        orderBy: { createdAt: 'desc' },
-      });
+    if (assignedToId) {
+      where.assignedTo = {
+        some: { id: assignedToId },
+      };
     }
 
     return await this.prismaService.complaint.findMany({
-      include: { assignedTo: true },
+      where,
+      include: {
+        assignedTo: true,
+        remarks: {
+          include: {
+            author: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async updateComplaint(id: number, payload: Partial<ComplaintDto>) {
+    const updateData: any = {
+      complainantName: payload.complainantName,
+      contact: payload.contact,
+      subject: payload.subject,
+      description: payload.details,
+      status: payload.status as ComplaintStatus,
+      type: payload.type as ComplaintType,
+    };
+
+    if (payload.assignedToIds) {
+      updateData.assignedTo = {
+        set: payload.assignedToIds.map((id) => ({ id: Number(id) })),
+      };
+    }
+
     return await this.prismaService.complaint.update({
       where: { id },
+      data: updateData,
+    });
+  }
+
+  async addComplaintRemark(
+    complaintId: number,
+    authorId: number,
+    remark: string,
+  ) {
+    return await this.prismaService.complaintRemark.create({
       data: {
-        complainantName: payload.complainantName,
-        contact: payload.contact,
-        subject: payload.subject,
-        description: payload.details,
-        status: payload.status as ComplaintStatus,
-        type: payload.type as ComplaintType,
-        assignedToId: payload.assignedToId
-          ? Number(payload.assignedToId)
-          : undefined,
+        complaintId,
+        authorId,
+        remark,
+      },
+      include: {
+        author: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
   }

@@ -402,6 +402,18 @@ export class StudentService {
         },
       });
 
+      // Track installment numbers found in payload to handle deletions for THIS class
+      const incomingInstallmentNumbers = installmentsData.map(i => Number(i.installmentNumber));
+      
+      // Delete installments for this class that are NOT in the incoming payload
+      await this.prismaService.studentFeeInstallment.deleteMany({
+        where: {
+          studentId: id,
+          classId: targetClassId,
+          installmentNumber: { notIn: incomingInstallmentNumbers }
+        }
+      });
+
       for (const i of installmentsData) {
         const installmentNumber = Number(i.installmentNumber);
         const amount = Number(i.amount);
@@ -509,6 +521,7 @@ export class StudentService {
       throw new BadRequestException('Student already passed out');
 
     // Check for arrears before promotion - ALWAYS calculate to handle both initial check and force promote
+    let outstandingAmount = 0;
     if (student.classId && student.programId) {
       const currentChallans = await this.prismaService.feeChallan.findMany({
         where: {
@@ -573,7 +586,7 @@ export class StudentService {
         }
       }
 
-      const outstandingAmount = expectedTuitionTotal - totalTuitionPaid;
+      outstandingAmount = expectedTuitionTotal - totalTuitionPaid;
 
       // If arrears found
       if (outstandingAmount > 0) {
@@ -688,6 +701,29 @@ export class StudentService {
       },
     });
 
+    // --- SAVE ARREARS TO StudentArrear TABLE ---
+    if (outstandingAmount > 0 && student.classId && student.programId) {
+      console.log(`📝 Saving ${outstandingAmount} as session arrears for student ${id}`);
+      await this.prismaService.studentArrear.upsert({
+        where: {
+          studentId_classId_programId: {
+            studentId: id,
+            classId: student.classId,
+            programId: student.programId,
+          },
+        },
+        create: {
+          studentId: id,
+          classId: student.classId!,
+          programId: student.programId!,
+          arrearAmount: outstandingAmount,
+        },
+        update: {
+          arrearAmount: outstandingAmount,
+        },
+      });
+    }
+
     // --- AUTO-GENERATE NEW FEES FOR PROMOTED CLASS ---
     console.log(
       `🚀 Promotion Fee Logic: Student ${id} -> Class ${nextClass.id}`,
@@ -710,11 +746,9 @@ export class StudentService {
       ? newFeeStructure.totalAmount
       : student.tuitionFee || 0;
 
-    // Respect student's custom installment count if it exists (>0).
+    // Prioritize new class standard installments, fallback to existing student count
     const installmentCount =
-      student.numberOfInstallments && student.numberOfInstallments > 0
-        ? student.numberOfInstallments
-        : newFeeStructure?.installments || 1;
+      newFeeStructure?.installments || student.numberOfInstallments || 1;
 
     console.log(
       `📊 Fees: Total=${totalAmount}, Installments=${installmentCount} (Structure Found: ${!!newFeeStructure})`,
@@ -750,9 +784,8 @@ export class StudentService {
             numberOfInstallments: installmentCount,
           },
         }),
-        this.prismaService.studentFeeInstallment.deleteMany({
-          where: { studentId: id },
-        }),
+        // Don't delete all installments anymore, just add new ones for the new class
+        // Keep the old ones for historical record and restoration if demoted
         this.prismaService.studentFeeInstallment.createMany({
           data: newInstallments.map((i) => ({
             studentId: id,
@@ -819,6 +852,19 @@ export class StudentService {
       (s) => s.name === student.section?.name,
     );
 
+    // --- REMOVE StudentArrear RECORD ON DEMOTION ---
+    // If student is demoted back to the previous class, we remove the arrears 
+    // that were moved to the StudentArrear table during promotion.
+    if (student.programId) {
+      await this.prismaService.studentArrear.deleteMany({
+        where: {
+          studentId: id,
+          classId: prevClass.id,
+          programId: student.programId,
+        },
+      });
+    }
+
     // --- AUTO-DELETE INVALID CHALLANS FOR DEMOTION ---
     // Remove unpaid challans associated with the current class (the one they are leaving)
     await this.feeManagementService.removeChallansForDemotion(
@@ -826,50 +872,63 @@ export class StudentService {
       student.classId,
     );
 
-    // --- RESET FEE STRUCTURE TO PREVIOUS CLASS ---
-    const targetFeeStructure = await this.prismaService.feeStructure.findUnique(
-      {
+    // --- RESTORE PREVIOUS FEE STRUCTURE ---
+    // Try to find if the student had a custom installment plan for the previous class
+    const previousInstallments = await this.prismaService.studentFeeInstallment.findMany({
+      where: {
+        studentId: id,
+        classId: prevClass.id,
+      },
+      orderBy: { installmentNumber: 'asc' },
+    });
+
+    let restoredTuitionFee = 0;
+    let restoredInstallmentsCount = 0;
+
+    if (previousInstallments.length > 0) {
+      console.log(`♻️ Restoring custom installment plan for student ${id} in class ${prevClass.name}`);
+      restoredTuitionFee = previousInstallments.reduce((sum, inst) => sum + inst.amount, 0);
+      restoredInstallmentsCount = previousInstallments.length;
+    } else {
+      // Fallback: If no history exists, use standard fee structure
+      const targetFeeStructure = await this.prismaService.feeStructure.findUnique({
         where: {
           programId_classId: {
             programId: program.id,
             classId: prevClass.id,
           },
         },
-      },
-    );
+      });
 
-    const targetTuitionFee = targetFeeStructure
-      ? targetFeeStructure.totalAmount
-      : 0;
-    const targetInstallments = targetFeeStructure
-      ? targetFeeStructure.installments
-      : 1;
+      restoredTuitionFee = targetFeeStructure ? targetFeeStructure.totalAmount : 0;
+      restoredInstallmentsCount = targetFeeStructure ? targetFeeStructure.installments : 1;
 
-    console.log(
-      `📉 Demotion Fee Reset: Student ${id} -> Class ${prevClass.name}. Tuition: ${targetTuitionFee}, Installments: ${targetInstallments}`,
-    );
-
-    // Regenerate Installments
-    let newInstallments: any[] = [];
-    if (targetTuitionFee > 0) {
-      const defaultInstallmentAmount = Math.floor(
-        targetTuitionFee / targetInstallments,
+      console.log(
+        `📉 Demotion Fallback (No History): Tuition: ${restoredTuitionFee}, Installments: ${restoredInstallmentsCount}`,
       );
-      newInstallments = Array.from({ length: targetInstallments }).map(
+    }
+
+    // Regenerate Installments ONLY if no history was found
+    let fallbackInstallmentsToCreate: any[] = [];
+    if (previousInstallments.length === 0 && restoredTuitionFee > 0) {
+      const defaultInstallmentAmount = Math.floor(
+        restoredTuitionFee / restoredInstallmentsCount,
+      );
+      fallbackInstallmentsToCreate = Array.from({ length: restoredInstallmentsCount }).map(
         (_, idx) => ({
+          studentId: id,
+          classId: prevClass.id,
           installmentNumber: idx + 1,
           amount: defaultInstallmentAmount,
-          dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)), // Monthly staggered from NOW? Or start of year?
-          // Ideally prompt for start date, but for auto-demote, relative to now or keeping original dates is hard without tracking.
-          // Let's assume standard staggered from now for simplicity, or just reset.
+          dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)),
         }),
       );
 
       // Fix rounding
-      const totalCalculated = defaultInstallmentAmount * targetInstallments;
-      const diff = targetTuitionFee - totalCalculated;
-      if (diff !== 0 && newInstallments.length > 0) {
-        newInstallments[newInstallments.length - 1].amount += diff;
+      const totalCalculated = defaultInstallmentAmount * restoredInstallmentsCount;
+      const diff = restoredTuitionFee - totalCalculated;
+      if (diff !== 0 && fallbackInstallmentsToCreate.length > 0) {
+        fallbackInstallmentsToCreate[fallbackInstallmentsToCreate.length - 1].amount += diff;
       }
     }
 
@@ -882,23 +941,24 @@ export class StudentService {
             ? { connect: { id: matchingSection.id } }
             : { disconnect: true },
           passedOut: false,
-          // RESET FEES
-          tuitionFee: targetTuitionFee,
-          numberOfInstallments: targetInstallments,
+          // RESTORE FEES
+          tuitionFee: restoredTuitionFee,
+          numberOfInstallments: restoredInstallmentsCount,
         },
       }),
+      // Remove installments for the current class (the one they are leaving)
       this.prismaService.studentFeeInstallment.deleteMany({
-        where: { studentId: id },
-      }),
-      this.prismaService.studentFeeInstallment.createMany({
-        data: newInstallments.map((i) => ({
+        where: {
           studentId: id,
-          classId: prevClass.id,
-          installmentNumber: i.installmentNumber,
-          amount: i.amount,
-          dueDate: i.dueDate,
-        })),
+          classId: student.classId,
+        },
       }),
+      // If no history existed, create the fallback ones
+      ...(previousInstallments.length === 0 && fallbackInstallmentsToCreate.length > 0
+        ? [this.prismaService.studentFeeInstallment.createMany({
+          data: fallbackInstallmentsToCreate,
+        })]
+        : []),
     ]);
 
     return updatedStudent[0];
@@ -911,6 +971,21 @@ export class StudentService {
     if (!student) throw new NotFoundException('Student not found');
     if (student.passedOut)
       throw new BadRequestException('Student already passed out');
+
+    // Check for remaining arrears before allowing passout
+    const remainingArrears = await this.prismaService.studentFeeInstallment.findMany({
+      where: {
+        studentId: id,
+        remainingAmount: { gt: 0 }
+      }
+    });
+
+    if (remainingArrears.length > 0) {
+      const totalOutstanding = remainingArrears.reduce((sum, inst) => sum + inst.remainingAmount, 0);
+      throw new BadRequestException(
+        `Cannot pass out student. Total outstanding arrears: PKR ${totalOutstanding}. Please clear all dues first.`
+      );
+    }
 
     return this.prismaService.$transaction(async (tx) => {
       await tx.studentStatusHistory.create({
@@ -938,6 +1013,21 @@ export class StudentService {
       where: { id },
     });
     if (!student) throw new NotFoundException('Student not found');
+
+    // Check for remaining arrears before allowing expel
+    const remainingArrears = await this.prismaService.studentFeeInstallment.findMany({
+      where: {
+        studentId: id,
+        remainingAmount: { gt: 0 }
+      }
+    });
+
+    if (remainingArrears.length > 0) {
+      const totalOutstanding = remainingArrears.reduce((sum, inst) => sum + inst.remainingAmount, 0);
+      throw new BadRequestException(
+        `Cannot expel student. Total outstanding arrears: PKR ${totalOutstanding}. Please clear all dues before finalizing status.`
+      );
+    }
 
     return this.prismaService.$transaction(async (tx) => {
       await tx.studentStatusHistory.create({

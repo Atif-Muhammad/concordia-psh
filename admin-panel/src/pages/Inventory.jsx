@@ -393,10 +393,15 @@ const Inventory = () => {
     return (
         <DashboardLayout>
             <div className="space-y-6 max-w-full overflow-x-hidden">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="flex justify-between items-center mb-8">
                     <div>
-                        <h1 className="text-2xl md:text-3xl font-bold">Inventory Management</h1>
-                        <p className="text-sm md:text-base text-muted-foreground">Track assets, assignments, and maintenance costs</p>
+                        <h1 className="text-3xl font-bold flex items-center gap-2">
+                            <Package className="w-8 h-8 text-primary" />
+                            Inventory Management
+                        </h1>
+                        <p className="text-muted-foreground mt-1">
+                            Track assets, assignments, and maintenance costs
+                        </p>
                     </div>
                     <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
                         <DialogTrigger asChild>

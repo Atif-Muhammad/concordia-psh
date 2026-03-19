@@ -35,7 +35,7 @@ const Attendance = () => {
   const currentUser = queryClient.getQueryData(["currentUser"]);
   const isTeacher = currentUser?.role === "TEACHER" || currentUser?.role === "Teacher";
   const isSuperAdmin = currentUser?.role === "SUPER_ADMIN";
-  // Allow if teacher, super admin, or explicitly has permission
+  const hasAttendancePermission = currentUser?.permissions?.modules?.includes("Attendance");
   const canMarkAttendance = isTeacher || isSuperAdmin || hasAttendancePermission;
   const canViewAllReports = isSuperAdmin || hasAttendancePermission;
 
@@ -188,8 +188,14 @@ const Attendance = () => {
   );
 
   const filteredClasses = isTeacher ? uniqueTeacherClasses : allClasses;
-
   const reportFilteredClasses = isTeacher ? uniqueTeacherClasses : allClasses;
+
+  const filteredSubjects = subjects.filter(s => {
+    const classMatch = s.classId === Number(selectedClassId);
+    if (!classMatch) return false;
+    // Optional: Filter by teacher subjects if you have teacher-subject mappings
+    return true;
+  });
 
   const filteredSections = isTeacher
     ? teacherClassMappings
@@ -425,9 +431,16 @@ const Attendance = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium">
-          <h2 className="text-2xl font-bold mb-2">Attendance Management</h2>
-          <p className="text-primary-foreground/90">Mark and track student attendance</p>
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <UserCheck className="w-8 h-8 text-primary" />
+              Attendance Management
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Mark and track student attendance
+            </p>
+          </div>
         </div>
 
         <Tabs defaultValue="mark" className="w-full">
@@ -548,7 +561,7 @@ const Attendance = () => {
                         <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId} disabled={!selectedClassId}>
                           <SelectTrigger><SelectValue placeholder="Select Subject" /></SelectTrigger>
                           <SelectContent>
-                            {subjects.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                            {filteredSubjects.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       </div>

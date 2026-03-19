@@ -580,9 +580,16 @@ const Academics = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium">
-          <h2 className="text-2xl font-bold mb-2">Academic Management</h2>
-          <p className="opacity-90">Manage programs, classes, subjects, and timetables</p>
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <BookOpen className="w-8 h-8 text-primary" />
+              Academics Management
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Manage programs, classes, subjects, and timetables
+            </p>
+          </div>
         </div>
 
         <Tabs defaultValue="programs" className="space-y-6">
