@@ -28,9 +28,8 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
-# Copy template requirements if they exist
-RUN mkdir -p uploads
-COPY --from=builder /app/uploads/template-requirements* ./uploads/template-requirements/ || true
+# Copy template requirements and other upload assets
+COPY --from=builder /app/uploads ./uploads
 
 EXPOSE 3003
 
