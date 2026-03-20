@@ -749,7 +749,7 @@ const Students = () => {
                   <SelectContent>
                     {programData.map((p) => (
                       <SelectItem key={p.id} value={p.id.toString()}>
-                        {p.name}
+                        {p.name} ({p.department?.name})
                       </SelectItem>
                     ))}
                   </SelectContent>

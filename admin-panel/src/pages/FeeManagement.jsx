@@ -16,7 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import {
   createFeeHead, getFeeHeads, updateFeeHead, deleteFeeHead,
   createFeeStructure, getFeeStructures, updateFeeStructure, deleteFeeStructure,
-  getPrograms, getClasses, getStudents,
+  getPrograms, getClasses, getStudents, getDepartmentNames,
   getFeeChallans, getBulkChallans, updateFeeChallan, getStudentFeeHistory,
   searchStudents, getRevenueOverTime, getClassCollectionStats, getFeeCollectionSummary, getDefaultFeeChallanTemplate,
   getInstallmentPlans, generateChallansFromPlan,
@@ -278,6 +278,11 @@ const FeeManagement = () => {
   const { data: programs = [] } = useQuery({
     queryKey: ['programs'],
     queryFn: getPrograms
+  });
+
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments'],
+    queryFn: getDepartmentNames
   });
 
   const { data: classes = [] } = useQuery({
@@ -1694,7 +1699,15 @@ const FeeManagement = () => {
                   </TableHeader>
                   <TableBody>
                     {feeStructures.map(structure => <TableRow key={structure.id}>
-                      <TableCell><Badge>{structure.program?.name}</Badge></TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-normal">
+                          {structure.program?.name}
+                          {(() => {
+                            const dept = departments.find(d => d.id === structure.program?.departmentId);
+                            return dept ? ` (${dept.name})` : "";
+                          })()}
+                        </Badge>
+                      </TableCell>
                       <TableCell>{structure.class?.name}</TableCell>
                       <TableCell className="font-semibold">PKR {structure.totalAmount.toLocaleString()}</TableCell>
                       <TableCell>{structure.installments}</TableCell>
@@ -2116,7 +2129,10 @@ const FeeManagement = () => {
                 })}>
                   <SelectTrigger><SelectValue placeholder="Select Program" /></SelectTrigger>
                   <SelectContent>
-                    {programs.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
+                    {programs.map(p => {
+                      const dept = departments.find(d => d.id === p.departmentId);
+                      return <SelectItem key={p.id} value={p.id.toString()}>{p.name} {dept ? `(${dept.name})` : ""}</SelectItem>;
+                    })}
                   </SelectContent>
                 </Select>
               </div>
@@ -2579,7 +2595,10 @@ const FeeManagement = () => {
                 <SelectTrigger><SelectValue placeholder="Select Program" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Programs</SelectItem>
-                  {programs.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
+                  {programs.map(p => {
+                    const dept = departments.find(d => d.id === p.departmentId);
+                    return <SelectItem key={p.id} value={p.id.toString()}>{p.name} {dept ? `(${dept.name})` : ""}</SelectItem>;
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -2892,7 +2911,10 @@ const FeeManagement = () => {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">All Programs</SelectItem>
-                            {programs.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
+                            {programs.map(p => {
+                              const dept = departments.find(d => d.id === p.departmentId);
+                              return <SelectItem key={p.id} value={p.id.toString()}>{p.name} {dept ? `(${dept.name})` : ""}</SelectItem>;
+                            })}
                           </SelectContent>
                         </Select>
                       </div>

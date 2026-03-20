@@ -25,7 +25,7 @@ export class DashboardService {
       if (filters.month) {
         // Specific Month
         const monthIndex = new Date(
-          Date.parse(`${filters.month} 1, ${filters.year}`),
+          Date.parse(`${filters.month} 1, ${year}`),
         ).getMonth();
         monthStart = new Date(year, monthIndex, 1);
         monthEnd = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);

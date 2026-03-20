@@ -1286,6 +1286,12 @@ const Academics = () => {
                               {programs.map((p) => (
                                 <SelectItem key={p.id} value={p.id.toString()}>
                                   {p.name}
+                                  {(() => {
+                                    const dept = departments.find(
+                                      (d) => d.id === p.departmentId
+                                    );
+                                    return dept ? ` (${dept.name})` : "";
+                                  })()}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -1302,14 +1308,14 @@ const Academics = () => {
                                     setClassForm({
                                       ...classForm,
                                       year: v,
-                                      name: v === "11" ? "11th" : "12th",
+                                      name: v === "11" ? "1st year" : "2nd year",
                                     })
                                   }
                                 >
                                   <SelectTrigger><SelectValue /></SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="11">11th</SelectItem>
-                                    <SelectItem value="12">12th</SelectItem>
+                                    <SelectItem value="11">1st year</SelectItem>
+                                    <SelectItem value="12">2nd year</SelectItem>
                                   </SelectContent>
                                 </Select>
                               </div>

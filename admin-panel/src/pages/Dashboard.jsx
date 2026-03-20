@@ -10,17 +10,16 @@ import { cn } from "@/lib/utils";
 import { Users, DollarSign, TrendingUp, ClipboardCheck, UserPlus, FileText, BookOpen, GraduationCap, Building, Package, Briefcase, Loader2 } from "lucide-react";
 
 const Dashboard = () => {
-  const [selectedMonth, setSelectedMonth] = React.useState("overall");
-  const [selectedYear, setSelectedYear] = React.useState(new Date().getFullYear().toString());
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = React.useState(`${currentYear}-${currentYear + 1}`);
 
   const queryFilters = {
-    year: selectedYear,
-    ...(selectedMonth !== "overall" && { month: selectedMonth })
+    year: selectedYear
   };
 
   // Fetch dashboard statistics from backend
   const { data: dashboardData, isLoading, isError } = useQuery({
-    queryKey: ['dashboardStats', selectedMonth, selectedYear],
+    queryKey: ['dashboardStats', selectedYear],
     queryFn: () => getDashboardStats(queryFilters),
     refetchInterval: 60000,
   });
@@ -94,15 +93,15 @@ const Dashboard = () => {
     bgColor: "bg-primary/10",
     borderColor: "border-primary/20",
   }, {
-    title: `Fee Collection (${selectedMonth === 'overall' ? 'Collected' : 'Received against Billing'})`,
+    title: `Fee Collection (Collected)`,
     value: `PKR ${(paidFees / 1000).toFixed(0)}K`,
-    change: selectedMonth === 'overall' ? `Total for ${selectedYear}` : `Month to date (${selectedMonth})`,
+    change: `Total for ${selectedYear}`,
     icon: DollarSign,
     color: "text-success",
     bgColor: "bg-success/10",
     borderColor: "border-success/20",
   }, {
-    title: `Attendance (${selectedMonth === 'overall' ? selectedYear : selectedMonth})`,
+    title: `Attendance (${selectedYear})`,
     value: `${attendanceRate}%`,
     change: `${presentToday} records`,
     icon: ClipboardCheck,
@@ -112,7 +111,7 @@ const Dashboard = () => {
   }, {
     title: "Finance Balance",
     value: `PKR ${(finance.netBalance / 1000).toFixed(0)}K`,
-    change: selectedMonth === 'overall' ? `Net profit (${selectedYear})` : `Net profit (${selectedMonth})`,
+    change: `Net profit (${selectedYear})`,
     icon: UserPlus,
     color: "text-accent",
     bgColor: "bg-accent/10",
@@ -127,17 +126,17 @@ const Dashboard = () => {
   }, {
     action: "Fee collection",
     student: `PKR ${(paidFees / 1000).toFixed(0)}K collected against billing`,
-    time: selectedMonth === 'overall' ? selectedYear : selectedMonth,
+    time: selectedYear,
     type: "fee"
   }, {
     action: "Attendance Summary",
-    student: `${presentToday} presence records in ${selectedMonth === 'overall' ? 'the selected year' : 'this month'}`,
-    time: selectedMonth === 'overall' ? selectedYear : selectedMonth,
+    student: `${presentToday} presence records in the selected session`,
+    time: selectedYear,
     type: "attendance"
   }, {
     action: "Finance update",
     student: `Total cash received: PKR ${(finance.monthlyIncome / 1000).toFixed(0)}K`,
-    time: selectedMonth === 'overall' ? selectedYear : selectedMonth,
+    time: selectedYear,
     type: "finance"
   }, {
     action: "System metrics",
@@ -274,25 +273,15 @@ const Dashboard = () => {
 
           <div className="flex gap-2">
             <Select value={selectedYear} onValueChange={setSelectedYear}>
-              <SelectTrigger className="w-[100px]">
-                <SelectValue placeholder="Year" />
+              <SelectTrigger className="w-[120px]">
+                <SelectValue placeholder="Session" />
               </SelectTrigger>
               <SelectContent>
                 {[...Array(5)].map((_, i) => {
-                  const year = (new Date().getFullYear() - i).toString();
-                  return <SelectItem key={year} value={year}>{year}</SelectItem>
+                  const y = new Date().getFullYear() - i;
+                  const session = `${y}-${y + 1}`;
+                  return <SelectItem key={session} value={session}>{session}</SelectItem>
                 })}
-              </SelectContent>
-            </Select>
-            <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Month" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="overall">Overall</SelectItem>
-                {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m) => (
-                  <SelectItem key={m} value={m}>{m}</SelectItem>
-                ))}
               </SelectContent>
             </Select>
           </div>
@@ -377,7 +366,7 @@ const Dashboard = () => {
           <div className="lg:col-span-2 h-full">
             <Card className="shadow-sm hover:shadow-md transition-all h-full">
               <CardHeader>
-                <CardTitle>Fee Collection Trend ({selectedMonth === 'overall' ? selectedYear : `${selectedMonth} ${selectedYear}`})</CardTitle>
+                <CardTitle>Fee Collection Trend ({selectedYear})</CardTitle>
               </CardHeader>
               <CardContent className="p-6">
                 <div className="w-full h-[250px]">
@@ -404,7 +393,7 @@ const Dashboard = () => {
         <div>
           <Card className="shadow-sm hover:shadow-md transition-all">
             <CardHeader>
-              <CardTitle>Attendance Trend ({selectedMonth === 'overall' ? selectedYear : `${selectedMonth} ${selectedYear}`})</CardTitle>
+              <CardTitle>Attendance Trend ({selectedYear})</CardTitle>
             </CardHeader>
             <CardContent className="p-6">
               <div className="w-full h-[300px]">
@@ -494,7 +483,7 @@ const Dashboard = () => {
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base font-medium text-muted-foreground">
                   <ClipboardCheck className="w-4 h-4" />
-                  {selectedMonth === 'overall' ? `Attendance (${selectedYear})` : `Attendance (${selectedMonth})`}
+                  Attendance ({selectedYear})
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4">
@@ -561,10 +550,10 @@ const Dashboard = () => {
                 <div className="flex items-center justify-between p-5 rounded-xl bg-gradient-to-r from-warning/10 to-transparent border border-warning/10 hover:scale-102 transition-transform duration-200">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">
-                      {selectedMonth === 'overall' ? 'Total Receivable (All Time)' : `Pending for ${selectedMonth}`}
+                      Total Receivable (All Time)
                     </p>
                     <p className="text-2xl font-bold text-warning">
-                      PKR {((selectedMonth === 'overall' ? finance.totalReceivable : finance.periodPendingFees) / 1000).toFixed(0)}K
+                      PKR {(finance.totalReceivable / 1000).toFixed(0)}K
                     </p>
                   </div>
                   <div className="p-3 bg-warning/20 rounded-full">
