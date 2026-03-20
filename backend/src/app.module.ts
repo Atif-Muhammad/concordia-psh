@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 import { AuthModule } from './auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
@@ -7,7 +9,6 @@ import { DepartmentModule } from './department/department.module';
 import { TeacherModule } from './teacher/teacher.module';
 import { AcademicsModule } from './academics/academics.module';
 import { StudentModule } from './student/student.module';
-import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { HrModule } from './hr/hr.module';
 import { FrontOfficeModule } from './front-office/front-office.module';
@@ -18,6 +19,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { FeeManagementModule } from './fee-management/fee-management.module';
 import { FinanceModule } from './finance/finance.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { LocalFileModule } from './local-file/local-file.module';
 
 @Module({
   imports: [
@@ -29,7 +31,6 @@ import { DashboardModule } from './dashboard/dashboard.module';
     TeacherModule,
     AcademicsModule,
     StudentModule,
-    CloudinaryModule,
     AttendanceModule,
     HrModule,
     FrontOfficeModule,
@@ -40,6 +41,11 @@ import { DashboardModule } from './dashboard/dashboard.module';
     FeeManagementModule,
     FinanceModule,
     DashboardModule,
+    LocalFileModule,
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'uploads'),
+      serveRoot: '/uploads',
+    }),
   ],
   controllers: [],
   providers: [],

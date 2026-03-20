@@ -3,10 +3,10 @@ import { HrController } from './hr.controller';
 import { HrService } from './hr.service';
 import { PrismaModule } from 'src/prisma/prisma.module';
 
-import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
+import { LocalFileModule } from 'src/local-file/local-file.module';
 
 @Module({
-  imports: [PrismaModule, CloudinaryModule],
+  imports: [PrismaModule, LocalFileModule],
   controllers: [HrController],
   providers: [HrService],
 })

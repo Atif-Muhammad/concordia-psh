@@ -15,7 +15,7 @@ import { PermissionsGuard } from 'src/common/guards/permission.guard';
 import { Permissions } from 'src/common/decorators/permissions.decorator';
 
 import { FileInterceptor } from '@nestjs/platform-express';
-import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
+import { LocalFileService } from 'src/local-file/local-file.service';
 import {
   UploadedFile,
   UseInterceptors,
@@ -29,7 +29,7 @@ import { StaffDto } from './dtos/staff.dto';
 export class HrController {
   constructor(
     private readonly hrService: HrService,
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly localFileService: LocalFileService,
   ) { }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -78,7 +78,8 @@ export class HrController {
     let public_id: string | null = null;
 
     if (file) {
-      const uploaded = await this.cloudinaryService.uploadFile(file);
+      const subfolder = `staff/${LocalFileService.sanitizeName(payload.name)}`;
+      const uploaded = await this.localFileService.uploadFile(file, subfolder);
       if (!uploaded?.url || !uploaded?.public_id) {
         throw new ConflictException('Failed to upload staff photo');
       }
@@ -113,16 +114,19 @@ export class HrController {
       // Get existing staff to delete old photo
       const existingStaff = await this.hrService.findOne(staffId);
       if (existingStaff?.photo_public_id) {
-        await this.cloudinaryService
+        await this.localFileService
           .removeFile(existingStaff.photo_public_id)
-          .catch(() => {
+          .catch((err) => {
             console.warn(
               `Failed to delete old photo: ${existingStaff.photo_public_id}`,
+              err,
             );
           });
       }
 
-      const uploadResult = await this.cloudinaryService.uploadFile(file);
+      const staffName = existingStaff?.name || payload.name || 'unknown';
+      const subfolder = `staff/${LocalFileService.sanitizeName(staffName)}`;
+      const uploadResult = await this.localFileService.uploadFile(file, subfolder);
       if (!uploadResult?.url || !uploadResult?.public_id) {
         throw new ConflictException('Failed to upload staff photo');
       }
@@ -146,11 +150,12 @@ export class HrController {
     const existingStaff = await this.hrService.findOne(staffId);
 
     if (existingStaff?.photo_public_id) {
-      await this.cloudinaryService
+      await this.localFileService
         .removeFile(existingStaff.photo_public_id)
-        .catch(() => {
+        .catch((err) => {
           console.warn(
             `Failed to delete staff photo: ${existingStaff.photo_public_id}`,
+            err,
           );
         });
     }
@@ -181,7 +186,8 @@ export class HrController {
     let public_id: string | null = null;
 
     if (file) {
-      const uploaded = await this.cloudinaryService.uploadFile(file);
+      const subfolder = `staff/${LocalFileService.sanitizeName(payload.name)}`;
+      const uploaded = await this.localFileService.uploadFile(file, subfolder);
       if (!uploaded?.url || !uploaded?.public_id) {
         throw new ConflictException('Failed to upload employee photo');
       }
@@ -210,7 +216,8 @@ export class HrController {
     let photo_public_id: string | undefined;
 
     if (file) {
-      const uploadResult = await this.cloudinaryService.uploadFile(file);
+      const subfolder = `staff/${LocalFileService.sanitizeName(payload.name)}`;
+      const uploadResult = await this.localFileService.uploadFile(file, subfolder);
       if (!uploadResult.url || !uploadResult.public_id) {
         throw new ConflictException('Failed to upload employee photo');
       }
@@ -233,11 +240,12 @@ export class HrController {
     const existingEmp = await this.hrService.findOne(empId);
 
     if (existingEmp && existingEmp.photo_public_id) {
-      await this.cloudinaryService
+      await this.localFileService
         .removeFile(existingEmp.photo_public_id)
-        .catch(() => {
+        .catch((err) => {
           console.warn(
             `Failed to delete old photo: ${existingEmp.photo_public_id}`,
+            err,
           );
         });
     }

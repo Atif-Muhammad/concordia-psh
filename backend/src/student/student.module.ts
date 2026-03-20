@@ -4,15 +4,15 @@ import { StudentController } from './student.controller';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { MulterModule } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
 import { FeeManagementModule } from '../fee-management/fee-management.module';
+import { LocalFileModule } from 'src/local-file/local-file.module';
 
 @Module({
   imports: [
     PrismaModule,
     MulterModule.register({ storage: memoryStorage() }),
-    CloudinaryModule,
     FeeManagementModule,
+    LocalFileModule,
   ],
   providers: [StudentService],
   controllers: [StudentController],

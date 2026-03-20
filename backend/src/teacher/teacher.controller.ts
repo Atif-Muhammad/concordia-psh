@@ -18,7 +18,7 @@ import { AttendanceService } from 'src/attendance/attendance.service';
 import { StudentService } from 'src/student/student.service';
 import { AttendanceStatus } from '@prisma/client';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
+import { LocalFileService } from 'src/local-file/local-file.service';
 import {
   UploadedFile,
   UseInterceptors,
@@ -32,7 +32,7 @@ export class TeacherController {
     private readonly teacherService: TeacherService,
     private readonly attendanceService: AttendanceService,
     private readonly studentService: StudentService,
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly localFileService: LocalFileService,
   ) {}
   @Get('get/names')
   async getTeacherNames() {
@@ -55,7 +55,8 @@ export class TeacherController {
     let public_id: string | null = null;
 
     if (file) {
-      const uploaded = await this.cloudinaryService.uploadFile(file);
+      const subfolder = `staff/${LocalFileService.sanitizeName(payload.name)}`;
+      const uploaded = await this.localFileService.uploadFile(file, subfolder);
       if (!uploaded?.url || !uploaded?.public_id) {
         throw new ConflictException('Failed to upload teacher photo');
       }
@@ -96,16 +97,19 @@ export class TeacherController {
     if (file) {
       const existingTeacher = await this.teacherService.findOne(id);
       if (existingTeacher && existingTeacher.photo_public_id) {
-        await this.cloudinaryService
+        await this.localFileService
           .removeFile(existingTeacher.photo_public_id)
-          .catch(() => {
+          .catch((err) => {
             console.warn(
               `Failed to delete old photo: ${existingTeacher.photo_public_id}`,
+              err,
             );
           });
       }
 
-      const uploadResult = await this.cloudinaryService.uploadFile(file);
+      const teacherName = existingTeacher?.name || payload.name || 'unknown';
+      const subfolder = `staff/${LocalFileService.sanitizeName(teacherName)}`;
+      const uploadResult = await this.localFileService.uploadFile(file, subfolder);
       if (!uploadResult.url || !uploadResult.public_id) {
         throw new ConflictException('Failed to upload teacher photo');
       }
@@ -134,10 +138,10 @@ export class TeacherController {
     const id = Number(teacherID);
     const existingTeacher = await this.teacherService.findOne(id);
     if (existingTeacher && existingTeacher.photo_public_id) {
-      await this.cloudinaryService
+      await this.localFileService
         .removeFile(existingTeacher.photo_public_id)
-        .catch(() => {
-          console.warn(`Failed to delete photo for teacher ${id}`);
+        .catch((err) => {
+          console.warn(`Failed to delete photo for teacher ${id}`, err);
         });
     }
     return await this.teacherService.removeTeacher(id);

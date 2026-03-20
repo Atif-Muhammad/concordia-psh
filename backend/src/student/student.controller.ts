@@ -16,13 +16,13 @@ import {
 import { StudentService } from './student.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { StudentDto } from './dtos/student.dto';
-import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
+import { LocalFileService } from 'src/local-file/local-file.service';
 
 @Controller('student')
 export class StudentController {
   constructor(
     private readonly studentService: StudentService,
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly localFileService: LocalFileService,
   ) {}
 
   @Get('get/all/passout')
@@ -127,8 +127,10 @@ export class StudentController {
     let public_id: string | null = null;
 
     if (file) {
-      // upload photo
-      const uploaded = await this.cloudinaryService.uploadFile(file);
+      // upload photo to students/{name} subfolder
+      const studentName = `${payload.fName}${payload.lName ? '-' + payload.lName : ''}`;
+      const subfolder = `students/${LocalFileService.sanitizeName(studentName)}`;
+      const uploaded = await this.localFileService.uploadFile(file, subfolder);
 
       if (!uploaded?.url || !uploaded?.public_id) {
         throw new ConflictException('Failed to upload student photo');
@@ -173,8 +175,10 @@ export class StudentController {
         throw new NotFoundException(`Student with ID ${studentID} not found`);
       }
 
-      // Upload new photo
-      const uploadResult = await this.cloudinaryService.uploadFile(file);
+      // Upload new photo to students/{name} subfolder
+      const studentName = `${existingStudent.fName}${existingStudent.lName ? '-' + existingStudent.lName : ''}`;
+      const subfolder = `students/${LocalFileService.sanitizeName(studentName)}`;
+      const uploadResult = await this.localFileService.uploadFile(file, subfolder);
       if (!uploadResult.url || !uploadResult.public_id) {
         throw new ConflictException('Failed to upload student photo');
       }
@@ -182,13 +186,14 @@ export class StudentController {
       photo_url = uploadResult.url;
       photo_public_id = uploadResult.public_id;
 
-      // Delete old photo from Cloudinary (if exists)
+      // Delete old photo from Local Storage (if exists)
       if (existingStudent.photo_public_id) {
-        await this.cloudinaryService
+        await this.localFileService
           .removeFile(existingStudent.photo_public_id)
-          .catch(() => {
+          .catch((err) => {
             console.warn(
               `Failed to delete old photo: ${existingStudent.photo_public_id}`,
+              err,
             );
           });
       }

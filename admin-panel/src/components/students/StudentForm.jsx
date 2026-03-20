@@ -656,11 +656,38 @@ const StudentForm = ({
                                             />
                                         </td>
                                         <td className="px-4 py-2">
-                                            <Input
-                                                type="month"
-                                                value={inst.dueDate ? inst.dueDate.split('T')[0].substring(0, 7) : ""}
-                                                onChange={e => handleInstallmentChange(index, "dueDate", e.target.value + "-01")}
-                                            />
+                                            <div className="flex gap-2">
+                                                <Select
+                                                    value={inst.dueDate ? inst.dueDate.split('T')[0].substring(5, 7) : ""}
+                                                    onValueChange={(month) => {
+                                                        const currentYear = inst.dueDate ? inst.dueDate.split('T')[0].substring(0, 4) : new Date().getFullYear().toString();
+                                                        handleInstallmentChange(index, "dueDate", `${currentYear}-${month}-01`);
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="w-[120px]"><SelectValue placeholder="Month" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => (
+                                                            <SelectItem key={m} value={m}>
+                                                                {new Date(2000, parseInt(m) - 1).toLocaleString('default', { month: 'long' })}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                                <Select
+                                                    value={inst.dueDate ? inst.dueDate.split('T')[0].substring(0, 4) : ""}
+                                                    onValueChange={(year) => {
+                                                        const currentMonth = inst.dueDate ? inst.dueDate.split('T')[0].substring(5, 7) : "01";
+                                                        handleInstallmentChange(index, "dueDate", `${year}-${currentMonth}-01`);
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="w-[90px]"><SelectValue placeholder="Year" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        {Array.from({ length: 10 }, (_, i) => (new Date().getFullYear() + i - 2).toString()).map(y => (
+                                                            <SelectItem key={y} value={y}>{y}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
                                         </td>
                                         <td className="px-4 py-2 text-right">
                                             <Button type="button" variant="ghost" size="sm" onClick={() => handleRemoveInstallment(index)} className="text-destructive">

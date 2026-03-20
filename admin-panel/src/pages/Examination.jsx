@@ -603,7 +603,7 @@ const Examination = () => {
       </head>
       <body>
         <div class="header">
-          <img class="logo" src="https://res.cloudinary.com/dldigpb7f/image/upload/v1765717856/logo_pstlvy.png" />
+          <img class="logo" src="${import.meta.env.VITE_API_URL}/uploads/template-requirements/logo.png" />
           <div class="institute-info">
             <h1>Concordia College Peshawar</h1>
             <p>60-C, Near NCS School, University Town Peshawar</p>
