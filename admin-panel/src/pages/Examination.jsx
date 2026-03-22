@@ -1511,7 +1511,7 @@ const Examination = () => {
                         }).map((exam) => (
                           <TableRow key={exam.id}>
                             <TableCell className="font-medium">{exam.examName}</TableCell>
-                            <TableCell>{exam.program.name}</TableCell>
+                            <TableCell>{exam.program.name} {exam.program.department?.name ? `— ${exam.program.department.name}` : ""}</TableCell>
                             <TableCell>{exam.class?.name || "N/A"}</TableCell>
                             <TableCell>{exam.session}</TableCell>
                             <TableCell>{exam.type}</TableCell>
@@ -1591,7 +1591,7 @@ const Examination = () => {
                         <SelectItem value="*">All Programs</SelectItem>
                         {programs?.map((program) => (
                           <SelectItem key={program.id} value={program.id.toString()}>
-                            {program.name}
+                            {program.name} {program.department?.name ? `— ${program.department.name}` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1711,7 +1711,7 @@ const Examination = () => {
                               <SelectContent>
                                 {exams?.map((exam) => (
                                   <SelectItem key={exam.id} value={exam.id.toString()}>
-                                    {exam.examName} - {exam.session} ({exam.class?.name})
+                                    {exam.examName} - {exam.session} ({exam.program?.name}{exam.program?.department?.name ? ` — ${exam.program.department.name}` : ""} - {exam.class?.name})
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -2033,15 +2033,14 @@ const Examination = () => {
                                         )
                                       : true
                                   )
-                                  ?.map((exam) => (
-                                    <SelectItem
-                                      key={exam.id}
-                                      value={exam.id.toString()}
-                                    >
-                                      {exam.examName} - {exam.session} (
-                                      {exam.class?.name})
-                                    </SelectItem>
-                                  ))}
+                                    ?.map((exam) => (
+                                      <SelectItem
+                                        key={exam.id}
+                                        value={exam.id.toString()}
+                                      >
+                                        {exam.examName} - {exam.session} ({exam.program?.name}{exam.program?.department?.name ? ` — ${exam.program.department.name}` : ""} - {exam.class?.name})
+                                      </SelectItem>
+                                    ))}
                                 </SelectContent>
                               </Select>
                             </div>

@@ -1034,7 +1034,10 @@ const Students = () => {
                   </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div><span className="font-semibold">Admission Date:</span> {viewStudent.createdAt ? format(new Date(viewStudent.createdAt), "dd MMMM yyyy") : "-"}</div>
-                      <div><span className="font-semibold">Program:</span> {programData.find((p) => p.id === viewStudent.programId)?.name}</div>
+                      <div><span className="font-semibold">Program:</span> {(() => {
+                        const prog = programData.find((p) => p.id === viewStudent.programId);
+                        return prog ? `${prog.name} - ${prog.department?.name}` : "-";
+                      })()}</div>
                       <div><span className="font-semibold">Class:</span> {programData.flatMap((p) => p.classes).find((c) => c.id === viewStudent.classId)?.name}</div>
                       <div><span className="font-semibold">Section:</span> {programData.flatMap((p) => p.classes).flatMap((c) => c.sections).find((s) => s.id === viewStudent.sectionId)?.name || "N/A"}</div>
                       <div><span className="font-semibold">Parent Email:</span> {viewStudent.parentOrGuardianEmail || "-"}</div>
@@ -1597,7 +1600,11 @@ const Students = () => {
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="*">Select a Program</SelectItem>
-                      {programData.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
+                      {programData.map(p => (
+                        <SelectItem key={p.id} value={p.id.toString()}>
+                          {p.name} - {p.department?.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

@@ -286,6 +286,20 @@ const StudentForm = ({
             return;
         }
 
+        // Installment plan existence validation
+        const prog = programs.find(p => p.id.toString() === formData.programId.toString());
+        const clsWithFee = prog?.classes?.find(c => c.id.toString() === formData.classId.toString());
+        const fee = clsWithFee?.feeStructures?.[0];
+
+        if (!fee) {
+            toast({
+                title: "Incomplete Configuration",
+                description: "Cannot proceed without an installment plan for the selected class. Please define it in Fee Management.",
+                variant: "destructive"
+            });
+            return;
+        }
+
         // Installments validation
         if (!formData.installments || formData.installments.length === 0) {
             toast({
@@ -484,7 +498,11 @@ const StudentForm = ({
                             >
                                 <SelectTrigger><SelectValue placeholder="Select Program" /></SelectTrigger>
                                 <SelectContent>
-                                    {programs.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
+                                    {programs.map(p => (
+                                        <SelectItem key={p.id} value={p.id.toString()}>
+                                            {p.name} - {p.department?.name}
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
                         </div>
@@ -496,6 +514,15 @@ const StudentForm = ({
                                     const prog = programs.find(p => p.id.toString() === formData.programId.toString());
                                     const clsWithFee = prog?.classes?.find(c => c.id.toString() === v);
                                     const fee = clsWithFee?.feeStructures?.[0];
+
+                                    if (!fee) {
+                                        toast({
+                                            title: "No Installment Plan",
+                                            description: "The selected class does not have an installment plan. Please create one in Fee Management first.",
+                                            variant: "destructive"
+                                        });
+                                    }
+
                                     const stdFeeAmount = fee?.totalAmount?.toString() || "";
                                     const stdInstallmentsCount = fee?.installments || 1;
 
