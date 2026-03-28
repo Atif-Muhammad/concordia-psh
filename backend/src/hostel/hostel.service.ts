@@ -44,7 +44,6 @@ export class HostelService {
           select: {
             id: true,
             fName: true,
-            mName: true,
             lName: true,
             rollNumber: true,
             class: { select: { name: true } },
@@ -62,7 +61,6 @@ export class HostelService {
           select: {
             id: true,
             fName: true,
-            mName: true,
             lName: true,
             rollNumber: true,
             class: { select: { name: true } },
@@ -82,7 +80,6 @@ export class HostelService {
           select: {
             id: true,
             fName: true,
-            mName: true,
             lName: true,
             rollNumber: true,
             class: { select: { name: true } },
@@ -133,7 +130,6 @@ export class HostelService {
           select: {
             id: true,
             fName: true,
-            mName: true,
             lName: true,
             rollNumber: true,
             class: { select: { name: true } },

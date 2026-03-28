@@ -48,9 +48,20 @@ export class FrontOfficeController {
   async deleteInquiry(@Query('id') id: string) {
     return await this.frontOfficeService.deleteInquiry(Number(id));
   }
-  @Patch('rollback/inquiry')
-  async rollbackInquiry(@Query('id') id: string) {
-    return await this.frontOfficeService.rollbackInquiry(Number(id));
+
+  @UseGuards(JwtAccGuard)
+  @Post('inquiry/:id/remark')
+  async addInquiryRemark(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() payload: { remark: string },
+  ) {
+    const authorName = req.user.name;
+    return await this.frontOfficeService.addInquiryRemark(
+      Number(id),
+      authorName,
+      payload.remark,
+    );
   }
 
   // visitors

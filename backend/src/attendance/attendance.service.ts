@@ -313,7 +313,6 @@ export class AttendanceService {
         id: true,
         rollNumber: true,
         fName: true,
-        mName: true,
         lName: true,
         class: {
           select: {
@@ -370,7 +369,7 @@ export class AttendanceService {
       return {
         id: s.id,
         rollNumber: s.rollNumber,
-        name: `${s.fName} ${s.mName ? s.mName + ' ' : ''}${s.lName}`.trim(),
+        name: `${s.fName} ${s.lName || ''}`.trim(),
         class: s.class?.name,
         section: s.section?.name,
         subjects: subjectsData,
@@ -397,7 +396,6 @@ export class AttendanceService {
               id: true,
               rollNumber: true,
               fName: true,
-              mName: true,
               lName: true,
               fatherOrguardian: true,
             },

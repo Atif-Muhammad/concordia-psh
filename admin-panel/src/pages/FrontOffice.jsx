@@ -64,7 +64,6 @@ import {
   Check,
   X,
   CalendarIcon,
-  Undo2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -92,9 +91,9 @@ import {
   getSectionNames,
   getClasses,
   getSections,
-  rollbackInquiry,
   getEmployeesByDept,
   getLatestRollNumber,
+  addInquiryRemark,
 } from "../../config/apis";
 import StudentForm from "@/components/students/StudentForm";
 import { formatTime } from "../lib/utils";
@@ -140,8 +139,6 @@ const FrontOffice = () => {
   });
   const [acceptInquiryDialog, setAcceptInquiryDialog] = useState(false);
   const [selectedInquiryForAccept, setSelectedInquiryForAccept] = useState(null);
-  const [rollbackDialog, setRollbackDialog] = useState(false);
-  const [selectedInquiryForRollback, setSelectedInquiryForRollback] = useState(null);
   const [studentFormData, setStudentFormData] = useState({
     rollNumber: "",
     classId: "",
@@ -389,18 +386,15 @@ const FrontOffice = () => {
       toast({ title: err.message || "Failed to create student", variant: "destructive" }),
   });
 
-  // Rollback Inquiry
-  const rollbackInquiryMutation = useMutation({
-    mutationFn: (inquiryId) => rollbackInquiry(inquiryId),
+  
+  const addRemarkMutation = useMutation({
+    mutationFn: ({ id, remark }) => addInquiryRemark(id, remark),
     onSuccess: () => {
-      toast({ title: "Inquiry rolled back successfully" });
       queryClient.invalidateQueries(["inquiries"]);
-      setRollbackDialog(false);
-      setSelectedInquiryForRollback(null);
     },
     onError: (error) => {
       toast({
-        title: error.message || "Failed to rollback inquiry",
+        title: error.message || "Failed to add remark",
         variant: "destructive",
       });
     },
@@ -582,7 +576,11 @@ const FrontOffice = () => {
     }
 
     if (editingInquiry) {
-      updateMutation.mutate({ id: editingInquiry.id, payload: inquiryForm });
+      const { remarks, ...payload } = inquiryForm;
+      updateMutation.mutate({ id: editingInquiry.id, payload });
+      if (remarks) {
+        addRemarkMutation.mutate({ id: editingInquiry.id, remark: remarks });
+      }
     } else {
       createMutation.mutate({ ...inquiryForm, status: "NEW" });
     }
@@ -598,7 +596,7 @@ const FrontOffice = () => {
       address: inquiry.address,
       programInterest: inquiry.programInterest || inquiry.program?.id || "",
       previousInstitute: inquiry.previousInstitute,
-      remarks: inquiry.remarks,
+      remarks: "", // Clear for new remark adding
     });
     setEditingInquiry(inquiry);
     setInquiryDialog(true);
@@ -617,12 +615,10 @@ const FrontOffice = () => {
     // Precise mapping from Inquiry to StudentForm
     const nameParts = (inquiry.studentName || "").trim().split(/\s+/);
     const fName = nameParts[0] || inquiry.studentName;
-    const mName = nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : "";
-    const lName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+    const lName = nameParts.slice(1).join(' ');
 
     setStudentFormData({
       fName,
-      mName,
       lName,
       fatherOrguardian: inquiry.fatherName || "",
       rollNumber: "",
@@ -657,12 +653,10 @@ const FrontOffice = () => {
     // Split student name
     const nameParts = selectedInquiryForAccept.studentName.trim().split(/\s+/);
     const fName = nameParts[0] || selectedInquiryForAccept.studentName;
-    const mName = nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : (nameParts.length === 2 ? "" : "");
-    const lName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+    const lName = nameParts.slice(1).join(' ');
 
     const studentData = {
       fName,
-      mName: mName || undefined,
       lName: lName || undefined,
       fatherOrguardian: selectedInquiryForAccept.fatherName || "N/A",
       rollNumber: studentFormData.rollNumber,
@@ -695,17 +689,6 @@ const FrontOffice = () => {
     });
   };
 
-  // Rollback Handlers
-  const handleRollbackInquiry = (inquiry) => {
-    setSelectedInquiryForRollback(inquiry);
-    setRollbackDialog(true);
-  };
-
-  const confirmRollback = () => {
-    if (selectedInquiryForRollback) {
-      rollbackInquiryMutation.mutate(selectedInquiryForRollback.id);
-    }
-  };
 
   const handleVisitorSubmit = () => {
     if (!visitorForm.visitorName || !visitorForm.phoneNumber || !visitorForm.ID) {
@@ -1018,9 +1001,35 @@ const FrontOffice = () => {
                             }
                           />
                         </div>
+                        {editingInquiry && Array.isArray(editingInquiry.remarks) && editingInquiry.remarks.length > 0 && (
+                          <div className="space-y-2">
+                            <Label>Previous Remarks</Label>
+                            <div className="max-h-32 overflow-y-auto space-y-2 p-2 pr-2 bg-muted/20 rounded border text-sm scrollbar-thin">
+                              {editingInquiry.remarks.map((r, i) => (
+                                <div key={i} className="border-b last:border-0 pb-1">
+                                  <div className="flex justify-between items-center text-[10px] text-muted-foreground">
+                                    <span className="font-semibold">{r.author}</span>
+                                    <span className="italic">{r.date ? new Date(r.date).toLocaleString() : ""}</span>
+                                  </div>
+                                  <p className="text-xs">{r.text}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {/* Legacy Remark as String */}
+                        {editingInquiry && typeof editingInquiry.remarks === 'string' && editingInquiry.remarks.trim() !== "" && (
+                           <div className="space-y-2">
+                            <Label>Previous Remark</Label>
+                            <div className="p-2 bg-muted/20 rounded border text-sm">
+                              <p className="text-xs">{editingInquiry.remarks}</p>
+                            </div>
+                          </div>
+                        )}
                         <div className="space-y-2">
-                          <Label>Remarks</Label>
+                          <Label>{editingInquiry ? "Add New Remark" : "Remarks"}</Label>
                           <Textarea
+                            placeholder={editingInquiry ? "Enter new remark..." : "Enter inquiry remarks..."}
                             value={inquiryForm.remarks}
                             onChange={(e) =>
                               setInquiryForm({ ...inquiryForm, remarks: e.target.value })
@@ -1097,17 +1106,6 @@ const FrontOffice = () => {
                                         <X className="w-4 h-4" />
                                       </Button>
                                     </>
-                                  )}
-                                  {inquiry.status === "APPROVED" && (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                                      onClick={() => handleRollbackInquiry(inquiry)}
-                                      title="Rollback (Delete Student & Revert to NEW)"
-                                    >
-                                      <Undo2 className="w-4 h-4" />
-                                    </Button>
                                   )}
                                   <Button
                                     size="sm"
@@ -1944,6 +1942,35 @@ const FrontOffice = () => {
                   </div>
                 )}
 
+                {/* Inquiry Remarks Section */}
+                {viewDetailsDialog.type === "inquiry" && Array.isArray(viewDetailsDialog.data.remarks) && viewDetailsDialog.data.remarks.length > 0 && (
+                  <div className="space-y-3 pt-4 border-t">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Remarks History</h4>
+                    <div className="space-y-3 max-h-48 overflow-y-auto pr-2 scrollbar-thin">
+                      {viewDetailsDialog.data.remarks.map((remark, index) => (
+                        <div key={index} className="bg-muted/30 p-3 rounded-md text-sm">
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="font-semibold text-primary">{remark.author || "Staff"}</span>
+                            <span className="text-[10px] text-muted-foreground italic">
+                              {remark.date ? new Date(remark.date).toLocaleString() : ""}
+                            </span>
+                          </div>
+                          <p className="text-muted-foreground leading-snug">{remark.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Legacy Inquiry Remark as String */}
+                {viewDetailsDialog.type === "inquiry" && typeof viewDetailsDialog.data.remarks === 'string' && viewDetailsDialog.data.remarks.trim() !== "" && (
+                  <div className="space-y-3 pt-4 border-t">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Previous Remark</h4>
+                    <div className="bg-muted/30 p-3 rounded-md text-sm">
+                      <p className="text-muted-foreground leading-snug">{viewDetailsDialog.data.remarks}</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Single Assigned Employee (for other types if needed) */}
                 {viewDetailsDialog.type !== "complaint" && viewDetailsDialog.data.assignedTo && (
                   <div className="space-y-1 pt-4 border-t">
@@ -2018,36 +2045,6 @@ const FrontOffice = () => {
           </DialogContent>
         </Dialog>
 
-        {/* Rollback Confirmation Dialog */}
-        <AlertDialog open={rollbackDialog} onOpenChange={setRollbackDialog}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Rollback Approved Inquiry?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This action will:
-                <ul className="list-disc pl-5 mt-2 space-y-1">
-                  <li>Permanently delete the student created from this inquiry.</li>
-                  <li>Revert the inquiry status to "NEW".</li>
-                </ul>
-                <p className="mt-3 text-red-600 font-semibold">
-                  This action cannot be undone!
-                </p>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={rollbackInquiryMutation.isPending}>
-                Cancel
-              </AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-red-600 hover:bg-red-700"
-                onClick={confirmRollback}
-                disabled={rollbackInquiryMutation.isPending}
-              >
-                {rollbackInquiryMutation.isPending ? "Rolling back..." : "Yes, Rollback"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
 
       </div>
     </DashboardLayout>

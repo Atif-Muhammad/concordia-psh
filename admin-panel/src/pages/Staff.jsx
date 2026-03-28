@@ -109,6 +109,7 @@ const initialFormData = {
     email: "",
     phone: "",
     address: "",
+    religion: "",
     password: "",
     // Role flags
     isTeaching: false,
@@ -289,6 +290,7 @@ export default function Staff() {
             email: staff.email || "",
             phone: staff.phone || "",
             address: staff.address || "",
+            religion: staff.religion || "",
             password: "",
             isTeaching: staff.isTeaching || false,
             isNonTeaching: staff.isNonTeaching || false,
@@ -904,6 +906,14 @@ export default function Staff() {
                                             placeholder={editingStaff ? "Leave blank to keep current" : "Password"}
                                         />
                                     </div>
+                                </div>
+                                <div>
+                                    <Label>Religion</Label>
+                                    <Input
+                                        value={formData.religion}
+                                        onChange={(e) => setFormData({ ...formData, religion: e.target.value })}
+                                        placeholder="e.g. Islam, Christianity"
+                                    />
                                 </div>
                                 <div>
                                     <Label>Address</Label>

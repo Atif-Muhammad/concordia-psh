@@ -4,9 +4,9 @@ export class StudentDto {
   @IsNotEmpty({ message: 'First name must be provided' })
   fName: string;
   @IsOptional()
-  mName?: string;
-  @IsOptional()
   lName?: string;
+  @IsOptional()
+  session?: string;
   @IsNotEmpty({ message: "student's father or guardian must be provided" })
   fatherOrguardian: string;
   @IsNotEmpty({ message: 'Roll number must be specified' })
@@ -26,6 +26,8 @@ export class StudentDto {
   address?: string;
   @IsNotEmpty({ message: 'Gender must be selected' })
   gender: string;
+  @IsOptional()
+  religion?: string;
   @IsNotEmpty({ message: 'Date of Birth must be selected' })
   dob: string;
   @IsNotEmpty({ message: "student's class must be selected" })

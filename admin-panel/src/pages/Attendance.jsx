@@ -320,7 +320,7 @@ const Attendance = () => {
   };
 
   const getFullName = (student) => {
-    return `${student.fName} ${student.mName || ""} ${student.lName}`.trim();
+    return `${student.fName} ${student.lName || ""}`.trim();
   };
 
   const calculateStats = () => {

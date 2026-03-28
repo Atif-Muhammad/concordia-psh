@@ -158,6 +158,7 @@ model Staff {
   phone           String? @db.VarChar(20)
   cnic            String? @unique @db.VarChar(15)
   address         String? @db.VarChar(255)
+  religion        String? @db.VarChar(50)
   
   photo_url       String?
   photo_public_id String?
@@ -233,14 +234,15 @@ model Student {
   photo_url             String?
   photo_public_id       String?
   fName                 String    @db.VarChar(100)
-  mName                 String?   @db.VarChar(100)
   lName                 String?   @db.VarChar(100)
+  session               String?   @db.VarChar(50)
   fatherOrguardian      String?   @db.VarChar(100)
   rollNumber            String    @unique @db.VarChar(50)
   parentOrGuardianEmail String?   @db.VarChar(50)
   parentOrGuardianPhone String?   @db.VarChar(20)
   address               String?   @db.VarChar(255)
   gender                String?   @db.VarChar(10)
+  religion              String?   @db.VarChar(50)
   dob                   DateTime?
   documents             Json      @default("{}")
   passedOut             Boolean   @default(false)
@@ -502,7 +504,7 @@ model Inquiry{
   address            String?      
   programInterest    Int?    
   previousInstitute  String?      
-  remarks            String?      
+  remarks            Json?
   status             InquiryStatus      @default(NEW) // new | approved | rejected | follow-up
   
   program Program? @relation(fields: [programInterest], references: [id])
@@ -951,6 +953,7 @@ model FeeChallan {
   paidAmount     Float         @default(0)
   tuitionPaid    Float         @default(0)  // Portion of payment that went to tuition
   additionalPaid Float         @default(0)  // Portion of payment that went to additional charges
+  remainingAmount Float        @default(0)
   discount       Float         @default(0)
   fineAmount     Float         @default(0)
   
@@ -963,6 +966,7 @@ model FeeChallan {
   installmentNumber Int        @default(1)
   coveredInstallments String?  @db.VarChar(50) // Comma separated list of installment numbers
   selectedHeads    String?      @db.Text // JSON array of selected fee head IDs
+  paymentHistory   Json?        @default("[]") // Array of { amount, date, method, remarks } for partial payments
   remarks        String?       @db.Text
 
   challanType     ChallanType?
@@ -1266,6 +1270,8 @@ model StudentFeeInstallment {
   remainingAmount   Float    @default(0)
   status            InstallmentStatus @default(PENDING)
   dueDate           DateTime
+  month             String?
+  session           String?
   
   challans          FeeChallan[]
 

@@ -97,8 +97,8 @@ export class StudentService {
     const where: any = {
       OR: [
         { fName: { contains: trimmed } },
-        { mName: { contains: trimmed } },
         { lName: { contains: trimmed } },
+        { session: { contains: trimmed } },
         { rollNumber: { contains: trimmed } },
       ],
     };
@@ -142,6 +142,7 @@ export class StudentService {
     classId?: number | null;
     sectionId?: number | null;
     status?: string | null;
+    session?: string | null;
     startDate?: string | null;
     endDate?: string | null;
     page?: number;
@@ -168,6 +169,10 @@ export class StudentService {
 
     if (filters?.sectionId != null && filters.sectionId > 0) {
       where.sectionId = filters.sectionId;
+    }
+
+    if (filters?.session) {
+      where.session = filters.session;
     }
 
     if (filters?.startDate && filters?.endDate) {
@@ -246,7 +251,10 @@ export class StudentService {
               installmentNumber: Number(i.installmentNumber),
               amount: Number(i.amount),
               dueDate: dueDate,
+              month: i.month || null,
+              session: i.session || null,
               classId: Number(payload.classId),
+              remainingAmount: Number(i.amount),
             };
           }),
         },
@@ -331,6 +339,7 @@ export class StudentService {
       dob,
       photo,
       installments,
+      inquiryId,
       ...rest
     } = payload;
 
@@ -394,6 +403,17 @@ export class StudentService {
 
       const targetClassId = Number(payload.classId || student.classId);
 
+      // Server-side validation: installment sum must not exceed agreed tuition fee
+      const agreedTuitionFee = payload.tuitionFee !== undefined ? Number(payload.tuitionFee) : (student.tuitionFee || 0);
+      if (agreedTuitionFee > 0) {
+        const totalInstallmentsAmount = installmentsData.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+        if (totalInstallmentsAmount > agreedTuitionFee) {
+          throw new BadRequestException(
+            `Total installments (Rs. ${totalInstallmentsAmount}) cannot exceed agreed tuition fee (Rs. ${agreedTuitionFee}).`
+          );
+        }
+      }
+
       // Fetch existing installments for this class
       const existingInstallments = await this.prismaService.studentFeeInstallment.findMany({
         where: {
@@ -430,10 +450,17 @@ export class StudentService {
         if (existing) {
           // Check if data changed
           const existingDate = new Date(existing.dueDate);
-          if (existing.amount !== amount || existingDate.getTime() !== dueDate.getTime()) {
+          if (existing.amount !== amount || existingDate.getTime() !== dueDate.getTime()
+            || existing.month !== (i.month || null) || existing.session !== (i.session || null)) {
             await this.prismaService.studentFeeInstallment.update({
               where: { id: existing.id },
-              data: { amount, dueDate },
+              data: { 
+                amount, 
+                dueDate, 
+                month: i.month || null, 
+                session: i.session || null,
+                remainingAmount: amount - (existing.paidAmount || 0) - (existing.pendingAmount || 0)
+              },
             });
           }
         } else {
@@ -445,6 +472,9 @@ export class StudentService {
               installmentNumber,
               amount,
               dueDate,
+              month: i.month || null,
+              session: i.session || null,
+              remainingAmount: amount,
             },
           });
         }
@@ -603,7 +633,7 @@ export class StudentService {
             studentInfo: {
               id: student.id,
               rollNumber: student.rollNumber,
-              name: `${student.fName} ${student.mName || ''} ${student.lName || ''}`.trim(),
+              name: `${student.fName} ${student.lName || ''}`.trim(),
             },
             arrears: {
               outstandingAmount,
@@ -793,6 +823,7 @@ export class StudentService {
             installmentNumber: i.installmentNumber,
             amount: i.amount,
             dueDate: i.dueDate,
+            remainingAmount: i.amount,
           })),
         }),
       ]);
@@ -921,6 +952,7 @@ export class StudentService {
           installmentNumber: idx + 1,
           amount: defaultInstallmentAmount,
           dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)),
+          remainingAmount: defaultInstallmentAmount,
         }),
       );
 
@@ -929,6 +961,7 @@ export class StudentService {
       const diff = restoredTuitionFee - totalCalculated;
       if (diff !== 0 && fallbackInstallmentsToCreate.length > 0) {
         fallbackInstallmentsToCreate[fallbackInstallmentsToCreate.length - 1].amount += diff;
+        fallbackInstallmentsToCreate[fallbackInstallmentsToCreate.length - 1].remainingAmount += diff;
       }
     }
 
@@ -973,18 +1006,32 @@ export class StudentService {
       throw new BadRequestException('Student already passed out');
 
     // Check for remaining arrears before allowing passout
-    const remainingArrears = await this.prismaService.studentFeeInstallment.findMany({
-      where: {
-        studentId: id,
-        remainingAmount: { gt: 0 }
-      }
-    });
+    const [remainingInstallments, outstandingArrears] = await Promise.all([
+      this.prismaService.studentFeeInstallment.findMany({
+        where: {
+          studentId: id,
+          remainingAmount: { gt: 0 }
+        }
+      }),
+      this.prismaService.studentArrear.findMany({
+        where: {
+          studentId: id,
+          arrearAmount: { gt: 0 }
+        }
+      })
+    ]);
 
-    if (remainingArrears.length > 0) {
-      const totalOutstanding = remainingArrears.reduce((sum, inst) => sum + inst.remainingAmount, 0);
-      throw new BadRequestException(
-        `Cannot pass out student. Total outstanding arrears: PKR ${totalOutstanding}. Please clear all dues first.`
-      );
+    if (remainingInstallments.length > 0 || outstandingArrears.length > 0) {
+      const installmentOutstanding = remainingInstallments.reduce((sum, inst) => sum + inst.remainingAmount, 0);
+      const arrearOutstanding = outstandingArrears.reduce((sum, arr) => sum + arr.arrearAmount, 0);
+      const totalOutstanding = installmentOutstanding + arrearOutstanding;
+      
+      let message = `Cannot pass out student. Total outstanding: PKR ${totalOutstanding}.`;
+      if (installmentOutstanding > 0) message += ` Unpaid installments: PKR ${installmentOutstanding}.`;
+      if (arrearOutstanding > 0) message += ` Past arrears: PKR ${arrearOutstanding}.`;
+      message += ` Please clear all dues first.`;
+      
+      throw new BadRequestException(message);
     }
 
     return this.prismaService.$transaction(async (tx) => {
@@ -1077,14 +1124,27 @@ export class StudentService {
     });
   }
 
-  async rejoin(id: number, reason: string) {
+  async rejoin(id: number, reason: string, details?: { 
+    session?: string, 
+    programId?: string, 
+    classId?: string, 
+    sectionId?: string,
+    sameClass?: boolean | string
+  }) {
     const student = await this.prismaService.student.findUnique({
       where: { id },
+      include: {
+        class: true,
+        section: true,
+        program: true
+      }
     });
     if (!student) throw new NotFoundException('Student not found');
-    if (student.status !== 'STRUCK_OFF') {
-      throw new BadRequestException('Only struck off students can re-join');
+    if (student.status !== 'STRUCK_OFF' && student.status !== 'EXPELLED') {
+      throw new BadRequestException('Only struck off or expelled students can re-join');
     }
+
+    const isSameClass = details?.sameClass === true || details?.sameClass === 'true';
 
     return this.prismaService.$transaction(async (tx) => {
       await tx.studentStatusHistory.create({
@@ -1096,13 +1156,146 @@ export class StudentService {
         },
       });
 
+      const updateData: any = {
+        passedOut: false,
+        status: 'ACTIVE',
+        statusDate: new Date(),
+      };
+
+      if (!isSameClass && details) {
+        if (details.session) updateData.session = details.session;
+        if (details.programId) updateData.program = { connect: { id: Number(details.programId) } };
+        if (details.classId) updateData.class = { connect: { id: Number(details.classId) } };
+        if (details.sectionId) {
+          const sId = Number(details.sectionId);
+          if (sId > 0) {
+            updateData.section = { connect: { id: sId } };
+          } else {
+            updateData.section = { disconnect: true };
+          }
+        }
+
+        // --- MANAGE ARREARS FOR OLD CLASS BEFORE SWITCHING (Consistent with Promote) ---
+        if (student.classId && student.programId) {
+          // Calculate arrears for the class they are leaving (before updating student record)
+          const currentChallans = await tx.feeChallan.findMany({
+            where: {
+              studentId: id,
+              OR: [
+                { studentClassId: student.classId, studentProgramId: student.programId },
+                { studentClassId: null, feeStructure: { classId: student.classId, programId: student.programId } },
+              ],
+            },
+            include: { feeStructure: true },
+          });
+
+          let totalTuitionPaid = 0;
+          let expectedTuitionTotal = (student as any).tuitionFee || 0;
+
+          for (const challan of currentChallans) {
+            if (challan.status === 'PAID' || challan.status === 'PARTIAL') {
+              const netTuitionAmount = (challan.amount || 0) - (challan.discount || 0);
+              const tuitionPortionPaid = challan.tuitionPaid ?? Math.min(challan.paidAmount || 0, netTuitionAmount);
+              totalTuitionPaid += tuitionPortionPaid;
+            }
+            if (expectedTuitionTotal === 0 && challan.feeStructure) {
+              expectedTuitionTotal = challan.feeStructure.totalAmount;
+            }
+          }
+
+          if (expectedTuitionTotal === 0) {
+            const structure = await tx.feeStructure.findUnique({
+              where: {
+                programId_classId: {
+                  programId: student.programId,
+                  classId: student.classId,
+                },
+              },
+            });
+            if (structure) expectedTuitionTotal = structure.totalAmount;
+          }
+
+          const outstandingAmount = Math.max(0, expectedTuitionTotal - totalTuitionPaid);
+
+          if (outstandingAmount > 0) {
+            await tx.studentArrear.upsert({
+              where: {
+                studentId_classId_programId: {
+                  studentId: id,
+                  classId: student.classId,
+                  programId: student.programId,
+                },
+              },
+              create: {
+                studentId: id,
+                classId: student.classId,
+                programId: student.programId,
+                arrearAmount: outstandingAmount,
+              },
+              update: {
+                arrearAmount: outstandingAmount,
+              },
+            });
+          }
+        }
+
+        // --- AUTO-GENERATE NEW FEES FOR NEW CLASS IF NOT SAME CLASS ---
+        if (details.programId && details.classId) {
+          const newProgId = Number(details.programId);
+          const newClassId = Number(details.classId);
+
+          const newFeeStructure = await tx.feeStructure.findUnique({
+            where: {
+              programId_classId: {
+                programId: newProgId,
+                classId: newClassId,
+              },
+            },
+          });
+
+          const totalAmount = newFeeStructure
+            ? newFeeStructure.totalAmount
+            : student.tuitionFee || 0;
+
+          const installmentCount =
+            newFeeStructure?.installments || student.numberOfInstallments || 1;
+
+          if (totalAmount > 0) {
+            updateData.tuitionFee = totalAmount;
+            updateData.numberOfInstallments = installmentCount;
+
+            const defaultInstallmentAmount = Math.floor(totalAmount / installmentCount);
+            const newInstallments = Array.from({ length: installmentCount }).map((_, idx) => ({
+              studentId: id,
+              classId: newClassId,
+              installmentNumber: idx + 1,
+              amount: idx === installmentCount - 1 
+                ? totalAmount - (defaultInstallmentAmount * (installmentCount - 1))
+                : defaultInstallmentAmount,
+              dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)),
+              remainingAmount: idx === installmentCount - 1 
+                ? totalAmount - (defaultInstallmentAmount * (installmentCount - 1))
+                : defaultInstallmentAmount,
+            }));
+
+            // --- FIX: Delete existing installments for target class to avoid unique constraint --
+            await tx.studentFeeInstallment.deleteMany({
+              where: {
+                studentId: id,
+                classId: newClassId
+              }
+            });
+
+            await tx.studentFeeInstallment.createMany({
+              data: newInstallments,
+            });
+          }
+        }
+      }
+
       return tx.student.update({
         where: { id },
-        data: {
-          passedOut: false,
-          status: 'ACTIVE',
-          statusDate: new Date(),
-        },
+        data: updateData,
       });
     });
   }
@@ -1123,8 +1316,8 @@ export class StudentService {
         id: true,
         rollNumber: true,
         fName: true,
-        mName: true,
         lName: true,
+        session: true,
         class: {
           select: {
             id: true,
@@ -1142,8 +1335,8 @@ export class StudentService {
       id: s.id,
       rollNumber: s.rollNumber,
       fName: s.fName,
-      mName: s.mName,
       lName: s.lName,
+      session: s.session,
       class: s.class,
       section: s.section,
       attendance: s.attendance || [], // empty if none
@@ -1265,7 +1458,7 @@ export class StudentService {
     return {
       student: {
         id: student.id,
-        name: `${student.fName} ${student.mName || ''} ${student.lName}`.trim(),
+        name: `${student.fName} ${student.lName || ''}`.trim(),
         rollNumber: student.rollNumber,
         class: student.class?.name,
         section: student.section?.name,
@@ -1327,7 +1520,7 @@ export class StudentService {
     return {
       student: {
         id: student.id,
-        name: `${student.fName} ${student.mName || ''} ${student.lName}`.trim(),
+        name: `${student.fName} ${student.lName || ''}`.trim(),
         rollNumber: student.rollNumber,
         class: student.class?.name,
         section: student.section?.name,

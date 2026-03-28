@@ -25,7 +25,7 @@ export class InquiryDto {
   @IsOptional()
   previousInstitute?: string;
   @IsOptional()
-  remarks?: string;
+  remarks?: any;
   @IsEnum(InquiryStatus)
   @IsOptional()
   status?: InquiryStatus;

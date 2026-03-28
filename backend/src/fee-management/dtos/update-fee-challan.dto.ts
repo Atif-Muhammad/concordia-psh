@@ -22,4 +22,20 @@ export class UpdateFeeChallanDto extends PartialType(CreateFeeChallanDto) {
   @IsNumber()
   @IsOptional()
   customArrearsAmount?: number;
+
+  @IsArray()
+  @IsOptional()
+  arrearsSelections?: any[];
+
+  @IsNumber()
+  @IsOptional()
+  arrearsLateFee?: number;
+
+  @IsNumber()
+  @IsOptional()
+  receivingAmount?: number;
+
+  @IsString()
+  @IsOptional()
+  paidBy?: string;
 }

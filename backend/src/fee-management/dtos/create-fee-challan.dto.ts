@@ -79,4 +79,16 @@ export class CreateFeeChallanDto {
   @IsNumber()
   @IsOptional()
   arrearsLateFee?: number;
+
+  @IsNumber()
+  @IsOptional()
+  discount?: number;
+
+  @IsNumber()
+  @IsOptional()
+  receivingAmount?: number;
+
+  @IsString()
+  @IsOptional()
+  challanType?: 'INSTALLMENT' | 'ARREARS_ONLY' | 'FEE_HEADS_ONLY' | 'MIXED';
 }

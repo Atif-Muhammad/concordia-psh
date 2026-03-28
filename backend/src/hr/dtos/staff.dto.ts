@@ -52,6 +52,8 @@ export class StaffDto {
 
   @IsOptional()
   address?: string;
+  @IsOptional()
+  religion?: string;
 
   @IsOptional()
   photo_url?: string;

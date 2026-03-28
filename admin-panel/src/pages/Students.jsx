@@ -50,7 +50,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
-import { format, startOfMonth, endOfMonth, parse } from "date-fns";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState, useMemo } from "react";
 import {
   getStudents,
@@ -97,6 +98,13 @@ import {
   UserMinus,
   RotateCcw,
   Users,
+  History,
+  CheckCircle2,
+  Receipt,
+  Plus,
+  CreditCard,
+  Calendar,
+  DollarSign,
 } from "lucide-react";
 
 const EMPTY_OBJECT = {};
@@ -129,7 +137,14 @@ const Students = () => {
   const [selectedStatus, setSelectedStatus] = useState("ACTIVE");
   const [promotionReason, setPromotionReason] = useState("");
   const [selectedFeeSession, setSelectedFeeSession] = useState("current");
-  const [selectedStudent, setSelectedStudent] = useState({})
+  const [selectedStudent, setSelectedStudent] = useState({});
+  const [rejoinDetails, setRejoinDetails] = useState({
+    session: "",
+    programId: "",
+    classId: "",
+    sectionId: "",
+    sameClass: true
+  });
 
   // ID Card State
   const [defaultIdCardTemplate, setDefaultIdCardTemplate] = useState("");
@@ -145,8 +160,17 @@ const Students = () => {
   const [filterProgram, setFilterProgram] = useState(null);
   const [filterClass, setFilterClass] = useState(null);
   const [filterSection, setFilterSection] = useState(null);
-  const [filterMonth, setFilterMonth] = useState(format(new Date(), "yyyy-MM"));
+  const currentYear = new Date().getFullYear();
+  const defaultSession = new Date().getMonth() >= 6
+    ? `${currentYear}-${currentYear + 1}`
+    : `${currentYear - 1}-${currentYear}`;
+  const [filterSession, setFilterSession] = useState(defaultSession);
   const [showFilters, setShowFilters] = useState(false);
+
+  // Dialog-specific filters (independent from main page)
+  const [dialogFilterProgram, setDialogFilterProgram] = useState(null);
+  const [dialogFilterClass, setDialogFilterClass] = useState(null);
+  const [dialogFilterSection, setDialogFilterSection] = useState(null);
 
   const [showFeeConfig, setShowFeeConfig] = useState(true);
   const searchTimeoutRef = useRef(null);
@@ -179,17 +203,12 @@ const Students = () => {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["students", filterProgram, filterClass, filterSection, searchQuery, selectedStatus, filterMonth],
+    queryKey: ["students", filterProgram, filterClass, filterSection, searchQuery, selectedStatus, filterSession],
     queryFn: ({ pageParam = 1 }) => {
-      // Derive start and end of month from filterMonth
-      const monthDate = parse(filterMonth, "yyyy-MM", new Date());
-      const startDate = format(startOfMonth(monthDate), "yyyy-MM-dd");
-      const endDate = format(endOfMonth(monthDate), "yyyy-MM-dd");
-
       if (selectedStatus === "ACTIVE") {
-        return getStudents(filterProgram, filterClass, filterSection, searchQuery, "ACTIVE", startDate, endDate, pageParam, 20);
+        return getStudents(filterProgram, filterClass, filterSection, searchQuery, "ACTIVE", filterSession, pageParam, 20);
       } else {
-        return getPassedOutStudents(filterProgram, filterClass, filterSection, searchQuery, selectedStatus, startDate, endDate, pageParam, 20);
+        return getPassedOutStudents(filterProgram, filterClass, filterSection, searchQuery, selectedStatus, filterSession, pageParam, 20);
       }
     },
     getNextPageParam: (lastPage) => {
@@ -204,6 +223,41 @@ const Students = () => {
   const studentsData = useMemo(() => {
     return infiniteStudentsData?.pages.flatMap((page) => page?.students || []).filter(Boolean) || [];
   }, [infiniteStudentsData]);
+
+  // Separate query for the promotion dialog — fetches ACTIVE students for non-rejoin actions
+  const isRejoinMode = promotionAction === "rejoin";
+  const dialogQueryEnabled = promoteOpen && !!dialogFilterProgram && dialogFilterProgram !== "*";
+
+  const { data: dialogStudentsRaw = { students: [] }, isLoading: dialogStudentsLoading } = useQuery({
+    queryKey: ["dialog-students", dialogFilterProgram, dialogFilterClass, dialogFilterSection],
+    queryFn: () => {
+      return getStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "ACTIVE", "", 1, 200);
+    },
+    enabled: dialogQueryEnabled && !isRejoinMode,
+  });
+
+  // For rejoin mode: fetch EXPELLED and STRUCK_OFF students separately then merge
+  const { data: expelledRaw = { students: [] }, isLoading: expelledLoading } = useQuery({
+    queryKey: ["dialog-students-expelled", dialogFilterProgram, dialogFilterClass, dialogFilterSection],
+    queryFn: () => {
+      return getPassedOutStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "EXPELLED", "", 1, 200);
+    },
+    enabled: dialogQueryEnabled && isRejoinMode,
+  });
+  const { data: struckOffRaw = { students: [] }, isLoading: struckOffLoading } = useQuery({
+    queryKey: ["dialog-students-struckoff", dialogFilterProgram, dialogFilterClass, dialogFilterSection],
+    queryFn: () => {
+      return getPassedOutStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "STRUCK_OFF", "", 1, 200);
+    },
+    enabled: dialogQueryEnabled && isRejoinMode,
+  });
+
+  const dialogStudentsData = isRejoinMode
+    ? [...(expelledRaw?.students || []), ...(struckOffRaw?.students || [])]
+    : (dialogStudentsRaw?.students || []);
+  const dialogStudentsIsLoading = isRejoinMode
+    ? (expelledLoading || struckOffLoading)
+    : dialogStudentsLoading;
   const [manualPromotionDialog, setManualPromotionDialog] = useState({
     open: false,
     classId: "",
@@ -259,7 +313,7 @@ const Students = () => {
               : action === "expel"
                 ? expelStudents
                 : action === "rejoin"
-                  ? rejoinStudent
+                  ? (id, reason) => rejoinStudent(id, reason, rejoinDetails)
                   : struckOffStudents;
       // For promotion, check each student individually
       if (action === "promote" && !forcePromote) {
@@ -313,6 +367,7 @@ const Students = () => {
         setPromoteOpen(false);
         setPromotionReason("");
         setSelectedForPromotion([]);
+        setRejoinDetails({ session: "", programId: "", classId: "", sectionId: "" });
       }
     },
     onError: (e) =>
@@ -391,7 +446,7 @@ const Students = () => {
     const replacements = {
       "{{logoUrl}}": logoUrl,
       "{{studentPhoto}}": student.photo_url || "https://placehold.co/150",
-      "{{name}}": `${student.fName} ${student.mName || ""} ${student.lName || ""}`,
+      "{{name}}": `${student.fName} ${student.lName || ""}`,
       "{{admissionNo}}": student.rollNumber,
       "{{classGroup}}": `${programName}`,
       "{{issueDate}}": new Date().toLocaleDateString(),
@@ -436,16 +491,38 @@ const Students = () => {
   };
 
   const openEdit = (student) => {
-    // Transform student data if necessary for StudentForm
+    // Parse documents if it's a JSON string
+    let docs = student.documents || {};
+    if (typeof docs === "string") {
+      try { docs = JSON.parse(docs); } catch { docs = {}; }
+    }
+
+    // Transform installments: format dueDate and ensure month/session exist
+    const installments = (student.feeInstallments || [])
+      .filter(inst => inst.classId === student.classId)
+      .map(inst => {
+        const dueDateStr = inst.dueDate ? new Date(inst.dueDate).toISOString().split("T")[0] : "";
+        const dateObj = inst.dueDate ? new Date(inst.dueDate) : null;
+        const monthName = dateObj ? dateObj.toLocaleString('default', { month: 'long' }) : "";
+        return {
+          ...inst,
+          dueDate: dueDateStr,
+          month: inst.month || monthName,
+          session: inst.session || "",
+        };
+      });
+
     setEditingStudent({
       ...student,
       programId: student.programId?.toString() || "",
       classId: student.classId?.toString() || "",
       sectionId: student.sectionId?.toString() || "",
       dob: student.dob ? new Date(student.dob).toISOString().split("T")[0] : "",
+      religion: student.religion || "",
       tuitionFee: student.tuitionFee?.toString() || "",
       numberOfInstallments: student.numberOfInstallments?.toString() || "1",
-      installments: (student.feeInstallments || []).filter(inst => inst.classId === student.classId),
+      documents: docs,
+      installments,
     });
     setOpen(true);
   };
@@ -461,6 +538,9 @@ const Students = () => {
       setStudentToDelete(null);
     }
   };
+
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [selectedChallanForHistory, setSelectedChallanForHistory] = useState(null);
 
   // ──────────────────────────────────────────────────────────────
   // Cascading Filter Helpers
@@ -648,6 +728,7 @@ const Students = () => {
       ids: selectedForPromotion,
       action: promotionAction,
       reason: promotionReason,
+      ...(promotionAction === "rejoin" ? rejoinDetails : {})
     });
   };
 
@@ -669,7 +750,7 @@ const Students = () => {
       <table><thead><tr><th>#</th><th>Name</th><th>Roll</th><th>Class</th><th>GPA</th></tr></thead>
       <tbody>${merit
         .map(
-          (s, i) => `<tr><td><strong>#${i + 1}</strong></td><td>${s.fName} ${s.mName} ${s.lName}</td><td>${s.rollNumber}</td><td>${programData.flatMap((p) => p.classes).find((c) => c.id === s.classId)?.name}</td><td><strong>${s.avgGPA.toFixed(2)}</strong></td></tr>`
+          (s, i) => `<tr><td><strong>#${i + 1}</strong></td><td>${s.fName} ${s.lName}</td><td>${s.rollNumber}</td><td>${programData.flatMap((p) => p.classes).find((c) => c.id === s.classId)?.name}</td><td><strong>${s.avgGPA.toFixed(2)}</strong></td></tr>`
         )
         .join("")}</tbody></table>
       <script>window.onload=()=>{window.print()}</script></body></html>`;
@@ -684,7 +765,7 @@ const Students = () => {
     setFilterProgram(null);
     setFilterClass(null);
     setFilterSection(null);
-    setFilterMonth(format(new Date(), "yyyy-MM"));
+    setFilterSession(defaultSession);
     setSearchQuery("");
     setShowFilters(false);
   };
@@ -711,7 +792,7 @@ const Students = () => {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => setPromoteOpen(true)} variant="outline" className="gap-2">
+            <Button size="sm" onClick={() => { setDialogFilterProgram(null); setDialogFilterClass(null); setDialogFilterSection(null); setSelectedForPromotion([]); setPromotionReason(""); setPromotionAction("promote"); setPromoteOpen(true); }} variant="outline" className="gap-2">
               <TrendingUp className="w-4 h-4" /> Promote
             </Button>
             <Button
@@ -798,12 +879,25 @@ const Students = () => {
               </div>
 
               <div>
-                <Label>Month</Label>
-                <Input
-                  type="month"
-                  value={filterMonth}
-                  onChange={(e) => setFilterMonth(e.target.value)}
-                />
+                <Label>Session</Label>
+                <Select
+                  value={filterSession}
+                  onValueChange={(value) => setFilterSession(value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Session" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(() => {
+                      const yr = new Date().getFullYear();
+                      return Array.from({ length: 5 }, (_, i) => {
+                        const y = yr - 2 + i;
+                        const s = `${y}-${y + 1}`;
+                        return <SelectItem key={s} value={s}>{s}</SelectItem>;
+                      });
+                    })()}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="flex items-end">
@@ -889,7 +983,7 @@ const Students = () => {
                           </Avatar>
                         </TableCell>
                         <TableCell className="font-medium">{student.rollNumber}</TableCell>
-                        <TableCell>{student.fName} {student.mName} {student.lName}</TableCell>
+                        <TableCell>{student.fName} {student.lName}</TableCell>
                         <TableCell>
                           {student.createdAt ? format(new Date(student.createdAt), "dd MMM yyyy") : "-"}
                         </TableCell>
@@ -924,11 +1018,17 @@ const Students = () => {
                                 size="sm"
                                 variant="outline"
                                 className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
-                                onClick={() => {
-                                  setPromotionAction("rejoin");
-                                  setSelectedForPromotion([student.id]);
-                                  setPromoteOpen(true);
-                                }}
+                                 onClick={() => {
+                                   setPromotionAction("rejoin");
+                                   setSelectedForPromotion([student.id]);
+                                   setRejoinDetails({
+                                     session: student.session || "",
+                                     programId: student.programId?.toString() || "",
+                                     classId: student.classId?.toString() || "",
+                                     sectionId: student.sectionId?.toString() || ""
+                                   });
+                                   setPromoteOpen(true);
+                                 }}
                                 title="Re-join Student"
                               >
                                 <RotateCcw className="w-4 h-4 mr-1" /> Re-join
@@ -1024,7 +1124,7 @@ const Students = () => {
                       <AvatarFallback>{viewStudent.fName}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1">
-                      <h3 className="text-2xl font-bold mb-2">{viewStudent.fName} {viewStudent.mName} {viewStudent.lName}</h3>
+                      <h3 className="text-2xl font-bold mb-2">{viewStudent.fName} {viewStudent.lName}</h3>
                       <div className="flex items-center gap-4">
                         <p className="uppercase text-gray-500 tracking-wide text-sm">Father / Guardian:</p>
                         <p className="font-medium text-sm ">{viewStudent.fatherOrguardian}</p>
@@ -1040,9 +1140,13 @@ const Students = () => {
                       })()}</div>
                       <div><span className="font-semibold">Class:</span> {programData.flatMap((p) => p.classes).find((c) => c.id === viewStudent.classId)?.name}</div>
                       <div><span className="font-semibold">Section:</span> {programData.flatMap((p) => p.classes).flatMap((c) => c.sections).find((s) => s.id === viewStudent.sectionId)?.name || "N/A"}</div>
+                      <div><span className="font-semibold">Session:</span> {viewStudent.session || "-"}</div>
+                      <div><span className="font-semibold">Gender:</span> {viewStudent.gender || "-"}</div>
+                      <div><span className="font-semibold">Religion:</span> {viewStudent.religion || "-"}</div>
                       <div><span className="font-semibold">Parent Email:</span> {viewStudent.parentOrGuardianEmail || "-"}</div>
                       <div><span className="font-semibold">Parent Phone:</span> {viewStudent.parentOrGuardianPhone || "-"}</div>
                       <div><span className="font-semibold">DOB:</span> {viewStudent.dob ? new Date(viewStudent.dob).toLocaleDateString() : "-"}</div>
+                      <div className="col-span-2"><span className="font-semibold">Address:</span> {viewStudent.address || "-"}</div>
                       <div className="flex items-center gap-2">
                         <TrendingUp className="w-4 h-4 text-blue-600" />
                         <span className="font-semibold">Total Tuition Fee:</span>
@@ -1181,12 +1285,20 @@ const Students = () => {
                                 </p>
                               </CardContent>
                             </Card>
-                            <Card>
-                              <CardContent className="pt-6">
-                                <p className="text-sm text-muted-foreground">Pending Installments</p>
-                                <p className="text-xl font-bold text-orange-600">{feesData.selectedSessionData.stats.pendingInstallments}</p>
-                              </CardContent>
-                            </Card>
+                             <Card>
+                               <CardContent className="pt-6">
+                                 <p className="text-sm text-muted-foreground">Pending Installments</p>
+                                 <p className="text-xl font-bold text-orange-600">{feesData.selectedSessionData.stats.pendingInstallments}</p>
+                               </CardContent>
+                             </Card>
+                             <Card>
+                               <CardContent className="pt-6">
+                                 <p className="text-sm text-muted-foreground">Late Fee Due</p>
+                                 <p className="text-xl font-bold text-destructive">
+                                   PKR {feesData.selectedSessionData.stats.currentLateFee?.toLocaleString() || 0}
+                                 </p>
+                               </CardContent>
+                             </Card>
                           </div>
                           {/* Challans Table */}
                           <div className="mt-4">
@@ -1214,7 +1326,14 @@ const Students = () => {
                                   feesData.selectedSessionData.challans.map(fee => (
                                     <TableRow key={fee.id}>
                                       <TableCell className="font-medium">{fee.challanNumber || fee.id}</TableCell>
-                                      <TableCell>PKR {(fee.amount - (fee.discount || 0) + (fee.fineAmount || 0)).toLocaleString()}</TableCell>
+                                      <TableCell>
+                                        <div>PKR {(fee.amount - (fee.discount || 0) + (fee.fineAmount || 0) + (fee.lateFeeFine || 0)).toLocaleString()}</div>
+                                        {fee.lateFeeFine > 0 && (
+                                          <div className="text-[10px] text-destructive font-bold">
+                                            Inc. Late Fee: PKR {fee.lateFeeFine.toLocaleString()}
+                                          </div>
+                                        )}
+                                      </TableCell>
                                       <TableCell className="text-green-600">PKR {fee.paidAmount?.toLocaleString() || 0}</TableCell>
                                       <TableCell>
                                         <Badge variant={fee.status === "PAID" ? "default" : "destructive"}>
@@ -1224,17 +1343,29 @@ const Students = () => {
                                       <TableCell>{fee.coveredInstallments || fee.installmentNumber || "-"}</TableCell>
                                       <TableCell>{fee.dueDate ? format(new Date(fee.dueDate), "MMM yyyy") : "-"}</TableCell>
                                       <TableCell>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          onClick={() => {
-                                            setSelectedChallanDetails(fee);
-                                            setDetailsDialogOpen(true);
-                                          }}
-                                        >
-                                          <Eye className="h-4 w-4" />
-                                        </Button>
-                                      </TableCell>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => {
+                                              setSelectedChallanDetails(fee);
+                                              setDetailsDialogOpen(true);
+                                            }}
+                                          >
+                                            <Eye className="h-4 w-4" />
+                                          </Button>
+                                          {fee.paymentHistory && (
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              onClick={() => {
+                                                setSelectedChallanForHistory(fee);
+                                                setHistoryDialogOpen(true);
+                                              }}
+                                            >
+                                              <History className="h-4 w-4" />
+                                            </Button>
+                                          )}
+                                        </TableCell>
                                     </TableRow>
                                   ))
                                 )}
@@ -1596,10 +1727,9 @@ const Students = () => {
               <div className="grid grid-cols-3 gap-4 p-4 bg-muted rounded-lg">
                 <div>
                   <Label>Program</Label>
-                  <Select value={filterProgram} onValueChange={setFilterProgram}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                  <Select value={dialogFilterProgram || ""} onValueChange={(v) => { setDialogFilterProgram(v || null); setDialogFilterClass(null); setDialogFilterSection(null); setSelectedForPromotion([]); }}>
+                    <SelectTrigger><SelectValue placeholder="Select Program" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="*">Select a Program</SelectItem>
                       {programData.map(p => (
                         <SelectItem key={p.id} value={p.id.toString()}>
                           {p.name} - {p.department?.name}
@@ -1610,43 +1740,41 @@ const Students = () => {
                 </div>
                 <div>
                   <Label>Class</Label>
-                  <Select value={filterClass} onValueChange={setFilterClass} disabled={filterProgram === "all"}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                  <Select value={dialogFilterClass || ""} onValueChange={(v) => { setDialogFilterClass(v || null); setDialogFilterSection(null); setSelectedForPromotion([]); }} disabled={!dialogFilterProgram}>
+                    <SelectTrigger><SelectValue placeholder={dialogFilterProgram ? "Select Class" : "Select Program First"} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="*">Select a Class</SelectItem>
-                      {getClassesForProgram(filterProgram).map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}
+                      {getClassesForProgram(dialogFilterProgram).map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label>Section</Label>
-                  <Select value={filterSection} onValueChange={setFilterSection} disabled={filterClass === "all"}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                  <Select value={dialogFilterSection || ""} onValueChange={(v) => { setDialogFilterSection(v || null); setSelectedForPromotion([]); }} disabled={!dialogFilterClass}>
+                    <SelectTrigger><SelectValue placeholder={dialogFilterClass ? "Select Section" : "Select Class First"} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="*">Select a Section(if any)</SelectItem>
-                      {getSectionsForClass(filterProgram, filterClass).map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
+                      {getSectionsForClass(dialogFilterProgram, dialogFilterClass).map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
               <div className="flex gap-2">
-                <Button variant={promotionAction === "promote_manual" ? "default" : "outline"} onClick={() => setPromotionAction("promote_manual")}>
+                <Button variant={promotionAction === "promote_manual" ? "default" : "outline"} onClick={() => { setPromotionAction("promote_manual"); setSelectedForPromotion([]); }}>
                   <TrendingUp className="w-4 h-4 mr-2" /> Promote
                 </Button>
-                <Button variant={promotionAction === "demote" ? "default" : "outline"} onClick={() => setPromotionAction("demote")}>
+                <Button variant={promotionAction === "demote" ? "default" : "outline"} onClick={() => { setPromotionAction("demote"); setSelectedForPromotion([]); }}>
                   <TrendingDown className="w-4 h-4 mr-2" /> Demote
                 </Button>
-                <Button variant={promotionAction === "passout" ? "default" : "outline"} onClick={() => setPromotionAction("passout")}>
+                <Button variant={promotionAction === "passout" ? "default" : "outline"} onClick={() => { setPromotionAction("passout"); setSelectedForPromotion([]); }}>
                   <GraduationCap className="w-4 h-4 mr-2" /> Pass Out
                 </Button>
-                <Button variant={promotionAction === "expel" ? "destructive" : "outline"} onClick={() => setPromotionAction("expel")}>
+                <Button variant={promotionAction === "expel" ? "destructive" : "outline"} onClick={() => { setPromotionAction("expel"); setSelectedForPromotion([]); }}>
                   <UserX className="w-4 h-4 mr-2" /> Expel
                 </Button>
-                <Button variant={promotionAction === "struck-off" ? "destructive" : "outline"} onClick={() => setPromotionAction("struck-off")}>
+                <Button variant={promotionAction === "struck-off" ? "destructive" : "outline"} onClick={() => { setPromotionAction("struck-off"); setSelectedForPromotion([]); }}>
                   <UserMinus className="w-4 h-4 mr-2" /> Struck Off
                 </Button>
-                <Button variant={promotionAction === "rejoin" ? "default" : "outline"} onClick={() => setPromotionAction("rejoin")}>
+                <Button variant={promotionAction === "rejoin" ? "default" : "outline"} onClick={() => { setPromotionAction("rejoin"); setSelectedForPromotion([]); }}>
                   <RotateCcw className="w-4 h-4 mr-2" /> Re-join
                 </Button>
               </div>
@@ -1659,10 +1787,19 @@ const Students = () => {
                     <TableHead>Name</TableHead>
                     <TableHead>Father/Guardian</TableHead>
                     <TableHead>Class</TableHead>
+                    {isRejoinMode && <TableHead>Status</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {studentsData?.map(s => (
+                  {dialogStudentsIsLoading && <TableRow><TableCell colSpan={isRejoinMode ? 6 : 5} className="text-center py-4 text-muted-foreground">Loading students...</TableCell></TableRow>}
+                  {!dialogStudentsIsLoading && dialogStudentsData.length === 0 && (
+                    <TableRow><TableCell colSpan={isRejoinMode ? 6 : 5} className="text-center py-4 text-muted-foreground">
+                      {dialogFilterProgram
+                        ? (isRejoinMode ? "No expelled or struck-off students found for this filter" : "No active students found for this filter")
+                        : "Select a program to load students"}
+                    </TableCell></TableRow>
+                  )}
+                  {dialogStudentsData?.map(s => (
                     <TableRow key={s.id}>
                       <TableCell>
                         <input
@@ -1682,6 +1819,13 @@ const Students = () => {
                       <TableCell>{s.fName} {s.lName}</TableCell>
                       <TableCell>{s.fatherOrguardian}</TableCell>
                       <TableCell>{programData.flatMap(p => p.classes).find(c => c.id === s.classId)?.name}</TableCell>
+                      {isRejoinMode && (
+                        <TableCell>
+                          <Badge variant={s.status === "EXPELLED" ? "destructive" : "secondary"}>
+                            {s.status === "EXPELLED" ? "Expelled" : "Struck Off"}
+                          </Badge>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1689,14 +1833,107 @@ const Students = () => {
 
               {/* Reason input for expel, struck-off, rejoin */}
               {(promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && (
-                <div className="space-y-2">
-                  <Label>Reason (Required)</Label>
-                  <Textarea
-                    placeholder={`Enter reason for ${promotionAction === "expel" ? "expulsion" : promotionAction === "struck-off" ? "striking off" : "re-joining"}...`}
-                    value={promotionReason}
-                    onChange={(e) => setPromotionReason(e.target.value)}
-                    rows={3}
-                  />
+                <div className="space-y-4">
+                   {promotionAction === "rejoin" && (
+                    <div className="space-y-4 p-4 bg-blue-50 border border-blue-100 rounded-lg">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="rejoinSameClass"
+                          checked={rejoinDetails.sameClass}
+                          onChange={(e) => setRejoinDetails(prev => ({ ...prev, sameClass: e.target.checked }))}
+                          className="w-4 h-4"
+                        />
+                        <Label htmlFor="rejoinSameClass" className="text-blue-900 font-semibold cursor-pointer">
+                          Re-join to same class/session (No new installments)
+                        </Label>
+                      </div>
+
+                      {!rejoinDetails.sameClass && (
+                        <div className="grid grid-cols-2 gap-4 animate-in fade-in duration-300">
+                          <div className="col-span-2">
+                            <h4 className="text-sm font-semibold text-blue-900 mb-2">New Placement Details</h4>
+                          </div>
+                          <div>
+                            <Label>Session *</Label>
+                            <Select
+                              value={rejoinDetails.session}
+                              onValueChange={(v) => setRejoinDetails(prev => ({ ...prev, session: v }))}
+                            >
+                              <SelectTrigger className="bg-white"><SelectValue placeholder="Select Session" /></SelectTrigger>
+                              <SelectContent>
+                                {(() => {
+                                  const currentYear = new Date().getFullYear();
+                                  return Array.from({ length: 5 }, (_, i) => {
+                                    const y = currentYear - 1 + i;
+                                    const s = `${y}-${y + 1}`;
+                                    return <SelectItem key={s} value={s}>{s}</SelectItem>;
+                                  });
+                                })()}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label>Program *</Label>
+                            <Select
+                              value={rejoinDetails.programId}
+                              onValueChange={(v) => setRejoinDetails(prev => ({ ...prev, programId: v, classId: "", sectionId: "" }))}
+                            >
+                              <SelectTrigger className="bg-white"><SelectValue placeholder="Select Program" /></SelectTrigger>
+                              <SelectContent>
+                                {programData.map(p => (
+                                  <SelectItem key={p.id} value={p.id.toString()}>
+                                    {p.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label>Class *</Label>
+                            <Select
+                              value={rejoinDetails.classId}
+                              onValueChange={(v) => setRejoinDetails(prev => ({ ...prev, classId: v, sectionId: "" }))}
+                              disabled={!rejoinDetails.programId}
+                            >
+                              <SelectTrigger className="bg-white"><SelectValue placeholder="Select Class" /></SelectTrigger>
+                              <SelectContent>
+                                {getClassesForProgram(rejoinDetails.programId).map(c => (
+                                  <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label>Section (Optional)</Label>
+                            <Select
+                              value={rejoinDetails.sectionId}
+                              onValueChange={(v) => setRejoinDetails(prev => ({ ...prev, sectionId: v === "none" ? "" : v }))}
+                              disabled={!rejoinDetails.classId}
+                            >
+                              <SelectTrigger className="bg-white"><SelectValue placeholder="Select Section" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">No Section</SelectItem>
+                                {getSectionsForClass(rejoinDetails.programId, rejoinDetails.classId).map(s => (
+                                  <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label>Reason (Required)</Label>
+                    <Textarea
+                      placeholder={`Enter reason for ${promotionAction === "expel" ? "expulsion" : promotionAction === "struck-off" ? "striking off" : "re-joining"}...`}
+                      value={promotionReason}
+                      onChange={(e) => setPromotionReason(e.target.value)}
+                      rows={3}
+                    />
+                  </div>
                 </div>
               )}
 
@@ -1708,7 +1945,8 @@ const Students = () => {
                   onClick={handlePromoteStudents}
                   disabled={
                     selectedForPromotion.length === 0 ||
-                    ((promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && !promotionReason.trim())
+                    ((promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && !promotionReason.trim()) ||
+                    (promotionAction === "rejoin" && !rejoinDetails.sameClass && (!rejoinDetails.session || !rejoinDetails.programId || !rejoinDetails.classId))
                   }
                 >
                   Apply ({selectedForPromotion.length} selected)
@@ -2087,155 +2325,291 @@ const Students = () => {
 
         {/* Challan Details Dialog */}
         <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
-          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Challan Details</DialogTitle>
+              <DialogTitle className="flex justify-between items-center text-lg font-bold">
+                <div className="flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-primary" />
+                  Challan Details & Preview
+                </div>
+                {selectedChallanDetails && (
+                  <Badge variant="outline" className="text-xs font-mono">
+                    #{selectedChallanDetails.challanNumber}
+                  </Badge>
+                )}
+              </DialogTitle>
             </DialogHeader>
+
             {selectedChallanDetails && (
-              <div className="space-y-4">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Challan #:</span>
-                  <span className="font-medium">{selectedChallanDetails.challanNumber}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Student:</span>
-                  <span className="font-medium">{selectedChallanDetails.student?.fName} {selectedChallanDetails.student?.lName}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Roll Number:</span>
-                  <span className="font-medium">{selectedChallanDetails.student?.rollNumber}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Installment:</span>
-                  <span className="font-medium">
-                    {selectedChallanDetails.installmentNumber === 0
-                      ? "Additional Charges Only"
-                      : (selectedChallanDetails.coveredInstallments
-                        ? `#${selectedChallanDetails.coveredInstallments}`
-                        : `#${selectedChallanDetails.installmentNumber}`)}
-                  </span>
+              <div className="space-y-6 pt-2">
+                {/* Header Summary */}
+                <div className="bg-muted/50 p-4 rounded-xl border flex flex-col md:flex-row justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-10 w-10 border-2 border-primary/20">
+                      <AvatarFallback className="bg-primary/5 text-primary font-bold">
+                        {selectedChallanDetails.student?.fName?.[0]}{selectedChallanDetails.student?.lName?.[0]}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold">{selectedChallanDetails.student?.fName} {selectedChallanDetails.student?.lName}</span>
+                      <span className="text-[10px] text-muted-foreground uppercase font-black">{selectedChallanDetails.student?.rollNumber}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-6 text-right">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-muted-foreground uppercase font-black">Installment</span>
+                      <span className="text-xs font-bold font-mono">
+                        {selectedChallanDetails.installmentNumber === 0 ? "Extra Bill" : `#${selectedChallanDetails.installmentNumber}`}
+                      </span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-muted-foreground uppercase font-black">Issue Date</span>
+                      <span className="text-xs font-bold">{new Date(selectedChallanDetails.issueDate).toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-muted-foreground uppercase font-black">Due Date</span>
+                      <span className="text-xs font-bold text-destructive">{new Date(selectedChallanDetails.dueDate).toLocaleDateString()}</span>
+                    </div>
+                  </div>
                 </div>
 
-                <hr className="my-4" />
+                {/* Primary Info Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Billing Breakdown Card */}
+                  <Card className="shadow-sm border-primary/10 overflow-hidden">
+                    <CardHeader className="pb-2 bg-primary/5">
+                      <CardTitle className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+                        <DollarSign className="w-3.5 h-3.5" /> Billing Breakdown
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3 pt-4">
+                      {selectedChallanDetails.amount > 0 && (
+                        <div className="flex justify-between text-sm py-1 border-b border-dashed border-muted">
+                          <span className="text-muted-foreground">Base Tuition Fee</span>
+                          <span className="font-semibold text-foreground">PKR {Math.round(selectedChallanDetails.amount - (selectedChallanDetails.arrearsAmount || 0)).toLocaleString()}</span>
+                        </div>
+                      )}
 
-                <div className="font-semibold text-sm mb-2">Fee Breakdown</div>
+                      {selectedChallanDetails.arrearsAmount > 0 && (
+                        <div className="flex justify-between text-sm py-1 border-b border-dashed border-muted text-red-600">
+                          <span className="flex items-center gap-1 font-medium"><History className="w-3 h-3" /> Arrears Balance</span>
+                          <span className="font-bold">PKR {Math.round(selectedChallanDetails.arrearsAmount).toLocaleString()}</span>
+                        </div>
+                      )}
 
-                {selectedChallanDetails.amount > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span>Tuition Fee</span>
-                    <span className="font-medium">PKR {Math.round(selectedChallanDetails.amount).toLocaleString()}</span>
+                      {/* Fee Heads Breakdown */}
+                      {(() => {
+                        let heads = [];
+                        try {
+                          const rawHeads = selectedChallanDetails.selectedHeads;
+                          heads = typeof rawHeads === 'string' ? JSON.parse(rawHeads || '[]') : (Array.isArray(rawHeads) ? rawHeads : []);
+                        } catch (e) { console.error(e); }
+
+                        const activeHeads = heads.filter(h => typeof h === 'object' && h !== null && h.isSelected && h.amount > 0);
+                        return activeHeads.map((head, idx) => (
+                          <div key={idx} className="flex justify-between text-xs py-1 border-b border-dashed border-muted/50 last:border-0 opacity-80">
+                            <span className="text-muted-foreground">{head.name}</span>
+                            <span>PKR {Math.round(head.amount).toLocaleString()}</span>
+                          </div>
+                        ));
+                      })()}
+
+                      {selectedChallanDetails.lateFeeFine > 0 && (
+                        <div className="flex justify-between text-sm py-1 border-b border-dashed border-muted text-destructive">
+                          <span className="font-medium italic">Late Fee Penalty</span>
+                          <span className="font-bold">PKR {Math.round(selectedChallanDetails.lateFeeFine).toLocaleString()}</span>
+                        </div>
+                      )}
+
+                      {selectedChallanDetails.discount > 0 && (
+                        <div className="flex justify-between text-sm py-1 border-b border-dashed border-muted text-green-600">
+                          <span className="font-medium">Scholarship Discount</span>
+                          <span className="font-bold">- PKR {Math.round(selectedChallanDetails.discount).toLocaleString()}</span>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between items-center pt-3 mt-2 border-t-2 border-primary/20">
+                        <span className="text-xs font-black text-primary uppercase">Total Billable</span>
+                        <span className="text-lg font-black text-primary">
+                          PKR {Math.round(
+                            (selectedChallanDetails.amount || 0) +
+                            (selectedChallanDetails.fineAmount || 0) +
+                            (selectedChallanDetails.lateFeeFine || 0) -
+                            (selectedChallanDetails.discount || 0)
+                          ).toLocaleString()}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Status & Balance Card */}
+                  <Card className={cn(
+                    "shadow-sm overflow-hidden",
+                    selectedChallanDetails.status === "PAID" ? "border-success/20" : "border-warning/20 bg-warning/5"
+                  )}>
+                    <CardHeader className={cn(
+                      "pb-2",
+                      selectedChallanDetails.status === "PAID" ? "bg-success/5" : "bg-warning/10"
+                    )}>
+                      <CardTitle className={cn(
+                        "text-xs font-bold uppercase tracking-wider flex items-center gap-2",
+                        selectedChallanDetails.status === "PAID" ? "text-success" : "text-warning-800"
+                      )}>
+                        {selectedChallanDetails.status === "PAID" ? <CheckCircle2 className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}
+                        Collection Summary
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4 pt-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="p-3 bg-white rounded-lg border border-success/10 shadow-inner text-center">
+                          <p className="text-[9px] font-black text-success uppercase mb-1">Total Paid</p>
+                          <p className="text-base font-black text-success">PKR {Math.round(selectedChallanDetails.paidAmount || 0).toLocaleString()}</p>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg border border-warning/10 shadow-inner text-center">
+                          <p className="text-[9px] font-black text-warning-700 uppercase mb-1">Outstanding</p>
+                          <p className="text-base font-black text-warning-700">
+                            PKR {Math.round(Math.max(0, (
+                              (selectedChallanDetails.amount || 0) +
+                              (selectedChallanDetails.fineAmount || 0) +
+                              (selectedChallanDetails.lateFeeFine || 0) -
+                              (selectedChallanDetails.discount || 0)
+                            ) - (selectedChallanDetails.paidAmount || 0))).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 border-t pt-3 mt-1">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-muted-foreground uppercase font-bold text-[10px]">Current Status:</span>
+                          <Badge variant={selectedChallanDetails.status === "PAID" ? "default" : (selectedChallanDetails.status === "OVERDUE" ? "destructive" : "secondary")}>
+                            {selectedChallanDetails.status}
+                          </Badge>
+                        </div>
+                        {selectedChallanDetails.paidDate && (
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-muted-foreground uppercase font-bold text-[10px]">Last Payment:</span>
+                            <span className="font-bold text-success">{new Date(selectedChallanDetails.paidDate).toLocaleDateString()}</span>
+                          </div>
+                        )}
+                        {selectedChallanDetails.paidBy && (
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-muted-foreground uppercase font-bold text-[10px]">Pay Method:</span>
+                            <span className="font-medium px-2 py-0.5 bg-muted rounded">{selectedChallanDetails.paidBy}</span>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Additional Information Section (Remarks) */}
+                {selectedChallanDetails.remarks && (
+                  <div className="bg-blue-50/50 border border-blue-100 p-3 rounded-xl flex items-start gap-3">
+                    <History className="w-4 h-4 text-blue-600 mt-0.5" />
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-blue-800 uppercase font-black">Admin Remarks</span>
+                      <p className="text-xs text-blue-700 font-medium italic">"{selectedChallanDetails.remarks}"</p>
+                    </div>
                   </div>
                 )}
 
+                {/* Detailed Payment History */}
                 {(() => {
-                  let heads = [];
-                  try {
-                    const rawHeads = selectedChallanDetails.selectedHeads;
-                    if (typeof rawHeads === 'string') {
-                      heads = JSON.parse(rawHeads || '[]');
-                    } else if (Array.isArray(rawHeads)) {
-                      heads = rawHeads;
-                    }
-                  } catch (e) {
-                    console.error("Failed to parse selectedHeads:", e);
-                  }
+                  const history = typeof selectedChallanDetails.paymentHistory === 'string'
+                    ? JSON.parse(selectedChallanDetails.paymentHistory)
+                    : (selectedChallanDetails.paymentHistory || []);
 
-                  // Robust extraction: Handle both legacy (ID array) and new (Snapshot objects)
-                  // For the details dialog, we need to show the names and amounts.
-                  // If we only have IDs, we can't show names/amounts here easily without a lookup.
-                  // But the new system snapshots the objects, so we use those.
-
-                  const activeHeads = heads.map(item => {
-                    if (typeof item === 'object' && item !== null) {
-                      return item.isSelected ? item : null;
-                    }
-                    return null; // Can't resolve name for legacy ID-only here without lookup
-                  }).filter(Boolean);
-
-                  const additionalHeads = activeHeads.filter(h => h.type === 'additional' && h.amount > 0);
-                  const discountHeads = activeHeads.filter(h => h.type === 'discount' && h.amount > 0);
-
-                  if (additionalHeads.length === 0 && discountHeads.length === 0) {
-                    return selectedChallanDetails.fineAmount > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Additional Charges</span>
-                        <span>PKR {Math.round(selectedChallanDetails.fineAmount).toLocaleString()}</span>
-                      </div>
-                    );
-                  }
+                  if (!Array.isArray(history) || history.length === 0) return null;
 
                   return (
-                    <>
-                      {additionalHeads.length > 0 && (
-                        <div className="space-y-1">
-                          <div className="text-xs text-muted-foreground font-medium mt-2">Additional Charges:</div>
-                          {additionalHeads.map((head, idx) => (
-                            <div key={idx} className="flex justify-between text-sm pl-2">
-                              <span className="text-muted-foreground">{head.name}</span>
-                              <span>PKR {Math.round(head.amount).toLocaleString()}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {discountHeads.length > 0 && (
-                        <div className="space-y-1">
-                          <div className="text-xs text-muted-foreground font-medium mt-2">Discounts:</div>
-                          {discountHeads.map((head, idx) => (
-                            <div key={idx} className="flex justify-between text-sm pl-2 text-primary">
-                              <span>{head.name}</span>
-                              <span>-PKR {Math.round(head.amount).toLocaleString()}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </>
+                    <Card className="shadow-sm border-muted/20 overflow-hidden">
+                      <CardHeader className="pb-2 bg-muted/30">
+                        <CardTitle className="text-[11px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                          <History className="w-3.5 h-3.5" /> Transaction Logs (Breakdown)
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        <Table>
+                          <TableHeader className="bg-muted/10 h-8">
+                            <TableRow className="border-b h-8">
+                              <TableHead className="text-[10px] font-bold uppercase h-8 pl-4">Date</TableHead>
+                              <TableHead className="text-[10px] font-bold uppercase h-8">Received</TableHead>
+                              <TableHead className="text-[10px] font-bold uppercase h-8">Disc.</TableHead>
+                              <TableHead className="text-[10px] font-bold uppercase h-8">Mode</TableHead>
+                              <TableHead className="text-[10px] font-bold uppercase h-8">Remarks</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {history.map((entry, idx) => (
+                              <TableRow key={idx} className="h-10 hover:bg-muted/10 border-b last:border-0 transition-colors">
+                                <TableCell className="text-xs pl-4 font-medium">{new Date(entry.date).toLocaleDateString()}</TableCell>
+                                <TableCell className="text-xs font-black text-success">PKR {Math.round(entry.amount).toLocaleString()}</TableCell>
+                                <TableCell className="text-xs font-black text-orange-600">PKR {Math.round(entry.discount || 0).toLocaleString()}</TableCell>
+                                <TableCell className="text-[10px] font-bold">
+                                  <span className="bg-muted px-2 py-0.5 rounded-full">{entry.method || 'Cash'}</span>
+                                </TableCell>
+                                <TableCell className="text-[10px] italic text-muted-foreground truncate max-w-[200px]">{entry.remarks || '-'}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
                   );
                 })()}
-
-                {selectedChallanDetails.discount > 0 && (
-                  <div className="flex justify-between text-sm text-primary">
-                    <span>Discount</span>
-                    <span>-PKR {Math.round(selectedChallanDetails.discount).toLocaleString()}</span>
-                  </div>
-                )}
-
-                <hr className="my-2" />
-
-                <div className="flex justify-between font-semibold">
-                  <span>Total Payable</span>
-                  <span>PKR {Math.round(
-                    (selectedChallanDetails.amount || 0) +
-                    (selectedChallanDetails.fineAmount || 0) +
-                    (selectedChallanDetails.lateFeeFine || 0) -
-                    (selectedChallanDetails.discount || 0)
-                  ).toLocaleString()}</span>
-                </div>
-
-                <div className="flex justify-between text-sm text-green-600">
-                  <span>Paid Amount</span>
-                  <span>PKR {Math.round(selectedChallanDetails.paidAmount || 0).toLocaleString()}</span>
-                </div>
-
-                <div className="flex justify-between text-sm">
-                  <span>Status</span>
-                  <Badge variant={selectedChallanDetails.status === "PAID" ? "default" : selectedChallanDetails.status === "OVERDUE" ? "destructive" : "secondary"}>
-                    {selectedChallanDetails.status}
-                  </Badge>
-                </div>
-
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Due Date</span>
-                  <span>{new Date(selectedChallanDetails.dueDate).toLocaleDateString()}</span>
-                </div>
-
-                {selectedChallanDetails.remarks && (
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Remarks:</span>
-                    <p className="mt-1 text-xs bg-muted p-2 rounded">{selectedChallanDetails.remarks}</p>
-                  </div>
-                )}
               </div>
             )}
+
+            <DialogFooter className="border-t pt-4 mt-2">
+              <Button size="sm" variant="outline" onClick={() => setDetailsDialogOpen(false)}>Close Overview</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* History Dialog */}
+        <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Transaction History - {selectedChallanForHistory?.challanNumber}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader className="bg-slate-50">
+                    <TableRow>
+                      <TableHead className="w-[120px]">Date</TableHead>
+                      <TableHead>Received</TableHead>
+                      <TableHead>Discount</TableHead>
+                      <TableHead>Method</TableHead>
+                      <TableHead>Remarks</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(() => {
+                      if (!selectedChallanForHistory?.paymentHistory) return <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No transaction history found.</TableCell></TableRow>;
+                      const history = typeof selectedChallanForHistory.paymentHistory === 'string'
+                        ? JSON.parse(selectedChallanForHistory.paymentHistory)
+                        : selectedChallanForHistory.paymentHistory;
+
+                      if (!Array.isArray(history) || history.length === 0) return <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No transaction history found.</TableCell></TableRow>;
+
+                      return history.map((entry, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell className="text-xs">{new Date(entry.date).toLocaleDateString()}</TableCell>
+                          <TableCell className="font-bold text-green-600">PKR {Math.round(entry.amount).toLocaleString()}</TableCell>
+                          <TableCell className="font-bold text-orange-600">PKR {Math.round(entry.discount || 0).toLocaleString()}</TableCell>
+                          <TableCell className="text-xs">{entry.method || 'Cash'}</TableCell>
+                          <TableCell className="text-xs italic">{entry.remarks || '-'}</TableCell>
+                        </TableRow>
+                      ));
+                    })()}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button onClick={() => setHistoryDialogOpen(false)}>Close</Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
       </div>

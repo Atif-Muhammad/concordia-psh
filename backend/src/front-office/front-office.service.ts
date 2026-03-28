@@ -17,6 +17,7 @@ export class FrontOfficeService {
         ...payload,
         programInterest: Number(payload.programInterest),
         status: payload.status as unknown as InquiryStatus,
+        remarks: payload.remarks || [],
       },
     });
   }
@@ -51,46 +52,59 @@ export class FrontOfficeService {
     };
   }
   async updateInquiry(id: number, payload: Partial<InquiryDto>) {
+    const { status, remarks, ...rest } = payload;
+    const updateData: any = { ...rest };
+    if (status !== undefined) {
+      updateData.status = status as unknown as InquiryStatus;
+    }
+    if (remarks !== undefined) {
+      updateData.remarks = remarks;
+    }
+    if (payload.programInterest) {
+      updateData.programInterest = Number(payload.programInterest);
+    }
+
+    return await this.prismaService.inquiry.update({
+      where: { id },
+      data: updateData,
+    });
+  }
+  async addInquiryRemark(id: number, authorName: string, remarkText: string) {
+    const inquiry = await this.prismaService.inquiry.findUnique({
+      where: { id },
+    });
+    if (!inquiry) throw new Error('Inquiry not found');
+
+    let currentRemarks: any[] = [];
+    if (inquiry.remarks) {
+      if (Array.isArray(inquiry.remarks)) {
+        currentRemarks = inquiry.remarks;
+      } else if (typeof inquiry.remarks === 'string') {
+        try {
+          const parsed = JSON.parse(inquiry.remarks);
+          currentRemarks = Array.isArray(parsed) ? parsed : [{ text: inquiry.remarks, author: 'Legacy', date: inquiry.createdAt }];
+        } catch (e) {
+          // If not JSON, it's a legacy plain string
+          currentRemarks = [{ text: inquiry.remarks, author: 'Legacy', date: inquiry.createdAt }];
+        }
+      }
+    }
+    const newRemark = {
+      text: remarkText,
+      author: authorName,
+      date: new Date(),
+    };
+
     return await this.prismaService.inquiry.update({
       where: { id },
       data: {
-        status: payload.status as unknown as InquiryStatus,
+        remarks: [...currentRemarks, newRemark] as any,
       },
     });
   }
   async deleteInquiry(id: number) {
     return await this.prismaService.inquiry.delete({
       where: { id },
-    });
-  }
-  async rollbackInquiry(id: number) {
-    // Find the inquiry first to ensure it exists
-    const inquiry = await this.prismaService.inquiry.findUnique({
-      where: { id },
-    });
-
-    if (!inquiry) {
-      throw new Error('Inquiry not found');
-    }
-
-    // Try to find and delete the student created from this inquiry
-    // Note: Students should have inquiryId field for this to work
-    const student = await this.prismaService.student.findFirst({
-      where: { inquiryId: id },
-    });
-
-    if (student) {
-      await this.prismaService.student.delete({
-        where: { id: student.id },
-      });
-    }
-
-    // Revert inquiry status to NEW
-    return await this.prismaService.inquiry.update({
-      where: { id },
-      data: {
-        status: 'NEW' as any,
-      },
     });
   }
 

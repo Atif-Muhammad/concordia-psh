@@ -1344,9 +1344,9 @@ export const getLatestRollNumber = async (prefix) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getPassedOutStudents = async (programId, classId, sectionId, searchQuery, status, startDate, endDate, page, limit) => {
+export const getPassedOutStudents = async (programId, classId, sectionId, searchQuery, status, session, page, limit) => {
   try {
-    const response = await axios.get(`${base_url}/student/get/all/passout?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&startDate=${startDate || ''}&endDate=${endDate || ''}&page=${page || 1}&limit=${limit || 20}`, {
+    const response = await axios.get(`${base_url}/student/get/all/passout?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&page=${page || 1}&limit=${limit || 20}`, {
       withCredentials: true,
     });
     return response.data;
@@ -1360,9 +1360,9 @@ export const getPassedOutStudents = async (programId, classId, sectionId, search
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getStudents = async (programId, classId, sectionId, searchQuery, status, startDate, endDate, page, limit) => {
+export const getStudents = async (programId, classId, sectionId, searchQuery, status, session, page, limit, startDate, endDate) => {
   try {
-    const response = await axios.get(`${base_url}/student/get/all?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&startDate=${startDate || ''}&endDate=${endDate || ''}&page=${page || 1}&limit=${limit || 20}`, {
+    const response = await axios.get(`${base_url}/student/get/all?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&page=${page || 1}&limit=${limit || 20}&startDate=${startDate || ''}&endDate=${endDate || ''}`, {
       withCredentials: true,
     });
     return response.data;
@@ -1532,11 +1532,11 @@ export const struckOffStudents = async (studentID, reason) => {
 };
 
 // rejoin
-export const rejoinStudent = async (studentID, reason) => {
+export const rejoinStudent = async (studentID, reason, details = {}) => {
   try {
     const response = await axios.patch(
       `${base_url}/student/rejoin?studentID=${studentID}`,
-      { reason },
+      { reason, ...details },
       { withCredentials: true }
     );
     return response.data;
@@ -1900,12 +1900,11 @@ export const updateInquiry = async (id, payload) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-
-export const rollbackInquiry = async (id) => {
+export const addInquiryRemark = async (id, remark) => {
   try {
-    const { data } = await axios.patch(
-      `${base_url}/front-office/rollback/inquiry?id=${id}`,
-      {},
+    const { data } = await axios.post(
+      `${base_url}/front-office/inquiry/${id}/remark`,
+      { remark },
       {
         withCredentials: true,
       }
@@ -1920,6 +1919,7 @@ export const rollbackInquiry = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
+
 export const delInquiry = async (id) => {
   try {
     const { data } = await axios.delete(

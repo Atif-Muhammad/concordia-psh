@@ -31,39 +31,22 @@ const StudentForm = ({
 }) => {
     const { toast } = useToast();
 
-    const [formData, setFormData] = useState({
-        fName: "",
-        mName: "",
-        lName: "",
-        fatherOrguardian: "",
-        rollNumber: "",
-        parentOrGuardianEmail: "",
-        parentOrGuardianPhone: "",
-        address: "",
-        gender: "",
-        dob: "",
-        programId: "",
-        classId: "",
-        sectionId: "",
-        tuitionFee: "",
-        numberOfInstallments: "1",
-        lateFeeFine: 0,
-        installments: initialData.feeInstallments || [],
-        documents: {},
-        ...initialData
-    });
-
-    useEffect(() => {
-        setFormData({
+    const [formData, setFormData] = useState(() => {
+        let docs = initialData.documents || {};
+        if (typeof docs === "string") {
+            try { docs = JSON.parse(docs); } catch { docs = {}; }
+        }
+        return {
             fName: "",
-            mName: "",
             lName: "",
+            session: "",
             fatherOrguardian: "",
             rollNumber: "",
             parentOrGuardianEmail: "",
             parentOrGuardianPhone: "",
             address: "",
             gender: "",
+            religion: "",
             dob: "",
             programId: "",
             classId: "",
@@ -71,8 +54,40 @@ const StudentForm = ({
             tuitionFee: "",
             numberOfInstallments: "1",
             lateFeeFine: 0,
-            installments: initialData.feeInstallments || [],
-            ...initialData
+            installments: initialData.installments || initialData.feeInstallments || [],
+            documents: docs,
+            ...initialData,
+            documents: docs,
+        };
+    });
+
+    useEffect(() => {
+        let docs = initialData.documents || {};
+        if (typeof docs === "string") {
+            try { docs = JSON.parse(docs); } catch { docs = {}; }
+        }
+        setFormData({
+            fName: "",
+            lName: "",
+            session: "",
+            fatherOrguardian: "",
+            rollNumber: "",
+            parentOrGuardianEmail: "",
+            parentOrGuardianPhone: "",
+            address: "",
+            gender: "",
+            religion: "",
+            dob: "",
+            programId: "",
+            classId: "",
+            sectionId: "",
+            tuitionFee: "",
+            numberOfInstallments: "1",
+            lateFeeFine: 0,
+            installments: initialData.installments || initialData.feeInstallments || [],
+            documents: docs,
+            ...initialData,
+            documents: docs,
         });
         setImagePreview(initialData.photo_url || "");
         setImageFile(null);
@@ -197,6 +212,15 @@ const StudentForm = ({
         const totalAmount = Number(total) || 0;
         let currentInstallments = [...installments];
 
+        // Helper to generate session string from a date
+        const getSession = (date) => {
+            const y = date.getFullYear();
+            const m = date.getMonth(); // 0-indexed
+            // Academic year: if month >= April (3), session is y-(y+1), else (y-1)-y
+            if (m >= 3) return `${y}-${y + 1}`;
+            return `${y - 1}-${y}`;
+        };
+
         // If targetCount is provided, adjust the array size
         if (targetCount !== null) {
             const count = parseInt(targetCount) || 1;
@@ -206,29 +230,67 @@ const StudentForm = ({
                 for (let i = 0; i < toAdd; i++) {
                     const nextDate = new Date();
                     nextDate.setMonth(nextDate.getMonth() + currentInstallments.length);
+                    const monthName = nextDate.toLocaleString('default', { month: 'long' });
 
                     currentInstallments.push({
                         installmentNumber: currentInstallments.length + 1,
                         amount: 0,
-                        dueDate: nextDate.toISOString().split('T')[0]
+                        dueDate: nextDate.toISOString().split('T')[0],
+                        month: monthName,
+                        session: getSession(nextDate),
                     });
                 }
             } else if (currentInstallments.length > count) {
-                // Remove extra installments
-                currentInstallments = currentInstallments.slice(0, count);
+                // Only remove unpaid installments from the end
+                let toRemove = currentInstallments.length - count;
+                while (toRemove > 0 && currentInstallments.length > count) {
+                    const last = currentInstallments[currentInstallments.length - 1];
+                    if ((last.paidAmount || 0) > 0 || last.status === 'PAID' || last.status === 'PARTIAL') break;
+                    currentInstallments.pop();
+                    toRemove--;
+                }
             }
         }
 
         if (!currentInstallments.length) return [];
 
-        const finalCount = currentInstallments.length;
-        const baseAmount = Math.floor(totalAmount / finalCount);
-        const remainder = totalAmount - (baseAmount * finalCount);
+        // Separate locked (paid/partial) and unlocked installments
+        const lockedSum = currentInstallments.reduce((sum, inst) => {
+            if ((inst.paidAmount || 0) > 0 || inst.status === 'PAID' || inst.status === 'PARTIAL') {
+                return sum + (Number(inst.amount) || 0);
+            }
+            return sum;
+        }, 0);
 
+        const unlocked = currentInstallments.filter(inst =>
+            (inst.paidAmount || 0) === 0 && inst.status !== 'PAID' && inst.status !== 'PARTIAL'
+        );
+
+        const remainingToDistribute = Math.max(0, totalAmount - lockedSum);
+        const unlockedCount = unlocked.length;
+
+        if (unlockedCount > 0) {
+            const baseAmount = Math.floor(remainingToDistribute / unlockedCount);
+            const remainder = remainingToDistribute - (baseAmount * unlockedCount);
+            let unlockedIdx = 0;
+
+            return currentInstallments.map((inst, index) => {
+                // Keep paid installments locked
+                if ((inst.paidAmount || 0) > 0 || inst.status === 'PAID' || inst.status === 'PARTIAL') {
+                    return { ...inst, installmentNumber: index + 1 };
+                }
+                // Distribute to unlocked
+                const isLastUnlocked = unlockedIdx === unlockedCount - 1;
+                const amt = isLastUnlocked ? baseAmount + remainder : baseAmount;
+                unlockedIdx++;
+                return { ...inst, installmentNumber: index + 1, amount: amt };
+            });
+        }
+
+        // All locked — just renumber
         return currentInstallments.map((inst, index) => ({
             ...inst,
             installmentNumber: index + 1,
-            amount: index === finalCount - 1 ? baseAmount + remainder : baseAmount
         }));
     };
 
@@ -238,12 +300,23 @@ const StudentForm = ({
         const nextDate = new Date();
         nextDate.setMonth(nextDate.getMonth() + formData.installments.length);
 
+        const getSession = (date) => {
+            const y = date.getFullYear();
+            const m = date.getMonth();
+            if (m >= 3) return `${y}-${y + 1}`;
+            return `${y - 1}-${y}`;
+        };
+
+        const monthName = nextDate.toLocaleString('default', { month: 'long' });
+
         const newInstallments = [
             ...formData.installments,
             {
                 installmentNumber: nextNum,
                 amount: 0,
-                dueDate: nextDate.toISOString().split('T')[0]
+                dueDate: nextDate.toISOString().split('T')[0],
+                month: monthName,
+                session: getSession(nextDate),
             }
         ];
 
@@ -266,7 +339,30 @@ const StudentForm = ({
     const handleInstallmentChange = (index, field, value) => {
         const newInstallments = [...formData.installments];
         newInstallments[index] = { ...newInstallments[index], [field]: value };
-        setFormData({ ...formData, installments: newInstallments });
+
+        // Guard: when changing amount, update tuitionFee and check total doesn't exceed standard fee
+        if (field === 'amount') {
+            const standardFee = selectedClass?.feeStructures?.[0]?.totalAmount || 0;
+            const newTotal = newInstallments.reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
+
+            if (standardFee > 0 && newTotal > standardFee) {
+                toast({
+                    title: "Amount Exceeded",
+                    description: `Total installments (Rs. ${newTotal}) cannot exceed standard tuition fee (Rs. ${standardFee}).`,
+                    variant: "destructive"
+                });
+                return;
+            }
+
+            setFormData(prev => ({
+                ...prev,
+                installments: newInstallments,
+                tuitionFee: newTotal.toString()
+            }));
+            return;
+        }
+
+        setFormData(prev => ({ ...prev, installments: newInstallments }));
     };
 
     const toggleDocument = (key) => {
@@ -354,11 +450,11 @@ const StudentForm = ({
         }
 
         const allowedFields = [
-            'fName', 'mName', 'lName', 'fatherOrguardian', 'rollNumber',
+            'fName', 'lName', 'fatherOrguardian', 'rollNumber',
             'parentOrGuardianEmail', 'parentOrGuardianPhone', 'address',
-            'gender', 'dob', 'programId', 'classId', 'sectionId',
+            'gender', 'religion', 'dob', 'programId', 'classId', 'sectionId',
             'tuitionFee', 'numberOfInstallments', 'lateFeeFine',
-            'installments', 'documents', 'status'
+            'installments', 'documents', 'status', 'session'
         ];
 
         const submissionData = new FormData();
@@ -447,25 +543,36 @@ const StudentForm = ({
                             />
                         </div>
                         <div>
-                            <Label>Middle Name</Label>
-                            <Input
-                                value={formData.mName}
-                                onChange={(e) => setFormData({ ...formData, mName: e.target.value })}
-                                placeholder="Michael"
-                            />
-                        </div>
-                        <div>
-                            <Label>Last Name</Label>
+                            <Label>Last Name <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <Input
                                 value={formData.lName}
                                 onChange={(e) => setFormData({ ...formData, lName: e.target.value })}
                                 placeholder="Doe"
                             />
                         </div>
+                        <div>
+                            <Label>Session *</Label>
+                            <Select
+                                value={formData.session || ""}
+                                onValueChange={(v) => setFormData({ ...formData, session: v })}
+                            >
+                                <SelectTrigger><SelectValue placeholder="Select Session" /></SelectTrigger>
+                                <SelectContent>
+                                    {(() => {
+                                        const currentYear = new Date().getFullYear();
+                                        return Array.from({ length: 8 }, (_, i) => {
+                                            const y = currentYear - 2 + i;
+                                            const s = `${y}-${y + 1}`;
+                                            return <SelectItem key={s} value={s}>{s}</SelectItem>;
+                                        });
+                                    })()}
+                                </SelectContent>
+                            </Select>
+                        </div>
 
                         {/* Guardian + Roll */}
                         <div>
-                            <Label>Father/Guardian</Label>
+                            <Label>Father/Guardian <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <Input
                                 value={formData.fatherOrguardian}
                                 onChange={(e) => setFormData({ ...formData, fatherOrguardian: e.target.value })}
@@ -571,15 +678,15 @@ const StudentForm = ({
 
                         {/* Parent Info & Demo */}
                         <div>
-                            <Label>Parent Email</Label>
+                            <Label>Parent Email <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <Input type="email" value={formData.parentOrGuardianEmail} onChange={e => setFormData({ ...formData, parentOrGuardianEmail: e.target.value })} />
                         </div>
                         <div>
-                            <Label>Parent Phone</Label>
+                            <Label>Parent Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <Input value={formData.parentOrGuardianPhone} onChange={e => setFormData({ ...formData, parentOrGuardianPhone: e.target.value })} />
                         </div>
                         <div>
-                            <Label>Gender</Label>
+                            <Label>Gender *</Label>
                             <Select value={formData.gender} onValueChange={v => setFormData({ ...formData, gender: v })}>
                                 <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                                 <SelectContent>
@@ -589,11 +696,19 @@ const StudentForm = ({
                             </Select>
                         </div>
                         <div>
-                            <Label>Date of Birth</Label>
+                            <Label>Religion <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                            <Input
+                                value={formData.religion}
+                                onChange={(e) => setFormData({ ...formData, religion: e.target.value })}
+                                placeholder="e.g. Islam"
+                            />
+                        </div>
+                        <div>
+                            <Label>Date of Birth *</Label>
                             <Input type="date" value={formData.dob ? formData.dob.split('T')[0] : ""} onChange={e => setFormData({ ...formData, dob: e.target.value })} />
                         </div>
                         <div className="col-span-2">
-                            <Label>Address</Label>
+                            <Label>Address <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <Input value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} placeholder="Full address" />
                         </div>
                     </div>
@@ -660,7 +775,9 @@ const StudentForm = ({
                                 <tr>
                                     <th className="px-4 py-2 text-left">Inst. #</th>
                                     <th className="px-4 py-2 text-left">Amount (Rs.)</th>
-                                    <th className="px-4 py-2 text-left">Installment Month</th>
+                                    <th className="px-4 py-2 text-left">Due Date</th>
+                                    <th className="px-4 py-2 text-left">Month</th>
+                                    <th className="px-4 py-2 text-left">Session</th>
                                     <th className="px-4 py-2 text-right">Action</th>
                                 </tr>
                             </thead>
@@ -676,45 +793,66 @@ const StudentForm = ({
                                             />
                                         </td>
                                         <td className="px-4 py-2">
+                                            <div className="flex items-center gap-2">
+                                                <Input
+                                                    type="number"
+                                                    value={inst.amount}
+                                                    onChange={e => handleInstallmentChange(index, "amount", Number(e.target.value))}
+                                                    disabled={(inst.paidAmount || 0) > 0 || inst.status === 'PAID'}
+                                                    className={(inst.paidAmount || 0) > 0 || inst.status === 'PAID' ? 'bg-muted/50 text-muted-foreground' : ''}
+                                                />
+                                                {inst.status === 'PAID' && <span className="text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">PAID</span>}
+                                                {inst.status === 'PARTIAL' && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">PARTIAL</span>}
+                                            </div>
+                                        </td>
+                                        <td className="px-4 py-2">
                                             <Input
-                                                type="number"
-                                                value={inst.amount}
-                                                onChange={e => handleInstallmentChange(index, "amount", Number(e.target.value))}
+                                                type="date"
+                                                value={inst.dueDate ? inst.dueDate.split('T')[0] : ""}
+                                                onChange={e => {
+                                                    const dateVal = e.target.value;
+                                                    const dateObj = new Date(dateVal);
+                                                    const monthName = dateObj.toLocaleString('default', { month: 'long' });
+                                                    const newInstallments = [...formData.installments];
+                                                    newInstallments[index] = {
+                                                        ...newInstallments[index],
+                                                        dueDate: dateVal,
+                                                        month: monthName,
+                                                    };
+                                                    setFormData({ ...formData, installments: newInstallments });
+                                                }}
                                             />
                                         </td>
                                         <td className="px-4 py-2">
-                                            <div className="flex gap-2">
-                                                <Select
-                                                    value={inst.dueDate ? inst.dueDate.split('T')[0].substring(5, 7) : ""}
-                                                    onValueChange={(month) => {
-                                                        const currentYear = inst.dueDate ? inst.dueDate.split('T')[0].substring(0, 4) : new Date().getFullYear().toString();
-                                                        handleInstallmentChange(index, "dueDate", `${currentYear}-${month}-01`);
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="w-[120px]"><SelectValue placeholder="Month" /></SelectTrigger>
-                                                    <SelectContent>
-                                                        {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => (
-                                                            <SelectItem key={m} value={m}>
-                                                                {new Date(2000, parseInt(m) - 1).toLocaleString('default', { month: 'long' })}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                                <Select
-                                                    value={inst.dueDate ? inst.dueDate.split('T')[0].substring(0, 4) : ""}
-                                                    onValueChange={(year) => {
-                                                        const currentMonth = inst.dueDate ? inst.dueDate.split('T')[0].substring(5, 7) : "01";
-                                                        handleInstallmentChange(index, "dueDate", `${year}-${currentMonth}-01`);
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="w-[90px]"><SelectValue placeholder="Year" /></SelectTrigger>
-                                                    <SelectContent>
-                                                        {Array.from({ length: 10 }, (_, i) => (new Date().getFullYear() + i - 2).toString()).map(y => (
-                                                            <SelectItem key={y} value={y}>{y}</SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
+                                            <Select
+                                                value={inst.month || ""}
+                                                onValueChange={(month) => handleInstallmentChange(index, "month", month)}
+                                            >
+                                                <SelectTrigger className="w-[130px]"><SelectValue placeholder="Month" /></SelectTrigger>
+                                                <SelectContent>
+                                                    {["January","February","March","April","May","June","July","August","September","October","November","December"].map(m => (
+                                                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </td>
+                                        <td className="px-4 py-2">
+                                            <Select
+                                                value={inst.session || ""}
+                                                onValueChange={(session) => handleInstallmentChange(index, "session", session)}
+                                            >
+                                                <SelectTrigger className="w-[120px]"><SelectValue placeholder="Session" /></SelectTrigger>
+                                                <SelectContent>
+                                                    {(() => {
+                                                        const currentYear = new Date().getFullYear();
+                                                        return Array.from({ length: 8 }, (_, i) => {
+                                                            const y = currentYear - 2 + i;
+                                                            const s = `${y}-${y + 1}`;
+                                                            return <SelectItem key={s} value={s}>{s}</SelectItem>;
+                                                        });
+                                                    })()}
+                                                </SelectContent>
+                                            </Select>
                                         </td>
                                         <td className="px-4 py-2 text-right">
                                             <Button type="button" variant="ghost" size="sm" onClick={() => handleRemoveInstallment(index)} className="text-destructive">
@@ -724,6 +862,30 @@ const StudentForm = ({
                                     </tr>
                                 ))}
                             </tbody>
+                            <tfoot className="bg-muted/40">
+                                <tr>
+                                    <td className="px-4 py-3 font-bold text-sm">Total</td>
+                                    <td className="px-4 py-3">
+                                        {(() => {
+                                            const total = formData.installments.reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
+                                            const agreed = Number(formData.tuitionFee) || 0;
+                                            const match = total === agreed;
+                                            const exceeded = total > agreed;
+                                            return (
+                                                <span className={`font-bold text-sm ${
+                                                    match ? 'text-green-600' : exceeded ? 'text-red-600' : 'text-amber-600'
+                                                }`}>
+                                                    Rs. {total.toLocaleString()} / {agreed.toLocaleString()}
+                                                    {match && ' ✓'}
+                                                    {exceeded && ' (exceeded!)'}
+                                                    {!match && !exceeded && ` (Rs. ${(agreed - total).toLocaleString()} remaining)`}
+                                                </span>
+                                            );
+                                        })()}
+                                    </td>
+                                    <td colSpan={4}></td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
                 ) : (

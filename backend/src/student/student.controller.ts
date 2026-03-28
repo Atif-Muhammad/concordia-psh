@@ -32,6 +32,7 @@ export class StudentController {
     @Query('sectionId') sectionId?: string,
     @Query('searchQuery') searchQuery?: string,
     @Query('status') status?: string,
+    @Query('session') session?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('page') page?: string,
@@ -51,6 +52,7 @@ export class StudentController {
       classId: (classId && Number(classId)) || null,
       sectionId: (sectionId && Number(sectionId)) || null,
       status: effectiveStatus,
+      session: session || null,
       startDate,
       endDate,
       page: (page && Number(page)) || 1,
@@ -64,6 +66,7 @@ export class StudentController {
     @Query('sectionId') sectionId?: string,
     @Query('searchQuery') searchQuery?: string,
     @Query('status') status?: string,
+    @Query('session') session?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('page') page?: string,
@@ -81,6 +84,7 @@ export class StudentController {
       classId: (classId && Number(classId)) || null,
       sectionId: (sectionId && Number(sectionId)) || null,
       status: effectiveStatus,
+      session: session || null,
       startDate,
       endDate,
       page: (page && Number(page)) || 1,
@@ -286,9 +290,9 @@ export class StudentController {
   @Patch('rejoin')
   async rejoinStudent(
     @Query('studentID') studentID: string,
-    @Body('reason') reason: string,
+    @Body() body: { reason: string, session?: string, programId?: string, classId?: string, sectionId?: string },
   ) {
-    return await this.studentService.rejoin(Number(studentID), reason);
+    return await this.studentService.rejoin(Number(studentID), body.reason, body);
   }
 
   // Get attendance records for a specific student

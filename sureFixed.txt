@@ -1,26 +1,29 @@
-1. fix internel server error for student update.
-2. fix fee management
-	1. challan should not be generated for months/installments as they create un-necessary 
-	cognitive load + shows wrong amount in collectables(as collectable are for amount that 
-	is needed to be paid by student but now all challans shows as collectables. 
-	i.e., collectables = 500000
-	for 3 installments -> maybe paid all at once, maybe in last month of session, 
-	or maybe paid in next session)
-	suggestion:
-		maybe add a functionality to set fee installments settings and later when admin generate 
-		challan(s), create challan according to settings.
-	2. allow challans to be paid partial.
+24 march 2026
+-- fee management and payroll should be same as edu portal.
 
-	scenario:
-		set settings for fee installments. a student may not pay the full challan amount at once. 
-		i.e., a student requests to pay 10k from installemnt amuont of 20k.
-		-> allow generating the 10k amount for challan and also:
-			-> for the remaining days to next challan date/month, allow generating challans
-			for the same installment till the amount becomes 0.
-		-> when next month arrive/the next installment month arive -> put the remaining
-		un-paid amount in 'Arears' of the new/next month installment with a marker of 'Arears'
-	3. allow generating challans for random amounts. i.e., fee heads, fines etc
-		
-3. fix payroll 
-	-> allow update payroll with stamp of 'who created and who updated it/them'
-	
+1. optional capacity + room.
+2. same room number issue for class/section.
+3. subject create/edit
+4. teacher in login dets bar for even others. <------------
+5. session selection for student + remove middle name (26-27 -> 26, 27-28 -> 27)✔
+6. rejoin expelled/struck off student to selected sections even if they are not in a section before.
+----> student rejoin in new session or same session ====> re-enroll with full history.
+----> rejoin to a different class/section
+7. remove roll back option
+8. remarks throughout time for inquiry ✔
+9. by default show all students
+10. change the challan + late fee fine ----> the check will be made to due date of the challan no month of challan.
+11. pre fill amount for challan.
+12. random challan number instead of sequential.
+13. delete unpaid/pending challan.
+14. toggle status for challan.
+
+----- random number for challan not 0000....001 should be 1192321230021
+
+----- admission date for student ---
+
+15. fine -> dont restrict to a defined amount, instead allow admin to put one byt themselves.
+16. bulk attendance for staff/student
+17. type leaves -> sick, anual, casual -> for each staff define them 
+18. fix create exam
+19. remove delete for staff
