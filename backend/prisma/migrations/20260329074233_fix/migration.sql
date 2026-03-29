@@ -1145,13 +1145,13 @@ ALTER TABLE `staffleave` ADD CONSTRAINT `staffleave_staffId_fkey` FOREIGN KEY (`
 ALTER TABLE `advancesalary` ADD CONSTRAINT `advancesalary_staffId_fkey` FOREIGN KEY (`staffId`) REFERENCES `staff`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `StudentArrear` ADD CONSTRAINT `StudentArrear_studentId_fkey` FOREIGN KEY (`studentId`) REFERENCES `student`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `studentarrear` ADD CONSTRAINT `studentarrear_studentId_fkey` FOREIGN KEY (`studentId`) REFERENCES `student`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `StudentArrear` ADD CONSTRAINT `StudentArrear_classId_fkey` FOREIGN KEY (`classId`) REFERENCES `class`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `studentarrear` ADD CONSTRAINT `studentarrear_classId_fkey` FOREIGN KEY (`classId`) REFERENCES `class`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `StudentArrear` ADD CONSTRAINT `StudentArrear_programId_fkey` FOREIGN KEY (`programId`) REFERENCES `program`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `studentarrear` ADD CONSTRAINT `studentarrear_programId_fkey` FOREIGN KEY (`programId`) REFERENCES `program`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `studentfeeinstallment` ADD CONSTRAINT `studentfeeinstallment_studentId_fkey` FOREIGN KEY (`studentId`) REFERENCES `student`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
