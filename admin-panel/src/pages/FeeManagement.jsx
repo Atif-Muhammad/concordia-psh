@@ -98,6 +98,8 @@ const FeeManagement = () => {
   const [extraSelectedHeads, setExtraSelectedHeads] = useState([]);
   const [extraDueDate, setExtraDueDate] = useState(null);
   const [extraRemarks, setExtraRemarks] = useState("");
+  const [extraIsOtherEnabled, setExtraIsOtherEnabled] = useState(false);
+  const [extraOtherAmount, setExtraOtherAmount] = useState("0");
 
 
   const [challanForm, setChallanForm] = useState({
@@ -516,7 +518,7 @@ const FeeManagement = () => {
     if (challanForm.isOtherEnabled && parseFloat(challanForm.otherAmount) > 0) {
       allFeeHeadDetails.push({
         id: -1, // Use -1 for virtual "Other" head
-        name: 'Other Charges',
+        name: 'Fine',
         amount: Math.round(parseFloat(challanForm.otherAmount)),
         type: 'additional',
         isSelected: true
@@ -596,7 +598,7 @@ const FeeManagement = () => {
 
   const handlePayment = async (challan) => {
     setItemToPay(challan);
-    const netPayable = (challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.paidAmount || 0);
+    const netPayable = (challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.paidAmount || 0) - (challan.discount || 0);
     const isExtraChallan = challan.installmentNumber === 0 || challan.challanType === 'FEE_HEADS_ONLY';
     setPaymentAmount(Math.max(0, netPayable).toString());
     
@@ -647,7 +649,7 @@ const FeeManagement = () => {
       amount: (challan.amount - (challan.arrearsAmount || 0)).toString(), // Tuition part
       arrearsAmount: isExtraChallan ? "0" : (challan.arrearsAmount || 0).toString(),
       fineAmount: (challan.fineAmount || 0),
-      discount: (challan.discount || 0).toString(),
+      discount: "0",
       selectedHeads: (() => {
         try {
           const raw = (typeof challan.selectedHeads === 'string' ? JSON.parse(challan.selectedHeads) : (challan.selectedHeads || []));
@@ -685,16 +687,20 @@ const FeeManagement = () => {
 
     const receiving = parseFloat(paymentAmount) || 0;
     const fine = (parseFloat(challanForm.fineAmount) || 0) + (itemToPay.lateFeeFine || 0);
-    const discount = parseFloat(challanForm.discount) || 0;
-    const totalPayableNow = Math.max(0, (itemToPay.amount || 0) + fine - discount - (itemToPay.paidAmount || 0));
+    const newTotalDiscount = (itemToPay.discount || 0) + (parseFloat(challanForm.discount) || 0);
+    const totalPayableNow = Math.max(0, (itemToPay.amount || 0) + fine - newTotalDiscount - (itemToPay.paidAmount || 0));
 
-    if (receiving > totalPayableNow + 0.01) {
-      toast({
-        title: "Overpayment",
-        description: `Receiving amount (${receiving.toLocaleString()}) cannot exceed total payable (${totalPayableNow.toLocaleString()}).`,
-        variant: "destructive",
-      });
-      return;
+    // Allow overpayment - FIFO credit allocation is handled by the backend
+    // EXCEPT for the final installment, which has no future installments to adjust
+    if (itemToPay.feeStructure?.installments && itemToPay.installmentNumber >= itemToPay.feeStructure.installments) {
+        if (receiving > totalPayableNow + 0.01) {
+            toast({
+                title: "Overpayment Restricted",
+                description: `Receiving amount (${receiving.toLocaleString()}) cannot exceed total payable (${totalPayableNow.toLocaleString()}) on the final installment.`,
+                variant: "destructive",
+            });
+            return;
+        }
     }
 
     const newPaidTotal = (itemToPay.paidAmount || 0) + receiving;
@@ -714,7 +720,7 @@ const FeeManagement = () => {
     if (challanForm.isOtherEnabled && parseFloat(challanForm.otherAmount) > 0) {
       allFeeHeadDetails.push({
         id: -1,
-        name: 'Other Charges',
+        name: 'Fine',
         amount: Math.round(parseFloat(challanForm.otherAmount)),
         type: 'additional',
         isSelected: true
@@ -724,13 +730,13 @@ const FeeManagement = () => {
     updateChallanMutation.mutate({
       id: itemToPay.id,
       data: {
-        status: newPaidTotal >= ((itemToPay.amount || 0) + additionalFine + (itemToPay.lateFeeFine || 0) - discount) ? "PAID" : "PARTIAL",
+        status: newPaidTotal >= ((itemToPay.amount || 0) + additionalFine + (itemToPay.lateFeeFine || 0) - newTotalDiscount) ? "PAID" : "PARTIAL",
         paidDate: challanForm.paidDate,
         paidBy: challanForm.paidBy,
         paidAmount: newPaidTotal,
         receivingAmount: receiving,
         fineAmount: additionalFine,
-        discount: discount,
+        discount: newTotalDiscount,
         remarks: challanForm.remarks,
         arrearsSelections: challanForm.arrearsSelections, 
         selectedHeads: allFeeHeadDetails,
@@ -1327,8 +1333,10 @@ const FeeManagement = () => {
                       <TableHead>Challan No</TableHead>
                       <TableHead>Student</TableHead>
                       <TableHead>Installment</TableHead>
-                      <TableHead>Standard Amt</TableHead>
-                      <TableHead>Net Payable</TableHead>
+                      <TableHead>Base Payable</TableHead>
+                      <TableHead>Extra/Heads</TableHead>
+                      <TableHead>Fine (Late Fee)</TableHead>
+                      <TableHead>Total</TableHead>
                       <TableHead>Paid Amount</TableHead>
                       <TableHead>Due Date</TableHead>
                       <TableHead>Status</TableHead>
@@ -1349,16 +1357,13 @@ const FeeManagement = () => {
                               {challan.coveredInstallments || (challan.installmentNumber === 0 ? "Additional Charges" : `#${challan.installmentNumber}`)}
                             </Badge>
                           </TableCell>
-                          <TableCell>PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0))}</TableCell>
+                          <TableCell className="font-medium">PKR {formatAmount(challan.amount)}</TableCell>
+                          <TableCell className="font-medium text-orange-600">PKR {formatAmount(challan.fineAmount)}</TableCell>
+                          <TableCell className="font-medium text-red-600">PKR {formatAmount(challan.lateFeeFine)}</TableCell>
                           <TableCell className="font-bold">PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0))}</TableCell>
-                          <TableCell className="text-success">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
+                          <TableCell className="text-success font-medium">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
                           <TableCell>
                             <div>{new Date(challan.dueDate).toLocaleDateString()}</div>
-                            {challan.lateFeeFine > 0 && (
-                              <div className="text-[10px] text-destructive font-bold">
-                                Late Fee: PKR {formatAmount(challan.lateFeeFine)}
-                              </div>
-                            )}
                           </TableCell>
                           <TableCell>
                             <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "warning" : "secondary"}>
@@ -1430,18 +1435,26 @@ const FeeManagement = () => {
                                       const raw = (challan.selectedHeads && typeof challan.selectedHeads === 'string')
                                         ? JSON.parse(challan.selectedHeads)
                                         : (challan.selectedHeads || []);
-                                      return Array.isArray(raw) && raw.some(h => (typeof h === 'object' && h !== null && h.id === -1));
-                                    } catch (e) { return false; }
+                                      const hasOtherHead = Array.isArray(raw) && raw.some(h => (typeof h === 'object' && h !== null && h.id === -1));
+                                      // Pre-check for extra challans if fineAmount exists, even if head is missing
+                                      return hasOtherHead || (isExtraChallan && (challan.fineAmount || 0) > 0);
+                                    } catch (e) { return (isExtraChallan && (challan.fineAmount || 0) > 0); }
                                   })(),
                                   otherAmount: (() => {
                                     try {
                                       const raw = (challan.selectedHeads && typeof challan.selectedHeads === 'string')
                                         ? JSON.parse(challan.selectedHeads)
                                         : (challan.selectedHeads || []);
-                                      if (!Array.isArray(raw)) return "0";
-                                      const other = raw.find(h => (typeof h === 'object' && h !== null && h.id === -1));
-                                      return other ? (other.amount || 0).toString() : "0";
-                                    } catch (e) { return "0"; }
+                                      if (Array.isArray(raw)) {
+                                        const other = raw.find(h => (typeof h === 'object' && h !== null && h.id === -1));
+                                        if (other) return (other.amount || 0).toString();
+                                      }
+                                      // Fallback for extra challans
+                                      if (isExtraChallan && (challan.fineAmount || 0) > 0) return (challan.fineAmount || 0).toString();
+                                      return "0";
+                                    } catch (e) { 
+                                      return (isExtraChallan && (challan.fineAmount || 0) > 0) ? (challan.fineAmount || 0).toString() : "0"; 
+                                    }
                                   })(),
                                   selectedHeads: (() => {
                                     try {
@@ -1620,6 +1633,35 @@ const FeeManagement = () => {
                           </div>
                         ))}
                       </div>
+
+                      {/* Other(fine) Option */}
+                      <div className="mt-3 pt-3 border-t border-orange-200">
+                        <div className="flex items-center space-x-2 p-2 border rounded hover:bg-orange-50 transition-colors">
+                          <input
+                            type="checkbox"
+                            id="extra-other-fine"
+                            className="accent-orange-600 h-4 w-4 cursor-pointer"
+                            checked={extraIsOtherEnabled}
+                            onChange={(e) => setExtraIsOtherEnabled(e.target.checked)}
+                          />
+                          <label htmlFor="extra-other-fine" className="text-sm cursor-pointer font-bold text-orange-700">Other(fine)</label>
+                        </div>
+                        {extraIsOtherEnabled && (
+                          <div className="mt-2 pl-6">
+                            <div className="relative">
+                              <span className="absolute left-2 top-2.5 text-xs text-muted-foreground font-bold">Rs.</span>
+                              <Input
+                                type="number"
+                                min="1"
+                                placeholder="Enter fine amount"
+                                value={extraOtherAmount}
+                                onChange={(e) => setExtraOtherAmount(e.target.value)}
+                                className="pl-8 h-9 text-sm font-bold"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <div className="space-y-2">
@@ -1629,13 +1671,14 @@ const FeeManagement = () => {
 
                     {extraSelectedHeads.length > 0 && (() => {
                       const charges = feeHeads.filter(h => extraSelectedHeads.includes(h.id) && !h.isDiscount).reduce((s, h) => s + h.amount, 0);
+                      const finalCharges = charges + (extraIsOtherEnabled ? (parseFloat(extraOtherAmount) || 0) : 0);
                       return (
                         <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
                           <div className="flex justify-between text-sm">
-                            <span>Charges:</span><span className="font-semibold">PKR {charges.toLocaleString()}</span>
+                            <span>Charges:</span><span className="font-semibold">PKR {finalCharges.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between font-bold border-t border-orange-300 mt-1 pt-1">
-                            <span>Total:</span><span>PKR {charges.toLocaleString()}</span>
+                            <span>Total:</span><span>PKR {finalCharges.toLocaleString()}</span>
                           </div>
                         </div>
                       );
@@ -1648,11 +1691,23 @@ const FeeManagement = () => {
                         onClick={async () => {
                           setIsGenerating(true);
                           try {
+                            const selectedHeadsWithFine = [...extraSelectedHeads];
+                            const adHocHeads = [];
+                            if (extraIsOtherEnabled && parseFloat(extraOtherAmount) > 0) {
+                              adHocHeads.push({
+                                name: 'Fine',
+                                amount: parseFloat(extraOtherAmount),
+                                type: 'additional',
+                                isSelected: true,
+                                isAdHoc: true
+                              });
+                            }
+
                             const result = await generateChallansFromPlan({
                               month: format(extraDueDate, "yyyy-MM"),
                               studentId: extraSelectedStudent.id,
                               customAmount: 0,
-                              selectedHeads: extraSelectedHeads,
+                              selectedHeads: selectedHeadsWithFine.length > 0 || adHocHeads.length > 0 ? [...selectedHeadsWithFine, ...adHocHeads] : [],
                               customArrearsAmount: 0,
                               remarks: extraRemarks || "Extra fee head challan",
                               dueDate: format(extraDueDate, "yyyy-MM-dd"),
@@ -1665,6 +1720,8 @@ const FeeManagement = () => {
                               setExtraSelectedStudent(null);
                               setExtraSelectedHeads([]);
                               setExtraRemarks("");
+                              setExtraIsOtherEnabled(false);
+                              setExtraOtherAmount("0");
                             } else {
                               const reason = result?.[0]?.reason || "Could not create challan. Student may not have an installment plan for this month.";
                               toast({ title: reason, variant: "destructive" });
@@ -1697,8 +1754,10 @@ const FeeManagement = () => {
                       <TableRow>
                         <TableHead>Challan No</TableHead>
                         <TableHead>Student</TableHead>
-                        <TableHead>Standard Amt</TableHead>
-                        <TableHead>Net Payable</TableHead>
+                        <TableHead>Base Amount</TableHead>
+                        <TableHead>Extra/Heads</TableHead>
+                        <TableHead>Fine (Late Fee)</TableHead>
+                        <TableHead>Total</TableHead>
                         <TableHead>Paid Amount</TableHead>
                         <TableHead>Due Date</TableHead>
                         <TableHead>Status</TableHead>
@@ -1707,7 +1766,7 @@ const FeeManagement = () => {
                     </TableHeader>
                     <TableBody>
                       {isExtraLoading ? (
-                        <TableRow><TableCell colSpan={8} className="text-center py-8">Loading extra challans...</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={10} className="text-center py-8">Loading extra challans...</TableCell></TableRow>
                       ) : extraChallans.map(challan => (
                         <TableRow key={challan.id}>
                           <TableCell className="font-medium">{challan.challanNumber}</TableCell>
@@ -1715,7 +1774,9 @@ const FeeManagement = () => {
                             <div className="font-medium">{challan.student?.fName} {challan.student?.lName}</div>
                             <div className="text-xs text-muted-foreground">{challan.student?.rollNumber}</div>
                           </TableCell>
-                          <TableCell>PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0))}</TableCell>
+                          <TableCell>PKR {formatAmount(challan.amount)}</TableCell>
+                          <TableCell className="font-medium text-orange-600">PKR {formatAmount(challan.fineAmount)}</TableCell>
+                          <TableCell className="font-medium text-red-600">PKR {formatAmount(challan.lateFeeFine)}</TableCell>
                           <TableCell className="font-bold">PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0))}</TableCell>
                           <TableCell className="text-success font-medium">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
                           <TableCell>{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
@@ -1815,7 +1876,7 @@ const FeeManagement = () => {
                       ))}
                       {!isExtraLoading && extraChallans.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                             No extra challans found.
                           </TableCell>
                         </TableRow>
@@ -1906,8 +1967,10 @@ const FeeManagement = () => {
                     <TableRow>
                       <TableHead>Challan No</TableHead>
                       <TableHead>Installment</TableHead>
-                      <TableHead>Standard Amt</TableHead>
-                      <TableHead>Net Payable</TableHead>
+                      <TableHead>Base Amount</TableHead>
+                      <TableHead>Extra/Heads</TableHead>
+                      <TableHead>Fine (Late Fee)</TableHead>
+                      <TableHead>Total</TableHead>
                       <TableHead>Due Date</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Paid Date</TableHead>
@@ -1923,6 +1986,8 @@ const FeeManagement = () => {
                           <Badge variant="outline">#{challan.installmentNumber}</Badge>
                         </TableCell>
                         <TableCell>PKR {formatAmount(challan.amount)}</TableCell>
+                        <TableCell className="font-medium text-orange-600">PKR {formatAmount(challan.fineAmount)}</TableCell>
+                        <TableCell className="font-medium text-red-600">PKR {formatAmount(challan.lateFeeFine)}</TableCell>
                         <TableCell className="font-bold">PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0))}</TableCell>
                         <TableCell>{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
                         <TableCell>
@@ -1950,7 +2015,7 @@ const FeeManagement = () => {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {studentFeeHistory.length === 0 && <TableRow><TableCell colSpan={9} className="text-center">No history found</TableCell></TableRow>}
+                    {studentFeeHistory.length === 0 && <TableRow><TableCell colSpan={11} className="text-center">No history found</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </div>
@@ -2570,18 +2635,19 @@ const FeeManagement = () => {
               <div className="border border-slate-300 rounded overflow-hidden">
                 <table className="w-full border-collapse">
                   <thead>
-                    <tr className="bg-slate-800 text-white text-[11px] font-bold text-center">
-                      <th className="border-r border-slate-600 p-2 w-[80px]">Roll Number</th>
-                      <th className="border-r border-slate-600 p-2">Student / Father Name</th>
-                      <th className="border-r border-slate-600 p-2 w-[120px]">Class</th>
-                      <th className="border-r border-slate-600 p-2 w-[100px]">Month</th>
-                      <th className="border-r border-slate-600 p-2 w-[80px]">Paid</th>
-                      <th className="border-r border-slate-600 p-2 w-[100px]">Payable</th>
-                      <th className="border-r border-slate-600 p-2 w-[90px]">Fine</th>
-                      <th className="border-r border-slate-600 p-2 w-[90px]">Discount</th>
-                      <th className="border-r border-slate-600 p-2 w-[100px]">Total</th>
-                      <th className="border-r border-slate-600 p-2 w-[100px]">Receiving</th>
-                      <th className="p-2 w-[100px]">Remaining</th>
+                    <tr className="bg-slate-800 text-white text-[10px] font-bold text-center">
+                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Roll No</th>
+                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Student / Father</th>
+                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Class</th>
+                      <th className="border-r border-slate-600 p-1.5 w-[55px]">Month</th>
+                      <th className="border-r border-slate-600 p-1.5 w-[65px]">Paid</th>
+                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Payable</th>
+                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Extra/Heads</th>
+                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Fine (Late Fee)</th>
+                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Discount</th>
+                      <th className="border-r border-slate-600 p-1.5 w-[80px]">Total</th>
+                      <th className="border-r border-slate-600 p-1.5 w-[80px]">Receiving</th>
+                      <th className="p-1.5 w-[80px]">Remaining</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2603,7 +2669,12 @@ const FeeManagement = () => {
                       </td>
                       <td className="border-r border-slate-200 p-2">
                         <div className="border border-slate-300 rounded px-1 py-1.5 h-8 flex items-center justify-center bg-slate-50">
-                           {(parseFloat(challanForm.fineAmount) || 0) + (itemToPay.lateFeeFine || 0)}
+                           {(parseFloat(challanForm.fineAmount) || 0)}
+                        </div>
+                      </td>
+                      <td className="border-r border-slate-200 p-2 text-red-600 font-bold">
+                        <div className="border border-slate-300 rounded px-1 py-1.5 h-8 flex items-center justify-center bg-slate-50">
+                           {itemToPay.lateFeeFine || 0}
                         </div>
                       </td>
                       <td className="border-r border-slate-200 p-2">
@@ -2623,8 +2694,9 @@ const FeeManagement = () => {
                               // Auto-adjust receiving if it was at or exceeded the total
                               const fine = (parseFloat(challanForm.fineAmount) || 0) + (itemToPay.lateFeeFine || 0);
                               const alreadyPaid = (itemToPay.paidAmount || 0);
-                              const oldTotal = Math.max(0, (itemToPay.amount || 0) + fine - (parseFloat(challanForm.discount) || 0) - alreadyPaid);
-                              const newTotal = Math.max(0, (itemToPay.amount || 0) + fine - (parseFloat(newDiscount) || 0) - alreadyPaid);
+                              const totalDiscount = (itemToPay.discount || 0) + (parseFloat(challanForm.discount) || 0);
+                              const oldTotal = Math.max(0, (itemToPay.amount || 0) + fine - totalDiscount - alreadyPaid);
+                              const newTotal = Math.max(0, (itemToPay.amount || 0) + fine - (itemToPay.discount || 0) - val - alreadyPaid);
                               const currentRec = parseFloat(paymentAmount) || 0;
                               
                               if (currentRec >= oldTotal || currentRec === 0) {
@@ -2632,6 +2704,11 @@ const FeeManagement = () => {
                               }
                           }}
                         />
+                        {itemToPay.discount > 0 && (
+                          <div className="text-[9px] text-muted-foreground mt-1 whitespace-nowrap">
+                            Prev. Disc: {itemToPay.discount.toLocaleString()}
+                          </div>
+                        )}
                       </td>
                       <td className="border-r border-slate-200 p-2">
                         <div className="border border-slate-300 rounded px-1 py-1.5 h-8 flex items-center justify-center bg-slate-50 font-bold">
@@ -2639,7 +2716,7 @@ const FeeManagement = () => {
                              const arrearsTotal = (challanForm.arrearsSelections || []).reduce((sum, a) => sum + a.amount + a.lateFee, 0);
                              const currentTuition = Math.max(0, (itemToPay.amount || 0) - (itemToPay.arrearsAmount || 0));
                              const fine = (parseFloat(challanForm.fineAmount) || 0) + (itemToPay.lateFeeFine || 0);
-                             const discount = parseFloat(challanForm.discount) || 0;
+                             const discount = (itemToPay.discount || 0) + (parseFloat(challanForm.discount) || 0);
                              const alreadyPaid = (itemToPay.paidAmount || 0);
                              const total = Math.max(0, (itemToPay.amount || 0) + fine - discount - alreadyPaid);
                              return total.toLocaleString();
@@ -2658,38 +2735,45 @@ const FeeManagement = () => {
                       <td className="p-2">
                         <div className="border border-slate-300 rounded px-1 py-1.5 h-8 flex items-center justify-center bg-slate-50 font-bold text-red-600">
                            {(() => {
-                              const arrearsTotal = (challanForm.arrearsSelections || []).reduce((sum, a) => sum + a.amount + a.lateFee, 0);
-                              const currentTuition = Math.max(0, (itemToPay.amount || 0) - (itemToPay.arrearsAmount || 0));
-                              const fine = (parseFloat(challanForm.fineAmount) || 0) + (itemToPay.lateFeeFine || 0);
-                              const discount = parseFloat(challanForm.discount) || 0;
-                              const alreadyPaid = (itemToPay.paidAmount || 0);
-                              const totalDue = (itemToPay.amount || 0) + fine - discount - alreadyPaid;
-                              const rec = parseFloat(paymentAmount) || 0;
-                              const remaining = Math.max(0, totalDue - rec);
-                              return remaining.toLocaleString();
-                           })()}
+                               const fine = (parseFloat(challanForm.fineAmount) || 0) + (itemToPay.lateFeeFine || 0);
+                               const discount = (itemToPay.discount || 0) + (parseFloat(challanForm.discount) || 0);
+                               const alreadyPaid = (itemToPay.paidAmount || 0);
+                               const totalDue = (itemToPay.amount || 0) + fine - discount - alreadyPaid;
+                               const rec = parseFloat(paymentAmount) || 0;
+                               const remaining = totalDue - rec;
+                               if (remaining < 0) return `(${Math.abs(remaining).toLocaleString()}) Credit`;
+                               return remaining.toLocaleString();
+                            })()}
                         </div>
                       </td>
                     </tr>
                     {/* Grand Total Row */}
                     <tr className="bg-slate-800 text-white font-bold h-10 border-t border-slate-600">
-                      <td colSpan={7} className="text-left px-4 text-[12px] border-r border-slate-600 uppercase tracking-wider">Grand Total</td>
+                      <td colSpan={6} className="text-left px-4 text-[12px] border-r border-slate-600 uppercase tracking-wider">Grand Total</td>
                       <td className="border-r border-slate-600 p-1">
                         <div className="bg-white text-slate-800 px-2 py-1.5 rounded text-[12px] h-8 flex items-center justify-center">
-                          {parseFloat(challanForm.discount).toLocaleString()}
+                          {(parseFloat(challanForm.fineAmount) || 0).toLocaleString()}
+                        </div>
+                      </td>
+                      <td className="border-r border-slate-600 p-1">
+                        <div className="bg-white text-slate-800 px-2 py-1.5 rounded text-[12px] h-8 flex items-center justify-center">
+                          {(itemToPay.lateFeeFine || 0).toLocaleString()}
+                        </div>
+                      </td>
+                      <td className="border-r border-slate-600 p-1">
+                        <div className="bg-white text-slate-800 px-2 py-1.5 rounded text-[12px] h-8 flex items-center justify-center">
+                          {((itemToPay.discount || 0) + (parseFloat(challanForm.discount) || 0)).toLocaleString()}
                         </div>
                       </td>
                       <td className="border-r border-slate-600 p-1">
                         <div className="bg-white text-slate-800 px-2 py-1.5 rounded text-[12px] h-8 flex items-center justify-center font-black">
-                           {(() => {
-                             const arrearsTotal = (challanForm.arrearsSelections || []).reduce((sum, a) => sum + a.amount + a.lateFee, 0);
-                             const currentTuition = Math.max(0, (itemToPay.amount || 0) - (itemToPay.arrearsAmount || 0));
-                             const fine = (parseFloat(challanForm.fineAmount) || 0) + (itemToPay.lateFeeFine || 0);
-                             const discount = parseFloat(challanForm.discount) || 0;
-                             const alreadyPaid = (itemToPay.paidAmount || 0);
-                             const total = Math.max(0, (itemToPay.amount || 0) + fine - discount - alreadyPaid);
-                             return total.toLocaleString();
-                          })()}
+                            {(() => {
+                              const fine = (parseFloat(challanForm.fineAmount) || 0) + (itemToPay.lateFeeFine || 0);
+                              const discount = (itemToPay.discount || 0) + (parseFloat(challanForm.discount) || 0);
+                              const alreadyPaid = (itemToPay.paidAmount || 0);
+                              const total = Math.max(0, (itemToPay.amount || 0) + fine - discount - alreadyPaid);
+                              return total.toLocaleString();
+                           })()}
                         </div>
                       </td>
                       <td className="border-r border-slate-600 p-1">
@@ -2700,14 +2784,13 @@ const FeeManagement = () => {
                       <td className="p-1">
                         <div className="bg-white text-slate-800 px-2 py-1.5 rounded text-[12px] h-8 flex items-center justify-center font-black">
                            {(() => {
-                              const arrearsTotal = (challanForm.arrearsSelections || []).reduce((sum, a) => sum + a.amount + a.lateFee, 0);
-                              const currentTuition = Math.max(0, (itemToPay.amount || 0) - (itemToPay.arrearsAmount || 0));
                               const fine = (parseFloat(challanForm.fineAmount) || 0) + (itemToPay.lateFeeFine || 0);
-                              const discount = parseFloat(challanForm.discount) || 0;
+                              const discount = (itemToPay.discount || 0) + (parseFloat(challanForm.discount) || 0);
                               const alreadyPaid = (itemToPay.paidAmount || 0);
                               const totalDue = (itemToPay.amount || 0) + fine - discount - alreadyPaid;
                               const rec = parseFloat(paymentAmount) || 0;
-                              const remaining = Math.max(0, totalDue - rec);
+                              const remaining = totalDue - rec;
+                              if (remaining < 0) return `(${Math.abs(remaining).toLocaleString()}) Credit`;
                               return remaining.toLocaleString();
                            })()}
                         </div>
@@ -2945,7 +3028,7 @@ const FeeManagement = () => {
                               });
                             }}
                           />
-                          <label htmlFor="otherChargeToggle" className="text-[10px] font-bold text-orange-700 cursor-pointer">Others (Manual Amount)</label>
+                          <label htmlFor="otherChargeToggle" className="text-[10px] font-bold text-orange-700 cursor-pointer">Other(fine) (Manual Amount)</label>
                         </div>
                         {challanForm.isOtherEnabled && (
                           <div className="px-5 pb-1">
@@ -2954,7 +3037,7 @@ const FeeManagement = () => {
                               <Input
                                 type="number"
                                 min="1"
-                                placeholder="Enter amount"
+                                placeholder="Enter fine amount"
                                 value={challanForm.otherAmount}
                                 onChange={(e) => {
                                   const val = e.target.value;
@@ -3276,7 +3359,7 @@ const FeeManagement = () => {
 
                     {selectedChallanDetails.lateFeeFine > 0 && (
                       <div className="flex justify-between items-center py-2 border-b border-dashed text-destructive">
-                        <span className="text-sm font-medium">Late Fee Fine</span>
+                        <span className="text-sm font-medium">Fine (Late Fee)</span>
                         <span className="font-bold">PKR {selectedChallanDetails.lateFeeFine.toLocaleString()}</span>
                       </div>
                     )}
