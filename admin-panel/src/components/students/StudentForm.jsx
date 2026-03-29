@@ -58,7 +58,6 @@ const StudentForm = ({
             installments: initialData.installments || initialData.feeInstallments || [],
             documents: docs,
             ...initialData,
-            documents: docs,
         };
     });
 
