@@ -819,7 +819,7 @@ CREATE TABLE `financeexpense` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `FinanceClosing` (
+CREATE TABLE `financeclosing` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `date` DATE NOT NULL,
     `type` VARCHAR(50) NOT NULL,
@@ -835,7 +835,7 @@ CREATE TABLE `FinanceClosing` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `InstituteSettings` (
+CREATE TABLE `institutesettings` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `instituteName` VARCHAR(200) NOT NULL,
     `email` VARCHAR(100) NULL,
@@ -853,7 +853,7 @@ CREATE TABLE `InstituteSettings` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `StudentArrear` (
+CREATE TABLE `studentarrear` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `studentId` INTEGER NOT NULL,
     `classId` INTEGER NOT NULL,
@@ -868,7 +868,7 @@ CREATE TABLE `StudentArrear` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `PayrollTemplate` (
+CREATE TABLE `payrolltemplate` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(191) NOT NULL,
     `type` VARCHAR(191) NOT NULL,
@@ -881,7 +881,7 @@ CREATE TABLE `PayrollTemplate` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `FeeChallanTemplate` (
+CREATE TABLE `feechallantemplate` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(191) NOT NULL,
     `htmlContent` TEXT NOT NULL,
@@ -893,7 +893,7 @@ CREATE TABLE `FeeChallanTemplate` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `StaffIDCardTemplate` (
+CREATE TABLE `staffidcardtemplate` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(191) NOT NULL,
     `htmlContent` TEXT NOT NULL,
@@ -906,7 +906,7 @@ CREATE TABLE `StaffIDCardTemplate` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `StudentIDCardTemplate` (
+CREATE TABLE `studentidcardtemplate` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(191) NOT NULL,
     `htmlContent` TEXT NOT NULL,
@@ -941,12 +941,12 @@ CREATE TABLE `studentfeeinstallment` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `_ComplaintAssignees` (
+CREATE TABLE `_complaintassignees` (
     `A` INTEGER NOT NULL,
     `B` INTEGER NOT NULL,
 
-    UNIQUE INDEX `_ComplaintAssignees_AB_unique`(`A`, `B`),
-    INDEX `_ComplaintAssignees_B_index`(`B`)
+    UNIQUE INDEX `_complaintassignees_AB_unique`(`A`, `B`),
+    INDEX `_complaintassignees_B_index`(`B`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- AddForeignKey
@@ -1160,7 +1160,7 @@ ALTER TABLE `studentfeeinstallment` ADD CONSTRAINT `studentfeeinstallment_studen
 ALTER TABLE `studentfeeinstallment` ADD CONSTRAINT `studentfeeinstallment_classId_fkey` FOREIGN KEY (`classId`) REFERENCES `class`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `_ComplaintAssignees` ADD CONSTRAINT `_ComplaintAssignees_A_fkey` FOREIGN KEY (`A`) REFERENCES `complaint`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `_complaintassignees` ADD CONSTRAINT `_complaintassignees_A_fkey` FOREIGN KEY (`A`) REFERENCES `complaint`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `_ComplaintAssignees` ADD CONSTRAINT `_ComplaintAssignees_B_fkey` FOREIGN KEY (`B`) REFERENCES `staff`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `_complaintassignees` ADD CONSTRAINT `_complaintassignees_B_fkey` FOREIGN KEY (`B`) REFERENCES `staff`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
