@@ -1145,6 +1145,7 @@ const Students = () => {
                       <div><span className="font-semibold">Religion:</span> {viewStudent.religion || "-"}</div>
                       <div><span className="font-semibold">Parent Email:</span> {viewStudent.parentOrGuardianEmail || "-"}</div>
                       <div><span className="font-semibold">Parent Phone:</span> {viewStudent.parentOrGuardianPhone || "-"}</div>
+                      <div><span className="font-semibold">Parent CNIC:</span> {viewStudent.parentCNIC || "-"}</div>
                       <div><span className="font-semibold">DOB:</span> {viewStudent.dob ? new Date(viewStudent.dob).toLocaleDateString() : "-"}</div>
                       <div className="col-span-2"><span className="font-semibold">Address:</span> {viewStudent.address || "-"}</div>
                       <div className="flex items-center gap-2">

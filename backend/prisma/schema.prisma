@@ -240,6 +240,7 @@ model Student {
   rollNumber            String    @unique @db.VarChar(50)
   parentOrGuardianEmail String?   @db.VarChar(50)
   parentOrGuardianPhone String?   @db.VarChar(20)
+  parentCNIC            String?   @db.VarChar(15)
   address               String?   @db.VarChar(255)
   gender                String?   @db.VarChar(10)
   religion              String?   @db.VarChar(50)

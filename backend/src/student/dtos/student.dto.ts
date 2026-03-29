@@ -23,6 +23,8 @@ export class StudentDto {
   @IsNotEmpty({ message: "Parent/Guardian's phone must be provided" })
   parentOrGuardianPhone: string;
   @IsOptional()
+  parentCNIC?: string;
+  @IsOptional()
   address?: string;
   @IsNotEmpty({ message: 'Gender must be selected' })
   gender: string;

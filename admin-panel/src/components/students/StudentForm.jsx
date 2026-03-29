@@ -44,6 +44,7 @@ const StudentForm = ({
             rollNumber: "",
             parentOrGuardianEmail: "",
             parentOrGuardianPhone: "",
+            parentCNIC: "",
             address: "",
             gender: "",
             religion: "",
@@ -74,6 +75,7 @@ const StudentForm = ({
             rollNumber: "",
             parentOrGuardianEmail: "",
             parentOrGuardianPhone: "",
+            parentCNIC: "",
             address: "",
             gender: "",
             religion: "",
@@ -450,7 +452,7 @@ const StudentForm = ({
 
         const allowedFields = [
             'fName', 'lName', 'fatherOrguardian', 'rollNumber',
-            'parentOrGuardianEmail', 'parentOrGuardianPhone', 'address',
+            'parentOrGuardianEmail', 'parentOrGuardianPhone', 'parentCNIC', 'address',
             'gender', 'religion', 'dob', 'programId', 'classId', 'sectionId',
             'tuitionFee', 'numberOfInstallments', 'lateFeeFine',
             'installments', 'documents', 'status', 'session'
@@ -683,6 +685,10 @@ const StudentForm = ({
                         <div>
                             <Label>Parent Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <Input value={formData.parentOrGuardianPhone} onChange={e => setFormData({ ...formData, parentOrGuardianPhone: e.target.value })} />
+                        </div>
+                        <div>
+                            <Label>Parent CNIC <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                            <Input value={formData.parentCNIC} onChange={e => setFormData({ ...formData, parentCNIC: e.target.value })} placeholder="e.g. 12345-6789012-3" />
                         </div>
                         <div>
                             <Label>Gender *</Label>

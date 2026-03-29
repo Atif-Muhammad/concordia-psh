@@ -145,6 +145,7 @@ const FrontOffice = () => {
     sectionId: "",
     gender: "",
     dob: "",
+    parentCNIC: "",
     documents: "{}",
   });
   // === FETCH DATA ===
@@ -624,6 +625,7 @@ const FrontOffice = () => {
       rollNumber: "",
       parentOrGuardianEmail: inquiry.email || "",
       parentOrGuardianPhone: inquiry.contactNumber || "",
+      parentCNIC: inquiry.fatherCnic || "",
       address: inquiry.address || "",
       programId: inquiry.programInterest?.toString() || inquiry.program?.id?.toString() || "",
       classId: inquiry.classId?.toString() || "",
@@ -685,6 +687,7 @@ const FrontOffice = () => {
       sectionId: "",
       gender: "",
       dob: "",
+      parentCNIC: "",
       documents: "{}",
     });
   };
