@@ -35,7 +35,7 @@ CREATE TABLE `Program` (
     `description` VARCHAR(300) NULL,
     `level` ENUM('INTERMEDIATE', 'UNDERGRADUATE', 'COACHING', 'DIPLOMA', 'SHORT_COURSE') NOT NULL,
     `duration` VARCHAR(50) NOT NULL,
-    `hasSections` BOOLEAN NOT NULL DEFAULT false,
+    `rollPrefix` VARCHAR(50) NULL,
     `departmentId` INTEGER NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
@@ -51,6 +51,7 @@ CREATE TABLE `Class` (
     `year` INTEGER NULL,
     `semester` INTEGER NULL,
     `isSemester` BOOLEAN NOT NULL DEFAULT false,
+    `rollPrefix` VARCHAR(50) NULL,
     `programId` INTEGER NOT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
@@ -75,30 +76,42 @@ CREATE TABLE `Section` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `Teacher` (
+CREATE TABLE `Staff` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `name` VARCHAR(50) NOT NULL,
-    `fatherName` VARCHAR(50) NULL,
-    `email` VARCHAR(100) NOT NULL,
+    `name` VARCHAR(100) NOT NULL,
+    `fatherName` VARCHAR(100) NULL,
+    `email` VARCHAR(100) NULL,
     `password` VARCHAR(255) NOT NULL,
     `phone` VARCHAR(20) NULL,
     `cnic` VARCHAR(15) NULL,
     `address` VARCHAR(255) NULL,
+    `religion` VARCHAR(50) NULL,
     `photo_url` VARCHAR(191) NULL,
     `photo_public_id` VARCHAR(191) NULL,
     `specialization` VARCHAR(50) NULL,
-    `highestDegree` VARCHAR(50) NOT NULL,
+    `highestDegree` VARCHAR(50) NULL,
     `documents` JSON NULL,
-    `teacherType` ENUM('PERMANENT', 'CONTRACT') NOT NULL DEFAULT 'CONTRACT',
-    `teacherStatus` ENUM('ACTIVE', 'TERMINATED', 'RETIRED') NOT NULL DEFAULT 'ACTIVE',
+    `staffType` ENUM('PERMANENT', 'CONTRACT') NOT NULL DEFAULT 'CONTRACT',
+    `status` ENUM('ACTIVE', 'TERMINATED', 'RETIRED') NOT NULL DEFAULT 'ACTIVE',
     `basicPay` DECIMAL(10, 2) NULL,
+    `joinDate` DATETIME(3) NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `leaveDate` DATETIME(3) NULL,
     `departmentId` INTEGER NULL,
+    `isTeaching` BOOLEAN NOT NULL DEFAULT false,
+    `isNonTeaching` BOOLEAN NOT NULL DEFAULT false,
+    `permissions` JSON NULL,
+    `designation` VARCHAR(100) NULL,
+    `empDepartment` ENUM('ADMIN', 'FINANCE', 'SECURITY', 'TRANSPORT', 'CLASS_4', 'MAINTENANCE', 'IT_SUPPORT', 'LIBRARY', 'LAB', 'OTHER') NULL,
+    `contractStart` DATETIME(3) NULL,
+    `contractEnd` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
-    UNIQUE INDEX `Teacher_id_key`(`id`),
-    UNIQUE INDEX `Teacher_email_key`(`email`),
-    UNIQUE INDEX `Teacher_cnic_key`(`cnic`),
+    UNIQUE INDEX `Staff_id_key`(`id`),
+    UNIQUE INDEX `Staff_email_key`(`email`),
+    UNIQUE INDEX `Staff_cnic_key`(`cnic`),
+    INDEX `Staff_empDepartment_idx`(`empDepartment`),
+    INDEX `Staff_status_idx`(`status`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -123,17 +136,23 @@ CREATE TABLE `Student` (
     `photo_url` VARCHAR(191) NULL,
     `photo_public_id` VARCHAR(191) NULL,
     `fName` VARCHAR(100) NOT NULL,
-    `mName` VARCHAR(100) NULL,
     `lName` VARCHAR(100) NULL,
+    `session` VARCHAR(50) NULL,
     `fatherOrguardian` VARCHAR(100) NULL,
     `rollNumber` VARCHAR(50) NOT NULL,
     `parentOrGuardianEmail` VARCHAR(50) NULL,
     `parentOrGuardianPhone` VARCHAR(20) NULL,
     `address` VARCHAR(255) NULL,
     `gender` VARCHAR(10) NULL,
+    `religion` VARCHAR(50) NULL,
     `dob` DATETIME(3) NULL,
     `documents` JSON NOT NULL,
     `passedOut` BOOLEAN NOT NULL DEFAULT false,
+    `status` ENUM('ACTIVE', 'EXPELLED', 'STRUCK_OFF', 'GRADUATED') NOT NULL DEFAULT 'ACTIVE',
+    `statusDate` DATETIME(3) NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `tuitionFee` INTEGER NULL DEFAULT 0,
+    `numberOfInstallments` INTEGER NULL DEFAULT 1,
+    `lateFeeFine` INTEGER NULL DEFAULT 0,
     `departmentId` INTEGER NULL,
     `programId` INTEGER NULL,
     `classId` INTEGER NOT NULL,
@@ -145,6 +164,18 @@ CREATE TABLE `Student` (
     UNIQUE INDEX `Student_id_key`(`id`),
     UNIQUE INDEX `Student_rollNumber_key`(`rollNumber`),
     UNIQUE INDEX `Student_inquiryId_key`(`inquiryId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `StudentStatusHistory` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `studentId` INTEGER NOT NULL,
+    `previousStatus` ENUM('ACTIVE', 'EXPELLED', 'STRUCK_OFF', 'GRADUATED') NULL,
+    `newStatus` ENUM('ACTIVE', 'EXPELLED', 'STRUCK_OFF', 'GRADUATED') NOT NULL,
+    `reason` TEXT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -246,9 +277,9 @@ CREATE TABLE `Leave` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `TeacherAttendance` (
+CREATE TABLE `StaffAttendance` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `teacherId` INTEGER NOT NULL,
+    `staffId` INTEGER NOT NULL,
     `date` DATE NOT NULL,
     `status` ENUM('PRESENT', 'ABSENT', 'LEAVE', 'HALF_DAY', 'HOLIDAY') NOT NULL DEFAULT 'PRESENT',
     `markedBy` INTEGER NULL,
@@ -256,51 +287,7 @@ CREATE TABLE `TeacherAttendance` (
     `notes` TEXT NULL,
     `autoGenerated` BOOLEAN NOT NULL DEFAULT false,
 
-    UNIQUE INDEX `TeacherAttendance_teacherId_date_key`(`teacherId`, `date`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
-CREATE TABLE `EmployeeAttendance` (
-    `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `employeeId` INTEGER NOT NULL,
-    `date` DATE NOT NULL,
-    `status` ENUM('PRESENT', 'ABSENT', 'LEAVE', 'HALF_DAY', 'HOLIDAY') NOT NULL DEFAULT 'PRESENT',
-    `markedBy` INTEGER NULL,
-    `markedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `notes` TEXT NULL,
-    `autoGenerated` BOOLEAN NOT NULL DEFAULT false,
-
-    UNIQUE INDEX `EmployeeAttendance_employeeId_date_key`(`employeeId`, `date`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
-CREATE TABLE `Employee` (
-    `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `name` VARCHAR(100) NOT NULL,
-    `fatherName` VARCHAR(100) NOT NULL,
-    `email` VARCHAR(100) NULL,
-    `phone` VARCHAR(20) NOT NULL,
-    `cnic` VARCHAR(15) NOT NULL,
-    `address` VARCHAR(255) NULL,
-    `designation` VARCHAR(100) NOT NULL,
-    `empDepartment` ENUM('ADMIN', 'FINANCE', 'SECURITY', 'TRANSPORT', 'CLASS_4', 'MAINTENANCE', 'IT_SUPPORT', 'LIBRARY', 'LAB', 'OTHER') NOT NULL,
-    `employmentType` ENUM('PERMANENT', 'CONTRACT') NOT NULL DEFAULT 'PERMANENT',
-    `status` ENUM('ACTIVE', 'TERMINATED', 'RETIRED') NOT NULL DEFAULT 'ACTIVE',
-    `basicPay` DECIMAL(10, 2) NULL,
-    `joinDate` DATETIME(3) NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `leaveDate` DATETIME(3) NULL,
-    `documents` JSON NOT NULL,
-    `photo_url` VARCHAR(191) NULL,
-    `photo_public_id` VARCHAR(191) NULL,
-    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `updatedAt` DATETIME(3) NOT NULL,
-
-    UNIQUE INDEX `Employee_email_key`(`email`),
-    UNIQUE INDEX `Employee_cnic_key`(`cnic`),
-    INDEX `Employee_empDepartment_idx`(`empDepartment`),
-    INDEX `Employee_status_idx`(`status`),
+    UNIQUE INDEX `StaffAttendance_staffId_date_key`(`staffId`, `date`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -315,7 +302,7 @@ CREATE TABLE `Inquiry` (
     `address` VARCHAR(191) NULL,
     `programInterest` INTEGER NULL,
     `previousInstitute` VARCHAR(191) NULL,
-    `remarks` VARCHAR(191) NULL,
+    `remarks` JSON NULL,
     `status` ENUM('NEW', 'APPROVED', 'REJECTED', 'FOLLOW_UP') NOT NULL DEFAULT 'NEW',
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
@@ -363,6 +350,19 @@ CREATE TABLE `Complaint` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `ComplaintRemark` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `complaintId` INTEGER NOT NULL,
+    `authorId` INTEGER NOT NULL,
+    `remark` TEXT NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `ComplaintRemark_complaintId_idx`(`complaintId`),
+    INDEX `ComplaintRemark_authorId_idx`(`authorId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `Contact` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(255) NOT NULL,
@@ -401,6 +401,7 @@ CREATE TABLE `ExamSchedule` (
     `date` DATE NOT NULL,
     `startTime` VARCHAR(10) NOT NULL,
     `endTime` VARCHAR(10) NOT NULL,
+    `totalMarks` INTEGER NOT NULL DEFAULT 100,
     `room` VARCHAR(50) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
@@ -420,6 +421,7 @@ CREATE TABLE `Marks` (
     `isAbsent` BOOLEAN NOT NULL DEFAULT false,
     `teacherRemarks` VARCHAR(191) NULL,
 
+    UNIQUE INDEX `Marks_studentId_examId_subject_key`(`studentId`, `examId`, `subject`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -475,7 +477,11 @@ CREATE TABLE `ReportCardTemplate` (
 -- CreateTable
 CREATE TABLE `HostelRegistration` (
     `id` VARCHAR(191) NOT NULL,
-    `studentId` INTEGER NOT NULL,
+    `studentId` INTEGER NULL,
+    `externalName` VARCHAR(100) NULL,
+    `externalInstitute` VARCHAR(100) NULL,
+    `externalGuardianName` VARCHAR(100) NULL,
+    `externalGuardianNumber` VARCHAR(20) NULL,
     `hostelName` VARCHAR(100) NOT NULL,
     `registrationDate` DATETIME(3) NOT NULL,
     `status` VARCHAR(20) NOT NULL,
@@ -506,7 +512,8 @@ CREATE TABLE `Room` (
 CREATE TABLE `RoomAllocation` (
     `id` VARCHAR(191) NOT NULL,
     `roomId` VARCHAR(191) NOT NULL,
-    `studentId` INTEGER NOT NULL,
+    `studentId` INTEGER NULL,
+    `externalName` VARCHAR(100) NULL,
     `allocationDate` DATETIME(3) NOT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
@@ -663,6 +670,7 @@ CREATE TABLE `FeeChallan` (
     `paidAmount` DOUBLE NOT NULL DEFAULT 0,
     `tuitionPaid` DOUBLE NOT NULL DEFAULT 0,
     `additionalPaid` DOUBLE NOT NULL DEFAULT 0,
+    `remainingAmount` DOUBLE NOT NULL DEFAULT 0,
     `discount` DOUBLE NOT NULL DEFAULT 0,
     `fineAmount` DOUBLE NOT NULL DEFAULT 0,
     `dueDate` DATE NOT NULL,
@@ -672,6 +680,7 @@ CREATE TABLE `FeeChallan` (
     `installmentNumber` INTEGER NOT NULL DEFAULT 1,
     `coveredInstallments` VARCHAR(50) NULL,
     `selectedHeads` TEXT NULL,
+    `paymentHistory` JSON NULL,
     `remarks` TEXT NULL,
     `challanType` ENUM('INSTALLMENT', 'ARREARS_ONLY', 'FEE_HEADS_ONLY', 'MIXED') NULL,
     `includesArrears` BOOLEAN NOT NULL DEFAULT false,
@@ -679,6 +688,8 @@ CREATE TABLE `FeeChallan` (
     `studentArrearId` INTEGER NULL,
     `studentClassId` INTEGER NULL,
     `studentProgramId` INTEGER NULL,
+    `studentSectionId` INTEGER NULL,
+    `studentFeeInstallmentId` INTEGER NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
@@ -687,6 +698,7 @@ CREATE TABLE `FeeChallan` (
     INDEX `FeeChallan_status_idx`(`status`),
     INDEX `FeeChallan_studentClassId_idx`(`studentClassId`),
     INDEX `FeeChallan_studentProgramId_idx`(`studentProgramId`),
+    INDEX `FeeChallan_studentSectionId_idx`(`studentSectionId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -694,6 +706,7 @@ CREATE TABLE `FeeChallan` (
 CREATE TABLE `Payroll` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `month` VARCHAR(7) NOT NULL,
+    `staffId` INTEGER NULL,
     `employeeId` INTEGER NULL,
     `teacherId` INTEGER NULL,
     `basicSalary` DOUBLE NOT NULL DEFAULT 0,
@@ -720,8 +733,7 @@ CREATE TABLE `Payroll` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
-    UNIQUE INDEX `Payroll_employeeId_month_key`(`employeeId`, `month`),
-    UNIQUE INDEX `Payroll_teacherId_month_key`(`teacherId`, `month`),
+    UNIQUE INDEX `Payroll_staffId_month_key`(`staffId`, `month`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -729,6 +741,7 @@ CREATE TABLE `Payroll` (
 CREATE TABLE `StaffLeave` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `month` VARCHAR(7) NOT NULL,
+    `staffId` INTEGER NULL,
     `employeeId` INTEGER NULL,
     `teacherId` INTEGER NULL,
     `startDate` DATE NOT NULL,
@@ -739,8 +752,7 @@ CREATE TABLE `StaffLeave` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
-    INDEX `StaffLeave_employeeId_month_idx`(`employeeId`, `month`),
-    INDEX `StaffLeave_teacherId_month_idx`(`teacherId`, `month`),
+    INDEX `StaffLeave_staffId_month_idx`(`staffId`, `month`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -761,6 +773,7 @@ CREATE TABLE `Holiday` (
 -- CreateTable
 CREATE TABLE `AdvanceSalary` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `staffId` INTEGER NULL,
     `employeeId` INTEGER NULL,
     `teacherId` INTEGER NULL,
     `amount` DOUBLE NOT NULL,
@@ -770,8 +783,7 @@ CREATE TABLE `AdvanceSalary` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
-    INDEX `AdvanceSalary_employeeId_idx`(`employeeId`),
-    INDEX `AdvanceSalary_teacherId_idx`(`teacherId`),
+    INDEX `AdvanceSalary_staffId_idx`(`staffId`),
     INDEX `AdvanceSalary_month_idx`(`month`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -832,6 +844,8 @@ CREATE TABLE `InstituteSettings` (
     `facebook` VARCHAR(255) NULL,
     `instagram` VARCHAR(255) NULL,
     `logo` VARCHAR(500) NULL,
+    `challanPrefix` VARCHAR(20) NULL DEFAULT '',
+    `lateFeeFine` DOUBLE NULL DEFAULT 0,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
@@ -904,8 +918,39 @@ CREATE TABLE `StudentIDCardTemplate` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `StudentFeeInstallment` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `studentId` INTEGER NOT NULL,
+    `classId` INTEGER NOT NULL,
+    `installmentNumber` INTEGER NOT NULL,
+    `amount` INTEGER NOT NULL,
+    `paidAmount` DOUBLE NOT NULL DEFAULT 0,
+    `pendingAmount` DOUBLE NOT NULL DEFAULT 0,
+    `remainingAmount` DOUBLE NOT NULL DEFAULT 0,
+    `status` ENUM('PENDING', 'PARTIAL', 'PAID') NOT NULL DEFAULT 'PENDING',
+    `dueDate` DATETIME(3) NOT NULL,
+    `month` VARCHAR(191) NULL,
+    `session` VARCHAR(191) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `StudentFeeInstallment_studentId_classId_idx`(`studentId`, `classId`),
+    UNIQUE INDEX `StudentFeeInstallment_studentId_classId_installmentNumber_key`(`studentId`, `classId`, `installmentNumber`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `_ComplaintAssignees` (
+    `A` INTEGER NOT NULL,
+    `B` INTEGER NOT NULL,
+
+    UNIQUE INDEX `_ComplaintAssignees_AB_unique`(`A`, `B`),
+    INDEX `_ComplaintAssignees_B_index`(`B`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
-ALTER TABLE `Department` ADD CONSTRAINT `Department_hodId_fkey` FOREIGN KEY (`hodId`) REFERENCES `Teacher`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `Department` ADD CONSTRAINT `Department_hodId_fkey` FOREIGN KEY (`hodId`) REFERENCES `Staff`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `Program` ADD CONSTRAINT `Program_departmentId_fkey` FOREIGN KEY (`departmentId`) REFERENCES `Department`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
@@ -917,7 +962,7 @@ ALTER TABLE `Class` ADD CONSTRAINT `Class_programId_fkey` FOREIGN KEY (`programI
 ALTER TABLE `Section` ADD CONSTRAINT `Section_classId_fkey` FOREIGN KEY (`classId`) REFERENCES `Class`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `Teacher` ADD CONSTRAINT `Teacher_departmentId_fkey` FOREIGN KEY (`departmentId`) REFERENCES `Department`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `Staff` ADD CONSTRAINT `Staff_departmentId_fkey` FOREIGN KEY (`departmentId`) REFERENCES `Department`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `Subject` ADD CONSTRAINT `Subject_classId_fkey` FOREIGN KEY (`classId`) REFERENCES `Class`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -938,13 +983,16 @@ ALTER TABLE `Student` ADD CONSTRAINT `Student_sectionId_fkey` FOREIGN KEY (`sect
 ALTER TABLE `Student` ADD CONSTRAINT `Student_inquiryId_fkey` FOREIGN KEY (`inquiryId`) REFERENCES `Inquiry`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `TeacherSubjectMapping` ADD CONSTRAINT `TeacherSubjectMapping_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Teacher`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `StudentStatusHistory` ADD CONSTRAINT `StudentStatusHistory_studentId_fkey` FOREIGN KEY (`studentId`) REFERENCES `Student`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `TeacherSubjectMapping` ADD CONSTRAINT `TeacherSubjectMapping_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Staff`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `TeacherSubjectMapping` ADD CONSTRAINT `TeacherSubjectMapping_subjectId_fkey` FOREIGN KEY (`subjectId`) REFERENCES `Subject`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `TeacherClassSectionMapping` ADD CONSTRAINT `TeacherClassSectionMapping_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Teacher`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `TeacherClassSectionMapping` ADD CONSTRAINT `TeacherClassSectionMapping_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Staff`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `TeacherClassSectionMapping` ADD CONSTRAINT `TeacherClassSectionMapping_classId_fkey` FOREIGN KEY (`classId`) REFERENCES `Class`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -953,7 +1001,7 @@ ALTER TABLE `TeacherClassSectionMapping` ADD CONSTRAINT `TeacherClassSectionMapp
 ALTER TABLE `TeacherClassSectionMapping` ADD CONSTRAINT `TeacherClassSectionMapping_sectionId_fkey` FOREIGN KEY (`sectionId`) REFERENCES `Section`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `Timetable` ADD CONSTRAINT `Timetable_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Teacher`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `Timetable` ADD CONSTRAINT `Timetable_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Staff`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `Timetable` ADD CONSTRAINT `Timetable_subjectId_fkey` FOREIGN KEY (`subjectId`) REFERENCES `Subject`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -965,7 +1013,7 @@ ALTER TABLE `Timetable` ADD CONSTRAINT `Timetable_sectionId_fkey` FOREIGN KEY (`
 ALTER TABLE `Timetable` ADD CONSTRAINT `Timetable_classId_fkey` FOREIGN KEY (`classId`) REFERENCES `Class`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `Assignment` ADD CONSTRAINT `Assignment_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Teacher`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `Assignment` ADD CONSTRAINT `Assignment_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Staff`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `Assignment` ADD CONSTRAINT `Assignment_subjectId_fkey` FOREIGN KEY (`subjectId`) REFERENCES `Subject`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -986,7 +1034,7 @@ ALTER TABLE `Attendance` ADD CONSTRAINT `Attendance_sectionId_fkey` FOREIGN KEY 
 ALTER TABLE `Attendance` ADD CONSTRAINT `Attendance_subjectId_fkey` FOREIGN KEY (`subjectId`) REFERENCES `Subject`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `Attendance` ADD CONSTRAINT `Attendance_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Teacher`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `Attendance` ADD CONSTRAINT `Attendance_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Staff`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `Leave` ADD CONSTRAINT `Leave_approvedById_fkey` FOREIGN KEY (`approvedById`) REFERENCES `admin`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
@@ -995,19 +1043,19 @@ ALTER TABLE `Leave` ADD CONSTRAINT `Leave_approvedById_fkey` FOREIGN KEY (`appro
 ALTER TABLE `Leave` ADD CONSTRAINT `Leave_studentId_fkey` FOREIGN KEY (`studentId`) REFERENCES `Student`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `TeacherAttendance` ADD CONSTRAINT `TeacherAttendance_markedBy_fkey` FOREIGN KEY (`markedBy`) REFERENCES `admin`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `StaffAttendance` ADD CONSTRAINT `StaffAttendance_markedBy_fkey` FOREIGN KEY (`markedBy`) REFERENCES `admin`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `TeacherAttendance` ADD CONSTRAINT `TeacherAttendance_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Teacher`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `EmployeeAttendance` ADD CONSTRAINT `EmployeeAttendance_markedBy_fkey` FOREIGN KEY (`markedBy`) REFERENCES `admin`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `EmployeeAttendance` ADD CONSTRAINT `EmployeeAttendance_employeeId_fkey` FOREIGN KEY (`employeeId`) REFERENCES `Employee`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `StaffAttendance` ADD CONSTRAINT `StaffAttendance_staffId_fkey` FOREIGN KEY (`staffId`) REFERENCES `Staff`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `Inquiry` ADD CONSTRAINT `Inquiry_programInterest_fkey` FOREIGN KEY (`programInterest`) REFERENCES `Program`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ComplaintRemark` ADD CONSTRAINT `ComplaintRemark_complaintId_fkey` FOREIGN KEY (`complaintId`) REFERENCES `Complaint`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ComplaintRemark` ADD CONSTRAINT `ComplaintRemark_authorId_fkey` FOREIGN KEY (`authorId`) REFERENCES `Staff`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `Exam` ADD CONSTRAINT `Exam_programId_fkey` FOREIGN KEY (`programId`) REFERENCES `Program`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -1082,22 +1130,19 @@ ALTER TABLE `FeeChallan` ADD CONSTRAINT `FeeChallan_studentClassId_fkey` FOREIGN
 ALTER TABLE `FeeChallan` ADD CONSTRAINT `FeeChallan_studentProgramId_fkey` FOREIGN KEY (`studentProgramId`) REFERENCES `Program`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `Payroll` ADD CONSTRAINT `Payroll_employeeId_fkey` FOREIGN KEY (`employeeId`) REFERENCES `Employee`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `FeeChallan` ADD CONSTRAINT `FeeChallan_studentSectionId_fkey` FOREIGN KEY (`studentSectionId`) REFERENCES `Section`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `Payroll` ADD CONSTRAINT `Payroll_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Teacher`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `FeeChallan` ADD CONSTRAINT `FeeChallan_studentFeeInstallmentId_fkey` FOREIGN KEY (`studentFeeInstallmentId`) REFERENCES `StudentFeeInstallment`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `StaffLeave` ADD CONSTRAINT `StaffLeave_employeeId_fkey` FOREIGN KEY (`employeeId`) REFERENCES `Employee`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `Payroll` ADD CONSTRAINT `Payroll_staffId_fkey` FOREIGN KEY (`staffId`) REFERENCES `Staff`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `StaffLeave` ADD CONSTRAINT `StaffLeave_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Teacher`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `StaffLeave` ADD CONSTRAINT `StaffLeave_staffId_fkey` FOREIGN KEY (`staffId`) REFERENCES `Staff`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `AdvanceSalary` ADD CONSTRAINT `AdvanceSalary_employeeId_fkey` FOREIGN KEY (`employeeId`) REFERENCES `Employee`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `AdvanceSalary` ADD CONSTRAINT `AdvanceSalary_teacherId_fkey` FOREIGN KEY (`teacherId`) REFERENCES `Teacher`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `AdvanceSalary` ADD CONSTRAINT `AdvanceSalary_staffId_fkey` FOREIGN KEY (`staffId`) REFERENCES `Staff`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `StudentArrear` ADD CONSTRAINT `StudentArrear_studentId_fkey` FOREIGN KEY (`studentId`) REFERENCES `Student`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -1107,3 +1152,15 @@ ALTER TABLE `StudentArrear` ADD CONSTRAINT `StudentArrear_classId_fkey` FOREIGN 
 
 -- AddForeignKey
 ALTER TABLE `StudentArrear` ADD CONSTRAINT `StudentArrear_programId_fkey` FOREIGN KEY (`programId`) REFERENCES `Program`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `StudentFeeInstallment` ADD CONSTRAINT `StudentFeeInstallment_studentId_fkey` FOREIGN KEY (`studentId`) REFERENCES `Student`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `StudentFeeInstallment` ADD CONSTRAINT `StudentFeeInstallment_classId_fkey` FOREIGN KEY (`classId`) REFERENCES `Class`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `_ComplaintAssignees` ADD CONSTRAINT `_ComplaintAssignees_A_fkey` FOREIGN KEY (`A`) REFERENCES `Complaint`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `_ComplaintAssignees` ADD CONSTRAINT `_ComplaintAssignees_B_fkey` FOREIGN KEY (`B`) REFERENCES `Staff`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
