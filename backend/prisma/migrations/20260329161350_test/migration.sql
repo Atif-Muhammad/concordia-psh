@@ -142,6 +142,7 @@ CREATE TABLE `student` (
     `rollNumber` VARCHAR(50) NOT NULL,
     `parentOrGuardianEmail` VARCHAR(50) NULL,
     `parentOrGuardianPhone` VARCHAR(20) NULL,
+    `parentCNIC` VARCHAR(15) NULL,
     `address` VARCHAR(255) NULL,
     `gender` VARCHAR(10) NULL,
     `religion` VARCHAR(50) NULL,
@@ -830,7 +831,7 @@ CREATE TABLE `financeclosing` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
-    INDEX `FinanceClosing_date_idx`(`date`),
+    INDEX `financeclosing_date_idx`(`date`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -863,7 +864,7 @@ CREATE TABLE `studentarrear` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
-    UNIQUE INDEX `StudentArrear_studentId_classId_programId_key`(`studentId`, `classId`, `programId`),
+    UNIQUE INDEX `studentarrear_studentId_classId_programId_key`(`studentId`, `classId`, `programId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -941,12 +942,12 @@ CREATE TABLE `studentfeeinstallment` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `_complaintassignees` (
+CREATE TABLE `_ComplaintAssignees` (
     `A` INTEGER NOT NULL,
     `B` INTEGER NOT NULL,
 
-    UNIQUE INDEX `_complaintassignees_AB_unique`(`A`, `B`),
-    INDEX `_complaintassignees_B_index`(`B`)
+    UNIQUE INDEX `_ComplaintAssignees_AB_unique`(`A`, `B`),
+    INDEX `_ComplaintAssignees_B_index`(`B`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- AddForeignKey
@@ -1121,7 +1122,7 @@ ALTER TABLE `feechallan` ADD CONSTRAINT `feechallan_studentId_fkey` FOREIGN KEY 
 ALTER TABLE `feechallan` ADD CONSTRAINT `feechallan_feeStructureId_fkey` FOREIGN KEY (`feeStructureId`) REFERENCES `feestructure`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `feechallan` ADD CONSTRAINT `feechallan_studentArrearId_fkey` FOREIGN KEY (`studentArrearId`) REFERENCES `StudentArrear`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `feechallan` ADD CONSTRAINT `feechallan_studentArrearId_fkey` FOREIGN KEY (`studentArrearId`) REFERENCES `studentarrear`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `feechallan` ADD CONSTRAINT `feechallan_studentClassId_fkey` FOREIGN KEY (`studentClassId`) REFERENCES `class`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
@@ -1160,7 +1161,7 @@ ALTER TABLE `studentfeeinstallment` ADD CONSTRAINT `studentfeeinstallment_studen
 ALTER TABLE `studentfeeinstallment` ADD CONSTRAINT `studentfeeinstallment_classId_fkey` FOREIGN KEY (`classId`) REFERENCES `class`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `_complaintassignees` ADD CONSTRAINT `_complaintassignees_A_fkey` FOREIGN KEY (`A`) REFERENCES `complaint`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `_ComplaintAssignees` ADD CONSTRAINT `_ComplaintAssignees_A_fkey` FOREIGN KEY (`A`) REFERENCES `complaint`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `_complaintassignees` ADD CONSTRAINT `_complaintassignees_B_fkey` FOREIGN KEY (`B`) REFERENCES `staff`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `_ComplaintAssignees` ADD CONSTRAINT `_ComplaintAssignees_B_fkey` FOREIGN KEY (`B`) REFERENCES `staff`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
