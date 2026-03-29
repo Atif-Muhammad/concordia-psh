@@ -59,7 +59,7 @@ model Department {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("Department")
+  @@map("department")
 }
 
 model Program {
@@ -85,7 +85,7 @@ model Program {
   updatedAt DateTime @updatedAt
 
   @@unique([name, departmentId])
-  @@map("Program")
+  @@map("program")
 }
 
 model Class {
@@ -117,7 +117,7 @@ model Class {
   updatedAt DateTime @updatedAt
 
   @@unique([programId, year, semester])
-  @@map("Class")
+  @@map("class")
 }
 
 model Section {
@@ -140,7 +140,7 @@ model Section {
   updatedAt DateTime @updatedAt
 
   @@unique([classId, name])
-  @@map("Section")
+  @@map("section")
 }
 
 enum StaffType {
@@ -212,7 +212,7 @@ model Staff {
 
   @@index([empDepartment])
   @@index([status])
-  @@map("Staff")
+  @@map("staff")
 }
 
 model Subject {
@@ -233,7 +233,7 @@ model Subject {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("Subject")
+  @@map("subject")
 }
 
 model Student {
@@ -296,7 +296,7 @@ model Student {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("Student")
+  @@map("student")
 }
 
 enum StudentStatus {
@@ -315,7 +315,7 @@ model StudentStatusHistory {
   reason         String?       @db.Text
   createdAt      DateTime      @default(now())
 
-  @@map("StudentStatusHistory")
+  @@map("studentstatushistory")
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -333,7 +333,7 @@ model TeacherSubjectMapping {
   updatedAt DateTime @updatedAt
 
   @@unique([teacherId, subjectId])
-  @@map("TeacherSubjectMapping")
+  @@map("teachersubjectmapping")
 }
 
 model TeacherClassSectionMapping {
@@ -350,7 +350,7 @@ model TeacherClassSectionMapping {
 
   @@unique([teacherId, classId, sectionId])
   @@index([classId, sectionId])
-  @@map("TeacherClassSectionMapping")
+  @@map("teacherclasssectionmapping")
 }
 
 model Timetable {
@@ -373,7 +373,7 @@ model Timetable {
   updatedAt DateTime @updatedAt
 
   @@unique([sectionId, classId, dayOfWeek, startTime])
-  @@map("Timetable")
+  @@map("timetable")
 }
 
 model Assignment {
@@ -393,7 +393,7 @@ model Assignment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("Assignment")
+  @@map("assignment")
 }
 
 // student attendance and leave
@@ -421,7 +421,7 @@ model Attendance {
   // --- Optional indexes for faster lookups ---
   @@index([classId, sectionId, date])
   @@index([teacherId, subjectId, date])
-  @@map("Attendance")
+  @@map("attendance")
 }
 
 enum AttendanceStatus {
@@ -452,7 +452,7 @@ model Leave {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("Leave")
+  @@map("leave")
 }
 
 enum LeaveStatus {
@@ -477,7 +477,7 @@ model StaffAttendance {
   staff Staff  @relation(fields: [staffId], references: [id])
 
   @@unique([staffId, date])
-  @@map("StaffAttendance")
+  @@map("staffattendance")
 }
 
 // Employees
@@ -531,7 +531,7 @@ model Inquiry{
   updatedAt          DateTime     @updatedAt
 
   @@index([programInterest])
-  @@map("Inquiry")
+  @@map("inquiry")
 }
 
 // visitor
@@ -556,7 +556,7 @@ model Visitor {
 
   @@index([date])
 
-  @@map("Visitor")
+  @@map("visitor")
 }
 
 // complaint type
@@ -594,7 +594,7 @@ model Complaint {
   updatedAt          DateTime     @updatedAt
 
   @@index([type])
-  @@map("Complaint")
+  @@map("complaint")
 }
 
 model ComplaintRemark {
@@ -608,7 +608,7 @@ model ComplaintRemark {
 
   @@index([complaintId])
   @@index([authorId])
-  @@map("ComplaintRemark")
+  @@map("complaintremark")
 }
 
 
@@ -636,7 +636,7 @@ model Contact {
   updatedAt          DateTime     @updatedAt
 
   @@index([category])
-  @@map("Contact")
+  @@map("contact")
 }
 
 // examination
@@ -657,7 +657,7 @@ model Exam {
   positions   Position[]
   schedules   ExamSchedule[]
 
-  @@map("Exam")
+  @@map("exam")
 }
 
 model ExamSchedule {
@@ -677,7 +677,7 @@ model ExamSchedule {
   subject Subject @relation(fields: [subjectId], references: [id])
   
   @@unique([examId, subjectId]) // One slot per subject per exam
-  @@map("ExamSchedule")
+  @@map("examschedule")
 }
 
 model Marks {
@@ -694,7 +694,7 @@ model Marks {
   student Student @relation(fields: [studentId], references: [id])
 
   @@unique([studentId, examId, subject])
-  @@map("Marks")
+  @@map("marks")
 }
 
 model Result {
@@ -712,7 +712,7 @@ model Result {
   exam    Exam    @relation(fields: [examId], references: [id])
   student Student @relation(fields: [studentId], references: [id])
 
-  @@map("Result")
+  @@map("result")
 }
 
 model Position {
@@ -735,7 +735,7 @@ model Position {
 
   @@unique([examId, classId, studentId])
   @@index([examId, classId])
-  @@map("Position")
+  @@map("position")
 }
 
 model ReportCardTemplate {
@@ -747,7 +747,7 @@ model ReportCardTemplate {
   updatedAt   DateTime @updatedAt
   createdBy   String?
 
-  @@map("ReportCardTemplate")
+  @@map("reportcardtemplate")
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -769,7 +769,7 @@ model HostelRegistration {
   updatedAt              DateTime @updatedAt
 
   @@index([studentId])
-  @@map("HostelRegistration")
+  @@map("hostelregistration")
 }
 
 model Room {
@@ -784,7 +784,7 @@ model Room {
   updatedAt        DateTime         @updatedAt
   allocations      RoomAllocation[]
 
-  @@map("Room")
+  @@map("room")
 }
 
 model RoomAllocation {
@@ -801,7 +801,7 @@ model RoomAllocation {
   @@unique([roomId, studentId])
   @@index([roomId])
   @@index([studentId])
-  @@map("RoomAllocation")
+  @@map("roomallocation")
 }
 
 model HostelExpense {
@@ -814,7 +814,7 @@ model HostelExpense {
   updatedAt    DateTime @updatedAt
 
   @@index([date])
-  @@map("HostelExpense")
+  @@map("hostelexpense")
 }
 
 model HostelInventory {
@@ -827,7 +827,7 @@ model HostelInventory {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  @@map("HostelInventory")
+  @@map("hostelinventory")
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -860,7 +860,7 @@ model SchoolInventory {
   @@index([category])
   @@index([assignedTo])
   @@index([condition])
-  @@map("SchoolInventory")
+  @@map("schoolinventory")
 }
 
 model InventoryExpense {
@@ -877,7 +877,7 @@ model InventoryExpense {
 
   @@index([inventoryItemId])
   @@index([date])
-  @@map("InventoryExpense")
+  @@map("inventoryexpense")
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -893,7 +893,7 @@ model PayrollSettings {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  @@map("PayrollSettings")
+  @@map("payrollsettings")
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -922,7 +922,7 @@ model FeeHead {
 
   structures  FeeStructureHead[]
 
-  @@map("FeeHead")
+  @@map("feehead")
 }
 
 model FeeStructure {
@@ -942,7 +942,7 @@ model FeeStructure {
   challans      FeeChallan[]
   
   @@unique([programId, classId])
-  @@map("FeeStructure")
+  @@map("feestructure")
 }
 
 model FeeStructureHead {
@@ -955,7 +955,7 @@ model FeeStructureHead {
   amount         Float        // Amount for this specific structure (if different from default)
   
   @@unique([feeStructureId, feeHeadId])
-  @@map("FeeStructureHead")
+  @@map("feestructurehead")
 }
 
 enum ChallanStatus {
@@ -1036,7 +1036,7 @@ model FeeChallan {
   @@index([studentClassId])
   @@index([studentProgramId])
   @@index([studentSectionId])
-  @@map("FeeChallan")
+  @@map("feechallan")
 }
 
 model Payroll {
@@ -1083,7 +1083,7 @@ model Payroll {
   updatedAt       DateTime @updatedAt
 
   @@unique([staffId, month])
-  @@map("Payroll")
+  @@map("payroll")
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1128,7 +1128,7 @@ model StaffLeave {
   updatedAt       DateTime @updatedAt
   
   @@index([staffId, month])
-  @@map("StaffLeave")
+  @@map("staffleave")
 }
 
 model Holiday {
@@ -1141,7 +1141,7 @@ model Holiday {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@map("Holiday")
+  @@map("holiday")
 }
 
 model AdvanceSalary {
@@ -1162,7 +1162,7 @@ model AdvanceSalary {
 
   @@index([staffId])
   @@index([month])
-  @@map("AdvanceSalary")
+  @@map("advancesalary")
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1181,7 +1181,7 @@ model FinanceIncome {
   
   @@index([date])
   @@index([category])
-  @@map("FinanceIncome")
+  @@map("financeincome")
 }
 
 model FinanceExpense {
@@ -1196,7 +1196,7 @@ model FinanceExpense {
   
   @@index([date])
   @@index([category])
-  @@map("FinanceExpense")
+  @@map("financeexpense")
 }
 
 model FinanceClosing {
@@ -1212,7 +1212,7 @@ model FinanceClosing {
   updatedAt    DateTime @updatedAt
   
   @@index([date])
-  @@map("FinanceClosing")
+  @@map("financeclosing")
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1234,7 +1234,7 @@ model InstituteSettings {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  @@map("InstituteSettings")
+  @@map("institutesettings")
 }
 
 
@@ -1260,7 +1260,7 @@ model StudentArrear {
   updatedAt      DateTime @updatedAt
   
   @@unique([studentId, classId, programId])
-  @@map("StudentArrear")
+  @@map("studentarrear")
 }
 
 model PayrollTemplate {
@@ -1272,7 +1272,7 @@ model PayrollTemplate {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@map("PayrollTemplate")
+  @@map("payrolltemplate")
 }
 
 model FeeChallanTemplate {
@@ -1283,7 +1283,7 @@ model FeeChallanTemplate {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@map("FeeChallanTemplate")
+  @@map("feechallantemplate")
 }
 
 model StaffIDCardTemplate {
@@ -1295,7 +1295,7 @@ model StaffIDCardTemplate {
   updatedAt   DateTime @updatedAt
   createdBy   String?
 
-  @@map("StaffIDCardTemplate")
+  @@map("staffidcardtemplate")
 }
 
 model StudentIDCardTemplate {
@@ -1307,7 +1307,7 @@ model StudentIDCardTemplate {
   updatedAt   DateTime @updatedAt
   createdBy   String?
 
-  @@map("StudentIDCardTemplate")
+  @@map("studentidcardtemplate")
 }
 
 model StudentFeeInstallment {
@@ -1333,5 +1333,5 @@ model StudentFeeInstallment {
 
   @@unique([studentId, classId, installmentNumber])
   @@index([studentId, classId])
-  @@map("StudentFeeInstallment")
+  @@map("studentfeeinstallment")
 }
