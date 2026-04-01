@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect, useRef } from "react";
-import { DollarSign, Plus, CheckCircle2, Edit, Trash2, Receipt, TrendingUp, Layers, Printer, Eye, History, Calendar as CalendarIcon, ArrowRight, PlusCircle, MinusCircle, User } from "lucide-react";
+import { DollarSign, Plus, CheckCircle2, Edit, Trash2, Receipt, TrendingUp, Layers, Printer, Eye, History, Calendar as CalendarIcon, ArrowRight, PlusCircle, MinusCircle, User, AlertCircle, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -20,7 +20,8 @@ import {
   getFeeChallans, getBulkChallans, updateFeeChallan, getStudentFeeHistory,
   searchStudents, getRevenueOverTime, getClassCollectionStats, getFeeCollectionSummary, getDefaultFeeChallanTemplate,
   getInstallmentPlans, generateChallansFromPlan,
-  getInstituteSettings, updateInstituteSettings
+  getInstituteSettings, updateInstituteSettings,
+  deleteFeeChallan
 } from "../../config/apis";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -63,12 +64,18 @@ const FeeManagement = () => {
   const [editingFeeHead, setEditingFeeHead] = useState(null);
   const [editingStructure, setEditingStructure] = useState(null);
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
-  const [generateForm, setGenerateForm] = useState({
-    month: new Date().toISOString().slice(0, 7),
-    studentId: "",
-    classId: "",
-    sectionId: "",
-    programId: "all"
+  const [generateForm, setGenerateForm] = useState(() => {
+    const _now = new Date();
+    const _y = _now.getFullYear();
+    const _m = _now.getMonth() + 1;
+    return {
+      month: _now.toISOString().slice(0, 7),
+      session: _m >= 4 ? `${_y}-${_y + 1}` : `${_y - 1}-${_y}`,
+      studentId: "",
+      classId: "",
+      sectionId: "",
+      programId: "all"
+    };
   });
   const [generateResults, setGenerateResults] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -77,6 +84,7 @@ const FeeManagement = () => {
   const [bulkStudents, setBulkStudents] = useState([]);
   const [selectedBulkStudents, setSelectedBulkStudents] = useState([]);
   const [isFetchingBulkStudents, setIsFetchingBulkStudents] = useState(false);
+  const [generationErrors, setGenerationErrors] = useState({});
 
   // Bulk Printing state
   const [bulkPrintOpen, setBulkPrintOpen] = useState(false);
@@ -179,6 +187,15 @@ const FeeManagement = () => {
     }
   }, [generateForm.month]);
 
+  // Auto-compute session from selected month
+  useEffect(() => {
+    if (generateForm.month) {
+      const [y, m] = generateForm.month.split('-').map(Number);
+      const computed = m >= 4 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
+      setGenerateForm(prev => ({ ...prev, session: computed }));
+    }
+  }, [generateForm.month]);
+
   // Bulk student fetcher
   useEffect(() => {
     const fetchBulkStudentsData = async () => {
@@ -197,12 +214,35 @@ const FeeManagement = () => {
           generateForm.sectionId !== "all" ? generateForm.sectionId : "",
           "", // search
           "ACTIVE", // status
-          "", // session
+          generateForm.session || "", // session
           1, 1000 // page/limit
         );
         const studentList = results.students || [];
         setBulkStudents(studentList);
         setSelectedBulkStudents(studentList.map(s => s.id));
+
+        // Auto-load due date from the first available installment matching the month
+        if (studentList.length > 0 && generateForm.month) {
+          const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+          const mName = new Date(selYear, selMonth - 1, 1).toLocaleString('default', { month: 'long' });
+          const mSession = (selMonth >= 4) ? `${selYear}-${selYear + 1}` : `${selYear - 1}-${selYear}`;
+
+          // Find first student with a matching installment by month name
+          const firstWithInst = studentList.find(s => 
+            (s.feeInstallments || []).some(inst => 
+              (inst.month === mName && (inst.session === mSession || !inst.session)) || inst.month === generateForm.month
+            )
+          );
+
+          if (firstWithInst) {
+            const matchingInst = firstWithInst.feeInstallments.find(inst =>
+              (inst.month === mName && (inst.session === mSession || !inst.session)) || inst.month === generateForm.month
+            );
+            if (matchingInst?.dueDate) {
+              setBulkDueDate(new Date(matchingInst.dueDate));
+            }
+          }
+        }
       } catch (error) {
         console.error("Failed to fetch bulk students:", error);
       } finally {
@@ -211,7 +251,7 @@ const FeeManagement = () => {
     };
 
     fetchBulkStudentsData();
-  }, [generateDialogOpen, generateForm.programId, generateForm.classId, generateForm.sectionId]);
+  }, [generateDialogOpen, generateForm.month, generateForm.session, generateForm.programId, generateForm.classId, generateForm.sectionId]);
 
   const { data: instituteSettings } = useQuery({
     queryKey: ['instituteSettings'],
@@ -413,10 +453,36 @@ const FeeManagement = () => {
   const generateChallansMutation = useMutation({
     mutationFn: generateChallansFromPlan,
     onSuccess: (data) => {
-      setGenerateResults(data);
       setIsGenerating(false);
       queryClient.invalidateQueries(['feeChallans']);
-      toast({ title: "Challan generation process completed" });
+      
+      const errors = {};
+      const successCount = (data || []).filter(r => r.status === 'CREATED').length;
+      
+      (data || []).forEach(r => {
+        if (r.status === 'PREVIOUS_UNGENERATED' || (r.status !== 'CREATED' && r.status !== 'SKIPPED')) {
+          errors[r.studentId] = r.reason || r.status;
+        }
+      });
+
+      setGenerationErrors(errors);
+      const errorCount = Object.keys(errors).length;
+      
+      if (errorCount > 0) {
+        toast({ 
+          title: "Generation Blocked", 
+          description: `${errorCount} student(s) failed. Check red labels in the list.`, 
+          variant: "destructive" 
+        });
+        // Stay on form view
+      } else {
+        setGenerateResults(data);
+        if (successCount > 0) {
+          toast({ title: "Challans generated successfully" });
+        } else {
+          toast({ title: "Challan generation process completed" });
+        }
+      }
     },
     onError: (error) => {
       setIsGenerating(false);
@@ -452,6 +518,18 @@ const FeeManagement = () => {
     onSuccess: () => {
       queryClient.invalidateQueries(['feeHeads']);
       toast({ title: "Fee head deleted" });
+      setDeleteDialogOpen(false);
+    },
+    onError: (error) => toast({ title: error.message, variant: "destructive" })
+  });
+
+  const deleteChallanMutation = useMutation({
+    mutationFn: deleteFeeChallan,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['feeChallans']);
+      queryClient.invalidateQueries(['extraChallans']);
+      queryClient.invalidateQueries(['studentFeeHistory']);
+      toast({ title: "Challan deleted successfully" });
       setDeleteDialogOpen(false);
     },
     onError: (error) => toast({ title: error.message, variant: "destructive" })
@@ -760,6 +838,8 @@ const FeeManagement = () => {
       deleteHeadMutation.mutate(itemToDelete.id);
     } else if (itemToDelete.type === "structure") {
       deleteStructureMutation.mutate(itemToDelete.id);
+    } else if (itemToDelete.type === "challan") {
+      deleteChallanMutation.mutate(itemToDelete.id);
     }
     setItemToDelete(null);
   };
@@ -1353,9 +1433,25 @@ const FeeManagement = () => {
                             <div className="text-xs text-muted-foreground">{challan.student?.rollNumber}</div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline">
-                              {challan.coveredInstallments || (challan.installmentNumber === 0 ? "Additional Charges" : `#${challan.installmentNumber}`)}
-                            </Badge>
+                            <div className="flex flex-col gap-1">
+                              <div className="font-bold text-slate-800">
+                                {challan.month || (challan.installmentNumber === 0 ? "Extra" : `Inst #${challan.installmentNumber}`)}
+                              </div>
+                              {challan.session && (
+                                <div className="text-[10px] text-muted-foreground bg-slate-100 px-1.5 py-0.5 rounded inline-block w-fit">
+                                  {challan.session}
+                                </div>
+                              )}
+                              {!challan.month && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {(challan.coveredInstallments || (challan.installmentNumber === 0 ? "Extra" : `${challan.installmentNumber}`)).split(/[,|-]/).map((num, i) => (
+                                    <Badge key={i} variant="outline" className="text-[10px] h-4 min-w-[20px] justify-center px-1 rounded-full bg-slate-50 border-slate-200 text-slate-600 font-medium">
+                                      {num.trim()}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="font-medium">PKR {formatAmount(challan.amount)}</TableCell>
                           <TableCell className="font-medium text-orange-600">PKR {formatAmount(challan.fineAmount)}</TableCell>
@@ -1366,8 +1462,8 @@ const FeeManagement = () => {
                             <div>{new Date(challan.dueDate).toLocaleDateString()}</div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "warning" : "secondary"}>
-                              {challan.status}
+                            <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "warning" : challan.status === "VOID" ? "outline" : "secondary"}>
+                              {challan.status === "VOID" ? "Superseded" : challan.status}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -1378,7 +1474,7 @@ const FeeManagement = () => {
                               }}>
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={async () => {
+                              {challan.status !== "PAID" && challan.status !== "VOID" && <Button size="sm" variant="outline" onClick={async () => {
                                 setEditingChallan(challan);
                                 const isExtraChallan = challan.installmentNumber === 0 || challan.challanType === 'FEE_HEADS_ONLY';
                                 
@@ -1401,19 +1497,15 @@ const FeeManagement = () => {
                                 let autoArrearsTotal = 0;
 
                                 if (!isExtraChallan) {
-                                  const originalDate = new Date(challan.dueDate);
-                                  const targetInst = fetchedPlan.find(inst => {
-                                    const d = new Date(inst.dueDate);
-                                    return d.getFullYear() === originalDate.getFullYear() && (d.getMonth() + 1) === (originalDate.getMonth() + 1);
-                                  });
+                                  const targetInst = fetchedPlan.find(inst => inst.installmentNumber === challan.installmentNumber);
                                   
                                   const pastUnpaid = fetchedPlan.filter(inst => {
-                                    const d = new Date(inst.dueDate);
-                                    return targetInst ? d < new Date(targetInst.dueDate) : true;
+                                    return targetInst ? inst.installmentNumber < targetInst.installmentNumber : false;
                                   }).filter(inst => (inst.remainingAmount || (inst.amount - (inst.paidAmount || 0))) > 0);
 
                                   autoSelectedArrears = pastUnpaid.map(inst => ({
                                     id: inst.id,
+                                    installmentNumber: inst.installmentNumber,
                                     amount: inst.remainingAmount || (inst.amount - (inst.paidAmount || 0)),
                                     lateFee: calculateLateFee(inst.dueDate, lateFeeFine)
                                   }));
@@ -1495,7 +1587,7 @@ const FeeManagement = () => {
                               <Button size="sm" variant="outline" onClick={() => printChallan(challan.id)}>
                                 <Printer className="w-4 h-4" />
                               </Button>
-                              {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={() => handlePayment(challan)}>
+                              {challan.status !== "PAID" && challan.status !== "VOID" && <Button size="sm" variant="outline" onClick={() => handlePayment(challan)}>
                                 <CheckCircle2 className="w-4 h-4" />
                               </Button>}
                               {challan.paymentHistory && <Button size="sm" variant="outline" onClick={() => {
@@ -1504,6 +1596,22 @@ const FeeManagement = () => {
                               }}>
                                 <History className="w-4 h-4" />
                               </Button>}
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  setItemToDelete({ 
+                                    type: "challan", 
+                                    id: challan.id, 
+                                    status: challan.status,
+                                    number: challan.challanNumber 
+                                  });
+                                  setDeleteDialogOpen(true);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1781,8 +1889,8 @@ const FeeManagement = () => {
                           <TableCell className="text-success font-medium">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
                           <TableCell>{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
                           <TableCell>
-                            <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "warning" : "secondary"}>
-                              {challan.status}
+                            <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "warning" : challan.status === "VOID" ? "outline" : "secondary"}>
+                              {challan.status === "VOID" ? "Superseded" : challan.status}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
@@ -1796,7 +1904,7 @@ const FeeManagement = () => {
                               <Button size="sm" variant="ghost" onClick={() => printChallan(challan.id)}>
                                 <Printer className="w-4 h-4" />
                               </Button>
-                              {challan.status !== "PAID" && (
+                              {challan.status !== "PAID" && challan.status !== "VOID" && (
                                 <Button size="sm" variant="ghost" onClick={async () => {
                                   setEditingChallan(challan);
                                   const isExtraChallan = true; // Always true for this table
@@ -1865,11 +1973,27 @@ const FeeManagement = () => {
                                   <Edit className="w-4 h-4" />
                                 </Button>
                               )}
-                              {challan.status !== "PAID" && (
+                              {challan.status !== "PAID" && challan.status !== "VOID" && (
                                 <Button size="sm" variant="outline" className="text-success border-success hover:bg-success hover:text-white" onClick={() => handlePayment(challan)}>
                                   Pay
                                 </Button>
                               )}
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  setItemToDelete({ 
+                                    type: "challan", 
+                                    id: challan.id, 
+                                    status: challan.status,
+                                    number: challan.challanNumber 
+                                  });
+                                  setDeleteDialogOpen(true);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1983,7 +2107,16 @@ const FeeManagement = () => {
                       <TableRow key={challan.id}>
                         <TableCell>{challan.challanNumber}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">#{challan.installmentNumber}</Badge>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-bold text-sm">
+                              {challan.month || `Inst #${challan.installmentNumber}`}
+                            </span>
+                            {challan.session && (
+                              <span className="text-[10px] text-muted-foreground">
+                                {challan.session}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>PKR {formatAmount(challan.amount)}</TableCell>
                         <TableCell className="font-medium text-orange-600">PKR {formatAmount(challan.fineAmount)}</TableCell>
@@ -1991,8 +2124,8 @@ const FeeManagement = () => {
                         <TableCell className="font-bold">PKR {formatAmount((challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0))}</TableCell>
                         <TableCell>{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
                         <TableCell>
-                          <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : "secondary"}>
-                            {challan.status}
+                          <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "VOID" ? "outline" : "secondary"}>
+                            {challan.status === "VOID" ? "Superseded" : challan.status}
                           </Badge>
                         </TableCell>
                         <TableCell>{challan.paidDate ? new Date(challan.paidDate).toLocaleDateString() : '-'}</TableCell>
@@ -2004,15 +2137,31 @@ const FeeManagement = () => {
                           }}>
                             <Eye className="w-4 h-4" />
                           </Button>
-                          {challan.paymentHistory && (
-                            <Button variant="ghost" size="sm" onClick={() => {
-                              setSelectedChallanForHistory(challan);
-                              setHistoryDialogOpen(true);
-                            }}>
-                              <History className="w-4 h-4" />
-                            </Button>
-                          )}
-                        </TableCell>
+                              {challan.paymentHistory && (
+                                <Button variant="ghost" size="sm" onClick={() => {
+                                  setSelectedChallanForHistory(challan);
+                                  setHistoryDialogOpen(true);
+                                }}>
+                                  <History className="w-4 h-4" />
+                                </Button>
+                              )}
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  setItemToDelete({ 
+                                    type: "challan", 
+                                    id: challan.id, 
+                                    status: challan.status,
+                                    number: challan.challanNumber 
+                                  });
+                                  setDeleteDialogOpen(true);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </TableCell>
                       </TableRow>
                     ))}
                     {studentFeeHistory.length === 0 && <TableRow><TableCell colSpan={11} className="text-center">No history found</TableCell></TableRow>}
@@ -2660,8 +2809,9 @@ const FeeManagement = () => {
                       <td className="border-r border-slate-200 p-2">
                         {itemToPay.studentClass?.name || itemToPay.student?.class?.name || "N/A"}
                       </td>
-                      <td className="border-r border-slate-200 p-2">
-                         {itemToPay.issueDate ? format(new Date(itemToPay.issueDate), "MMMM") : "N/A"}
+                      <td className="border-r border-slate-200 p-2 font-bold text-slate-800">
+                         {itemToPay.month || (itemToPay.issueDate ? format(new Date(itemToPay.issueDate), "MMMM") : "N/A")}
+                         {itemToPay.session && <div className="text-[9px] text-slate-500 font-normal">{itemToPay.session}</div>}
                       </td>
                       <td className="border-r border-slate-200 p-2">{(itemToPay.paidAmount || 0).toLocaleString()}</td>
                       <td className="border-r border-slate-200 p-2">
@@ -2862,12 +3012,30 @@ const FeeManagement = () => {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Delete</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+            <AlertDialogTitle>
+              {itemToDelete?.type === "challan" ? `Delete Challan ${itemToDelete.number}` : "Confirm Delete"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {itemToDelete?.type === "challan" ? (
+                <div className="space-y-2">
+                  <p>Are you sure you want to delete this challan? This action will:</p>
+                  <ul className="list-disc pl-5 space-y-1 text-sm">
+                    <li>Restore the original amounts in the student's installment plan.</li>
+                    <li>{itemToDelete.status === "PAID" || itemToDelete.status === "PARTIAL" ? <strong>Reverse all payments and restore arrears records.</strong> : "Delete the record permanently."}</li>
+                  </ul>
+                  <p className="font-bold text-destructive mt-2">This action cannot be undone.</p>
+                </div>
+              ) : "This action cannot be undone."}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+            <AlertDialogAction 
+              onClick={confirmDelete}
+              className={itemToDelete?.type === "challan" ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+            >
+              {deleteChallanMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -2927,13 +3095,6 @@ const FeeManagement = () => {
                       selected={challanForm.dueDate}
                       onSelect={(date) => setChallanForm({ ...challanForm, dueDate: date })}
                       initialFocus
-                      disabled={(date) => {
-                        if (!editingChallan) return false;
-                        const originalDate = new Date(editingChallan.dueDate);
-                        const start = startOfMonth(originalDate);
-                        const end = endOfMonth(originalDate);
-                        return date < start || date > end;
-                      }}
                     />
                   </PopoverContent>
                 </Popover>
@@ -2959,7 +3120,7 @@ const FeeManagement = () => {
                 <div className="col-span-2 space-y-1 pt-1 border-t">
                   <div className="flex justify-between items-center bg-red-50 p-2 rounded-md border border-red-100 italic transition-all animate-in fade-in slide-in-from-top-1">
                     <Label className="text-[10px] font-black text-red-700 uppercase flex items-center gap-2">
-                       <History className="w-3.5 h-3.5" /> ALL PAST ARREARS INCLUDED
+                       <History className="w-3.5 h-3.5" /> ARREARS INCLUDED (INST #: {challanForm.arrearsSelections.map(s => s.installmentNumber || 'S').join(', ')})
                     </Label>
                     <span className="text-sm font-black text-red-700">Rs. {parseFloat(challanForm.arrearsAmount).toLocaleString()}</span>
                   </div>
@@ -3402,7 +3563,9 @@ const FeeManagement = () => {
                     <div className="space-y-2 mt-2">
                       <div className="flex justify-between text-xs">
                         <span className="text-muted-foreground">Status:</span>
-                        <Badge variant={selectedChallanDetails.status === "PAID" ? "default" : "secondary"}>{selectedChallanDetails.status}</Badge>
+                        <Badge variant={selectedChallanDetails.status === "PAID" ? "default" : selectedChallanDetails.status === "VOID" ? "outline" : "secondary"}>
+                          {selectedChallanDetails.status === "VOID" ? "Superseded" : selectedChallanDetails.status}
+                        </Badge>
                       </div>
                       <div className="flex justify-between text-xs">
                         <span className="text-muted-foreground">Issue Date:</span>
@@ -3495,6 +3658,7 @@ const FeeManagement = () => {
           setBulkDueDate(null);
           setBulkStudents([]);
           setSelectedBulkStudents([]);
+          setGenerationErrors({});
         }
       }}>
         <DialogContent className="max-w-4xl p-3 md:p-4 max-h-[96vh] flex flex-col overflow-hidden">
@@ -3510,7 +3674,7 @@ const FeeManagement = () => {
             <div className="space-y-2 py-0 overflow-y-auto overflow-x-hidden pr-1 flex-1 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
 
               <div className="space-y-3">
-                <div className="grid gap-2 grid-cols-3">
+                <div className="grid gap-2 grid-cols-2 md:grid-cols-4">
                   <div className="space-y-1">
                     <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Select Month</Label>
                     <Input
@@ -3544,6 +3708,29 @@ const FeeManagement = () => {
                         />
                       </PopoverContent>
                     </Popover>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Session</Label>
+                    <Select
+                      value={generateForm.session}
+                      onValueChange={(v) => setGenerateForm({ ...generateForm, session: v })}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Select Session" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(() => {
+                          const currentYear = new Date().getFullYear();
+                          const sessions = [];
+                          for (let y = currentYear - 3; y <= currentYear + 1; y++) {
+                            sessions.push(`${y}-${y + 1}`);
+                          }
+                          return sessions.map(s => (
+                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                          ));
+                        })()}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Program (Optional)</Label>
@@ -3637,41 +3824,123 @@ const FeeManagement = () => {
                                 <TableHead className="w-[40px] p-0 text-center"></TableHead>
                                 <TableHead className="text-[10px] uppercase font-bold p-2">Student</TableHead>
                                 <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Inst. Amt</TableHead>
-                                <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Arrears</TableHead>
+<TableHead className="text-[10px] uppercase font-bold p-2 text-right">Arrears</TableHead>
                                 <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Total Due</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {bulkStudents.map((student) => {
-                                const [selYear, selMonth] = generateForm.month.split('-').map(Number);
-                                const currentInst = (student.feeInstallments || []).find(inst => {
-                                  const d = new Date(inst.dueDate);
-                                  return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
-                                });
+                                {bulkStudents.map((student) => {
+                                  const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                                  
+                                  // Use fixed month names to avoid locale issues
+                                  const monthNames = [
+                                    "January", "February", "March", "April", "May", "June",
+                                    "July", "August", "September", "October", "November", "December"
+                                  ];
+                                  const mNameMatch = monthNames[selMonth - 1];
+                                  const mSessionMatch = (selMonth >= 4) ? `${selYear}-${selYear + 1}` : `${selYear - 1}-${selYear}`;
 
-                                const arrearsData = (student.feeInstallments || []).filter(inst => {
-                                  const d = new Date(inst.dueDate);
-                                  const targetDate = currentInst ? new Date(currentInst.dueDate) : new Date(selYear, selMonth - 1, 1);
-                                  return d < targetDate && (inst.remainingAmount > 0);
-                                }).map(inst => {
-                                  const amount = inst.remainingAmount || 0;
-                                  const lateFee = calculateLateFee(inst.dueDate, lateFeeFine);
-                                  return { amount, lateFee };
-                                });
+                                  // Multi-Pass Matcher
+                                  const studentInsts = (student.feeInstallments || []).sort((a,b) => a.installmentNumber - b.installmentNumber);
+                                  
+                                  // Pass 1: Logical Name Match (Case-insensitive, session-flexible)
+                                  // PASS 1: Strict Match (Exact Month Name + Year Year/Session context)
+                                  let currentInst = studentInsts.find(inst => {
+                                    const instMonthStr = (inst.month || "").trim().toLowerCase();
+                                    const nameMatches = instMonthStr === mNameMatch.toLowerCase();
+                                    
+                                    // Use explicitly selected session for matching when available
+                                    if (generateForm.session) {
+                                      return nameMatches && inst.session === generateForm.session;
+                                    }
+                                    
+                                    const mSessionYear = parseInt(mSessionMatch.split('-')[0]);
+                                    const instSessionYear = inst.session ? parseInt(inst.session.split('-')[0]) : 0;
+                                    
+                                    return nameMatches && instSessionYear === mSessionYear;
+                                  });
+                                  
+                                  // Pass 1b: If name matches but session doesn't (flexible for mid-session start)
+                                  if (!currentInst) {
+                                    currentInst = studentInsts.find(inst => {
+                                      const instMonthStr = (inst.month || "").trim().toLowerCase();
+                                      return instMonthStr === mNameMatch.toLowerCase();
+                                    });
+                                  }
 
-                                const arrearsAmount = arrearsData.reduce((sum, a) => sum + a.amount, 0);
-                                const arrearsLateFee = arrearsData.reduce((sum, a) => sum + a.lateFee, 0);
+                                  // Pass 2: Legacy Month Code String match
+                                  if (!currentInst) {
+                                    currentInst = studentInsts.find(inst => inst.month === generateForm.month);
+                                  }
 
-                                const instAmt = currentInst ? (currentInst.remainingAmount || 0) : 0;
-                                const isSelected = selectedBulkStudents.includes(student.id);
+                                  // Pass 3: Due Date match (Broad)
+                                  if (!currentInst) {
+                                    currentInst = studentInsts.find(inst => {
+                                      const d = new Date(inst.dueDate);
+                                      return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
+                                    });
+                                  }
+
+                                  const getChronoRank = (inst) => {
+                                    if (!inst) return 0;
+                                    const sessionYear = inst.session ? parseInt(inst.session.split('-')[0]) : 2000;
+                                    return (sessionYear * 1000) + Number(inst.installmentNumber || 0);
+                                  };
+
+                                  const targetRank = getChronoRank(currentInst);
+
+                                  const studentLateFee = student.lateFeeFine || lateFeeFine || 0;
+                                  const arrearsData = (student.feeInstallments || []).filter(inst => {
+                                    if (currentInst) {
+                                      return getChronoRank(inst) < targetRank && (inst.amount - (inst.paidAmount || 0)) > 0;
+                                    }
+                                    return (inst.amount - (inst.paidAmount || 0)) > 0;
+                                  }).map(inst => {
+                                    const amount = (inst.amount - (inst.paidAmount || 0));
+                                    const lateFee = calculateLateFee(inst.dueDate, studentLateFee);
+                                    return { amount, lateFee };
+                                  });
+
+                                  const arrearsAmount = arrearsData.reduce((sum, a) => sum + a.amount, 0);
+                                  const arrearsLateFee = arrearsData.reduce((sum, a) => sum + a.lateFee, 0);
+
+                                  const instAmt = currentInst ? currentInst.amount : 0;
+                                  const unpaidInstAmt = currentInst ? (currentInst.amount - (currentInst.paidAmount || 0)) : 0;
+                                  const isSelected = selectedBulkStudents.includes(student.id);
+                                  
+                                  const prevInsts = (student.feeInstallments || []).filter(inst => {
+                                    if (!currentInst) return false;
+                                    return getChronoRank(inst) < targetRank;
+                                  }).sort((a,b) => getChronoRank(a) - getChronoRank(b));
+
+                                  // Refined status logic: 
+                                  // MISSING = Never added to any challan (unbilled)
+                                  // UNPAID = Added to a challan but not fully settled
+                                  const missingPrev = prevInsts.filter(inst => 
+                                    (inst.paidAmount || 0) === 0 && 
+                                    (inst.pendingAmount || 0) === 0
+                                  );
+                                  const unpaidPrev = prevInsts.filter(inst => 
+                                    !missingPrev.some(m => m.id === inst.id) && 
+                                    ((inst.paidAmount || 0) + (inst.pendingAmount || 0) < inst.amount)
+                                  );
+
+                                  const hasMissing = false; // missingPrev.length > 0;
+                                  const hasUnpaid = false; // !hasMissing && unpaidPrev.length > 0;
+                                  const isGenerated = currentInst && (currentInst.pendingAmount > 0 || (currentInst.paidAmount || 0) > 0 || currentInst.status === 'PAID' || currentInst.status === 'PARTIAL');
 
                                 return (
-                                  <TableRow key={student.id} className={cn("hover:bg-orange-50/50 border-b border-muted/20 h-10", isSelected && "bg-orange-50/10")}>
+                                  <TableRow key={student.id} className={cn(
+                                    "hover:bg-orange-50/50 border-b border-muted/20 h-10 transition-colors", 
+                                    isSelected && "bg-orange-50/10", 
+                                    generationErrors[student.id] ? "bg-red-50/10" : ""
+                                  )}>
                                     <TableCell className="p-0 text-center">
                                       <input
                                         type="checkbox"
-                                        className="accent-orange-600 h-3.5 w-3.5 cursor-pointer"
-                                        checked={isSelected}
+                                        className="h-3.5 w-3.5 accent-orange-600 cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
+                                        checked={(isSelected || isGenerated)}
+                                        disabled={false}
                                         onChange={(e) => {
                                           if (e.target.checked) {
                                             setSelectedBulkStudents([...selectedBulkStudents, student.id]);
@@ -3683,8 +3952,18 @@ const FeeManagement = () => {
                                     </TableCell>
                                     <TableCell className="p-2">
                                       <div className="flex flex-col">
-                                        <span className="text-xs font-bold">{student.fName} {student.lName || ""}</span>
+                                        <div className="flex items-center gap-1.5">
+                                          <span className={cn("text-xs font-bold", (generationErrors[student.id] || hasMissing) && "text-red-600", isGenerated && "text-blue-700", hasUnpaid && "text-amber-700")}>
+                                            {student.fName} {student.lName || ""}
+                                          </span>
+                                          {/* Removed Badges as requested */}
+                                        </div>
                                         <span className="text-[9px] text-muted-foreground uppercase">{student.rollNumber}</span>
+                                        {generationErrors[student.id] && (
+                                          <span className="text-[10px] font-bold text-red-500 italic mt-0.5 animate-pulse">
+                                            {generationErrors[student.id]}
+                                          </span>
+                                        )}
                                       </div>
                                     </TableCell>
                                     <TableCell className="text-xs p-2 text-right font-medium whitespace-nowrap">Rs. {instAmt.toLocaleString()}</TableCell>
@@ -3693,7 +3972,7 @@ const FeeManagement = () => {
                                       {arrearsLateFee > 0 && <div className="text-[9px] font-bold">+{arrearsLateFee.toLocaleString()} Fine</div>}
                                     </TableCell>
                                     <TableCell className="text-xs p-2 text-right font-black text-orange-700 whitespace-nowrap">
-                                      Rs. {(instAmt + arrearsAmount + arrearsLateFee).toLocaleString()}
+                                      Rs. {(unpaidInstAmt + arrearsAmount + arrearsLateFee).toLocaleString()}
                                     </TableCell>
                                   </TableRow>
                                 );
@@ -3788,10 +4067,10 @@ const FeeManagement = () => {
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge 
-                          variant={res.status === 'CREATED' ? 'default' : res.status === 'EXCEEDS_TOTAL_PLAN' ? 'warning' : 'secondary'} 
+                          variant={res.status === 'CREATED' ? 'default' : (res.status === 'PREVIOUS_UNGENERATED' ? 'destructive' : 'secondary')} 
                           className="text-[10px] h-5"
                         >
-                          {res.status === 'CREATED' ? `Success: ${res.challanNumber}` : res.reason}
+                          {res.status === 'CREATED' ? `Success: ${res.challanNumber}` : (res.status === 'PREVIOUS_UNGENERATED' ? (res.reason || 'Prev. Ungenerated') : res.reason || res.status)}
                         </Badge>
 
 

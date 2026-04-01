@@ -518,6 +518,7 @@ const Students = () => {
       classId: student.classId?.toString() || "",
       sectionId: student.sectionId?.toString() || "",
       dob: student.dob ? new Date(student.dob).toISOString().split("T")[0] : "",
+      admissionDate: student.admissionDate ? new Date(student.admissionDate).toISOString().split("T")[0] : "",
       religion: student.religion || "",
       tuitionFee: student.tuitionFee?.toString() || "",
       numberOfInstallments: student.numberOfInstallments?.toString() || "1",

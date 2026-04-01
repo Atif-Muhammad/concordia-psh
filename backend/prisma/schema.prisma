@@ -252,6 +252,7 @@ model Student {
   gender                String?   @db.VarChar(10)
   religion              String?   @db.VarChar(50)
   dob                   DateTime?
+  admissionDate         DateTime?
   documents             Json      @default("{}")
   passedOut             Boolean   @default(false)
   status                StudentStatus @default(ACTIVE)
@@ -963,6 +964,7 @@ enum ChallanStatus {
   PAID
   OVERDUE
   PARTIAL
+  VOID
 }
 
 enum InstallmentStatus {
@@ -1027,6 +1029,9 @@ model FeeChallan {
   
   studentFeeInstallmentId Int?
   studentFeeInstallment   StudentFeeInstallment? @relation(fields: [studentFeeInstallmentId], references: [id])
+
+  month          String?       @db.VarChar(50)
+  session        String?       @db.VarChar(50)
 
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt

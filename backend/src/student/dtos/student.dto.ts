@@ -5,8 +5,10 @@ export class StudentDto {
   fName: string;
   @IsOptional()
   lName?: string;
-  @IsOptional()
-  session?: string;
+  @IsNotEmpty({ message: 'Session must be selected' })
+  session: string;
+  @IsNotEmpty({ message: 'Admission Date must be selected' })
+  admissionDate: string;
   @IsNotEmpty({ message: "student's father or guardian must be provided" })
   fatherOrguardian: string;
   @IsNotEmpty({ message: 'Roll number must be specified' })

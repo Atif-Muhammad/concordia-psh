@@ -18,7 +18,13 @@
 13. delete unpaid/pending challan.
 14. toggle status for challan.
 
------ random number for challan not 0000....001 should be 1192321230021
+----- random number for challan not 0000....001 should be 1192321230021 ✔
+----------- allow changing due date for ✔
+----------- latest transaction undo + full challan undo + delete challan
+------------- fill in all screen with challan heads + let them be 0 when no amount
+-------------- print program/class/section
+--- total payable -> received (paid at) -> pending -> remarks
+------ if sept challan isnt generateed -> dont allow generating oct (not paid restriction) ✔
 
 ----- admission date for student ---
 

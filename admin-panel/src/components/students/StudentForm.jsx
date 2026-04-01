@@ -49,6 +49,7 @@ const StudentForm = ({
             gender: "",
             religion: "",
             dob: "",
+            admissionDate: "",
             programId: "",
             classId: "",
             sectionId: "",
@@ -58,6 +59,8 @@ const StudentForm = ({
             installments: initialData.installments || initialData.feeInstallments || [],
             documents: docs,
             ...initialData,
+            dob: initialData.dob ? new Date(initialData.dob).toISOString().split('T')[0] : "",
+            admissionDate: initialData.admissionDate ? new Date(initialData.admissionDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         };
     });
 
@@ -79,6 +82,7 @@ const StudentForm = ({
             gender: "",
             religion: "",
             dob: "",
+            admissionDate: "",
             programId: "",
             classId: "",
             sectionId: "",
@@ -88,6 +92,8 @@ const StudentForm = ({
             installments: initialData.installments || initialData.feeInstallments || [],
             documents: docs,
             ...initialData,
+            dob: initialData.dob ? new Date(initialData.dob).toISOString().split('T')[0] : "",
+            admissionDate: initialData.admissionDate ? new Date(initialData.admissionDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         });
         setImagePreview(initialData.photo_url || "");
         setImageFile(null);
@@ -377,8 +383,19 @@ const StudentForm = ({
 
     const internalSubmit = () => {
         // Validation
-        if (!formData.fName || !formData.rollNumber || !formData.programId || !formData.classId) {
+        const required = [
+            'fName', 'session', 'fatherOrguardian', 'programId', 
+            'classId', 'parentOrGuardianPhone', 'gender', 'dob', 'admissionDate'
+        ];
+        const missing = required.filter(k => !formData[k]);
+
+        if (missing.length > 0) {
             toast({ title: "Please fill all required fields", variant: "destructive" });
+            return;
+        }
+
+        if (!formData.rollNumber) {
+            toast({ title: "Roll number is required", variant: "destructive" });
             return;
         }
 
@@ -452,7 +469,7 @@ const StudentForm = ({
         const allowedFields = [
             'fName', 'lName', 'fatherOrguardian', 'rollNumber',
             'parentOrGuardianEmail', 'parentOrGuardianPhone', 'parentCNIC', 'address',
-            'gender', 'religion', 'dob', 'programId', 'classId', 'sectionId',
+            'gender', 'religion', 'dob', 'admissionDate', 'programId', 'classId', 'sectionId',
             'tuitionFee', 'numberOfInstallments', 'lateFeeFine',
             'installments', 'documents', 'status', 'session'
         ];
@@ -572,7 +589,7 @@ const StudentForm = ({
 
                         {/* Guardian + Roll */}
                         <div>
-                            <Label>Father/Guardian <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                            <Label>Father/Guardian *</Label>
                             <Input
                                 value={formData.fatherOrguardian}
                                 onChange={(e) => setFormData({ ...formData, fatherOrguardian: e.target.value })}
@@ -682,7 +699,7 @@ const StudentForm = ({
                             <Input type="email" value={formData.parentOrGuardianEmail} onChange={e => setFormData({ ...formData, parentOrGuardianEmail: e.target.value })} />
                         </div>
                         <div>
-                            <Label>Parent Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                            <Label>Parent Phone *</Label>
                             <Input value={formData.parentOrGuardianPhone} onChange={e => setFormData({ ...formData, parentOrGuardianPhone: e.target.value })} />
                         </div>
                         <div>
@@ -709,9 +726,13 @@ const StudentForm = ({
                         </div>
                         <div>
                             <Label>Date of Birth *</Label>
-                            <Input type="date" value={formData.dob ? formData.dob.split('T')[0] : ""} onChange={e => setFormData({ ...formData, dob: e.target.value })} />
+                            <Input type="date" value={formData.dob} onChange={e => setFormData({ ...formData, dob: e.target.value })} />
                         </div>
-                        <div className="col-span-2">
+                        <div>
+                            <Label>Admission Date *</Label>
+                            <Input type="date" value={formData.admissionDate} onChange={e => setFormData({ ...formData, admissionDate: e.target.value })} />
+                        </div>
+                        <div className="col-span-1">
                             <Label>Address <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <Input value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} placeholder="Full address" />
                         </div>

@@ -225,6 +225,7 @@ export class StudentService {
       data: {
         ...rest,
         dob: new Date(payload.dob),
+        admissionDate: payload.admissionDate ? new Date(payload.admissionDate) : null,
         classId: Number(payload.classId),
         programId: Number(payload.programId),
         sectionId:
@@ -337,6 +338,7 @@ export class StudentService {
       sectionId,
       documents,
       dob,
+      admissionDate,
       photo,
       installments,
       inquiryId,
@@ -353,6 +355,11 @@ export class StudentService {
     // Handle DOB
     if (dob) {
       data.dob = new Date(dob);
+    }
+
+    // Handle Admission Date
+    if (admissionDate) {
+      data.admissionDate = new Date(admissionDate);
     }
 
     // Handle documents (ensure it's an object)
