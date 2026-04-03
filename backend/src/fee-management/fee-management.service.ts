@@ -1265,17 +1265,20 @@ export class FeeManagementService {
 
       const data: any = { ...payload };
 
+      // STAMP the dynamic late fee into fineAmount for persistence
+      if (dynamicLateFee > 0 && payload.fineAmount === undefined) {
+        data.fineAmount = (challan.fineAmount || 0) + dynamicLateFee;
+      }
+
       // Convert selectedHeads to JSON string
       if (payload.selectedHeads) {
         data.selectedHeads = JSON.stringify(payload.selectedHeads);
       }
 
-      // 1b. Correct fineAmount to include arrears late fee if provided
-      if (payload.fineAmount !== undefined || payload.arrearsLateFee !== undefined) {
-        const baseFine = payload.fineAmount !== undefined ? payload.fineAmount : (challan.fineAmount || 0);
-        const lateFee = payload.arrearsLateFee || 0;
-        data.fineAmount = baseFine + lateFee;
-      }
+      // 1b. Correct fineAmount to include manual heads, arrears late fee, and STAMP the current dynamic late fee
+      const manualFine = payload.fineAmount !== undefined ? payload.fineAmount : (challan.fineAmount || 0);
+      const arrearsLateFee = payload.arrearsLateFee || 0;
+      data.fineAmount = (manualFine + arrearsLateFee + dynamicLateFee);
 
       // 1c. Re-calculate covered installments string for persistent pre-checks
       const coveredNums = new Set<number>();
@@ -1584,7 +1587,9 @@ export class FeeManagementService {
       data.remainingAmount = Math.max(0, totalBillableForChallan - totalPaidAndDiscount);
 
       // Determine status based on payments
-      if (data.remainingAmount === 0 && totalPaidAndDiscount > 0) {
+      if (challan.status === 'VOID') {
+        data.status = 'VOID'; // Retain superseded state
+      } else if (data.remainingAmount === 0 && totalPaidAndDiscount > 0) {
         data.status = 'PAID';
       } else if (data.remainingAmount > 0) {
         if (totalPaidAndDiscount > 0) {

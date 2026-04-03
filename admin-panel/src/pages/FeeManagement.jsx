@@ -949,7 +949,7 @@ const FeeManagement = () => {
     let feeHeadsRowsHtml = distributedHeads.filter(h => h && h.type === 'additional' && h.amount > 0).map(h => {
       totalOtherHeadsFromSelection += h.amount;
       // Show BALANCE by default to match user request "reflect latest data"
-      return `<tr><td>${h.name}</td><td>${h.balance.toLocaleString()}</td></tr>`;
+      return `<tr><td>${h.name}</td><td>${(h.balance ?? h.amount ?? 0).toLocaleString()}</td></tr>`;
     }).join('');
 
     // Append dynamic late fine if applicable
@@ -4092,7 +4092,9 @@ const FeeManagement = () => {
                                     return { amount, lateFee };
                                   });
 
-                                  const sessionArrearsTotal = (student.studentArrears || []).reduce((sum, sa) => sum + (sa.arrearAmount || 0), 0);
+                                  const granularClassIds = new Set((student.feeInstallments || []).map(i => i.classId));
+                                  const filteredSessionArrears = (student.studentArrears || []).filter(sa => !granularClassIds.has(sa.classId));
+                                  const sessionArrearsTotal = filteredSessionArrears.reduce((sum, sa) => sum + (sa.arrearAmount || 0), 0);
                                   const arrearsAmount = arrearsData.reduce((sum, a) => sum + a.amount, 0) + sessionArrearsTotal;
                                   const arrearsLateFee = arrearsData.reduce((sum, a) => sum + a.lateFee, 0);
                                   const unpaidInstAmt = currentInst ? (currentInst.amount - (currentInst.paidAmount || 0)) : 0;
@@ -4166,8 +4168,7 @@ const FeeManagement = () => {
                                         </div>
                                       </TableCell>
                                       <TableCell className="text-xs p-2 text-right font-medium whitespace-nowrap">
-                                        {/* FIX 7: Show remaining billable (unpaidInstAmt) not the full installment amount */}
-                                        Rs. {unpaidInstAmt.toLocaleString()}
+                                        Rs. {(currentInst ? currentInst.amount : 0).toLocaleString()}
                                       </TableCell>
                                       <TableCell className="text-xs p-2 text-right text-red-600 font-medium whitespace-nowrap">
                                         <div>Rs. {arrearsAmount.toLocaleString()}</div>
