@@ -28,6 +28,7 @@ export class AcademicsService {
         id: true,
         name: true,
         level: true,
+        duration: true,
         rollPrefix: true,
         department: {
           select: { name: true },

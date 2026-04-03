@@ -108,6 +108,23 @@ const FeeManagement = () => {
   const [extraRemarks, setExtraRemarks] = useState("");
   const [extraIsOtherEnabled, setExtraIsOtherEnabled] = useState(false);
   const [extraOtherAmount, setExtraOtherAmount] = useState("0");
+  const sessionManuallySet = useRef(false);
+
+  // Helper to extract year gap from program duration (e.g., "4 years" -> 4)
+  const getProgramGap = (prog) => {
+    if (!prog?.duration) return 1;
+    const match = prog.duration.match(/\d+/);
+    return match ? parseInt(match[0], 10) : 1;
+  };
+
+  // Helper to generate session string from a date/month and gap
+  const getSessionLabelStr = (dateStr, gap = 1) => {
+    if (!dateStr) return "";
+    const [y, m] = dateStr.split('-').map(Number);
+    // Academic year: if month >= April (4), session is y-(y+gap), else (y-1)-(y+gap-1)
+    if (m >= 4) return `${y}-${y + gap}`;
+    return `${y - 1}-${y + gap - 1}`;
+  };
 
 
   const [challanForm, setChallanForm] = useState({
@@ -187,14 +204,7 @@ const FeeManagement = () => {
     }
   }, [generateForm.month]);
 
-  // Auto-compute session from selected month
-  useEffect(() => {
-    if (generateForm.month) {
-      const [y, m] = generateForm.month.split('-').map(Number);
-      const computed = m >= 4 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
-      setGenerateForm(prev => ({ ...prev, session: computed }));
-    }
-  }, [generateForm.month]);
+
 
   // Bulk student fetcher
   useEffect(() => {
@@ -1474,7 +1484,7 @@ const FeeManagement = () => {
                               }}>
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              {challan.status !== "PAID" && challan.status !== "VOID" && <Button size="sm" variant="outline" onClick={async () => {
+                              {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={async () => {
                                 setEditingChallan(challan);
                                 const isExtraChallan = challan.installmentNumber === 0 || challan.challanType === 'FEE_HEADS_ONLY';
                                 
@@ -1492,16 +1502,20 @@ const FeeManagement = () => {
                                   }
                                 }
 
-                                // Auto-identify all past unpaid installments
+                                // Auto-identify all potential past unpaid installments (for reference or if snapshot is missing)
                                 let autoSelectedArrears = [];
                                 let autoArrearsTotal = 0;
 
                                 if (!isExtraChallan) {
                                   const targetInst = fetchedPlan.find(inst => inst.installmentNumber === challan.installmentNumber);
                                   
+                                  const seenInstNums = new Set();
                                   const pastUnpaid = fetchedPlan.filter(inst => {
-                                    return targetInst ? inst.installmentNumber < targetInst.installmentNumber : false;
-                                  }).filter(inst => (inst.remainingAmount || (inst.amount - (inst.paidAmount || 0))) > 0);
+                                    if (!targetInst || inst.installmentNumber >= targetInst.installmentNumber) return false;
+                                    if (seenInstNums.has(inst.installmentNumber)) return false;
+                                    seenInstNums.add(inst.installmentNumber);
+                                    return (inst.remainingAmount || (inst.amount - (inst.paidAmount || 0))) > 0;
+                                  });
 
                                   autoSelectedArrears = pastUnpaid.map(inst => ({
                                     id: inst.id,
@@ -1513,6 +1527,42 @@ const FeeManagement = () => {
                                   autoArrearsTotal = autoSelectedArrears.reduce((sum, a) => sum + a.amount, 0);
                                 }
 
+                                // Reconstruct arrearsSelections from coveredInstallments snapshot if available
+                                const coveredStr = challan.coveredInstallments || "";
+                                let snapshotArrears = [];
+                                if (coveredStr && !isExtraChallan) {
+                                  let coveredNums = [];
+                                  if (coveredStr.includes("-")) {
+                                    const [start, end] = coveredStr.split("-").map(Number);
+                                    if (!isNaN(start) && !isNaN(end)) {
+                                      for (let i = start; i <= end; i++) coveredNums.push(i);
+                                    }
+                                  } else {
+                                    coveredNums = coveredStr.split(",").map(s => Number(s.trim())).filter(n => !isNaN(n));
+                                  }
+                                  
+                                  const currentInstNum = challan.installmentNumber || 0;
+                                  snapshotArrears = fetchedPlan
+                                    .filter(inst => coveredNums.includes(inst.installmentNumber) && inst.installmentNumber !== currentInstNum)
+                                    .map(inst => ({
+                                      id: inst.id,
+                                      installmentNumber: inst.installmentNumber,
+                                      amount: inst.remainingAmount || (inst.amount - (inst.paidAmount || 0)),
+                                      lateFee: calculateLateFee(inst.dueDate, lateFeeFine)
+                                    }));
+                                  
+                                  // filter unique for safety
+                                  const finalArrears = [];
+                                  const finalSeen = new Set();
+                                  snapshotArrears.forEach(a => {
+                                    if (!finalSeen.has(a.installmentNumber)) {
+                                      finalSeen.add(a.installmentNumber);
+                                      finalArrears.push(a);
+                                    }
+                                  });
+                                  snapshotArrears = finalArrears;
+                                }
+
                                 setChallanForm({
                                   ...challanForm,
                                   studentId: challan.studentId.toString(),
@@ -1520,15 +1570,14 @@ const FeeManagement = () => {
                                   dueDate: challan.dueDate ? new Date(challan.dueDate) : "",
                                   remarks: challan.remarks || "",
                                   installmentNumber: (challan.installmentNumber || 0).toString(),
-                                  arrearsAmount: isExtraChallan ? "0" : autoArrearsTotal.toString(),
-                                  arrearsSelections: isExtraChallan ? [] : autoSelectedArrears,
+                                  arrearsAmount: isExtraChallan ? "0" : (challan.arrearsAmount || 0).toString(),
+                                  arrearsSelections: isExtraChallan ? [] : (snapshotArrears.length > 0 ? snapshotArrears : autoSelectedArrears),
                                   isOtherEnabled: (() => {
                                     try {
                                       const raw = (challan.selectedHeads && typeof challan.selectedHeads === 'string')
                                         ? JSON.parse(challan.selectedHeads)
                                         : (challan.selectedHeads || []);
                                       const hasOtherHead = Array.isArray(raw) && raw.some(h => (typeof h === 'object' && h !== null && h.id === -1));
-                                      // Pre-check for extra challans if fineAmount exists, even if head is missing
                                       return hasOtherHead || (isExtraChallan && (challan.fineAmount || 0) > 0);
                                     } catch (e) { return (isExtraChallan && (challan.fineAmount || 0) > 0); }
                                   })(),
@@ -1541,7 +1590,6 @@ const FeeManagement = () => {
                                         const other = raw.find(h => (typeof h === 'object' && h !== null && h.id === -1));
                                         if (other) return (other.amount || 0).toString();
                                       }
-                                      // Fallback for extra challans
                                       if (isExtraChallan && (challan.fineAmount || 0) > 0) return (challan.fineAmount || 0).toString();
                                       return "0";
                                     } catch (e) { 
@@ -1587,7 +1635,7 @@ const FeeManagement = () => {
                               <Button size="sm" variant="outline" onClick={() => printChallan(challan.id)}>
                                 <Printer className="w-4 h-4" />
                               </Button>
-                              {challan.status !== "PAID" && challan.status !== "VOID" && <Button size="sm" variant="outline" onClick={() => handlePayment(challan)}>
+                              {challan.status !== "PAID" && <Button size="sm" variant="outline" onClick={() => handlePayment(challan)}>
                                 <CheckCircle2 className="w-4 h-4" />
                               </Button>}
                               {challan.paymentHistory && <Button size="sm" variant="outline" onClick={() => {
@@ -1904,7 +1952,7 @@ const FeeManagement = () => {
                               <Button size="sm" variant="ghost" onClick={() => printChallan(challan.id)}>
                                 <Printer className="w-4 h-4" />
                               </Button>
-                              {challan.status !== "PAID" && challan.status !== "VOID" && (
+                              {challan.status !== "PAID" && (
                                 <Button size="sm" variant="ghost" onClick={async () => {
                                   setEditingChallan(challan);
                                   const isExtraChallan = true; // Always true for this table
@@ -1973,7 +2021,7 @@ const FeeManagement = () => {
                                   <Edit className="w-4 h-4" />
                                 </Button>
                               )}
-                              {challan.status !== "PAID" && challan.status !== "VOID" && (
+                              {challan.status !== "PAID" && (
                                 <Button size="sm" variant="outline" className="text-success border-success hover:bg-success hover:text-white" onClick={() => handlePayment(challan)}>
                                   Pay
                                 </Button>
@@ -3120,7 +3168,7 @@ const FeeManagement = () => {
                 <div className="col-span-2 space-y-1 pt-1 border-t">
                   <div className="flex justify-between items-center bg-red-50 p-2 rounded-md border border-red-100 italic transition-all animate-in fade-in slide-in-from-top-1">
                     <Label className="text-[10px] font-black text-red-700 uppercase flex items-center gap-2">
-                       <History className="w-3.5 h-3.5" /> ARREARS INCLUDED (INST #: {challanForm.arrearsSelections.map(s => s.installmentNumber || 'S').join(', ')})
+                       <History className="w-3.5 h-3.5" /> ARREARS INCLUDED (INST #: {[...new Set(challanForm.arrearsSelections.map(s => s.installmentNumber || 'S'))].join(', ')})
                     </Label>
                     <span className="text-sm font-black text-red-700">Rs. {parseFloat(challanForm.arrearsAmount).toLocaleString()}</span>
                   </div>
@@ -3254,7 +3302,7 @@ const FeeManagement = () => {
 
                     const tuitionSelected = parseFloat(challanForm.amount || "0") || 0;
 
-                    const arrears = isExtra ? 0 : (challanForm.arrearsSelections || []).reduce((sum, a) => sum + a.amount, 0);
+                    const arrears = isExtra ? 0 : (parseFloat(challanForm.arrearsAmount) || 0);
                     const arrearsLateFee = isExtra ? 0 : (challanForm.arrearsSelections || []).reduce((sum, a) => sum + a.lateFee, 0);
 
                     const selectedHeadIds = (challanForm.selectedHeads || []).map(id => Number(id));
@@ -3447,143 +3495,201 @@ const FeeManagement = () => {
           
           {selectedChallanDetails && (
             <div className="space-y-6">
-              {/* Structured Summary Card */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card className="shadow-soft border-primary/10">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              {/* Header Info: Dates & Status */}
+              <div className="bg-slate-50 border rounded-xl p-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="space-y-1">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Challan Number</p>
+                  <p className="text-sm font-mono font-bold text-primary">{selectedChallanDetails.challanNumber}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Issue Date</p>
+                  <p className="text-sm font-semibold">{format(new Date(selectedChallanDetails.issueDate || selectedChallanDetails.createdAt), "dd MMM yyyy")}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Due Date</p>
+                  <p className="text-sm font-semibold text-destructive">{format(new Date(selectedChallanDetails.dueDate), "dd MMM yyyy")}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Status</p>
+                  <Badge 
+                    className="uppercase text-[10px]"
+                    variant={selectedChallanDetails.status === "PAID" ? "default" : selectedChallanDetails.status === "VOID" ? "outline" : "destructive"}
+                  >
+                    {selectedChallanDetails.status === "VOID" ? "Superseded" : selectedChallanDetails.status}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* itemized Financial Breakdown */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <Card className="lg:col-span-2 shadow-sm border-slate-200">
+                  <CardHeader className="bg-slate-50/50 border-b py-3">
+                    <CardTitle className="text-sm font-bold flex items-center gap-2">
                       <Receipt className="w-4 h-4 text-primary" />
-                      Payment Breakdown
+                      Itemized Bill Details
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex justify-between items-center py-2 border-b border-dashed">
-                      <span className="text-sm">Tuition Amount</span>
-                      <span className="font-semibold">PKR {(selectedChallanDetails.amount - (selectedChallanDetails.arrearsAmount || 0)).toLocaleString()}</span>
-                    </div>
-                    
-                    {selectedChallanDetails.arrearsAmount > 0 && (
-                      <div className="flex justify-between items-center py-2 border-b border-dashed text-red-600">
-                        <span className="text-sm flex items-center gap-1"><History className="w-3 h-3" /> Previous Arrears</span>
-                        <span className="font-semibold">PKR {selectedChallanDetails.arrearsAmount.toLocaleString()}</span>
-                      </div>
-                    )}
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-slate-50/30">
+                          <TableHead className="text-[10px] uppercase font-bold py-2">Description</TableHead>
+                          <TableHead className="text-[10px] uppercase font-bold py-2 text-right">Amount (PKR)</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {/* Tuition Component */}
+                        <TableRow>
+                          <TableCell className="py-2">
+                            <span className="font-semibold text-slate-700">Tuition Fee</span>
+                            <p className="text-[10px] text-muted-foreground italic">
+                              {selectedChallanDetails.installmentNumber > 0 ? `Installment #${selectedChallanDetails.installmentNumber}` : 'Standard Charge'}
+                            </p>
+                          </TableCell>
+                          <TableCell className="text-right font-bold py-2">
+                             {formatAmount(selectedChallanDetails.amount - (selectedChallanDetails.arrearsAmount || 0))}
+                          </TableCell>
+                        </TableRow>
 
-                    {/* Dynamic Fee Heads Section */}
-                    {(() => {
-                      try {
-                        const raw = (selectedChallanDetails.selectedHeads && typeof selectedChallanDetails.selectedHeads === 'string')
-                          ? JSON.parse(selectedChallanDetails.selectedHeads)
-                          : (selectedChallanDetails.selectedHeads || []);
-                        
-                        const activeHeads = Array.isArray(raw) ? raw.filter(h => 
-                          (typeof h === 'object' && h !== null && h.isSelected && h.amount > 0) || 
-                          (typeof h === 'number')
-                        ) : [];
+                        {/* Arrears Component */}
+                        {selectedChallanDetails.arrearsAmount > 0 && (
+                          <TableRow className="text-amber-700 bg-amber-50/20">
+                            <TableCell className="py-2">
+                              <div className="flex items-center gap-1.5 font-semibold">
+                                <History className="w-3 h-3" />
+                                Previous Arrears
+                              </div>
+                              <p className="text-[10px] opacity-70">Accumulated from previous sessions/unpaid bills</p>
+                            </TableCell>
+                            <TableCell className="text-right font-bold py-2">
+                              {formatAmount(selectedChallanDetails.arrearsAmount)}
+                            </TableCell>
+                          </TableRow>
+                        )}
 
-                        if (activeHeads.length === 0) return null;
+                        {/* Dynamic Fee Heads */}
+                        {(() => {
+                           try {
+                             const raw = (selectedChallanDetails.selectedHeads && typeof selectedChallanDetails.selectedHeads === 'string')
+                               ? JSON.parse(selectedChallanDetails.selectedHeads)
+                               : (selectedChallanDetails.selectedHeads || []);
+                             
+                             const activeHeads = Array.isArray(raw) ? raw.filter(h => 
+                               (typeof h === 'object' && h !== null && h.isSelected && h.amount > 0) || 
+                               (typeof h === 'number')
+                             ) : [];
 
-                        return (
-                          <div className="pt-2">
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Additional Heads</p>
-                            <div className="space-y-2">
-                              {activeHeads.map((item, idx) => {
-                                let name = "Additional Head";
-                                let amount = 0;
-
-                                if (typeof item === 'object' && item !== null) {
+                             return activeHeads.map((item, idx) => {
+                               let name = "Additional Head";
+                               let amount = 0;
+                               if (typeof item === 'object' && item !== null) {
                                   name = item.name;
                                   amount = item.amount;
-                                } else {
-                                  // Fallback for ID-only legacy snapshots
+                               } else {
                                   const head = (feeHeads || []).find(h => Number(h.id) === Number(item));
-                                  if (head) {
-                                    name = head.name;
-                                    amount = parseFloat(head.amount) || 0;
-                                  }
-                                }
+                                  if (head) { name = head.name; amount = parseFloat(head.amount) || 0; }
+                               }
+                               return (
+                                 <TableRow key={idx}>
+                                   <TableCell className="py-2 text-slate-600">{name}</TableCell>
+                                   <TableCell className="text-right font-medium py-2">{formatAmount(amount)}</TableCell>
+                                 </TableRow>
+                               );
+                             });
+                           } catch (e) { return null; }
+                        })()}
 
-                                return (
-                                  <div key={idx} className="flex justify-between items-center py-1 text-xs text-muted-foreground">
-                                    <span>{name}</span>
-                                    <span>PKR {amount.toLocaleString()}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        );
-                      } catch (e) {
-                        return null;
-                      }
-                    })()}
+                        {/* Fines & Late Fees */}
+                        {selectedChallanDetails.lateFeeFine > 0 && (
+                          <TableRow className="text-destructive bg-destructive/5 font-medium">
+                            <TableCell className="py-2">Late Fee Fine (Calculated Overdue)</TableCell>
+                            <TableCell className="text-right font-bold py-2">{formatAmount(selectedChallanDetails.lateFeeFine)}</TableCell>
+                          </TableRow>
+                        )}
 
-                    {selectedChallanDetails.lateFeeFine > 0 && (
-                      <div className="flex justify-between items-center py-2 border-b border-dashed text-destructive">
-                        <span className="text-sm font-medium">Fine (Late Fee)</span>
-                        <span className="font-bold">PKR {selectedChallanDetails.lateFeeFine.toLocaleString()}</span>
-                      </div>
-                    )}
+                        {/* Discounts */}
+                        {(selectedChallanDetails.discount || 0) > 0 && (
+                          <TableRow className="text-green-600 bg-green-50/30">
+                            <TableCell className="py-2 italic">Applied Scholarship / Discount</TableCell>
+                            <TableCell className="text-right font-bold py-2">- {formatAmount(selectedChallanDetails.discount)}</TableCell>
+                          </TableRow>
+                        )}
 
-                    {(selectedChallanDetails.discount || 0) > 0 && (
-                      <div className="flex justify-between items-center py-2 border-b border-dashed text-green-600">
-                        <span className="text-sm font-medium">Discount </span>
-                        <span className="font-bold">- PKR {(selectedChallanDetails.discount || 0).toLocaleString()}</span>
-                      </div>
-                    )}
-
-                    <div className="flex justify-between items-center pt-4 border-t-2 border-primary/20 mt-2">
-                      <span className="text-base font-bold text-primary">Total Amount</span>
-                      <span className="text-xl font-black text-primary">PKR {Math.max(0, ((selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0) - (selectedChallanDetails.discount || 0))).toLocaleString()}</span>
-                    </div>
+                        {/* Final Net Total Row */}
+                        <TableRow className="bg-primary/5 border-t-2 border-primary/20">
+                          <TableCell className="py-3">
+                            <span className="text-base font-black text-primary uppercase tracking-tight">Net Payable Amount</span>
+                          </TableCell>
+                          <TableCell className="text-right py-3">
+                            <span className="text-xl font-black text-primary">
+                              PKR {formatAmount((selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0) - (selectedChallanDetails.discount || 0))}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
                   </CardContent>
                 </Card>
 
-                <Card className="shadow-soft border-success/10 bg-success/5">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-bold uppercase tracking-wider text-success flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Collection Status
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-3 bg-white rounded-lg border border-success/20 shadow-sm">
-                        <p className="text-[10px] font-bold text-success uppercase">Paid Amount</p>
-                        <p className="text-lg font-black text-success">PKR {(selectedChallanDetails.paidAmount || 0).toLocaleString()}</p>
-                      </div>
-                      <div className="p-3 bg-white rounded-lg border border-warning/20 shadow-sm">
-                        <p className="text-[10px] font-bold text-warning-700 uppercase">Balance Due</p>
-                        <p className="text-lg font-black text-warning-700">
-                          PKR {Math.max(0, ((selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0) - (selectedChallanDetails.discount || 0)) - (selectedChallanDetails.paidAmount || 0)).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 mt-2">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Status:</span>
-                        <Badge variant={selectedChallanDetails.status === "PAID" ? "default" : selectedChallanDetails.status === "VOID" ? "outline" : "secondary"}>
-                          {selectedChallanDetails.status === "VOID" ? "Superseded" : selectedChallanDetails.status}
-                        </Badge>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Issue Date:</span>
-                        <span className="font-medium">{new Date(selectedChallanDetails.issueDate).toLocaleDateString()}</span>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Due Date:</span>
-                        <span className="font-medium text-destructive">{new Date(selectedChallanDetails.dueDate).toLocaleDateString()}</span>
-                      </div>
-                      {selectedChallanDetails.paidDate && (
-                        <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground">Payment Date:</span>
-                          <span className="font-bold text-success">{new Date(selectedChallanDetails.paidDate).toLocaleDateString()}</span>
+                {/* Collection Summary Sidebar */}
+                <div className="space-y-6">
+                  <Card className="shadow-sm border-success/20 bg-success/5">
+                    <CardHeader className="pb-2">
+                       <CardTitle className="text-xs font-bold uppercase tracking-wider text-success flex items-center gap-2">
+                         <CheckCircle2 className="w-4 h-4" />
+                         Collection Summary
+                       </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">Total Billed</span>
+                          <span className="text-sm font-bold">
+                            PKR {formatAmount((selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0) - (selectedChallanDetails.discount || 0))}
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">Amount Paid</span>
+                          <span className="text-sm font-bold text-success">PKR {formatAmount(selectedChallanDetails.paidAmount || 0)}</span>
+                        </div>
+                        <div className="pt-2 border-t flex justify-between items-center">
+                          <span className="text-sm font-bold text-slate-800">Remaining Balance</span>
+                          <span className="text-base font-black text-destructive">
+                            PKR {formatAmount(Math.max(0, ((selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0) - (selectedChallanDetails.discount || 0)) - (selectedChallanDetails.paidAmount || 0)))}
+                          </span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Payment Metadata */}
+                  <Card className="shadow-sm border-slate-200">
+                    <CardHeader className="pb-2 bg-slate-50/50 border-b">
+                      <CardTitle className="text-[10px] font-bold uppercase text-slate-500">Metadata & Timeline</CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-4 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-slate-100 rounded-lg"><User className="w-4 h-4 text-slate-600" /></div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">Student</p>
+                          <p className="text-xs font-bold">{selectedChallanDetails.student?.fName} {selectedChallanDetails.student?.lName}</p>
+                          <p className="text-[10px] text-muted-foreground">{selectedChallanDetails.student?.rollNumber}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-slate-100 rounded-lg"><Clock className="w-4 h-4 text-slate-600" /></div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">Timeline</p>
+                          <div className="text-[10px] font-medium space-y-0.5">
+                            <p>Issued: {selectedChallanDetails.issueDate || selectedChallanDetails.createdAt ? format(new Date(selectedChallanDetails.issueDate || selectedChallanDetails.createdAt), "dd MMM yyyy") : "N/A"}</p>
+                            <p>Due: <span className="text-destructive font-bold">{selectedChallanDetails.dueDate ? format(new Date(selectedChallanDetails.dueDate), "dd MMM yyyy") : "N/A"}</span></p>
+                            {selectedChallanDetails.paidDate && <p>Paid: <span className="text-success font-bold">{format(new Date(selectedChallanDetails.paidDate), "dd MMM yyyy")}</span></p>}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
               </div>
 
               {/* Enhanced Payment Breakdown Section */}
@@ -3680,7 +3786,18 @@ const FeeManagement = () => {
                     <Input
                       type="month"
                       value={generateForm.month}
-                      onChange={(e) => setGenerateForm({ ...generateForm, month: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setGenerateForm(prev => {
+                          const newState = { ...prev, month: val };
+                          if (!sessionManuallySet.current) {
+                            const prog = (programs || []).find(p => p.id.toString() === newState.programId.toString());
+                            const gap = getProgramGap(prog);
+                            newState.session = getSessionLabelStr(val, gap);
+                          }
+                          return newState;
+                        });
+                      }}
                       className="h-8 text-xs"
                     />
                   </div>
@@ -3713,7 +3830,10 @@ const FeeManagement = () => {
                     <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Session</Label>
                     <Select
                       value={generateForm.session}
-                      onValueChange={(v) => setGenerateForm({ ...generateForm, session: v })}
+                      onValueChange={(v) => {
+                        sessionManuallySet.current = true;
+                        setGenerateForm(prev => ({ ...prev, session: v }));
+                      }}
                     >
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue placeholder="Select Session" />
@@ -3721,9 +3841,11 @@ const FeeManagement = () => {
                       <SelectContent>
                         {(() => {
                           const currentYear = new Date().getFullYear();
+                          const prog = programs.find(p => p.id.toString() === generateForm.programId.toString());
+                          const gap = getProgramGap(prog);
                           const sessions = [];
-                          for (let y = currentYear - 3; y <= currentYear + 1; y++) {
-                            sessions.push(`${y}-${y + 1}`);
+                          for (let y = currentYear - 5; y <= currentYear + 5; y++) {
+                            sessions.push(`${y}-${y + gap}`);
                           }
                           return sessions.map(s => (
                             <SelectItem key={s} value={s}>{s}</SelectItem>
@@ -3736,7 +3858,17 @@ const FeeManagement = () => {
                     <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Program (Optional)</Label>
                     <Select
                       value={generateForm.programId}
-                      onValueChange={(v) => setGenerateForm({ ...generateForm, programId: v, classId: "", sectionId: "" })}
+                      onValueChange={(v) => {
+                        setGenerateForm(prev => {
+                          const newState = { ...prev, programId: v, classId: "", sectionId: "" };
+                          if (!sessionManuallySet.current && newState.month) {
+                            const prog = programs.find(p => p.id.toString() === v.toString());
+                            const gap = getProgramGap(prog);
+                            newState.session = getSessionLabelStr(newState.month, gap);
+                          }
+                          return newState;
+                        });
+                      }}
                     >
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue placeholder="All Programs" />
@@ -3800,7 +3932,64 @@ const FeeManagement = () => {
                                size="xs" 
                                className="text-[10px] h-6 px-2 text-primary"
                                onClick={() => {
-                                 setSelectedBulkStudents(bulkStudents.map(s => s.id));
+                                 const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                                 const monthNames = [
+                                   "January", "February", "March", "April", "May", "June",
+                                   "July", "August", "September", "October", "November", "December"
+                                 ];
+                                 const mNameMatch = monthNames[selMonth - 1];
+                                 
+                                  // Helper to extract sequence rank from class (e.g. Grade 10 < Grade 11)
+                                  const getClassRankLocal = (cls) => {
+                                    if (!cls) return 0;
+                                    return (Number(cls.year || 0) * 100) + (Number(cls.semester || 0));
+                                  };
+
+                                  const getChronoRankLocal = (i) => {
+                                    if (!i || !i.dueDate) return 0;
+                                    const rank = getClassRankLocal(i.class);
+                                    return (rank * 1e14) + new Date(i.dueDate).getTime();
+                                  };
+
+                                  const filtered = bulkStudents.filter(student => {
+                                    const studentInsts = (student.feeInstallments || []).sort((a,b) => a.installmentNumber - b.installmentNumber);
+                                    const inst = studentInsts.find(i => {
+                                      const instMonthStr = (i.month || "").trim().toLowerCase();
+                                      const nameMatches = instMonthStr === mNameMatch.toLowerCase();
+                                      if (generateForm.session) {
+                                        return nameMatches && i.session === generateForm.session;
+                                      }
+                                      return nameMatches;
+                                    });
+                                    if (!inst) return false;
+                                    // Skip paid installments
+                                    if (inst.status === 'PAID') return false;
+                                    // Skip already-generated (pending challan exists)
+                                    // 'PENDING' alone does NOT mean billed — fresh installments start as PENDING.
+                                    const alreadyGenerated = (inst.paidAmount || 0) > 0 || (inst.pendingAmount || 0) > 0 || ['PAID', 'PARTIAL', 'ISSUED', 'UNPAID', 'SUCCESS', 'CREATED'].includes(inst.status);
+                                    if (alreadyGenerated) return false;
+
+                                    // HIERARCHICAL MISSING CHECK:
+                                    const targetClassRank = getClassRankLocal(inst.class);
+                                    const targetInstNum = inst.installmentNumber || 0;
+                                    const prevInsts = studentInsts.filter(i => {
+                                      if (!i.dueDate) return false;
+                                      const iClassRank = getClassRankLocal(i.class);
+                                      if (i.classId === inst.classId) {
+                                        return i.installmentNumber < targetInstNum;
+                                      } else {
+                                        return iClassRank < targetClassRank;
+                                      }
+                                    });
+
+                                    const hasMissingPrev = prevInsts.some(i => {
+                                      // 'PENDING' alone does NOT mean billed — fresh installments start as PENDING
+                                      const isBilled = (i.paidAmount || 0) > 0 || (i.pendingAmount || 0) > 0 || ['PAID', 'PARTIAL', 'ISSUED', 'UNPAID', 'SUCCESS', 'CREATED'].includes(i.status);
+                                      return !isBilled;
+                                    });
+                                    return !hasMissingPrev;
+                                 });
+                                 setSelectedBulkStudents(filtered.map(s => s.id));
                                }}
                              >
                                Select All
@@ -3829,154 +4018,168 @@ const FeeManagement = () => {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {bulkStudents.map((student) => {
-                                  const [selYear, selMonth] = generateForm.month.split('-').map(Number);
-                                  
-                                  // Use fixed month names to avoid locale issues
-                                  const monthNames = [
-                                    "January", "February", "March", "April", "May", "June",
-                                    "July", "August", "September", "October", "November", "December"
-                                  ];
-                                  const mNameMatch = monthNames[selMonth - 1];
-                                  const mSessionMatch = (selMonth >= 4) ? `${selYear}-${selYear + 1}` : `${selYear - 1}-${selYear}`;
+                              {(() => {
+                                const [selYear, selMonth] = generateForm.month.split('-').map(Number);
+                                const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                                const mNameMatch = monthNames[selMonth - 1];
 
-                                  // Multi-Pass Matcher
-                                  const studentInsts = (student.feeInstallments || []).sort((a,b) => a.installmentNumber - b.installmentNumber);
-                                  
-                                  // Pass 1: Logical Name Match (Case-insensitive, session-flexible)
-                                  // PASS 1: Strict Match (Exact Month Name + Year Year/Session context)
-                                  let currentInst = studentInsts.find(inst => {
+                                const filteredRows = bulkStudents.filter(student => {
+                                  const studentInsts = (student.feeInstallments || []);
+                                  return studentInsts.some(inst => {
                                     const instMonthStr = (inst.month || "").trim().toLowerCase();
                                     const nameMatches = instMonthStr === mNameMatch.toLowerCase();
-                                    
-                                    // Use explicitly selected session for matching when available
                                     if (generateForm.session) {
                                       return nameMatches && inst.session === generateForm.session;
                                     }
-                                    
-                                    const mSessionYear = parseInt(mSessionMatch.split('-')[0]);
-                                    const instSessionYear = inst.session ? parseInt(inst.session.split('-')[0]) : 0;
-                                    
-                                    return nameMatches && instSessionYear === mSessionYear;
+                                    return nameMatches;
+                                  });
+                                });
+
+                                if (filteredRows.length === 0) {
+                                  return (
+                                    <TableRow>
+                                      <TableCell colSpan={5} className="py-8 text-center text-red-500 font-medium italic">
+                                        No installment plan found for {mNameMatch} {selYear} / {generateForm.session || 'any session'}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                }
+
+                                return filteredRows.map((student) => {
+                                  const studentInsts = (student.feeInstallments || []).sort((a,b) => a.installmentNumber - b.installmentNumber);
+                                  const currentInst = studentInsts.find(inst => {
+                                    const instMonthStr = (inst.month || "").trim().toLowerCase();
+                                    const nameMatches = instMonthStr === mNameMatch.toLowerCase();
+                                    if (generateForm.session) {
+                                      return nameMatches && inst.session === generateForm.session;
+                                    }
+                                    return nameMatches;
                                   });
                                   
-                                  // Pass 1b: If name matches but session doesn't (flexible for mid-session start)
-                                  if (!currentInst) {
-                                    currentInst = studentInsts.find(inst => {
-                                      const instMonthStr = (inst.month || "").trim().toLowerCase();
-                                      return instMonthStr === mNameMatch.toLowerCase();
-                                    });
-                                  }
-
-                                  // Pass 2: Legacy Month Code String match
-                                  if (!currentInst) {
-                                    currentInst = studentInsts.find(inst => inst.month === generateForm.month);
-                                  }
-
-                                  // Pass 3: Due Date match (Broad)
-                                  if (!currentInst) {
-                                    currentInst = studentInsts.find(inst => {
-                                      const d = new Date(inst.dueDate);
-                                      return d.getFullYear() === selYear && (d.getMonth() + 1) === selMonth;
-                                    });
-                                  }
-
-                                  const getChronoRank = (inst) => {
-                                    if (!inst) return 0;
-                                    const sessionYear = inst.session ? parseInt(inst.session.split('-')[0]) : 2000;
-                                    return (sessionYear * 1000) + Number(inst.installmentNumber || 0);
+                                  const getClassRank = (cls) => {
+                                    if (!cls) return 0;
+                                    return (Number(cls.year || 0) * 100) + (Number(cls.semester || 0));
                                   };
 
-                                  const targetRank = getChronoRank(currentInst);
+                                  const getChronoRank = (inst) => {
+                                    if (!inst || !inst.dueDate) return 0;
+                                    const classRank = getClassRank(inst.class);
+                                    // Combine Class Order (Year/Semester) with Due Date Time
+                                    // Class is the primary sort, Time is the secondary sort.
+                                    return (classRank * 1e14) + new Date(inst.dueDate).getTime();
+                                  };
 
+                                  const targetRank = getChronoRank(currentInst) || 0;
+                                  const targetClassRank = getClassRank(currentInst?.class);
+                                  const targetInstNum = currentInst?.installmentNumber || 0;
                                   const studentLateFee = student.lateFeeFine || lateFeeFine || 0;
+                                  
                                   const arrearsData = (student.feeInstallments || []).filter(inst => {
-                                    if (currentInst) {
-                                      return getChronoRank(inst) < targetRank && (inst.amount - (inst.paidAmount || 0)) > 0;
+                                    const rank = getChronoRank(inst);
+                                    const iClassRank = getClassRank(inst.class);
+                                    let isBefore = false;
+                                    if (currentInst && inst.classId === currentInst.classId) {
+                                      isBefore = inst.installmentNumber < targetInstNum;
+                                    } else {
+                                      isBefore = iClassRank < targetClassRank;
                                     }
-                                    return (inst.amount - (inst.paidAmount || 0)) > 0;
+                                    const isBilled = (inst.paidAmount || 0) > 0 || (inst.pendingAmount || 0) > 0 || ['PAID', 'PARTIAL', 'ISSUED', 'UNPAID', 'SUCCESS', 'CREATED'].includes(inst.status);
+                                    const hasBalance = (inst.amount - (inst.paidAmount || 0)) > 0;
+                                    return isBefore && isBilled && hasBalance;
                                   }).map(inst => {
                                     const amount = (inst.amount - (inst.paidAmount || 0));
                                     const lateFee = calculateLateFee(inst.dueDate, studentLateFee);
                                     return { amount, lateFee };
                                   });
 
-                                  const arrearsAmount = arrearsData.reduce((sum, a) => sum + a.amount, 0);
+                                  const sessionArrearsTotal = (student.studentArrears || []).reduce((sum, sa) => sum + (sa.arrearAmount || 0), 0);
+                                  const arrearsAmount = arrearsData.reduce((sum, a) => sum + a.amount, 0) + sessionArrearsTotal;
                                   const arrearsLateFee = arrearsData.reduce((sum, a) => sum + a.lateFee, 0);
-
-                                  const instAmt = currentInst ? currentInst.amount : 0;
                                   const unpaidInstAmt = currentInst ? (currentInst.amount - (currentInst.paidAmount || 0)) : 0;
                                   const isSelected = selectedBulkStudents.includes(student.id);
                                   
-                                  const prevInsts = (student.feeInstallments || []).filter(inst => {
-                                    if (!currentInst) return false;
-                                    return getChronoRank(inst) < targetRank;
-                                  }).sort((a,b) => getChronoRank(a) - getChronoRank(b));
+                                  const prevInsts = (student.feeInstallments || [])
+                                     .filter(inst => !!inst.dueDate)
+                                     .filter(inst => {
+                                       if (!currentInst) return false;
+                                       const iClassRank = getClassRank(inst.class);
+                                       if (inst.classId === currentInst.classId) {
+                                          return inst.installmentNumber < targetInstNum;
+                                       } else {
+                                          return iClassRank < targetClassRank;
+                                       }
+                                     }).sort((a,b) => getChronoRank(a) - getChronoRank(b));
 
-                                  // Refined status logic: 
-                                  // MISSING = Never added to any challan (unbilled)
-                                  // UNPAID = Added to a challan but not fully settled
-                                  const missingPrev = prevInsts.filter(inst => 
-                                    (inst.paidAmount || 0) === 0 && 
-                                    (inst.pendingAmount || 0) === 0
-                                  );
-                                  const unpaidPrev = prevInsts.filter(inst => 
-                                    !missingPrev.some(m => m.id === inst.id) && 
-                                    ((inst.paidAmount || 0) + (inst.pendingAmount || 0) < inst.amount)
-                                  );
+                                  const missingPrev = prevInsts.filter(inst => {
+                                    const isBilled = (inst.paidAmount || 0) > 0 || (inst.pendingAmount || 0) > 0 || ['PAID', 'PARTIAL', 'ISSUED', 'UNPAID', 'SUCCESS', 'CREATED'].includes(inst.status);
+                                    return !isBilled;
+                                  });
+                                  
+                                  const isGenerated = currentInst && ((currentInst.pendingAmount || 0) > 0 || (currentInst.paidAmount || 0) > 0 || ['PAID', 'PARTIAL', 'ISSUED', 'UNPAID', 'SUCCESS', 'CREATED'].includes(currentInst.status));
+                                  const hasMissing = missingPrev.length > 0;
 
-                                  const hasMissing = false; // missingPrev.length > 0;
-                                  const hasUnpaid = false; // !hasMissing && unpaidPrev.length > 0;
-                                  const isGenerated = currentInst && (currentInst.pendingAmount > 0 || (currentInst.paidAmount || 0) > 0 || currentInst.status === 'PAID' || currentInst.status === 'PARTIAL');
-
-                                return (
-                                  <TableRow key={student.id} className={cn(
-                                    "hover:bg-orange-50/50 border-b border-muted/20 h-10 transition-colors", 
-                                    isSelected && "bg-orange-50/10", 
-                                    generationErrors[student.id] ? "bg-red-50/10" : ""
-                                  )}>
-                                    <TableCell className="p-0 text-center">
-                                      <input
-                                        type="checkbox"
-                                        className="h-3.5 w-3.5 accent-orange-600 cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
-                                        checked={(isSelected || isGenerated)}
-                                        disabled={false}
-                                        onChange={(e) => {
-                                          if (e.target.checked) {
-                                            setSelectedBulkStudents([...selectedBulkStudents, student.id]);
-                                          } else {
-                                            setSelectedBulkStudents(selectedBulkStudents.filter(id => id !== student.id));
-                                          }
-                                        }}
-                                      />
-                                    </TableCell>
-                                    <TableCell className="p-2">
-                                      <div className="flex flex-col">
-                                        <div className="flex items-center gap-1.5">
-                                          <span className={cn("text-xs font-bold", (generationErrors[student.id] || hasMissing) && "text-red-600", isGenerated && "text-blue-700", hasUnpaid && "text-amber-700")}>
-                                            {student.fName} {student.lName || ""}
-                                          </span>
-                                          {/* Removed Badges as requested */}
+                                  return (
+                                    <TableRow key={student.id} className={cn(
+                                      "hover:bg-orange-50/50 border-b border-muted/20 h-10 transition-colors", 
+                                      isSelected && "bg-orange-50/10", 
+                                      generationErrors[student.id] ? "bg-red-50/10" : ""
+                                    )}>
+                                      <TableCell className="p-0 text-center">
+                                        <input
+                                          type="checkbox"
+                                          className="h-3.5 w-3.5 accent-orange-600 cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
+                                          checked={isSelected}
+                                          // FIX 4: Also disable when a challan is already generated (not just PAID)
+                                          disabled={hasMissing || currentInst?.status === 'PAID' || isGenerated}
+                                          onChange={(e) => {
+                                            if (e.target.checked) {
+                                              setSelectedBulkStudents([...selectedBulkStudents, student.id]);
+                                            } else {
+                                              setSelectedBulkStudents(selectedBulkStudents.filter(id => id !== student.id));
+                                            }
+                                          }}
+                                        />
+                                      </TableCell>
+                                      <TableCell className="p-2">
+                                          <div className="flex flex-col">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className={cn("text-xs font-bold", (generationErrors[student.id] || hasMissing) && "text-red-600")}>
+                                                {student.fName} {student.lName || ""}
+                                              </span>
+                                              {hasMissing && (
+                                                <Badge variant="destructive" className="h-4 px-1.5 text-[8px] font-bold uppercase tracking-tight">
+                                                  Missing Prev.
+                                                </Badge>
+                                              )}
+                                            </div>
+                                            {hasMissing && (
+                                              <div className="text-[9px] font-bold text-red-500 italic mt-0.5 whitespace-nowrap">
+                                                {missingPrev.map(m => `${m.month} ${m.session || ""}`).join(", ")} missing
+                                              </div>
+                                            )}
+                                            <span className="text-[9px] text-muted-foreground uppercase">{student.rollNumber}</span>
+                                            {generationErrors[student.id] && (
+                                              <span className="text-[10px] font-bold text-red-500 italic mt-0.5 animate-pulse">
+                                                {generationErrors[student.id]}
+                                              </span>
+                                            )}
                                         </div>
-                                        <span className="text-[9px] text-muted-foreground uppercase">{student.rollNumber}</span>
-                                        {generationErrors[student.id] && (
-                                          <span className="text-[10px] font-bold text-red-500 italic mt-0.5 animate-pulse">
-                                            {generationErrors[student.id]}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </TableCell>
-                                    <TableCell className="text-xs p-2 text-right font-medium whitespace-nowrap">Rs. {instAmt.toLocaleString()}</TableCell>
-                                    <TableCell className="text-xs p-2 text-right text-red-600 font-medium whitespace-nowrap">
-                                      <div>Rs. {arrearsAmount.toLocaleString()}</div>
-                                      {arrearsLateFee > 0 && <div className="text-[9px] font-bold">+{arrearsLateFee.toLocaleString()} Fine</div>}
-                                    </TableCell>
-                                    <TableCell className="text-xs p-2 text-right font-black text-orange-700 whitespace-nowrap">
-                                      Rs. {(unpaidInstAmt + arrearsAmount + arrearsLateFee).toLocaleString()}
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              })}
+                                      </TableCell>
+                                      <TableCell className="text-xs p-2 text-right font-medium whitespace-nowrap">
+                                        {/* FIX 7: Show remaining billable (unpaidInstAmt) not the full installment amount */}
+                                        Rs. {unpaidInstAmt.toLocaleString()}
+                                      </TableCell>
+                                      <TableCell className="text-xs p-2 text-right text-red-600 font-medium whitespace-nowrap">
+                                        <div>Rs. {arrearsAmount.toLocaleString()}</div>
+                                        {arrearsLateFee > 0 && <div className="text-[9px] font-bold">+{arrearsLateFee.toLocaleString()} Fine</div>}
+                                      </TableCell>
+                                      <TableCell className="text-xs p-2 text-right font-black text-orange-700 whitespace-nowrap">
+                                        Rs. {(unpaidInstAmt + arrearsAmount + arrearsLateFee).toLocaleString()}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                });
+                              })()}
                             </TableBody>
                           </Table>
                         </div>

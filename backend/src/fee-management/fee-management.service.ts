@@ -1,4 +1,4 @@
-﻿import {
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -671,6 +671,8 @@ export class FeeManagementService {
             remainingAmount: true,
             status: true,
             dueDate: true,
+            month: true,
+            session: true,
             classId: true,
             class: { select: { name: true } },
           } as any,
@@ -718,7 +720,10 @@ export class FeeManagementService {
     const students = await this.prisma.student.findMany({
       where: studentWhere,
       include: {
-        feeInstallments: true,
+        feeInstallments: {
+          include: { class: true }
+        },
+        program: true,
       },
     });
 
@@ -729,66 +734,83 @@ export class FeeManagementService {
       const [y, mNum] = month.split('-').map(Number);
       const dateObj = new Date(y, mNum - 1, 1);
       const monthName = dateObj.toLocaleString('default', { month: 'long' });
-      
-      // Adaptive session check: first try exact match, then try finding the installment without session restriction
+
+      // FIX 3: Compute correct session gap from program duration (e.g. "4 years" => gap=4)
+      const progDuration = (student as any).program?.duration || '';
+      const durationMatch = progDuration.match(/\d+/);
+      const programGap = durationMatch ? parseInt(durationMatch[0], 10) : 1;
+      const calcSession = (mNum >= 4) ? `${y}-${y + programGap}` : `${y - 1}-${y + programGap - 1}`;
+
+      // Primary match: month name + session (using program-aware gap)
       let targetInstallment: any = (student.feeInstallments as any[]).find((i) => {
-        if (i.classId !== student.classId) return false;
-        const calcSession = (mNum >= 4) ? `${y}-${y + 1}` : `${y - 1}-${y}`;
-        return (i.month === monthName && (i.session === calcSession)) || i.month === month;
+        return i.month === monthName && i.session === calcSession;
       });
 
+      // Second pass: match month name only (ignores session — handles legacy data or any gap)
       if (!targetInstallment) {
         targetInstallment = (student.feeInstallments as any[]).find((i) => {
-          if (i.classId !== student.classId) return false;
-          return i.month === monthName && (i.remainingAmount > 0 || i.pendingAmount > 0);
+          return i.month === monthName && (i.remainingAmount > 0 || i.pendingAmount > 0 || i.status === 'PENDING');
         });
       }
 
-      // Fallback Match: 3. Due Date (Strictly as last resort)
+      // Third pass: any installment with matching month name (regardless of status)
+      if (!targetInstallment) {
+        targetInstallment = (student.feeInstallments as any[]).find((i) => i.month === monthName);
+      }
+
+      // Fallback Match: Due Date (Strictly as last resort)
       if (!targetInstallment) {
         targetInstallment = (student.feeInstallments as any[]).find((i) => {
-          if (i.classId !== student.classId) return false;
           const d = new Date(i.dueDate);
           return d.getFullYear() === y && (d.getMonth() + 1) === mNum;
         });
       }
 
       // 3. Status/Check flags
-      const targetDate = new Date(year, monthNum - 1, 1);
-      const targetRank = this.getChronoRank(targetInstallment);
+      const targetDate = new Date(year, monthNum - 1, 10); // Standardize to 10th for rank comparison
+      const targetRank = targetInstallment 
+        ? this.getChronoRank(targetInstallment)
+        : targetDate.getTime(); // Use selected month as a fallback limit
+
       const pastInstallments = (student.feeInstallments as any[]).filter(i => 
-        (
-          targetInstallment 
-            ? this.getChronoRank(i) < targetRank
-            : true // All unbilled are potential followers if no target
-        )
+        this.getChronoRank(i) < targetRank
       );
 
       const previousMissingChallan = await (async () => {
+        const allInsts = student.feeInstallments as any[];
         // Sort DESC to point to the MOST RECENT missing installment (back-track)
-        const sortedPastInsts = [...pastInstallments].sort((a,b) => this.getChronoRank(b) - this.getChronoRank(a));
+        const sortedPastInsts = [...allInsts].sort((a,b) => this.getChronoRank(b) - this.getChronoRank(a));
         
+        const targetClassRank = targetInstallment ? this.getClassRank(targetInstallment.class) : 0;
+        const targetInstNum = targetInstallment ? targetInstallment.installmentNumber : 0;
+
         for (const inst of sortedPastInsts) {
-          const challanCount = await this.prisma.feeChallan.count({
-            where: { studentFeeInstallmentId: inst.id }
+          const instClassRank = this.getClassRank(inst.class);
+          
+          let isPrevious = false;
+          if (targetInstallment && inst.classId === targetInstallment.classId) {
+            // Same class: earlier installment number
+            isPrevious = inst.installmentNumber < targetInstNum;
+          } else {
+            // Different class: earlier class rank
+            isPrevious = instClassRank < targetClassRank;
+          }
+
+          if (!isPrevious) continue;
+
+          // Robust check: Is there ANY valid challan for this specific installment?
+          const existingChallan = await this.prisma.feeChallan.findFirst({
+            where: {
+              studentId: student.id,
+              installmentNumber: inst.installmentNumber,
+              month: inst.month,
+              session: inst.session,
+            }
           });
-          if (challanCount === 0) {
-             const sessionStartYear = parseInt(inst.session?.split('-')[0]) || 2000;
-             let actualYear = sessionStartYear;
-             
-             if (inst.dueDate) {
-               actualYear = new Date(inst.dueDate).getFullYear();
-             } else {
-               // Fallback: Guess years based on standard April-March session
-               const monthMap: { [key: string]: number } = {
-                 'April': 0, 'May': 1, 'June': 2, 'July': 3, 'August': 4, 'September': 5,
-                 'October': 6, 'November': 7, 'December': 8, 'January': 9, 'February': 10, 'March': 11
-               };
-               const mIdx = monthMap[inst.month || ''] ?? 0;
-               actualYear = mIdx >= 9 ? sessionStartYear + 1 : sessionStartYear;
-             }
-             
-             return `${inst.month || 'Previous Month'} ${actualYear} (${inst.session})`;
+
+          if (!existingChallan) {
+             const className = (inst.classId !== student.classId && inst.class?.name) ? `- ${inst.class.name}` : '';
+             return `${inst.month || 'Previous Month'} ${inst.session || ''} ${className}`;
           }
         }
         return null;
@@ -831,13 +853,17 @@ export class FeeManagementService {
       }
       
       // 3b. Existing Challan Logic (Replace if Pending, Block if Paid/Full)
-      const existingChallans = targetInstallment ? await this.prisma.feeChallan.findMany({
+      // HARD DUPLICATE BLOCK: enrollment + installment + class + section + session
+      const existingChallans = await this.prisma.feeChallan.findMany({
         where: {
           studentId: student.id,
-          studentFeeInstallmentId: targetInstallment.id,
+          installmentNumber: targetInstallment?.installmentNumber || 0,
+          month: monthName,
+          session: targetInstallment?.session || student.session,
+          status: { not: 'VOID' }
         },
         include: { student: true }
-      }) : [];
+      });
 
       const paidOrPartial = existingChallans.filter(c => c.status === 'PAID' || c.status === 'PARTIAL');
       // 3b. Existing Challan Logic (Strict Blocking)
@@ -870,7 +896,8 @@ export class FeeManagementService {
           include: { class: true }
         });
         
-        const granularClassIds = new Set((student.feeInstallments as any[]).filter(i => i.remainingAmount > 0).map(i => i.classId));
+        // FIXED: Use all installments to determine granular class coverage, even if they are currently pending/remaining=0.
+        const granularClassIds = new Set((student.feeInstallments as any[]).map(i => i.classId));
         const filteredSessionArrears = sessionArrears.filter(a => !granularClassIds.has(a.classId));
         
         if (filteredSessionArrears.length > 0) {
@@ -928,7 +955,6 @@ export class FeeManagementService {
           const isExcluded = (excludedArrearsStudentIds || []).includes(student.id);
           
           if (!isExcluded) {
-            const targetMonthStart = new Date(year, monthNum - 1, 1);
             const targetRank = this.getChronoRank(targetInstallment);
             const pastUnbilled = (student.feeInstallments as any[]).filter(i => {
               if (!targetInstallment) return true;
@@ -941,13 +967,13 @@ export class FeeManagementService {
             for (const pastInst of pastUnbilled) {
               const unpaidBal = (pastInst.amount - (pastInst.paidAmount || 0));
               const instFine = globalFine > 0 ? this.calculateLateFee(pastInst.dueDate, globalFine) : 0;
-              
-              arrearsAmount += (unpaidBal + instFine);
+
+              // FIX 1: Keep tuition arrears separate from late fees.
+              // arrearsAmount tracks only unpaid tuition; late fees go into fineAmount via snapshotObjects.
+              arrearsAmount += unpaidBal;
+              calculatedArrearsLateFee += instFine;
               pastInstallmentsToBill.push({ id: pastInst.id, amount: unpaidBal, fine: instFine });
               coveredInstNumbers.push(pastInst.installmentNumber);
-              
-              // No longer adding it to separate calculatedArrearsLateFee as it's now bundled into arrearsAmount
-              // calculatedArrearsLateFee is kept for the current month's potential fine if any
             }
           }
         }
@@ -1016,6 +1042,8 @@ export class FeeManagementService {
         } else {
           // Bulk mode: bill full remaining portion
           billingTuition = targetInstallment.remainingAmount;
+          // FIX 2: Set currentInstallmentPortion so the installment tracking block fires
+          currentInstallmentPortion = billingTuition;
         }
         
         if (billingTuition > 0) {
@@ -1088,7 +1116,7 @@ export class FeeManagementService {
           reason: targetInstallment && targetInstallment.remainingAmount <= 0 
             ? `Month ${month} tuition is already fully billed or paid` 
             : 'Total billing amount is 0',
-          challan: existingChallans[0]
+          challan: null // FIX 6: existingChallans is always empty at this point (all non-empty cases continue'd above)
         });
         continue;
       }
@@ -1116,11 +1144,10 @@ export class FeeManagementService {
           remarks: remarks || `Challan for ${month}`,
           challanNumber: await this.generateChallanNumber(),
           challanType,
-          includesArrears: arrearsAmount > 0,
           arrearsAmount: arrearsAmount,
-          studentClassId: student.classId,
-          studentProgramId: student.programId,
-          studentSectionId: student.sectionId,
+          studentClassId: targetInstallment?.classId || student.classId,
+          studentProgramId: targetInstallment?.class?.programId || student.programId,
+          studentSectionId: targetInstallment?.sectionId || student.sectionId,
           studentArrearId: sessionArrearIdToLink, // Link to session arrears record
         },
       });
@@ -1146,11 +1173,20 @@ export class FeeManagementService {
         const inst = await this.prisma.studentFeeInstallment.findUnique({ where: { id: pastInto.id } });
         if (inst) {
           // Check if there's already a PENDING/OVERDUE/PARTIAL challan for this installment
-          const existingPrevChallans = await this.prisma.feeChallan.findMany({
+          // Improved: Search across ALL pending challans for this student/class that might cover this installment number
+          const existingPrevChallans = (await this.prisma.feeChallan.findMany({
             where: { 
-              studentFeeInstallmentId: inst.id,
+              studentId: student.id,
+              studentClassId: inst.classId,
               status: { in: ['PENDING', 'OVERDUE', 'PARTIAL'] }
             }
+          })).filter(c => {
+            // CRITICAL: Exclude the current challan being created, otherwise it voids itself!
+            if (c.id === challan.id) return false;
+            
+            if (c.studentFeeInstallmentId === inst.id) return true;
+            const covered = (c.coveredInstallments || "").split(/[,\-]/).map(Number);
+            return covered.includes(inst.installmentNumber);
           });
 
           // VOID existing older challans as they are now superseded by this newer one
@@ -1208,8 +1244,11 @@ export class FeeManagementService {
       });
 
       if (!challan) throw new Error('Challan not found');
-
-      if (challan.status === 'VOID') { throw new BadRequestException('This challan has been superseded and cannot be paid.'); }
+      
+      // Allow general updates (remarks, heads, etc.) but block PAYMENT for superseded challans
+      if (challan.status === 'VOID' && payload.status === 'PAID') {
+        throw new BadRequestException('This challan has been superseded and cannot be marked as PAID.');
+      }
 
       // 1a. Pre-calculate dynamic late fee for overdue challans
       const instituteSettings = await prisma.instituteSettings.findFirst();
@@ -2380,17 +2419,29 @@ export class FeeManagementService {
     }
   }
 
+  private getClassRank(cls: any): number {
+    if (!cls) return 0;
+    return (Number(cls.year || 0) * 100) + (Number(cls.semester || 0));
+  }
+
   private getChronoRank(inst: any): number {
     if (!inst) return 0;
     
-    // 1. Session Base (Year)
-    const sessionYear = inst.session ? parseInt(inst.session.split('-')[0]) : 2000;
+    // 1. Hierarchical Class Rank
+    const classRank = this.getClassRank(inst.class);
     
-    // 2. Installment Number (Primary sequence within session)
-    const instNum = Number(inst.installmentNumber || 0);
+    // 2. Relative date or installment rank
+    let subRank = 0;
+    if (inst.dueDate) {
+      subRank = new Date(inst.dueDate).getTime();
+    } else {
+      // Fallback: Session Base + Installment Number
+      const sessionYear = inst.session ? parseInt(inst.session.split('-')[0]) : 2000;
+      const instNum = Number(inst.installmentNumber || 0);
+      subRank = (sessionYear * 1000) + instNum;
+    }
 
-    // Rank = (SessionYear * 1000) + InstallmentNum
-    // This respects the human-assigned sequence (Inst # 1, 2, 3...)
-    return (sessionYear * 1000) + instNum;
+    // Combine Class Order (High Weight) with Time/Sequence (Low Weight)
+    return (classRank * 1e14) + subRank;
   }
 }

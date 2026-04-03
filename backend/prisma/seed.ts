@@ -4,8 +4,44 @@ import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
+// Helper to generate a random 13-digit number string
+function generateChallanNumber(): string {
+  return Math.floor(Math.random() * 9000000000000 + 1000000000000).toString();
+}
+
 async function main() {
   console.log('🌱 Starting comprehensive seed...\n');
+
+  // ─── 0. CLEANUP (Optional for re-runs) ───
+  console.log('🧹 Cleaning up database...');
+  await prisma.$transaction([
+    prisma.feeChallan.deleteMany(),
+    prisma.studentFeeInstallment.deleteMany(),
+    prisma.studentArrear.deleteMany(),
+    prisma.studentStatusHistory.deleteMany(),
+    prisma.attendance.deleteMany(),
+    prisma.leave.deleteMany(),
+    prisma.marks.deleteMany(),
+    prisma.result.deleteMany(),
+    prisma.position.deleteMany(),
+    prisma.student.deleteMany(),
+    prisma.section.deleteMany(),
+    prisma.subject.deleteMany(),
+    prisma.feeStructureHead.deleteMany(),
+    prisma.feeStructure.deleteMany(),
+    prisma.class.deleteMany(),
+    prisma.program.deleteMany(),
+    prisma.department.deleteMany(),
+    prisma.staff.deleteMany(),
+    prisma.feeHead.deleteMany(),
+    prisma.holiday.deleteMany(),
+    prisma.financeIncome.deleteMany(),
+    prisma.financeExpense.deleteMany(),
+    prisma.roomAllocation.deleteMany(),
+    prisma.room.deleteMany(),
+    prisma.hostelRegistration.deleteMany(),
+  ]);
+
 
   // ─── 1. INSTITUTE SETTINGS ───
   console.log('📋 Creating institute settings...');
@@ -19,6 +55,11 @@ async function main() {
       address: 'Hayatabad, Peshawar, KP, Pakistan',
     },
   });
+  
+  const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June', 
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
 
   // ─── 2. DEPARTMENTS ───
   console.log('🏢 Creating departments...');
@@ -309,6 +350,8 @@ async function main() {
     { programId: bsNursing.id, classId: bsn1.id, sectionId: bsn1A.id, prefix: 'PSH-BSN26', tuitionFee: 60000, installments: 3, lateFeeFine: 150, count: 5 },
     { programId: bsEnglish.id, classId: bse1.id, sectionId: bse1A.id, prefix: 'PSH-BSE26', tuitionFee: 35000, installments: 2, lateFeeFine: 100, count: 3 },
   ];
+  
+  const CURRENT_SESSION = '2023-2025'; // Fallback session label
 
   let studentCounter = 0;
   const allStudents: any[] = [];
@@ -321,16 +364,23 @@ async function main() {
       const fatherIdx = (studentCounter - 1) % fatherNames.length;
       const rollNum = `${config.prefix}-${String(studentCounter).padStart(3, '0')}`;
 
-      // Generate installment due dates (monthly from Jan 2026)
-      const installmentData: { installmentNumber: number; amount: number; dueDate: Date }[] = [];
+      // Generate installment due dates (monthly from August 2026)
+      const installmentData: { installmentNumber: number; amount: number; dueDate: Date; month: string; session: string }[] = [];
       const perInstallment = Math.floor(config.tuitionFee / config.installments);
       const lastInstallmentAmt = config.tuitionFee - perInstallment * (config.installments - 1);
 
       for (let inst = 1; inst <= config.installments; inst++) {
+        // Start from August (Month Index 7)
+        const monthIdx = (7 + (inst - 1)) % 12;
+        const yearOffset = Math.floor((7 + (inst - 1)) / 12);
+        const year = 2026 + yearOffset;
+        
         installmentData.push({
           installmentNumber: inst,
           amount: inst === config.installments ? lastInstallmentAmt : perInstallment,
-          dueDate: new Date(2026, inst - 1, 10), // Jan 10, Feb 10, Mar 10... 2026
+          dueDate: new Date(year, monthIdx, 10), 
+          month: MONTH_NAMES[monthIdx],
+          session: config.prefix.includes('25') ? '2024-2026' : '2023-2025',
         });
       }
 
@@ -340,6 +390,7 @@ async function main() {
           lName: lastNames[lIdx],
           fatherOrguardian: fatherNames[fatherIdx],
           rollNumber: rollNum,
+          session: config.prefix.includes('25') ? '2024-2026' : '2023-2025',
           gender: studentCounter % 3 === 0 ? 'Female' : 'Male',
           dob: new Date(2006 + (studentCounter % 5), (studentCounter % 12), 1 + (studentCounter % 28)),
           parentOrGuardianPhone: `03${String(10 + (studentCounter % 90)).padStart(2, '0')}-${String(1000000 + studentCounter * 1111).slice(0, 7)}`,
@@ -357,8 +408,11 @@ async function main() {
               installmentNumber: inst.installmentNumber,
               amount: inst.amount,
               dueDate: inst.dueDate,
+              month: inst.month,
+              session: inst.session,
               paidAmount: 0,
               status: 'PENDING',
+              remainingAmount: inst.amount,
             })),
           },
         },
@@ -450,7 +504,7 @@ async function main() {
         challanCount++;
         const challan = await prisma.feeChallan.create({
           data: {
-            challanNumber: `CHL-${String(challanCount).padStart(6, '0')}`,
+            challanNumber: generateChallanNumber(),
             studentId: s.id,
             feeStructureId: structureId,
             amount: inst.amount,
@@ -461,13 +515,15 @@ async function main() {
             paidDate,
             status,
             installmentNumber: inst.installmentNumber,
+            month: inst.month,
+            session: inst.session,
             studentClassId: cfg.classId,
             studentProgramId: cfg.programId,
             studentSectionId: cfg.sectionId,
             studentFeeInstallmentId: inst.id,
             challanType: 'INSTALLMENT',
             tuitionPaid: status === 'PAID' ? paidAmount : (status === 'PARTIAL' ? paidAmount : 0),
-            remarks: `Installment ${inst.installmentNumber} - ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'][instIdx] || 'Month'} 2026`,
+            remarks: `Installment ${inst.installmentNumber} - ${inst.month} ${inst.session}`,
           },
         });
 
@@ -521,7 +577,7 @@ async function main() {
     challanCount++;
     await prisma.feeChallan.create({
       data: {
-        challanNumber: `CHL-${String(challanCount).padStart(6, '0')}`,
+        challanNumber: generateChallanNumber(),
         studentId: s.id,
         amount: 5000,
         paidAmount: s.id % 2 === 0 ? 5000 : 0,

@@ -9,7 +9,7 @@
 6. rejoin expelled/struck off student to selected sections even if they are not in a section before.
 ----> student rejoin in new session or same session ====> re-enroll with full history.
 ----> rejoin to a different class/section
-7. remove roll back option
+7. remove roll back option ✔
 8. remarks throughout time for inquiry ✔
 9. by default show all students
 10. change the challan + late fee fine ----> the check will be made to due date of the challan no month of challan.
@@ -28,7 +28,7 @@
 
 ----- admission date for student ---
 
-15. fine -> dont restrict to a defined amount, instead allow admin to put one byt themselves.
+15. fine -> dont restrict to a defined amount, instead allow admin to put one byt themselves. ✔
 16. bulk attendance for staff/student
 17. type leaves -> sick, anual, casual -> for each staff define them 
 18. fix create exam

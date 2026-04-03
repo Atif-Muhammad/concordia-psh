@@ -105,6 +105,7 @@ import {
   CreditCard,
   Calendar,
   DollarSign,
+  Settings2,
 } from "lucide-react";
 
 const EMPTY_OBJECT = {};
@@ -112,6 +113,15 @@ const EMPTY_OBJECT = {};
 const Students = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Helper to extract year gap from program duration (e.g., "4 years" -> 4)
+  const getProgramGap = (progId) => {
+    if (!progId || progId === "all") return 1;
+    const prog = programData.find((p) => p.id.toString() === progId.toString());
+    if (!prog?.duration) return 1;
+    const match = prog.duration.match(/\d+/);
+    return match ? parseInt(match[0], 10) : 1;
+  };
 
   // ──────────────────────────────────────────────────────────────
   // UI State
@@ -133,7 +143,7 @@ const Students = () => {
     studentInfo: null,
     arrears: null
   });
-  const [promotionAction, setPromotionAction] = useState("promote");
+  const [promotionAction, setPromotionAction] = useState("promote_manual");
   const [selectedStatus, setSelectedStatus] = useState("ACTIVE");
   const [promotionReason, setPromotionReason] = useState("");
   const [selectedFeeSession, setSelectedFeeSession] = useState("current");
@@ -145,10 +155,16 @@ const Students = () => {
     sectionId: "",
     sameClass: true
   });
-
-  // ID Card State
+   // ID Card State
   const [defaultIdCardTemplate, setDefaultIdCardTemplate] = useState("");
   const [generatedIdCard, setGeneratedIdCard] = useState("");
+
+  const [promoDetails, setPromoDetails] = useState({
+    session: "",
+    programId: "",
+    classId: "",
+    sectionId: ""
+  });
 
   // Challan Details State
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
@@ -171,6 +187,7 @@ const Students = () => {
   const [dialogFilterProgram, setDialogFilterProgram] = useState(null);
   const [dialogFilterClass, setDialogFilterClass] = useState(null);
   const [dialogFilterSection, setDialogFilterSection] = useState(null);
+  const [dialogFilterSession, setDialogFilterSession] = useState(defaultSession);
 
   const [showFeeConfig, setShowFeeConfig] = useState(true);
   const searchTimeoutRef = useRef(null);
@@ -229,25 +246,25 @@ const Students = () => {
   const dialogQueryEnabled = promoteOpen && !!dialogFilterProgram && dialogFilterProgram !== "*";
 
   const { data: dialogStudentsRaw = { students: [] }, isLoading: dialogStudentsLoading } = useQuery({
-    queryKey: ["dialog-students", dialogFilterProgram, dialogFilterClass, dialogFilterSection],
+    queryKey: ["dialog-students", dialogFilterProgram, dialogFilterClass, dialogFilterSection, dialogFilterSession],
     queryFn: () => {
-      return getStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "ACTIVE", "", 1, 200);
+      return getStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "ACTIVE", dialogFilterSession, 1, 200);
     },
     enabled: dialogQueryEnabled && !isRejoinMode,
   });
 
   // For rejoin mode: fetch EXPELLED and STRUCK_OFF students separately then merge
   const { data: expelledRaw = { students: [] }, isLoading: expelledLoading } = useQuery({
-    queryKey: ["dialog-students-expelled", dialogFilterProgram, dialogFilterClass, dialogFilterSection],
+    queryKey: ["dialog-students-expelled", dialogFilterProgram, dialogFilterClass, dialogFilterSection, dialogFilterSession],
     queryFn: () => {
-      return getPassedOutStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "EXPELLED", "", 1, 200);
+      return getPassedOutStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "EXPELLED", dialogFilterSession, 1, 200);
     },
     enabled: dialogQueryEnabled && isRejoinMode,
   });
   const { data: struckOffRaw = { students: [] }, isLoading: struckOffLoading } = useQuery({
-    queryKey: ["dialog-students-struckoff", dialogFilterProgram, dialogFilterClass, dialogFilterSection],
+    queryKey: ["dialog-students-struckoff", dialogFilterProgram, dialogFilterClass, dialogFilterSection, dialogFilterSession],
     queryFn: () => {
-      return getPassedOutStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "STRUCK_OFF", "", 1, 200);
+      return getPassedOutStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "STRUCK_OFF", dialogFilterSession, 1, 200);
     },
     enabled: dialogQueryEnabled && isRejoinMode,
   });
@@ -258,11 +275,6 @@ const Students = () => {
   const dialogStudentsIsLoading = isRejoinMode
     ? (expelledLoading || struckOffLoading)
     : dialogStudentsLoading;
-  const [manualPromotionDialog, setManualPromotionDialog] = useState({
-    open: false,
-    classId: "",
-    sectionId: ""
-  });
 
   // ──────────────────────────────────────────────────────────────
   // Mutations
@@ -300,8 +312,8 @@ const Students = () => {
 
 
   const bulkPromotionMut = useMutation({
-    mutationFn: async ({ ids, action, reason, forcePromote = false, targetClassId, targetSectionId }) => {
-      console.log('📥 Mutation received:', { ids, action, reason, forcePromote, targetClassId, targetSectionId });
+    mutationFn: async ({ ids, action, reason, forcePromote = false, targetClassId, targetSectionId, targetProgramId, targetSession }) => {
+      console.log('📥 Mutation received:', { ids, action, reason, forcePromote, targetClassId, targetSectionId, targetProgramId, targetSession });
 
       const fn =
         action === "promote"
@@ -319,8 +331,8 @@ const Students = () => {
       if (action === "promote" && !forcePromote) {
         console.log('🔄 Taking INITIAL promotion path (forcePromote is falsy)');
         for (const id of ids) {
-          // Pass targetClassId and targetSectionId to promoteStudents
-          const response = await fn(id, false, targetClassId, targetSectionId);
+          // Pass target indicators to promoteStudents
+          const response = await fn(id, false, targetClassId, targetSectionId, targetProgramId, targetSession);
 
           // If student has arrears, stop and show dialog
           if (response.requiresConfirmation) {
@@ -331,7 +343,9 @@ const Students = () => {
               arrears: response.arrears,
               remainingIds: ids,
               targetClassId,    // Pass manual targets to preserve context if user forces promote later
-              targetSectionId
+              targetSectionId,
+              targetProgramId,
+              targetSession
             };
           }
         }
@@ -342,7 +356,7 @@ const Students = () => {
       const promises = ids.map((id) => {
         if (action === "promote") {
           // Pass targetClassId and targetSectionId even when force promoting
-          return fn(id, reason || forcePromote, targetClassId, targetSectionId);
+          return fn(id, reason || forcePromote, targetClassId, targetSectionId, targetProgramId, targetSession);
         }
         return fn(id, reason || forcePromote);
       });
@@ -359,7 +373,9 @@ const Students = () => {
           arrears: result.arrears,
           remainingIds: result.remainingIds,
           targetClassId: result.targetClassId,    // Preserve manual targets
-          targetSectionId: result.targetSectionId
+          targetSectionId: result.targetSectionId,
+          targetProgramId: result.targetProgramId,
+          targetSession: result.targetSession
         });
       } else {
         queryClient.invalidateQueries({ queryKey: ["students"] });
@@ -367,7 +383,8 @@ const Students = () => {
         setPromoteOpen(false);
         setPromotionReason("");
         setSelectedForPromotion([]);
-        setRejoinDetails({ session: "", programId: "", classId: "", sectionId: "" });
+        setRejoinDetails({ session: "", programId: "", classId: "", sectionId: "", sameClass: true });
+        setPromoDetails({ session: "", programId: "", classId: "", sectionId: "" });
       }
     },
     onError: (e) =>
@@ -709,11 +726,6 @@ const Students = () => {
       return;
     }
 
-    if (promotionAction === "promote_manual") {
-      setManualPromotionDialog({ open: true, classId: "", sectionId: "" });
-      return;
-    }
-
     if ((promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && !promotionReason) {
       toast({ title: "Reason is required for this action", variant: "destructive" });
       return;
@@ -727,8 +739,12 @@ const Students = () => {
 
     bulkPromotionMut.mutate({
       ids: selectedForPromotion,
-      action: promotionAction,
+      action: promotionAction === "promote_manual" ? "promote" : promotionAction,
       reason: promotionReason,
+      targetClassId: promotionAction === "promote_manual" ? promoDetails.classId : undefined,
+      targetSectionId: promotionAction === "promote_manual" ? promoDetails.sectionId : undefined,
+      targetProgramId: promotionAction === "promote_manual" ? promoDetails.programId : undefined,
+      targetSession: promotionAction === "promote_manual" ? promoDetails.session : undefined,
       ...(promotionAction === "rejoin" ? rejoinDetails : {})
     });
   };
@@ -793,7 +809,16 @@ const Students = () => {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => { setDialogFilterProgram(null); setDialogFilterClass(null); setDialogFilterSection(null); setSelectedForPromotion([]); setPromotionReason(""); setPromotionAction("promote"); setPromoteOpen(true); }} variant="outline" className="gap-2">
+            <Button size="sm" onClick={() => { 
+                setDialogFilterProgram(null); 
+                setDialogFilterClass(null); 
+                setDialogFilterSection(null); 
+                setDialogFilterSession(filterSession || defaultSession);
+                setSelectedForPromotion([]); 
+                setPromotionReason(""); 
+                setPromotionAction("promote"); 
+                setPromoteOpen(true); 
+              }} variant="outline" className="gap-2">
               <TrendingUp className="w-4 h-4" /> Promote
             </Button>
             <Button
@@ -891,11 +916,14 @@ const Students = () => {
                   <SelectContent>
                     {(() => {
                       const yr = new Date().getFullYear();
-                      return Array.from({ length: 5 }, (_, i) => {
-                        const y = yr - 2 + i;
-                        const s = `${y}-${y + 1}`;
-                        return <SelectItem key={s} value={s}>{s}</SelectItem>;
-                      });
+                      const gap = getProgramGap(filterProgram);
+                      const sessions = [];
+                      for (let y = yr - 5; y <= yr + 15; y++) {
+                        sessions.push(`${y}-${y + gap}`);
+                      }
+                      return sessions.map(s => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ));
                     })()}
                   </SelectContent>
                 </Select>
@@ -1028,6 +1056,7 @@ const Students = () => {
                                      classId: student.classId?.toString() || "",
                                      sectionId: student.sectionId?.toString() || ""
                                    });
+                                   setDialogFilterSession(student.session || defaultSession);
                                    setPromoteOpen(true);
                                  }}
                                 title="Re-join Student"
@@ -1192,192 +1221,286 @@ const Students = () => {
                 </TabsContent>
 
                 <TabsContent value="fees">
-                  {studentFees.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                      <p className="text-lg text-muted-foreground mb-2">No fee records found</p>
-                      <p className="text-sm text-muted-foreground">This student has no fee challans in the system yet.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-6">
-                      {/* Overall Summary */}
-                      <div>
-                        <h4 className="text-sm font-semibold text-muted-foreground mb-3">Overall Summary (All-Time)</h4>
-                        <div className="grid grid-cols-3 gap-4">
-                          <Card>
-                            <CardContent className="pt-6">
-                              <p className="text-sm text-muted-foreground">Total Fees</p>
-                              <p className="text-xl font-bold">PKR {feesData.overall.totalFees.toLocaleString()}</p>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardContent className="pt-6">
-                              <p className="text-sm text-muted-foreground">Total Paid</p>
-                              <p className="text-xl font-bold text-green-600">PKR {feesData.overall.totalPaid.toLocaleString()}</p>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardContent className="pt-6">
-                              <p className="text-sm text-muted-foreground">Total Outstanding</p>
-                              <p className="text-xl font-bold text-red-600">PKR {feesData.overall.totalDues.toLocaleString()}</p>
-                            </CardContent>
-                          </Card>
+                  <Tabs defaultValue="payment-history" className="w-full">
+                    <TabsList className="bg-muted p-1 mb-6 h-10 w-fit">
+                      <TabsTrigger value="payment-history" className="px-6">
+                        <History className="w-4 h-4 mr-2" /> Payment History
+                      </TabsTrigger>
+                      <TabsTrigger value="installment-plan" className="px-6">
+                        <Calendar className="w-4 h-4 mr-2" /> Installment Plan
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="payment-history">
+                      {studentFees.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 text-center">
+                          <p className="text-lg text-muted-foreground mb-2">No fee records found</p>
+                          <p className="text-sm text-muted-foreground">This student has no fee challans in the system yet.</p>
                         </div>
-                      </div>
-                      {/* Session Filter */}
-                      <div>
-                        <Label>Select Session/Class</Label>
-                        <Select value={selectedFeeSession} onValueChange={setSelectedFeeSession}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue>
-                              {selectedFeeSession === "current"
-                                ? "Current Session"
-                                : feesData.sessions.find(s => s.sessionKey === selectedFeeSession)?.sessionLabel || "Select session"
-                              }
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="current">Current Session</SelectItem>
-                            {feesData.sessions.filter(s => !s.isCurrentSession).map(session => (
-                              <SelectItem key={session.sessionKey} value={session.sessionKey}>
-                                {session.sessionLabel}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {/* Current Session Warning */}
-                      {selectedFeeSession === "current" && !feesData.currentSessionData && feesData.sessions.length > 0 && (
-                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                          <p className="text-sm text-yellow-800">
-                            <strong>No fee structure for current session.</strong> Student is in{" "}
-                            <strong>{viewStudent.class?.name} - {viewStudent.program?.name}</strong> but no fees assigned yet.
-                          </p>
-                        </div>
-                      )}
-                      {/* Session-Specific Stats */}
-                      {feesData.selectedSessionData && (
-                        <div>
-                          <h4 className="text-sm font-semibold text-muted-foreground mb-3">
-                            {feesData.selectedSessionData.isCurrentSession ? "Current Session Stats" : feesData.selectedSessionData.sessionLabel}
-                          </h4>
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                            <Card>
-                              <CardContent className="pt-6">
-                                <p className="text-sm text-muted-foreground">Session Fee</p>
-                                <p className="text-xl font-bold">PKR {feesData.selectedSessionData.stats.sessionFee.toLocaleString()}</p>
-                              </CardContent>
-                            </Card>
-                            <Card>
-                              <CardContent className="pt-6">
-                                <p className="text-sm text-muted-foreground">Paid</p>
-                                <p className="text-xl font-bold text-green-600">PKR {feesData.selectedSessionData.stats.paidThisSession.toLocaleString()}</p>
-                              </CardContent>
-                            </Card>
-                            <Card>
-                              <CardContent className="pt-6">
-                                <p className="text-sm text-muted-foreground">Remaining</p>
-                                <p className="text-xl font-bold text-red-600">PKR {feesData.selectedSessionData.stats.remainingDues.toLocaleString()}</p>
-                              </CardContent>
-                            </Card>
-                            <Card>
-                              <CardContent className="pt-6">
-                                <p className="text-sm text-muted-foreground">Paid Installments</p>
-                                <p className="text-xl font-bold text-blue-600">
-                                  {feesData.selectedSessionData.stats.paidInstallments} / {feesData.selectedSessionData.stats.totalInstallments}
-                                </p>
-                              </CardContent>
-                            </Card>
-                             <Card>
-                               <CardContent className="pt-6">
-                                 <p className="text-sm text-muted-foreground">Pending Installments</p>
-                                 <p className="text-xl font-bold text-orange-600">{feesData.selectedSessionData.stats.pendingInstallments}</p>
-                               </CardContent>
-                             </Card>
-                             <Card>
-                               <CardContent className="pt-6">
-                                 <p className="text-sm text-muted-foreground">Late Fee Due</p>
-                                 <p className="text-xl font-bold text-destructive">
-                                   PKR {feesData.selectedSessionData.stats.currentLateFee?.toLocaleString() || 0}
-                                 </p>
-                               </CardContent>
-                             </Card>
+                      ) : (
+                        <div className="space-y-6 animate-in fade-in duration-300">
+                          {/* Overall Summary */}
+                          <div>
+                            <h4 className="text-sm font-semibold text-muted-foreground mb-3">Overall Summary (All-Time)</h4>
+                            <div className="grid grid-cols-3 gap-4">
+                              <Card>
+                                <CardContent className="pt-6">
+                                  <p className="text-sm text-muted-foreground">Total Fees</p>
+                                  <p className="text-xl font-bold">PKR {feesData.overall.totalFees.toLocaleString()}</p>
+                                </CardContent>
+                              </Card>
+                              <Card>
+                                <CardContent className="pt-6">
+                                  <p className="text-sm text-muted-foreground">Total Paid</p>
+                                  <p className="text-xl font-bold text-green-600">PKR {feesData.overall.totalPaid.toLocaleString()}</p>
+                                </CardContent>
+                              </Card>
+                              <Card>
+                                <CardContent className="pt-6">
+                                  <p className="text-sm text-muted-foreground">Total Outstanding</p>
+                                  <p className="text-xl font-bold text-red-600">PKR {feesData.overall.totalDues.toLocaleString()}</p>
+                                </CardContent>
+                              </Card>
+                            </div>
                           </div>
-                          {/* Challans Table */}
-                          <div className="mt-4">
-                            <h4 className="text-sm font-semibold mb-3">Fee Challans</h4>
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Challan No</TableHead>
-                                  <TableHead>Payable</TableHead>
-                                  <TableHead>Paid</TableHead>
-                                  <TableHead>Status</TableHead>
-                                  <TableHead>Installments</TableHead>
-                                  <TableHead>Installment Month</TableHead>
-                                  <TableHead>Actions</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {feesData.selectedSessionData.challans.length === 0 ? (
-                                  <TableRow>
-                                    <TableCell colSpan={7} className="text-center py-4 text-muted-foreground">
-                                      No challans for this session
-                                    </TableCell>
-                                  </TableRow>
-                                ) : (
-                                  feesData.selectedSessionData.challans.map(fee => (
-                                    <TableRow key={fee.id}>
-                                      <TableCell className="font-medium">{fee.challanNumber || fee.id}</TableCell>
-                                      <TableCell>
-                                        <div>PKR {(fee.amount - (fee.discount || 0) + (fee.fineAmount || 0) + (fee.lateFeeFine || 0)).toLocaleString()}</div>
-                                        {fee.lateFeeFine > 0 && (
-                                          <div className="text-[10px] text-destructive font-bold">
-                                            Inc. Late Fee: PKR {fee.lateFeeFine.toLocaleString()}
-                                          </div>
-                                        )}
-                                      </TableCell>
-                                      <TableCell className="text-green-600">PKR {fee.paidAmount?.toLocaleString() || 0}</TableCell>
-                                      <TableCell>
-                                        <Badge variant={fee.status === "PAID" ? "default" : "destructive"}>
-                                          {fee.status}
-                                        </Badge>
-                                      </TableCell>
-                                      <TableCell>{fee.coveredInstallments || fee.installmentNumber || "-"}</TableCell>
-                                      <TableCell>{fee.dueDate ? format(new Date(fee.dueDate), "MMM yyyy") : "-"}</TableCell>
-                                      <TableCell>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => {
-                                              setSelectedChallanDetails(fee);
-                                              setDetailsDialogOpen(true);
-                                            }}
-                                          >
-                                            <Eye className="h-4 w-4" />
-                                          </Button>
-                                          {fee.paymentHistory && (
-                                            <Button
-                                              variant="ghost"
-                                              size="icon"
-                                              onClick={() => {
-                                                setSelectedChallanForHistory(fee);
-                                                setHistoryDialogOpen(true);
-                                              }}
-                                            >
-                                              <History className="h-4 w-4" />
-                                            </Button>
-                                          )}
-                                        </TableCell>
+                          {/* Session Filter */}
+                          <div>
+                            <Label>Select Session/Class</Label>
+                            <Select value={selectedFeeSession} onValueChange={setSelectedFeeSession}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue>
+                                  {selectedFeeSession === "current"
+                                    ? "Current Session"
+                                    : feesData.sessions.find(s => s.sessionKey === selectedFeeSession)?.sessionLabel || "Select session"
+                                  }
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="current">Current Session</SelectItem>
+                                {feesData.sessions.filter(s => !s.isCurrentSession).map(session => (
+                                  <SelectItem key={session.sessionKey} value={session.sessionKey}>
+                                    {session.sessionLabel}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {/* Current Session Warning */}
+                          {selectedFeeSession === "current" && !feesData.currentSessionData && feesData.sessions.length > 0 && (
+                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                              <p className="text-sm text-yellow-800">
+                                <strong>No fee structure for current session.</strong> Student is in{" "}
+                                <strong>{viewStudent.class?.name} - {viewStudent.program?.name}</strong> but no fees assigned yet.
+                              </p>
+                            </div>
+                          )}
+                          {/* Session-Specific Stats */}
+                          {feesData.selectedSessionData && (
+                            <div>
+                              <h4 className="text-sm font-semibold text-muted-foreground mb-3">
+                                {feesData.selectedSessionData.isCurrentSession ? "Current Session Stats" : feesData.selectedSessionData.sessionLabel}
+                              </h4>
+                              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                <Card>
+                                  <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Session Fee</p>
+                                    <p className="text-xl font-bold">PKR {feesData.selectedSessionData.stats.sessionFee.toLocaleString()}</p>
+                                  </CardContent>
+                                </Card>
+                                <Card>
+                                  <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Paid</p>
+                                    <p className="text-xl font-bold text-green-600">PKR {feesData.selectedSessionData.stats.paidThisSession.toLocaleString()}</p>
+                                  </CardContent>
+                                </Card>
+                                <Card>
+                                  <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Remaining</p>
+                                    <p className="text-xl font-bold text-red-600">PKR {feesData.selectedSessionData.stats.remainingDues.toLocaleString()}</p>
+                                  </CardContent>
+                                </Card>
+                                <Card>
+                                  <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Paid Installments</p>
+                                    <p className="text-xl font-bold text-blue-600">
+                                      {feesData.selectedSessionData.stats.paidInstallments} / {feesData.selectedSessionData.stats.totalInstallments}
+                                    </p>
+                                  </CardContent>
+                                </Card>
+                                 <Card>
+                                   <CardContent className="pt-6">
+                                     <p className="text-sm text-muted-foreground">Pending Installments</p>
+                                     <p className="text-xl font-bold text-orange-600">{feesData.selectedSessionData.stats.pendingInstallments}</p>
+                                   </CardContent>
+                                 </Card>
+                                 <Card>
+                                   <CardContent className="pt-6">
+                                     <p className="text-sm text-muted-foreground">Late Fee Due</p>
+                                     <p className="text-xl font-bold text-destructive">
+                                       PKR {feesData.selectedSessionData.stats.currentLateFee?.toLocaleString() || 0}
+                                     </p>
+                                   </CardContent>
+                                 </Card>
+                              </div>
+                              {/* Challans Table */}
+                              <div className="mt-4">
+                                <h4 className="text-sm font-semibold mb-3">Fee Challans</h4>
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead>Challan No</TableHead>
+                                      <TableHead>Payable</TableHead>
+                                      <TableHead>Paid</TableHead>
+                                      <TableHead>Status</TableHead>
+                                      <TableHead>Installments</TableHead>
+                                      <TableHead>Installment Month</TableHead>
+                                      <TableHead>Actions</TableHead>
                                     </TableRow>
-                                  ))
-                                )}
-                              </TableBody>
-                            </Table>
-                          </div>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {feesData.selectedSessionData.challans.length === 0 ? (
+                                      <TableRow>
+                                        <TableCell colSpan={7} className="text-center py-4 text-muted-foreground">
+                                          No challans for this session
+                                        </TableCell>
+                                      </TableRow>
+                                    ) : (
+                                      feesData.selectedSessionData.challans.map(fee => (
+                                        <TableRow key={fee.id}>
+                                          <TableCell className="font-medium">{fee.challanNumber || fee.id}</TableCell>
+                                          <TableCell>
+                                            <div>PKR {(fee.amount - (fee.discount || 0) + (fee.fineAmount || 0) + (fee.lateFeeFine || 0)).toLocaleString()}</div>
+                                            {fee.lateFeeFine > 0 && (
+                                              <div className="text-[10px] text-destructive font-bold">
+                                                Inc. Late Fee: PKR {fee.lateFeeFine.toLocaleString()}
+                                              </div>
+                                            )}
+                                          </TableCell>
+                                          <TableCell className="text-green-600">PKR {fee.paidAmount?.toLocaleString() || 0}</TableCell>
+                                          <TableCell>
+                                            <Badge variant={fee.status === "PAID" ? "default" : "destructive"}>
+                                              {fee.status}
+                                            </Badge>
+                                          </TableCell>
+                                          <TableCell>{fee.coveredInstallments || fee.installmentNumber || "-"}</TableCell>
+                                          <TableCell>{fee.dueDate ? format(new Date(fee.dueDate), "MMM yyyy") : "-"}</TableCell>
+                                          <TableCell>
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => {
+                                                  setSelectedChallanDetails(fee);
+                                                  setDetailsDialogOpen(true);
+                                                }}
+                                              >
+                                                <Eye className="h-4 w-4" />
+                                              </Button>
+                                              {fee.paymentHistory && (
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  onClick={() => {
+                                                    setSelectedChallanForHistory(fee);
+                                                    setHistoryDialogOpen(true);
+                                                  }}
+                                                >
+                                                  <History className="h-4 w-4" />
+                                                </Button>
+                                              )}
+                                            </TableCell>
+                                        </TableRow>
+                                      ))
+                                    )}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
-                    </div>
-                  )}
+                    </TabsContent>
+
+                    <TabsContent value="installment-plan" className="space-y-8 animate-in fade-in duration-300">
+                       {(!viewStudent.feeInstallments || viewStudent.feeInstallments.length === 0) ? (
+                         <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg">
+                           <Calendar className="w-12 h-12 text-muted-foreground mb-4 opacity-20" />
+                           <p className="text-lg text-muted-foreground mb-2">No installment plan defined</p>
+                           <p className="text-sm text-muted-foreground">This student has no scheduled installments record in the system.</p>
+                         </div>
+                       ) : (
+                         (() => {
+                           // Group installments by Class and Session
+                           const grouped = viewStudent.feeInstallments.reduce((acc, inst) => {
+                             const key = `${inst.classId}-${inst.session}`;
+                             if (!acc[key]) {
+                               acc[key] = {
+                                 className: inst.class?.name || programData.flatMap(p => p.classes).find(c => c.id === inst.classId)?.name || 'Unknown Class',
+                                 session: inst.session || 'N/A',
+                                 classYear: programData.flatMap(p => p.classes).find(c => c.id === inst.classId)?.year || 0,
+                                 installments: []
+                               };
+                             }
+                             acc[key].installments.push(inst);
+                             return acc;
+                           }, {});
+
+                           // Sort groups by Class Year then Session
+                           const sortedGroups = Object.values(grouped).sort((a, b) => {
+                             if (a.classYear !== b.classYear) return a.classYear - b.classYear;
+                             return a.session.localeCompare(b.session);
+                           });
+
+                           return sortedGroups.map((group, gIdx) => (
+                             <div key={gIdx} className="space-y-4">
+                               <div className="flex items-center justify-between border-b pb-2">
+                                 <div className="flex items-center gap-3">
+                                   <div className="bg-primary/10 p-2 rounded-lg">
+                                     <GraduationCap className="w-5 h-5 text-primary" />
+                                   </div>
+                                   <div>
+                                     <h4 className="text-base font-bold text-slate-800">{group.className}</h4>
+                                     <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">{group.session}</p>
+                                   </div>
+                                 </div>
+                                 <Badge variant="outline" className="bg-slate-50 uppercase text-[10px] py-1 px-3">
+                                   Plan Total: PKR {group.installments.reduce((sum, i) => sum + (i.amount || 0), 0).toLocaleString()}
+                                 </Badge>
+                               </div>
+
+                               <div className="rounded-lg border shadow-sm overflow-hidden bg-white">
+                                 <Table>
+                                   <TableHeader className="bg-slate-50/50">
+                                     <TableRow>
+                                       <TableHead className="w-[80px] text-zinc-500 font-bold uppercase text-[10px]">Inst. #</TableHead>
+                                       <TableHead className="text-zinc-500 font-bold uppercase text-[10px]">Billing Month</TableHead>
+                                       <TableHead className="text-zinc-500 font-bold uppercase text-[10px]">Due Date</TableHead>
+                                       <TableHead className="text-right text-zinc-500 font-bold uppercase text-[10px]">Plan Amount</TableHead>
+                                     </TableRow>
+                                   </TableHeader>
+                                   <TableBody>
+                                     {group.installments
+                                       .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+                                       .map((inst, idx) => (
+                                       <TableRow key={inst.id} className="hover:bg-slate-50/30 transition-colors">
+                                         <TableCell className="font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                         <TableCell className="font-semibold text-slate-700">{inst.month}</TableCell>
+                                         <TableCell className="text-xs text-slate-600">
+                                           {inst.dueDate ? format(new Date(inst.dueDate), "dd MMM yyyy") : "-"}
+                                         </TableCell>
+                                         <TableCell className="text-right font-bold text-slate-900">
+                                           PKR {inst.amount.toLocaleString()}
+                                         </TableCell>
+                                       </TableRow>
+                                     ))}
+                                   </TableBody>
+                                 </Table>
+                               </div>
+                             </div>
+                           ));
+                         })()
+                       )}
+                    </TabsContent>
+                  </Tabs>
                 </TabsContent>
 
                 <TabsContent value="attendance" className="flex-1 overflow-y-auto">
@@ -1726,7 +1849,26 @@ const Students = () => {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4 p-4 bg-muted rounded-lg">
+              <div className="grid grid-cols-4 gap-4 p-4 bg-muted rounded-lg">
+                <div>
+                  <Label>Session</Label>
+                  <Select value={dialogFilterSession} onValueChange={(v) => { setDialogFilterSession(v || ""); setSelectedForPromotion([]); }}>
+                    <SelectTrigger><SelectValue placeholder="Select Session" /></SelectTrigger>
+                    <SelectContent>
+                      {(() => {
+                        const yr = new Date().getFullYear();
+                        const gap = getProgramGap(dialogFilterProgram);
+                        const sessions = [];
+                        for (let y = yr - 5; y <= yr + 5; y++) {
+                          sessions.push(`${y}-${y + gap}`);
+                        }
+                        return sessions.map(s => (
+                          <SelectItem key={s} value={s}>{s}</SelectItem>
+                        ));
+                      })()}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div>
                   <Label>Program</Label>
                   <Select value={dialogFilterProgram || ""} onValueChange={(v) => { setDialogFilterProgram(v || null); setDialogFilterClass(null); setDialogFilterSection(null); setSelectedForPromotion([]); }}>
@@ -1833,6 +1975,84 @@ const Students = () => {
                 </TableBody>
               </Table>
 
+              {/* Manual Promotion Destination Details */}
+              {promotionAction === "promote_manual" && (
+                <div className="space-y-4 p-4 bg-orange-50 border border-orange-100 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="flex items-center gap-2 mb-2">
+                    <TrendingUp className="w-4 h-4 text-orange-600" />
+                    <h4 className="text-sm font-semibold text-orange-900">Destination Placement</h4>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Target Session *</Label>
+                      <Select
+                        value={promoDetails.session}
+                        onValueChange={(v) => setPromoDetails(prev => ({ ...prev, session: v }))}
+                      >
+                        <SelectTrigger className="bg-white"><SelectValue placeholder="Select Session" /></SelectTrigger>
+                        <SelectContent>
+                          {(() => {
+                            const yr = new Date().getFullYear();
+                            const gap = getProgramGap(promoDetails.programId || dialogFilterProgram);
+                            const sessions = [];
+                            for (let y = yr - 5; y <= yr + 15; y++) {
+                              sessions.push(`${y}-${y + gap}`);
+                            }
+                            return sessions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>);
+                          })()}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label>Target Program *</Label>
+                      <Select
+                        value={promoDetails.programId}
+                        onValueChange={(v) => setPromoDetails(prev => ({ ...prev, programId: v, classId: "", sectionId: "" }))}
+                      >
+                        <SelectTrigger className="bg-white"><SelectValue placeholder="Select Program" /></SelectTrigger>
+                        <SelectContent>
+                          {programData.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label>Target Class *</Label>
+                      <Select
+                        value={promoDetails.classId}
+                        onValueChange={(v) => setPromoDetails(prev => ({ ...prev, classId: v, sectionId: "" }))}
+                        disabled={!promoDetails.programId}
+                      >
+                        <SelectTrigger className="bg-white"><SelectValue placeholder={promoDetails.programId ? "Select Class" : "Select Program First"} /></SelectTrigger>
+                        <SelectContent>
+                          {getClassesForProgram(promoDetails.programId).map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label>Target Section (Optional)</Label>
+                      <Select
+                        value={promoDetails.sectionId}
+                        onValueChange={(v) => setPromoDetails(prev => ({ ...prev, sectionId: v === "none" ? "" : v }))}
+                        disabled={!promoDetails.classId}
+                      >
+                        <SelectTrigger className="bg-white"><SelectValue placeholder="Select Section" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Section</SelectItem>
+                          {getSectionsForClass(promoDetails.programId, promoDetails.classId).map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-orange-700 italic">
+                    Note: Manual promotion will override standard class sequence and regenerate the financial installment plan.
+                  </p>
+                </div>
+              )}
+
               {/* Reason input for expel, struck-off, rejoin */}
               {(promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && (
                 <div className="space-y-4">
@@ -1866,11 +2086,14 @@ const Students = () => {
                               <SelectContent>
                                 {(() => {
                                   const currentYear = new Date().getFullYear();
-                                  return Array.from({ length: 5 }, (_, i) => {
-                                    const y = currentYear - 1 + i;
-                                    const s = `${y}-${y + 1}`;
-                                    return <SelectItem key={s} value={s}>{s}</SelectItem>;
-                                  });
+                                  const gap = getProgramGap(rejoinDetails.programId);
+                                  const sessions = [];
+                                  for (let y = currentYear - 5; y <= currentYear + 5; y++) {
+                                    sessions.push(`${y}-${y + gap}`);
+                                  }
+                                  return sessions.map(s => (
+                                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                                  ));
                                 })()}
                               </SelectContent>
                             </Select>
@@ -1948,7 +2171,8 @@ const Students = () => {
                   disabled={
                     selectedForPromotion.length === 0 ||
                     ((promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && !promotionReason.trim()) ||
-                    (promotionAction === "rejoin" && !rejoinDetails.sameClass && (!rejoinDetails.session || !rejoinDetails.programId || !rejoinDetails.classId))
+                    (promotionAction === "rejoin" && !rejoinDetails.sameClass && (!rejoinDetails.session || !rejoinDetails.programId || !rejoinDetails.classId)) ||
+                    (promotionAction === "promote_manual" && (!promoDetails.session || !promoDetails.programId || !promoDetails.classId))
                   }
                 >
                   Apply ({selectedForPromotion.length} selected)
@@ -2050,94 +2274,6 @@ const Students = () => {
           </DialogContent>
         </Dialog>
 
-        {/* Manual Promotion Dialog */}
-        <Dialog open={manualPromotionDialog.open} onOpenChange={(open) => setManualPromotionDialog({ ...manualPromotionDialog, open })}>
-          <DialogContent className="max-w-md bg-white text-black max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Manual Class Assignment</DialogTitle>
-              <DialogDescription>
-                Manually select the destination class for the selected students.
-                Students usually follow a predefined path, use this only for exceptions.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4 py-4">
-              {/* Calculate available classes based on first selected student */}
-              {(() => {
-                const firstId = selectedForPromotion[0];
-                const firstStudent = studentsData.find(s => s.id === firstId);
-                const pId = firstStudent?.programId;
-                const prog = programData.find(p => p.id === pId);
-                const classes = prog?.classes || [];
-                // Sort classes by semester/year if needed, or use existing order
-
-                const selectedClass = classes.find(c => c.id.toString() === manualPromotionDialog.classId);
-                const sections = selectedClass?.sections || [];
-
-                return (
-                  <>
-                    <div className="space-y-2">
-                      <Label>Target Class ({prog?.name || 'Unknown Program'})</Label>
-                      <Select
-                        value={manualPromotionDialog.classId}
-                        onValueChange={(val) => setManualPromotionDialog({ ...manualPromotionDialog, classId: val, sectionId: "" })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Destination Class" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {classes.map(c => (
-                            <SelectItem key={c.id} value={c.id.toString()}>
-                              {c.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Target Section</Label>
-                      <Select
-                        value={manualPromotionDialog.sectionId}
-                        onValueChange={(val) => setManualPromotionDialog({ ...manualPromotionDialog, sectionId: val })}
-                        disabled={!manualPromotionDialog.classId || sections.length === 0}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={sections.length === 0 ? "No sections available" : "Select Section"} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {sections.map(s => (
-                            <SelectItem key={s.id} value={s.id.toString()}>
-                              {s.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setManualPromotionDialog({ ...manualPromotionDialog, open: false })}>Cancel</Button>
-              <Button
-                onClick={() => {
-                  bulkPromotionMut.mutate({
-                    ids: selectedForPromotion,
-                    action: "promote",
-                    targetClassId: manualPromotionDialog.classId,
-                    targetSectionId: manualPromotionDialog.sectionId
-                  });
-                  setManualPromotionDialog({ ...manualPromotionDialog, open: false });
-                }}
-                disabled={!manualPromotionDialog.classId}
-              >
-                Promote Manually
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         {/* ID Card Dialog */}
         <Dialog open={idCardOpen} onOpenChange={setIdCardOpen}>

@@ -124,7 +124,13 @@ export class StudentService {
         program: { select: { name: true, id: true } },
         class: { select: { id: true, name: true } },
         section: { select: { id: true, name: true } },
-        feeInstallments: { orderBy: { installmentNumber: 'asc' } },
+        feeInstallments: { 
+          include: { class: true },
+          orderBy: { installmentNumber: 'asc' } 
+        },
+        studentArrears: {
+          include: { class: true, program: true }
+        },
       },
     });
 
@@ -192,7 +198,13 @@ export class StudentService {
           program: { select: { name: true, id: true } },
           class: { select: { id: true, name: true } },
           section: { select: { id: true, name: true } },
-          feeInstallments: { orderBy: { installmentNumber: 'asc' } },
+          feeInstallments: { 
+            include: { class: true },
+            orderBy: { installmentNumber: 'asc' } 
+          },
+          studentArrears: {
+            include: { class: true, program: true }
+          },
         },
       }),
       this.prismaService.student.count({ where }),
@@ -539,6 +551,8 @@ export class StudentService {
     forcePromote: boolean | any = false,
     targetClassId?: number,
     targetSectionId?: number,
+    targetProgramId?: number,
+    targetSession?: string,
   ) {
     const student = await this.prismaService.student.findUnique({
       where: { id },
@@ -666,27 +680,41 @@ export class StudentService {
                     (a.installmentNumber || 0) - (b.installmentNumber || 0),
                 ),
             },
+            targetClassId,
+            targetSectionId,
+            targetProgramId,
+            targetSession
           };
         }
       }
     }
 
     // No arrears OR force promote - proceed with promotion
-    const program = student.class.program;
+    let program = student.class.program;
     let nextClass;
     let matchingSection;
+
+    // A. Handle Target Program Override
+    if (targetProgramId) {
+      const newProgram = await this.prismaService.program.findUnique({
+        where: { id: Number(targetProgramId) },
+        include: { classes: { include: { sections: true } } }
+      });
+      if (!newProgram) throw new BadRequestException('Target program not found');
+      program = newProgram as any;
+    }
 
     if (targetClassId) {
       // Manual Promotion Override
       console.log('🔧 Manual Promotion Requested to Class ID:', targetClassId);
 
-      // Verify class belongs to the same program
+      // Verify class belongs to the target(or current) program
       const targetClass = program.classes.find(
         (c) => c.id === Number(targetClassId),
       );
       if (!targetClass) {
         throw new BadRequestException(
-          "Target class does not belong to the student's program",
+          "Target class does not belong to the selected program",
         );
       }
       nextClass = targetClass;
@@ -695,16 +723,10 @@ export class StudentService {
         matchingSection = nextClass.sections.find(
           (s) => s.id === Number(targetSectionId),
         );
-        if (!matchingSection) {
-          console.warn(
-            `⚠️ Target section ${targetSectionId} not found in class ${nextClass.name}`,
-          );
-        }
       }
     } else {
       // Automatic Promotion Logic
-      // FIXED SORTING
-      const classes = program.classes.sort((a, b) => {
+      const sortedClasses = program.classes.sort((a, b) => {
         if (a.isSemester && b.isSemester) {
           return (a.semester ?? 0) - (b.semester ?? 0);
         }
@@ -716,26 +738,54 @@ export class StudentService {
         return 0;
       });
 
-      const curIdx = classes.findIndex((c) => c.id === student.classId);
-      if (curIdx >= classes.length - 1) {
-        throw new BadRequestException('Student is already in the final class');
+      const curIdx = sortedClasses.findIndex((c) => c.id === student.classId);
+      if (curIdx === -1 || curIdx >= sortedClasses.length - 1) {
+        // If not found in current sorted (e.g. program changed), default to first class
+        nextClass = sortedClasses[0];
+      } else {
+        nextClass = sortedClasses[curIdx + 1];
+        matchingSection = nextClass.sections.find(
+          (s) => s.name === student.section?.name,
+        );
       }
+    }
 
-      nextClass = classes[curIdx + 1];
-      matchingSection = nextClass.sections.find(
-        (s) => s.name === student.section?.name,
-      );
+    // Calculate prefixes for roll number update
+    const getPrefix = (pPrefix: any, cPrefix: any) => {
+      const p = pPrefix || '';
+      const c = cPrefix || '';
+      if (p && c && c.startsWith(p)) return c;
+      return `${p}${c}`;
+    };
+
+    const oldPrefix = getPrefix(student.program?.rollPrefix, student.class?.rollPrefix);
+    const newPrefix = getPrefix(program?.rollPrefix, nextClass?.rollPrefix);
+
+    let updatedRollNumber = student.rollNumber;
+    if (oldPrefix && updatedRollNumber?.startsWith(oldPrefix)) {
+      updatedRollNumber = newPrefix + updatedRollNumber.slice(oldPrefix.length);
+    }
+
+    // Update student basics
+    const studentUpdateData: any = {
+      class: { connect: { id: nextClass.id } },
+      section: matchingSection
+        ? { connect: { id: matchingSection.id } }
+        : { disconnect: true },
+      passedOut: false,
+      rollNumber: updatedRollNumber,
+    };
+
+    if (targetProgramId) {
+      studentUpdateData.program = { connect: { id: Number(targetProgramId) } };
+    }
+    if (targetSession) {
+      studentUpdateData.session = targetSession;
     }
 
     const promoted = await this.prismaService.student.update({
       where: { id },
-      data: {
-        class: { connect: { id: nextClass.id } },
-        section: matchingSection
-          ? { connect: { id: matchingSection.id } }
-          : { disconnect: true },
-        passedOut: false,
-      },
+      data: studentUpdateData,
     });
 
     // --- SAVE ARREARS TO StudentArrear TABLE ---
@@ -766,24 +816,23 @@ export class StudentService {
       `🚀 Promotion Fee Logic: Student ${id} -> Class ${nextClass.id}`,
     );
 
+    const effectiveProgramId = targetProgramId ? Number(targetProgramId) : student.programId;
+    const effectiveSession = targetSession || student.session;
+
     // A. Fetch fee structure for the new class
     const newFeeStructure = await this.prismaService.feeStructure.findUnique({
       where: {
         programId_classId: {
-          programId: program.id,
+          programId: effectiveProgramId!,
           classId: nextClass.id,
         },
       },
     });
 
-    // B. Determine Tuition and Installment Count
-    // If a structure exists, use its total. Otherwise keep current student's tuition fee.
-
     const totalAmount = newFeeStructure
       ? newFeeStructure.totalAmount
       : student.tuitionFee || 0;
 
-    // Prioritize new class standard installments, fallback to existing student count
     const installmentCount =
       newFeeStructure?.installments || student.numberOfInstallments || 1;
 
@@ -796,33 +845,45 @@ export class StudentService {
         totalAmount / installmentCount,
       );
 
-      // Generate the new installment plan
       const newInstallments = Array.from({ length: installmentCount }).map(
-        (_, idx) => ({
-          installmentNumber: idx + 1,
-          amount: defaultInstallmentAmount,
-          dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)), // Monthly staggered
-        }),
+        (_, idx) => {
+          const d = new Date();
+          // Offset by 1 month to start from next month, then staggered
+          d.setMonth(d.getMonth() + idx + 1);
+          d.setDate(10); // Standardize to 10th for consistent ranking
+
+          const mName = d.toLocaleString('default', { month: 'long' });
+
+          return {
+            installmentNumber: idx + 1,
+            amount: defaultInstallmentAmount,
+            dueDate: d,
+            month: mName,
+            session: effectiveSession,
+          };
+        },
       );
 
-      // Fix rounding: last installment covers the remainder
+      // Fix rounding
       const totalCalculated = defaultInstallmentAmount * installmentCount;
       const diff = totalAmount - totalCalculated;
       if (diff !== 0 && newInstallments.length > 0) {
         newInstallments[newInstallments.length - 1].amount += diff;
       }
 
-      // C. Update Student Metadata & Reset Installments
+      // C. Update Student Record & Append New Installments
       await this.prismaService.$transaction([
         this.prismaService.student.update({
           where: { id },
           data: {
-            tuitionFee: totalAmount,
+            programId: effectiveProgramId, // Reflect destination program
+            classId: nextClass.id,         // Reflect destination class
+            session: effectiveSession,     // Reflect destination session
+            tuitionFee: totalAmount,       // Update agreed tuition for the new class/plan
             numberOfInstallments: installmentCount,
           },
         }),
-        // Don't delete all installments anymore, just add new ones for the new class
-        // Keep the old ones for historical record and restoration if demoted
+        // Push the new installments to the existing collection (No deleteMany called)
         this.prismaService.studentFeeInstallment.createMany({
           data: newInstallments.map((i) => ({
             studentId: id,
@@ -830,13 +891,16 @@ export class StudentService {
             installmentNumber: i.installmentNumber,
             amount: i.amount,
             dueDate: i.dueDate,
+            month: i.month,
             remainingAmount: i.amount,
+            session: i.session,
           })),
+          skipDuplicates: true, // Safety: Avoid overriding if already promoted to this class
         }),
       ]);
 
       console.log(
-        `✅ Success: Auto-generated ${installmentCount} fees for Student ${id} in Class ${nextClass.name}`,
+        `✅ Success: Generated ${installmentCount} fees for Student ${id} in Class ${nextClass.name} (Session: ${effectiveSession})`,
       );
     } else {
       console.warn(
@@ -910,6 +974,16 @@ export class StudentService {
       student.classId,
     );
 
+    // --- DELETE CURRENT CLASS INSTALLMENTS ---
+    // Since promotion appends new installments, demotion should remove them
+    // to "reset" back to the previous class's plan.
+    await this.prismaService.studentFeeInstallment.deleteMany({
+      where: {
+        studentId: id,
+        classId: student.classId,
+      },
+    });
+
     // --- RESTORE PREVIOUS FEE STRUCTURE ---
     // Try to find if the student had a custom installment plan for the previous class
     const previousInstallments = await this.prismaService.studentFeeInstallment.findMany({
@@ -972,6 +1046,22 @@ export class StudentService {
       }
     }
 
+    // Calculate roll number update
+    const getPrefix = (pPrefix: any, cPrefix: any) => {
+      const p = pPrefix || '';
+      const c = cPrefix || '';
+      if (p && c && c.startsWith(p)) return c;
+      return `${p}${c}`;
+    };
+
+    const oldPrefix = getPrefix(student.class?.program?.rollPrefix, student.class?.rollPrefix);
+    const newPrefix = getPrefix(program?.rollPrefix, prevClass?.rollPrefix);
+
+    let updatedRollNumber = student.rollNumber;
+    if (oldPrefix && updatedRollNumber?.startsWith(oldPrefix)) {
+      updatedRollNumber = newPrefix + updatedRollNumber.slice(oldPrefix.length);
+    }
+
     const updatedStudent = await this.prismaService.$transaction([
       this.prismaService.student.update({
         where: { id },
@@ -981,6 +1071,7 @@ export class StudentService {
             ? { connect: { id: matchingSection.id } }
             : { disconnect: true },
           passedOut: false,
+          rollNumber: updatedRollNumber,
           // RESTORE FEES
           tuitionFee: restoredTuitionFee,
           numberOfInstallments: restoredInstallmentsCount,

@@ -141,14 +141,38 @@ const StudentForm = ({
         return `${pPrefix}${cPrefix}`;
     }, [formData.classId, formData.programId, programs, classes]);
 
+    const [prevPrefix, setPrevPrefix] = useState("");
+
     const rollNumberSuffix = useMemo(() => {
         if (calculatedPrefix && formData.rollNumber.startsWith(calculatedPrefix)) {
             return formData.rollNumber.slice(calculatedPrefix.length);
         }
+        // If it doesn't match the NEW prefix, check if it matches the PREVIOUS one
+        // This ensures the input box doesn't temporarily show the full roll number during transitions
+        if (prevPrefix && formData.rollNumber.startsWith(prevPrefix)) {
+            return formData.rollNumber.slice(prevPrefix.length);
+        }
         return formData.rollNumber;
-    }, [formData.rollNumber, calculatedPrefix]);
-
+    }, [formData.rollNumber, calculatedPrefix, prevPrefix]);
+    const sessionManuallySet = useRef(isEditing ? true : false);
     const prevPrefixRef = useRef("");
+    // Helper to extract year gap from program duration (e.g., "4 years" -> 4)
+    const getProgramGap = (prog) => {
+        if (!prog?.duration) return 1;
+        const match = prog.duration.match(/\d+/);
+        return match ? parseInt(match[0], 10) : 1;
+    };
+
+    // Helper to generate session string from a date and gap
+    const getSessionLabel = (date, gap = 1) => {
+        if (!date) return "";
+        const d = new Date(date);
+        const y = d.getFullYear();
+        const m = d.getMonth(); // 0-indexed
+        // Academic year: if month >= April (3), session is y-(y+gap), else (y-1)-(y+gap-1)
+        if (m >= 3) return `${y}-${y + gap}`;
+        return `${y - 1}-${y + gap - 1}`;
+    };
 
     useEffect(() => {
         const prevPrefix = prevPrefixRef.current;
@@ -187,9 +211,20 @@ const StudentForm = ({
                 };
                 generate();
             }
-            prevPrefixRef.current = calculatedPrefix;
+            setPrevPrefix(calculatedPrefix);
         }
-    }, [calculatedPrefix, isEditing, getLatestRollNumber, formData.rollNumber]);
+    }, [calculatedPrefix, isEditing, getLatestRollNumber, formData.rollNumber, prevPrefix]);
+
+    useEffect(() => {
+        if (!formData.programId || !formData.admissionDate || sessionManuallySet.current || isEditing) return;
+
+        const gap = getProgramGap(selectedProgram);
+        const autoSession = getSessionLabel(formData.admissionDate, gap);
+        
+        if (autoSession && autoSession !== formData.session) {
+            setFormData(prev => ({ ...prev, session: autoSession }));
+        }
+    }, [formData.programId, formData.admissionDate, selectedProgram, formData.session, isEditing]);
 
     // === HANDLERS ===
 
@@ -218,14 +253,7 @@ const StudentForm = ({
         const totalAmount = Number(total) || 0;
         let currentInstallments = [...installments];
 
-        // Helper to generate session string from a date
-        const getSession = (date) => {
-            const y = date.getFullYear();
-            const m = date.getMonth(); // 0-indexed
-            // Academic year: if month >= April (3), session is y-(y+1), else (y-1)-y
-            if (m >= 3) return `${y}-${y + 1}`;
-            return `${y - 1}-${y}`;
-        };
+        const gap = getProgramGap(selectedProgram);
 
         // If targetCount is provided, adjust the array size
         if (targetCount !== null) {
@@ -243,7 +271,7 @@ const StudentForm = ({
                         amount: 0,
                         dueDate: nextDate.toISOString().split('T')[0],
                         month: monthName,
-                        session: getSession(nextDate),
+                        session: getSessionLabel(nextDate, gap),
                     });
                 }
             } else if (currentInstallments.length > count) {
@@ -306,12 +334,7 @@ const StudentForm = ({
         const nextDate = new Date();
         nextDate.setMonth(nextDate.getMonth() + formData.installments.length);
 
-        const getSession = (date) => {
-            const y = date.getFullYear();
-            const m = date.getMonth();
-            if (m >= 3) return `${y}-${y + 1}`;
-            return `${y - 1}-${y}`;
-        };
+        const gap = getProgramGap(selectedProgram);
 
         const monthName = nextDate.toLocaleString('default', { month: 'long' });
 
@@ -322,14 +345,17 @@ const StudentForm = ({
                 amount: 0,
                 dueDate: nextDate.toISOString().split('T')[0],
                 month: monthName,
-                session: getSession(nextDate),
+                session: getSessionLabel(nextDate, gap),
             }
         ];
 
         setFormData(prev => ({
             ...prev,
             numberOfInstallments: newInstallments.length.toString(),
-            installments: redistributeInstallments(prev.tuitionFee, newInstallments)
+            installments: redistributeInstallments(prev.tuitionFee, newInstallments.map(inst => ({
+                ...inst,
+                session: prev.session || inst.session
+            })))
         }));
     };
 
@@ -571,17 +597,40 @@ const StudentForm = ({
                             <Label>Session *</Label>
                             <Select
                                 value={formData.session || ""}
-                                onValueChange={(v) => setFormData({ ...formData, session: v })}
+                                onValueChange={(v) => {
+                                    sessionManuallySet.current = true;
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        session: v,
+                                        installments: (prev.installments || []).map(inst => ({
+                                            ...inst,
+                                            session: v
+                                        }))
+                                    }));
+                                }}
                             >
-                                <SelectTrigger><SelectValue placeholder="Select Session" /></SelectTrigger>
+                                <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Select Session" />
+                                </SelectTrigger>
                                 <SelectContent>
                                     {(() => {
                                         const currentYear = new Date().getFullYear();
-                                        return Array.from({ length: 8 }, (_, i) => {
-                                            const y = currentYear - 2 + i;
-                                            const s = `${y}-${y + 1}`;
-                                            return <SelectItem key={s} value={s}>{s}</SelectItem>;
-                                        });
+                                        const progGap = getProgramGap(selectedProgram);
+                                        const sessions = new Set();
+                                        
+                                        // Standard range: -5 to +15
+                                        for (let y = currentYear - 5; y <= currentYear + 15; y++) {
+                                            sessions.add(`${y}-${y + progGap}`);
+                                        }
+
+                                        // Ensure current session is always included
+                                        if (formData.session) {
+                                            sessions.add(formData.session);
+                                        }
+
+                                        return Array.from(sessions).sort().map(s => (
+                                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                                        ));
                                     })()}
                                 </SelectContent>
                             </Select>
@@ -870,11 +919,14 @@ const StudentForm = ({
                                                 <SelectContent>
                                                     {(() => {
                                                         const currentYear = new Date().getFullYear();
-                                                        return Array.from({ length: 8 }, (_, i) => {
-                                                            const y = currentYear - 2 + i;
-                                                            const s = `${y}-${y + 1}`;
-                                                            return <SelectItem key={s} value={s}>{s}</SelectItem>;
-                                                        });
+                                                        const gap = getProgramGap(selectedProgram);
+                                                        const sessions = [];
+                                                        for (let y = currentYear - 5; y <= currentYear + 5; y++) {
+                                                            sessions.push(`${y}-${y + gap}`);
+                                                        }
+                                                        return sessions.map(s => (
+                                                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                                                        ));
                                                     })()}
                                                 </SelectContent>
                                             </Select>

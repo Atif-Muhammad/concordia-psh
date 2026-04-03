@@ -232,9 +232,11 @@ export class StudentController {
   @Patch('promote')
   async promoteStudents(
     @Query('studentID') studentID: string,
-    @Query('forcePromote') forcePromote?: string, // Query params are always strings!
+    @Query('forcePromote') forcePromote?: string,
     @Query('targetClassId') targetClassId?: string,
     @Query('targetSectionId') targetSectionId?: string,
+    @Query('targetProgramId') targetProgramId?: string,
+    @Query('targetSession') targetSession?: string,
   ) {
     console.log(
       '🔵 Controller received forcePromote:',
@@ -245,9 +247,9 @@ export class StudentController {
     const forceBool = forcePromote === 'true';
     console.log('🔵 Converting to boolean:', forceBool);
 
-    if (targetClassId) {
-      console.log('🔵 Target Class Override:', targetClassId);
-    }
+    if (targetClassId) console.log('🔵 Target Class Override:', targetClassId);
+    if (targetProgramId) console.log('🔵 Target Program Override:', targetProgramId);
+    if (targetSession) console.log('🔵 Target Session Override:', targetSession);
 
     console.log('🔵 Calling promote service...');
 
@@ -257,6 +259,8 @@ export class StudentController {
         forceBool,
         targetClassId ? Number(targetClassId) : undefined,
         targetSectionId ? Number(targetSectionId) : undefined,
+        targetProgramId ? Number(targetProgramId) : undefined,
+        targetSession,
       );
       console.log('🔵 Promote service returned:', result);
       return result;
