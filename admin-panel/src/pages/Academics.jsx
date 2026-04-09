@@ -31,6 +31,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import {
   GraduationCap,
   BookOpen,
@@ -41,8 +42,10 @@ import {
   Clock,
   FileText,
   Printer,
+  Calendar,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -92,6 +95,10 @@ import {
   updateTeacherClassMappings,
   updateTeacherSubjectMapping,
   updateTimetable,
+  getAcademicSessions,
+  createAcademicSession,
+  updateAcademicSession,
+  deleteAcademicSession,
 } from "../../config/apis";
 
 const Academics = () => {
@@ -154,6 +161,11 @@ const Academics = () => {
     queryFn: getTeacherNames,
     retry: 1,
   });
+  const { data: academicSessions = [] } = useQuery({
+    queryKey: ["academicSessions"],
+    queryFn: getAcademicSessions,
+    retry: 1,
+  });
 
   // Mutations
   const programMutation = useMutation({
@@ -190,6 +202,10 @@ const Academics = () => {
     mutationFn: ({ id, data }) => (id ? updateAssignment(id, data) : createAssignment(data)),
     onSuccess: () => queryClient.invalidateQueries(["assignments"]),
   });
+  const sessionMutation = useMutation({
+    mutationFn: ({ id, data }) => (id ? updateAcademicSession(id, data) : createAcademicSession(data)),
+    onSuccess: () => queryClient.invalidateQueries(["academicSessions"]),
+  });
 
   const deleteMutations = {
     program: useMutation({ mutationFn: deleteProgram, onSuccess: () => queryClient.invalidateQueries(["programs"]) }),
@@ -200,6 +216,7 @@ const Academics = () => {
     classMapping: useMutation({ mutationFn: deleteTeacherClassMappings, onSuccess: () => queryClient.invalidateQueries(["teacherClassMappings"]) }),
     timetable: useMutation({ mutationFn: deleteTimetable, onSuccess: () => queryClient.invalidateQueries(["timetables"]) }),
     assignment: useMutation({ mutationFn: deleteAssignment, onSuccess: () => queryClient.invalidateQueries(["assignments"]) }),
+    session: useMutation({ mutationFn: deleteAcademicSession, onSuccess: () => queryClient.invalidateQueries(["academicSessions"]) }),
   };
 
   // Local state
@@ -229,6 +246,7 @@ const Academics = () => {
     room: "",
   });
   const [assignmentForm, setAssignmentForm] = useState({ title: "", description: "", dueDate: "", teacherId: "", subjectId: "", sectionId: "" });
+  const [sessionForm, setSessionForm] = useState({ name: "", startDate: "", endDate: "", isActive: false });
 
   // Helper: Get valid teachers for selected subject + class
   const getValidTeachers = () => {
@@ -288,6 +306,7 @@ const Academics = () => {
       classMapping: { teacherId: "", classId: "", sectionId: "" },
       timetable: { teacherId: "", subjectId: "", sectionId: "", dayOfWeek: "Monday", startTime: "", endTime: "", room: "" },
       assignment: { title: "", description: "", dueDate: "", teacherId: "", subjectId: "", sectionId: "" },
+      session: { name: "", startDate: "", endDate: "", isActive: false },
     };
     return defaults[type];
   };
@@ -298,6 +317,7 @@ const Academics = () => {
       class: { form: classForm, setForm: setClassForm, mutation: classMutation },
       section: { form: sectionForm, setForm: setSectionForm, mutation: sectionMutation },
       subject: { form: subjectForm, setForm: setSubjectForm, mutation: subjectMutation },
+      session: { form: sessionForm, setForm: setSessionForm, mutation: sessionMutation },
       mapping: { form: mappingForm, setForm: setMappingForm, mutation: teacherSubjectMutation },
       classMapping: { form: classMappingForm, setForm: setClassMappingForm, mutation: teacherClassMutation },
       timetable: { form: timetableForm, setForm: setTimetableForm, mutation: timetableMutation },
@@ -373,6 +393,19 @@ const Academics = () => {
         classId: Number(sectionForm.classId),
         capacity: sectionForm.capacity ? Number(sectionForm.capacity) : null,
         room: sectionForm.room || null,
+      };
+    }
+
+    if (type === "session") {
+      if (!sessionForm.name || !sessionForm.startDate || !sessionForm.endDate) {
+        toast({ title: "Name, start date, and end date are required", variant: "destructive" });
+        return;
+      }
+      data = {
+        name: sessionForm.name,
+        startDate: new Date(sessionForm.startDate).toISOString(),
+        endDate: new Date(sessionForm.endDate).toISOString(),
+        isActive: Boolean(sessionForm.isActive),
       };
     }
 
@@ -557,6 +590,14 @@ const Academics = () => {
         sectionId: item.sectionId.toString(),
       });
     }
+    if (type === "session") {
+      setSessionForm({
+        name: item.name,
+        startDate: item.startDate ? new Date(item.startDate).toISOString().split("T")[0] : "",
+        endDate: item.endDate ? new Date(item.endDate).toISOString().split("T")[0] : "",
+        isActive: Boolean(item.isActive),
+      });
+    }
     setEditing(item);
     setDialog({ type, open: true });
   };
@@ -572,6 +613,7 @@ const Academics = () => {
       classMapping: setClassMappingForm,
       timetable: setTimetableForm,
       assignment: setAssignmentForm,
+      session: setSessionForm,
     };
     setters[type](resetForm(type));
     setDialog({ type, open: true });
@@ -592,8 +634,9 @@ const Academics = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="programs" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 h-auto gap-1">
+        <Tabs defaultValue="sessions" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 h-auto gap-1">
+            <TabsTrigger value="sessions">Sessions</TabsTrigger>
             <TabsTrigger value="programs">Programs</TabsTrigger>
             <TabsTrigger value="classes">Classes</TabsTrigger>
             <TabsTrigger value="sections">Sections</TabsTrigger>
@@ -603,6 +646,131 @@ const Academics = () => {
             <TabsTrigger value="timetable">Timetable</TabsTrigger>
             {/* <TabsTrigger value="assignments">Assignments</TabsTrigger> */}
           </TabsList>
+
+          {/* SESSIONS TAB */}
+          <TabsContent value="sessions">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Academic Sessions</CardTitle>
+                </div>
+                <Dialog open={dialog.type === "session" && dialog.open} onOpenChange={(open) => setDialog({ type: "session", open })}>
+                  <DialogTrigger asChild>
+                    <Button onClick={() => openDialog("session")}>
+                      <PlusCircle className="mr-2" /> Add Session
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>{editing ? "Edit" : "Add"} Academic Session</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div>
+                        <Label>Session Name *</Label>
+                        <Input
+                          value={sessionForm.name}
+                          onChange={(e) => setSessionForm({ ...sessionForm, name: e.target.value })}
+                          placeholder="e.g. 2023-2024"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label>Start Date *</Label>
+                          <Input
+                            type="date"
+                            value={sessionForm.startDate}
+                            onChange={(e) => setSessionForm({ ...sessionForm, startDate: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>End Date *</Label>
+                          <Input
+                            type="date"
+                            value={sessionForm.endDate}
+                            onChange={(e) => setSessionForm({ ...sessionForm, endDate: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="isActive"
+                          checked={sessionForm.isActive}
+                          onChange={(e) => setSessionForm({ ...sessionForm, isActive: e.target.checked })}
+                          className="w-4 h-4"
+                        />
+                        <Label htmlFor="isActive">Set as Active Session</Label>
+                      </div>
+                      <Button onClick={() => handleSubmit("session")} className="w-full">
+                        {editing ? "Update" : "Add"} Session
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Session Name</TableHead>
+                      <TableHead>Start Date</TableHead>
+                      <TableHead>End Date</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {academicSessions.map((s) => (
+                      <TableRow key={s.id}>
+                        <TableCell className="font-medium">{s.name}</TableCell>
+                        <TableCell>{s.startDate ? new Date(s.startDate).toLocaleDateString() : 'N/A'}</TableCell>
+                        <TableCell>{s.endDate ? new Date(s.endDate).toLocaleDateString() : 'N/A'}</TableCell>
+                        <TableCell>
+                          {s.isActive ? (
+                            <Badge className="bg-green-500">Active</Badge>
+                          ) : (
+                            <Badge variant="secondary">Inactive</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right space-x-2">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="outline" size="sm" onClick={() => openEdit("session", s)}>
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Edit</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => {
+                                  setDeleteTarget({ type: "session", id: s.id });
+                                  setDeleteDialog(true);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete</TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {academicSessions.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                          No academic sessions found.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* TIMETABLE TAB - FULLY VALIDATED */}
           <TabsContent value="timetable">
@@ -949,19 +1117,29 @@ const Academics = () => {
                                     </TableCell>
                                     <TableCell>
                                       <div className="flex gap-2">
-                                        <Button variant="outline" size="sm" onClick={() => openEdit("timetable", t)}>
-                                          <Edit className="w-4 h-4" />
-                                        </Button>
-                                        <Button
-                                          variant="destructive"
-                                          size="sm"
-                                          onClick={() => {
-                                            setDeleteTarget({ type: "timetable", id: t.id });
-                                            setDeleteDialog(true);
-                                          }}
-                                        >
-                                          <Trash2 className="w-4 h-4" />
-                                        </Button>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button variant="outline" size="sm" onClick={() => openEdit("timetable", t)}>
+                                              <Edit className="w-4 h-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Edit</TooltipContent>
+                                        </Tooltip>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="destructive"
+                                              size="sm"
+                                              onClick={() => {
+                                                setDeleteTarget({ type: "timetable", id: t.id });
+                                                setDeleteDialog(true);
+                                              }}
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Delete</TooltipContent>
+                                        </Tooltip>
                                       </div>
                                     </TableCell>
                                   </TableRow>
@@ -1212,19 +1390,29 @@ const Academics = () => {
                           <TableCell>{p.description || "—"}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
-                              <Button variant="outline" size="sm" onClick={() => openEdit("program", p)}>
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => {
-                                  setDeleteTarget({ type: "program", id: p.id });
-                                  setDeleteDialog(true);
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="outline" size="sm" onClick={() => openEdit("program", p)}>
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => {
+                                      setDeleteTarget({ type: "program", id: p.id });
+                                      setDeleteDialog(true);
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete</TooltipContent>
+                              </Tooltip>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1475,19 +1663,29 @@ const Academics = () => {
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-2">
-                                <Button variant="outline" size="sm" onClick={() => openEdit("class", c)}>
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => {
-                                    setDeleteTarget({ type: "class", id: c.id });
-                                    setDeleteDialog(true);
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button variant="outline" size="sm" onClick={() => openEdit("class", c)}>
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => {
+                                        setDeleteTarget({ type: "class", id: c.id });
+                                        setDeleteDialog(true);
+                                      }}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete</TooltipContent>
+                                </Tooltip>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1717,19 +1915,29 @@ const Academics = () => {
                             <TableCell>{s.capacity || "-"}</TableCell>
                             <TableCell>
                               <div className="flex gap-2">
-                                <Button variant="outline" size="sm" onClick={() => openEdit("section", s)}>
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => {
-                                    setDeleteTarget({ type: "section", id: s.id });
-                                    setDeleteDialog(true);
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button variant="outline" size="sm" onClick={() => openEdit("section", s)}>
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => {
+                                        setDeleteTarget({ type: "section", id: s.id });
+                                        setDeleteDialog(true);
+                                      }}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete</TooltipContent>
+                                </Tooltip>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1946,19 +2154,29 @@ const Academics = () => {
                             <TableCell>{dept?.name || "—"}</TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-2">
-                                <Button variant="outline" size="sm" onClick={() => openEdit("subject", s)}>
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => {
-                                    setDeleteTarget({ type: "subject", id: s.id });
-                                    setDeleteDialog(true);
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button variant="outline" size="sm" onClick={() => openEdit("subject", s)}>
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => {
+                                        setDeleteTarget({ type: "subject", id: s.id });
+                                        setDeleteDialog(true);
+                                      }}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete</TooltipContent>
+                                </Tooltip>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -2046,19 +2264,29 @@ const Academics = () => {
                           <TableCell>{subject?.name || "-"}</TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button variant="outline" size="sm" onClick={() => openEdit("mapping", m)}>
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => {
-                                  setDeleteTarget({ type: "mapping", id: m.id });
-                                  setDeleteDialog(true);
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="outline" size="sm" onClick={() => openEdit("mapping", m)}>
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => {
+                                      setDeleteTarget({ type: "mapping", id: m.id });
+                                      setDeleteDialog(true);
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete</TooltipContent>
+                              </Tooltip>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -2206,19 +2434,29 @@ const Academics = () => {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
-                              <Button variant="outline" size="sm" onClick={() => openEdit("classMapping", m)}>
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => {
-                                  setDeleteTarget({ type: "classMapping", id: m.id });
-                                  setDeleteDialog(true);
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="outline" size="sm" onClick={() => openEdit("classMapping", m)}>
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => {
+                                      setDeleteTarget({ type: "classMapping", id: m.id });
+                                      setDeleteDialog(true);
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete</TooltipContent>
+                              </Tooltip>
                             </div>
                           </TableCell>
                         </TableRow>

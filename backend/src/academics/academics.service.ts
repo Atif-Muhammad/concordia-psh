@@ -391,4 +391,49 @@ export class AcademicsService {
   async removeTimetable(id: number) {
     return await this.prismaService.timetable.delete({ where: { id } });
   }
+
+  // ACADEMIC SESSIONS
+  async getAcademicSessions() {
+    return await this.prismaService.academicSession.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createAcademicSession(payload: any) {
+    if (payload.isActive) {
+      await this.prismaService.academicSession.updateMany({
+        data: { isActive: false },
+      });
+    }
+    return await this.prismaService.academicSession.create({
+      data: {
+        name: payload.name,
+        startDate: new Date(payload.startDate),
+        endDate: new Date(payload.endDate),
+        isActive: Boolean(payload.isActive),
+      },
+    });
+  }
+
+  async updateAcademicSession(id: number, payload: any) {
+    if (payload.isActive) {
+      await this.prismaService.academicSession.updateMany({
+        where: { id: { not: id } },
+        data: { isActive: false },
+      });
+    }
+    return await this.prismaService.academicSession.update({
+      where: { id },
+      data: {
+        name: payload.name,
+        startDate: payload.startDate ? new Date(payload.startDate) : undefined,
+        endDate: payload.endDate ? new Date(payload.endDate) : undefined,
+        isActive: payload.isActive !== undefined ? Boolean(payload.isActive) : undefined,
+      },
+    });
+  }
+
+  async deleteAcademicSession(id: number) {
+    return await this.prismaService.academicSession.delete({ where: { id } });
+  }
 }

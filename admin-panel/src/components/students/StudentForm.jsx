@@ -27,7 +27,8 @@ const StudentForm = ({
     sections = [],
     headerExtra = null,
     getLatestRollNumber, // function to fetch latest roll number
-    isSubmitting = false
+    isSubmitting = false,
+    academicSessions = []
 }) => {
     const { toast } = useToast();
 
@@ -36,31 +37,37 @@ const StudentForm = ({
         if (typeof docs === "string") {
             try { docs = JSON.parse(docs); } catch { docs = {}; }
         }
+
+        // Pre-load sessionId from academicRecords (backend returns them sorted by LIFO)
+        let currentSessionId = initialData.sessionId || "";
+        if (!currentSessionId && initialData.academicRecords && initialData.academicRecords.length > 0) {
+            currentSessionId = initialData.academicRecords[0].sessionId?.toString() || "";
+        }
+
         return {
-            fName: "",
-            lName: "",
-            session: "",
-            fatherOrguardian: "",
-            rollNumber: "",
-            parentOrGuardianEmail: "",
-            parentOrGuardianPhone: "",
-            parentCNIC: "",
-            address: "",
-            gender: "",
-            religion: "",
-            dob: "",
-            admissionDate: "",
-            programId: "",
-            classId: "",
-            sectionId: "",
-            tuitionFee: "",
-            numberOfInstallments: "1",
-            lateFeeFine: 0,
-            installments: initialData.installments || initialData.feeInstallments || [],
-            documents: docs,
-            ...initialData,
+            fName: initialData.fName || "",
+            lName: initialData.lName || "",
+            sessionId: currentSessionId,
+            session: initialData.session || "",
+            fatherOrguardian: initialData.fatherOrguardian || "",
+            rollNumber: initialData.rollNumber || "",
+            parentOrGuardianEmail: initialData.parentOrGuardianEmail || "",
+            parentOrGuardianPhone: initialData.parentOrGuardianPhone || "",
+            parentCNIC: initialData.parentCNIC || "",
+            studentCnic: initialData.studentCnic || "",
+            address: initialData.address || "",
+            gender: initialData.gender || "",
+            religion: initialData.religion || "",
             dob: initialData.dob ? new Date(initialData.dob).toISOString().split('T')[0] : "",
             admissionDate: initialData.admissionDate ? new Date(initialData.admissionDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            programId: initialData.programId?.toString() || "",
+            classId: initialData.classId?.toString() || "",
+            sectionId: initialData.sectionId?.toString() || "",
+            tuitionFee: initialData.tuitionFee?.toString() || "",
+            numberOfInstallments: initialData.numberOfInstallments?.toString() || "1",
+            lateFeeFine: initialData.lateFeeFine || 0,
+            installments: initialData.installments || initialData.feeInstallments || [],
+            documents: docs,
         };
     });
 
@@ -69,31 +76,36 @@ const StudentForm = ({
         if (typeof docs === "string") {
             try { docs = JSON.parse(docs); } catch { docs = {}; }
         }
+
+        let currentSessionId = initialData.sessionId || "";
+        if (!currentSessionId && initialData.academicRecords && initialData.academicRecords.length > 0) {
+            currentSessionId = initialData.academicRecords[0].sessionId?.toString() || "";
+        }
+
         setFormData({
-            fName: "",
-            lName: "",
-            session: "",
-            fatherOrguardian: "",
-            rollNumber: "",
-            parentOrGuardianEmail: "",
-            parentOrGuardianPhone: "",
-            parentCNIC: "",
-            address: "",
-            gender: "",
-            religion: "",
-            dob: "",
-            admissionDate: "",
-            programId: "",
-            classId: "",
-            sectionId: "",
-            tuitionFee: "",
-            numberOfInstallments: "1",
-            lateFeeFine: 0,
-            installments: initialData.installments || initialData.feeInstallments || [],
-            documents: docs,
-            ...initialData,
+            fName: initialData.fName || "",
+            lName: initialData.lName || "",
+            sessionId: currentSessionId,
+            session: initialData.session || "",
+            fatherOrguardian: initialData.fatherOrguardian || "",
+            rollNumber: initialData.rollNumber || "",
+            parentOrGuardianEmail: initialData.parentOrGuardianEmail || "",
+            parentOrGuardianPhone: initialData.parentOrGuardianPhone || "",
+            parentCNIC: initialData.parentCNIC || "",
+            studentCnic: initialData.studentCnic || "",
+            address: initialData.address || "",
+            gender: initialData.gender || "",
+            religion: initialData.religion || "",
             dob: initialData.dob ? new Date(initialData.dob).toISOString().split('T')[0] : "",
             admissionDate: initialData.admissionDate ? new Date(initialData.admissionDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            programId: initialData.programId?.toString() || "",
+            classId: initialData.classId?.toString() || "",
+            sectionId: initialData.sectionId?.toString() || "",
+            tuitionFee: initialData.tuitionFee?.toString() || "",
+            numberOfInstallments: initialData.numberOfInstallments?.toString() || "1",
+            lateFeeFine: initialData.lateFeeFine || 0,
+            installments: initialData.installments || initialData.feeInstallments || [],
+            documents: docs,
         });
         setImagePreview(initialData.photo_url || "");
         setImageFile(null);
@@ -216,15 +228,18 @@ const StudentForm = ({
     }, [calculatedPrefix, isEditing, getLatestRollNumber, formData.rollNumber, prevPrefix]);
 
     useEffect(() => {
-        if (!formData.programId || !formData.admissionDate || sessionManuallySet.current || isEditing) return;
+        if (!formData.programId || !formData.admissionDate || sessionManuallySet.current || isEditing || !academicSessions.length) return;
 
-        const gap = getProgramGap(selectedProgram);
-        const autoSession = getSessionLabel(formData.admissionDate, gap);
-        
-        if (autoSession && autoSession !== formData.session) {
-            setFormData(prev => ({ ...prev, session: autoSession }));
+        // Auto-select active session if available
+        const activeSession = academicSessions.find(s => s.isActive);
+        if (activeSession && !formData.sessionId) {
+            setFormData(prev => ({ 
+                ...prev, 
+                sessionId: activeSession.id.toString(),
+                session: activeSession.name 
+            }));
         }
-    }, [formData.programId, formData.admissionDate, selectedProgram, formData.session, isEditing]);
+    }, [formData.programId, formData.admissionDate, academicSessions, formData.sessionId, isEditing]);
 
     // === HANDLERS ===
 
@@ -370,6 +385,7 @@ const StudentForm = ({
 
     const handleInstallmentChange = (index, field, value) => {
         const newInstallments = [...formData.installments];
+        const oldVal = newInstallments[index][field];
         newInstallments[index] = { ...newInstallments[index], [field]: value };
 
         // Guard: when changing amount, update tuitionFee and check total doesn't exceed standard fee
@@ -378,11 +394,23 @@ const StudentForm = ({
             const newTotal = newInstallments.reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
 
             if (standardFee > 0 && newTotal > standardFee) {
+                // Cap the specific installment so the total remains at standardFee
+                const allowedAdjustment = standardFee - (newTotal - Number(value));
+                newInstallments[index].amount = Math.max(Number(newInstallments[index].paidAmount || 0), allowedAdjustment);
+                
+                const cappedTotal = newInstallments.reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
+                
                 toast({
-                    title: "Amount Exceeded",
-                    description: `Total installments (Rs. ${newTotal}) cannot exceed standard tuition fee (Rs. ${standardFee}).`,
-                    variant: "destructive"
+                    title: "Adjustment Capped",
+                    description: `Total cannot exceed standard fee (Rs. ${standardFee}). Adjustment capped at Rs. ${newInstallments[index].amount}.`,
+                    variant: "default"
                 });
+
+                setFormData(prev => ({
+                    ...prev,
+                    installments: newInstallments,
+                    tuitionFee: cappedTotal.toString()
+                }));
                 return;
             }
 
@@ -410,7 +438,7 @@ const StudentForm = ({
     const internalSubmit = () => {
         // Validation
         const required = [
-            'fName', 'session', 'fatherOrguardian', 'programId', 
+            'fName', 'sessionId', 'fatherOrguardian', 'programId', 
             'classId', 'parentOrGuardianPhone', 'gender', 'dob', 'admissionDate'
         ];
         const missing = required.filter(k => !formData[k]);
@@ -497,7 +525,7 @@ const StudentForm = ({
             'parentOrGuardianEmail', 'parentOrGuardianPhone', 'parentCNIC', 'address',
             'gender', 'religion', 'dob', 'admissionDate', 'programId', 'classId', 'sectionId',
             'tuitionFee', 'numberOfInstallments', 'lateFeeFine',
-            'installments', 'documents', 'status', 'session'
+            'installments', 'documents', 'status', 'session', 'sessionId', 'studentCnic'
         ];
 
         const submissionData = new FormData();
@@ -596,15 +624,17 @@ const StudentForm = ({
                         <div>
                             <Label>Session *</Label>
                             <Select
-                                value={formData.session || ""}
+                                value={formData.sessionId?.toString() || ""}
                                 onValueChange={(v) => {
+                                    const sessionRecord = academicSessions.find(s => s.id.toString() === v);
                                     sessionManuallySet.current = true;
                                     setFormData(prev => ({
                                         ...prev,
-                                        session: v,
+                                        sessionId: v,
+                                        session: sessionRecord?.name || "",
                                         installments: (prev.installments || []).map(inst => ({
                                             ...inst,
-                                            session: v
+                                            session: sessionRecord?.name || prev.session
                                         }))
                                     }));
                                 }}
@@ -613,25 +643,11 @@ const StudentForm = ({
                                     <SelectValue placeholder="Select Session" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {(() => {
-                                        const currentYear = new Date().getFullYear();
-                                        const progGap = getProgramGap(selectedProgram);
-                                        const sessions = new Set();
-                                        
-                                        // Standard range: -5 to +15
-                                        for (let y = currentYear - 5; y <= currentYear + 15; y++) {
-                                            sessions.add(`${y}-${y + progGap}`);
-                                        }
-
-                                        // Ensure current session is always included
-                                        if (formData.session) {
-                                            sessions.add(formData.session);
-                                        }
-
-                                        return Array.from(sessions).sort().map(s => (
-                                            <SelectItem key={s} value={s}>{s}</SelectItem>
-                                        ));
-                                    })()}
+                                    {academicSessions.map(s => (
+                                        <SelectItem key={s.id} value={s.id.toString()}>
+                                            {s.name} {s.isActive ? "(Current)" : ""}
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
                         </div>
@@ -756,6 +772,10 @@ const StudentForm = ({
                             <Input value={formData.parentCNIC} onChange={e => setFormData({ ...formData, parentCNIC: e.target.value })} placeholder="e.g. 12345-6789012-3" />
                         </div>
                         <div>
+                            <Label>Student CNIC <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                            <Input value={formData.studentCnic} onChange={e => setFormData({ ...formData, studentCnic: e.target.value })} placeholder="e.g. 12345-6789012-3" />
+                        </div>
+                        <div>
                             <Label>Gender *</Label>
                             <Select value={formData.gender} onValueChange={v => setFormData({ ...formData, gender: v })}>
                                 <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
@@ -872,8 +892,8 @@ const StudentForm = ({
                                                     type="number"
                                                     value={inst.amount}
                                                     onChange={e => handleInstallmentChange(index, "amount", Number(e.target.value))}
-                                                    disabled={(inst.paidAmount || 0) > 0 || inst.status === 'PAID'}
-                                                    className={(inst.paidAmount || 0) > 0 || inst.status === 'PAID' ? 'bg-muted/50 text-muted-foreground' : ''}
+                                                    disabled={inst.status === 'PAID'}
+                                                    className={inst.status === 'PAID' ? 'bg-muted/50 text-muted-foreground' : ''}
                                                 />
                                                 {inst.status === 'PAID' && <span className="text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">PAID</span>}
                                                 {inst.status === 'PARTIAL' && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">PARTIAL</span>}
@@ -915,19 +935,13 @@ const StudentForm = ({
                                                 value={inst.session || ""}
                                                 onValueChange={(session) => handleInstallmentChange(index, "session", session)}
                                             >
-                                                <SelectTrigger className="w-[120px]"><SelectValue placeholder="Session" /></SelectTrigger>
+                                                <SelectTrigger className="w-[130px]"><SelectValue placeholder="Session" /></SelectTrigger>
                                                 <SelectContent>
-                                                    {(() => {
-                                                        const currentYear = new Date().getFullYear();
-                                                        const gap = getProgramGap(selectedProgram);
-                                                        const sessions = [];
-                                                        for (let y = currentYear - 5; y <= currentYear + 5; y++) {
-                                                            sessions.push(`${y}-${y + gap}`);
-                                                        }
-                                                        return sessions.map(s => (
-                                                            <SelectItem key={s} value={s}>{s}</SelectItem>
-                                                        ));
-                                                    })()}
+                                                    {academicSessions.map(s => (
+                                                        <SelectItem key={s.id} value={s.name}>
+                                                            {s.name}{s.isActive ? " (Current)" : ""}
+                                                        </SelectItem>
+                                                    ))}
                                                 </SelectContent>
                                             </Select>
                                         </td>

@@ -23,10 +23,18 @@ export class AttendanceController {
   async generateAttendance(
     @Query('date') date: string,
     @Query('attenFor') attenFor: 'teacher' | 'student',
+    @Query('classId') classId?: string,
+    @Query('sectionId') sectionId?: string,
   ) {
     let targetDate: Date;
     if (date) {
-      const [day, month, year] = date.split('/').map(Number);
+      // Support both yyyy-MM-dd and dd/MM/yyyy formats
+      let year: number, month: number, day: number;
+      if (date.includes('-')) {
+        [year, month, day] = date.split('-').map(Number);
+      } else {
+        [day, month, year] = date.split('/').map(Number);
+      }
       targetDate = new Date(Date.UTC(year, month - 1, day));
     } else {
       const now = new Date();
@@ -37,7 +45,11 @@ export class AttendanceController {
     if (attenFor === 'teacher')
       return await this.attendanceService.generateAttendanceStaff(targetDate);
     if (attenFor === 'student')
-      return await this.attendanceService.generateAttendanceForDate(targetDate);
+      return await this.attendanceService.generateAttendanceForDate(
+        targetDate,
+        Number(classId) || undefined,
+        Number(sectionId) || undefined,
+      );
     throw new ForbiddenException();
   }
 
@@ -135,6 +147,11 @@ export class AttendanceController {
   @Delete('leave')
   async deleteLeave(@Query('id') id: string) {
     return await this.attendanceService.deleteLeave(Number(id));
+  }
+
+  @Post('holiday')
+  async createHoliday(@Body() body: { date: string; title?: string }) {
+    return this.attendanceService.createHolidayForDate(body.date, body.title);
   }
 
   // teacher attendance and leave

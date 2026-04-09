@@ -33,6 +33,7 @@ export class StudentController {
     @Query('searchQuery') searchQuery?: string,
     @Query('status') status?: string,
     @Query('session') session?: string,
+    @Query('sessionId') sessionId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('page') page?: string,
@@ -53,6 +54,7 @@ export class StudentController {
       sectionId: (sectionId && Number(sectionId)) || null,
       status: effectiveStatus,
       session: session || null,
+      sessionId: (sessionId && Number(sessionId)) || null,
       startDate,
       endDate,
       page: (page && Number(page)) || 1,
@@ -67,6 +69,7 @@ export class StudentController {
     @Query('searchQuery') searchQuery?: string,
     @Query('status') status?: string,
     @Query('session') session?: string,
+    @Query('sessionId') sessionId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('page') page?: string,
@@ -85,6 +88,7 @@ export class StudentController {
       sectionId: (sectionId && Number(sectionId)) || null,
       status: effectiveStatus,
       session: session || null,
+      sessionId: (sessionId && Number(sessionId)) || null,
       startDate,
       endDate,
       page: (page && Number(page)) || 1,
@@ -237,6 +241,7 @@ export class StudentController {
     @Query('targetSectionId') targetSectionId?: string,
     @Query('targetProgramId') targetProgramId?: string,
     @Query('targetSession') targetSession?: string,
+    @Query('targetSessionId') targetSessionId?: string,
   ) {
     console.log(
       '🔵 Controller received forcePromote:',
@@ -261,6 +266,7 @@ export class StudentController {
         targetSectionId ? Number(targetSectionId) : undefined,
         targetProgramId ? Number(targetProgramId) : undefined,
         targetSession,
+        targetSessionId ? Number(targetSessionId) : undefined,
       );
       console.log('🔵 Promote service returned:', result);
       return result;
@@ -294,7 +300,7 @@ export class StudentController {
   @Patch('rejoin')
   async rejoinStudent(
     @Query('studentID') studentID: string,
-    @Body() body: { reason: string, session?: string, programId?: string, classId?: string, sectionId?: string },
+    @Body() body: { reason: string, session?: string, sessionId?: string, programId?: string, classId?: string, sectionId?: string },
   ) {
     return await this.studentService.rejoin(Number(studentID), body.reason, body);
   }

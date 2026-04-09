@@ -374,7 +374,7 @@ export const getDepartmentNames = async () => {
     return response.data;
   } catch (error) {
     const message =
-      teacherssponse?.data?.message ||
+      error.response?.data?.message ||
       error.response?.data?.error ||
       error.message ||
       "Something went wrong";
@@ -408,7 +408,7 @@ export const getDepartments = async () => {
     return response.data;
   } catch (error) {
     const message =
-      teacherssponse?.data?.message ||
+      error.response?.data?.message ||
       error.response?.data?.error ||
       error.message ||
       "Something went wrong";
@@ -910,6 +910,74 @@ export const deleteSection = async (secID) => {
   }
 };
 
+// academic sessions
+export const getAcademicSessions = async () => {
+  try {
+    const response = await axios.get(`${base_url}/academics/session/get/all`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const createAcademicSession = async (data) => {
+  try {
+    const response = await axios.post(`${base_url}/academics/session/create`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateAcademicSession = async (sessionID, data) => {
+  try {
+    const response = await axios.patch(
+      `${base_url}/academics/session/update?sessionID=${sessionID}`,
+      data,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteAcademicSession = async (sessionID) => {
+  try {
+    const response = await axios.delete(
+      `${base_url}/academics/session/remove?sessionID=${sessionID}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 // subjects
 export const getSubjects = async () => {
   try {
@@ -1344,9 +1412,9 @@ export const getLatestRollNumber = async (prefix) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getPassedOutStudents = async (programId, classId, sectionId, searchQuery, status, session, page, limit) => {
+export const getPassedOutStudents = async (programId, classId, sectionId, searchQuery, status, session, page, limit, sessionId) => {
   try {
-    const response = await axios.get(`${base_url}/student/get/all/passout?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&page=${page || 1}&limit=${limit || 20}`, {
+    const response = await axios.get(`${base_url}/student/get/all/passout?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&sessionId=${sessionId || ''}&page=${page || 1}&limit=${limit || 20}`, {
       withCredentials: true,
     });
     return response.data;
@@ -1360,9 +1428,9 @@ export const getPassedOutStudents = async (programId, classId, sectionId, search
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getStudents = async (programId, classId, sectionId, searchQuery, status, session, page, limit, startDate, endDate) => {
+export const getStudents = async (programId, classId, sectionId, searchQuery, status, session, page, limit, startDate, endDate, sessionId) => {
   try {
-    const response = await axios.get(`${base_url}/student/get/all?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&page=${page || 1}&limit=${limit || 20}&startDate=${startDate || ''}&endDate=${endDate || ''}`, {
+    const response = await axios.get(`${base_url}/student/get/all?programId=${programId || ''}&classId=${classId || ''}&sectionId=${sectionId || ''}&searchQuery=${searchQuery || ''}&status=${status || ''}&session=${session || ''}&sessionId=${sessionId || ''}&page=${page || 1}&limit=${limit || 20}&startDate=${startDate || ''}&endDate=${endDate || ''}`, {
       withCredentials: true,
     });
     return response.data;
@@ -1429,12 +1497,15 @@ export const deleteStudent = async (studentID) => {
 };
 
 // promote
-export const promoteStudents = async (studentID, forcePromote = false, targetClassId = null, targetSectionId = null) => {
+export const promoteStudents = async (studentID, forcePromote = false, targetClassId = null, targetSectionId = null, targetProgramId = null, targetSession = null, targetSessionId = null) => {
   try {
     let url = `${base_url}/student/promote?studentID=${studentID}`;
     if (forcePromote) url += '&forcePromote=true';
     if (targetClassId) url += `&targetClassId=${targetClassId}`;
     if (targetSectionId) url += `&targetSectionId=${targetSectionId}`;
+    if (targetProgramId) url += `&targetProgramId=${targetProgramId}`;
+    if (targetSession) url += `&targetSession=${encodeURIComponent(targetSession)}`;
+    if (targetSessionId) url += `&targetSessionId=${targetSessionId}`;
 
     const response = await axios.patch(
       url,
@@ -4214,6 +4285,131 @@ export const deleteStudentIDCardTemplate = async (id) => {
       error.response?.data?.error ||
       error.message ||
       "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+
+
+// attendance generation & holiday
+export const generateStudentAttendance = async (classId, sectionId, subjectId, date) => {
+  try {
+    const params = new URLSearchParams({ attenFor: "student", date });
+    if (classId) params.append("classId", classId);
+    if (sectionId) params.append("sectionId", sectionId);
+    if (subjectId) params.append("subjectId", subjectId);
+    const response = await axios.post(
+      `${base_url}/attendance/generate?${params.toString()}`,
+      {},
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const generateStaffAttendance = async (date) => {
+  try {
+    const response = await axios.post(
+      `${base_url}/attendance/generate?attenFor=teacher&date=${date}`,
+      {},
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const markDateAsHoliday = async (date, title) => {
+  try {
+    const response = await axios.post(
+      `${base_url}/attendance/holiday`,
+      { date, title },
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HOSTEL STUDENT LOOKUP & EXTERNAL CHALLANS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export const getHostelRegistrationByStudent = async (studentId) => {
+  try {
+    const { data } = await axios.get(`${base_url}/hostel/registrations/by-student/${studentId}`, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getHostelRoomByStudent = async (studentId) => {
+  try {
+    const { data } = await axios.get(`${base_url}/hostel/room/by-student/${studentId}`, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getExternalChallansByRegistration = async (registrationId) => {
+  try {
+    const { data } = await axios.get(`${base_url}/hostel/external-challans/by-registration/${registrationId}`, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const createExternalChallan = async (challanData) => {
+  try {
+    const { data } = await axios.post(`${base_url}/hostel/external-challans`, challanData, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateExternalChallan = async (id, challanData) => {
+  try {
+    const { data } = await axios.patch(`${base_url}/hostel/external-challans/${id}`, challanData, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteExternalChallan = async (id) => {
+  try {
+    const { data } = await axios.delete(`${base_url}/hostel/external-challans/${id}`, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }
 };

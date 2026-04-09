@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   UnprocessableEntityException,
@@ -15,13 +16,6 @@ export class AttendanceService {
   async isNonWorkingDay(
     date: Date,
   ): Promise<{ isBlocked: boolean; reason?: string }> {
-    // Check weekend (Sunday = 0)
-    // Use UTC to avoid timezone issues when date is created from string
-    const dayOfWeek = date.getUTCDay();
-    if (dayOfWeek === 0) {
-      return { isBlocked: true, reason: 'Sunday' };
-    }
-
     // Check for Future Date
     const now = new Date();
     const today = new Date(
@@ -691,7 +685,31 @@ export class AttendanceService {
     };
   }
 
-  async generateAttendanceForDate(date: Date) {
+  async createHolidayForDate(date: string, title?: string): Promise<Holiday> {
+    const parts = date.split('-').map(Number);
+    const [year, month, day] = parts;
+    const targetDate = new Date(Date.UTC(year, month - 1, day));
+
+    const existing = await this.prismaService.holiday.findFirst({
+      where: { date: targetDate },
+    });
+
+    if (existing) {
+      throw new ConflictException(
+        `A holiday already exists for ${date}.`,
+      );
+    }
+
+    return this.prismaService.holiday.create({
+      data: {
+        date: targetDate,
+        title: title ?? 'Holiday',
+        type: 'Manual',
+      },
+    });
+  }
+
+  async generateAttendanceForDate(date: Date, classId?: number, sectionId?: number) {
     // Normalize to UTC midnight
     const targetDate = new Date(
       Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()),
@@ -717,7 +735,10 @@ export class AttendanceService {
 
     // STEP 1: Fetch classes, sections, and students (both direct + via section)
     const classes = await this.prismaService.class.findMany({
-      where: { students: { some: { passedOut: false } } },
+      where: {
+        students: { some: { passedOut: false } },
+        ...(classId ? { id: classId } : {}),
+      },
       select: {
         id: true,
         subjects: {
@@ -768,7 +789,10 @@ export class AttendanceService {
         const teacherId = subject.teachers?.[0]?.teacherId ?? null;
 
         // ➤ For section-based students
-        for (const section of cls.sections) {
+        const filteredSections = sectionId
+          ? cls.sections.filter((s) => s.id === sectionId)
+          : cls.sections;
+        for (const section of filteredSections) {
           for (const student of section.students) {
             const key = `${student.id}-${cls.id}-${section.id}-${subject.id}`;
             if (!existingKeys.has(key)) {

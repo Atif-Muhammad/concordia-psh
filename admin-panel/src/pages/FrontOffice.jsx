@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Card,
   CardContent,
@@ -1090,57 +1091,77 @@ const FrontOffice = () => {
                                 <div className="flex gap-2">
                                   {(inquiry.status === "NEW" || inquiry.status === "REJECTED" || !inquiry.status) && (
                                     <>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                            onClick={() => handleAcceptInquiry(inquiry)}
+                                          >
+                                            <Check className="w-4 h-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Accept Inquiry</TooltipContent>
+                                      </Tooltip>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                            onClick={() => handleRejectInquiry(inquiry)}
+                                          >
+                                            <X className="w-4 h-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>{inquiry.status === "REJECTED" ? "Revert to NEW" : "Reject Inquiry"}</TooltipContent>
+                                      </Tooltip>
+                                    </>
+                                  )}
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
                                       <Button
                                         size="sm"
                                         variant="ghost"
-                                        className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                                        onClick={() => handleAcceptInquiry(inquiry)}
-                                        title="Accept Inquiry"
+                                        onClick={() =>
+                                          setViewDetailsDialog({
+                                            open: true,
+                                            type: "inquiry",
+                                            data: inquiry,
+                                          })
+                                        }
                                       >
-                                        <Check className="w-4 h-4" />
+                                        <Eye className="w-4 h-4 text-blue-600" />
                                       </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>View Details</TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleEditInquiry(inquiry)}
+                                      >
+                                        <Edit className="w-4 h-4 text-blue-600" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Edit Inquiry</TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
                                       <Button
                                         size="sm"
                                         variant="ghost"
                                         className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                        onClick={() => handleRejectInquiry(inquiry)}
-                                        title={inquiry.status === "REJECTED" ? "Revert to NEW" : "Reject Inquiry"}
+                                        onClick={() => setDeleteDialog({ open: true, type: "inquiry", id: inquiry.id })}
                                       >
-                                        <X className="w-4 h-4" />
+                                        <Trash2 className="w-4 h-4" />
                                       </Button>
-                                    </>
-                                  )}
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() =>
-                                      setViewDetailsDialog({
-                                        open: true,
-                                        type: "inquiry",
-                                        data: inquiry,
-                                      })
-                                    }
-                                    title="View Details"
-                                  >
-                                    <Eye className="w-4 h-4 text-blue-600" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleEditInquiry(inquiry)}
-                                    title="Edit Inquiry"
-                                  >
-                                    <Edit className="w-4 h-4 text-blue-600" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                    onClick={() => setDeleteDialog({ open: true, type: "inquiry", id: inquiry.id })}
-                                    title="Delete Inquiry"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Delete Inquiry</TooltipContent>
+                                  </Tooltip>
                                 </div>
                               </TableCell>
                             </TableRow>
@@ -1369,43 +1390,58 @@ const FrontOffice = () => {
                             <TableCell>{visitor.persons}</TableCell>
                             <TableCell>
                               <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() =>
-                                    setViewDetailsDialog({
-                                      open: true,
-                                      type: "visitor",
-                                      data: {
-                                        ...visitor,
-                                        inTime: formatTime(visitor.inTime),
-                                        outTime: formatTime(visitor.outTime),
-                                      },
-                                    })
-                                  }
-                                >
-                                  <Eye className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleEditVisitor(visitor)}
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() =>
-                                    setDeleteDialog({
-                                      open: true,
-                                      type: "visitor",
-                                      id: visitor.id,
-                                    })
-                                  }
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() =>
+                                        setViewDetailsDialog({
+                                          open: true,
+                                          type: "visitor",
+                                          data: {
+                                            ...visitor,
+                                            inTime: formatTime(visitor.inTime),
+                                            outTime: formatTime(visitor.outTime),
+                                          },
+                                        })
+                                      }
+                                    >
+                                      <Eye className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>View Details</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleEditVisitor(visitor)}
+                                    >
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit Visitor</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() =>
+                                        setDeleteDialog({
+                                          open: true,
+                                          type: "visitor",
+                                          id: visitor.id,
+                                        })
+                                      }
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete Visitor</TooltipContent>
+                                </Tooltip>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1641,23 +1677,38 @@ const FrontOffice = () => {
 
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button size="sm" variant="ghost" onClick={() => setViewDetailsDialog({
-                            open: true,
-                            type: "complaint",
-                            data: complaint
-                          })}>
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleEditComplaint(complaint)}>
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
-                            open: true,
-                            type: "complaint",
-                            id: complaint.id
-                          })}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="sm" variant="ghost" onClick={() => setViewDetailsDialog({
+                                open: true,
+                                type: "complaint",
+                                data: complaint
+                              })}>
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>View Details</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="sm" variant="ghost" onClick={() => handleEditComplaint(complaint)}>
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Edit Complaint</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
+                                open: true,
+                                type: "complaint",
+                                id: complaint.id
+                              })}>
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete Complaint</TooltipContent>
+                          </Tooltip>
                         </div>
                       </TableCell>
                     </TableRow>)}
@@ -1797,16 +1848,26 @@ const FrontOffice = () => {
                         <TableCell>{contact.details ? contact.details : "-"}</TableCell>
                         <TableCell className="no-print">
                           <div className="flex gap-2">
-                            <Button size="sm" variant="ghost" onClick={() => handleEditContact(contact)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
-                              open: true,
-                              type: "contact",
-                              id: contact.id
-                            })}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button size="sm" variant="ghost" onClick={() => handleEditContact(contact)}>
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Edit Contact</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button size="sm" variant="ghost" onClick={() => setDeleteDialog({
+                                  open: true,
+                                  type: "contact",
+                                  id: contact.id
+                                })}>
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Delete Contact</TooltipContent>
+                            </Tooltip>
                           </div>
                         </TableCell>
                       </TableRow>)}

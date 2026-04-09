@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     Plus,
@@ -34,6 +34,8 @@ import {
     getPayrollHistory,
     getStaffAttendance,
     markStaffAttendance,
+    generateStaffAttendance,
+    markDateAsHoliday,
 } from "../../config/apis";
 import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,6 +74,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -138,6 +141,13 @@ const initialFormData = {
     designation: "",
     empDepartment: "",
     accessRights: [],
+    // Leave settings
+    sickAllowed: "0",
+    sickDeduction: "0",
+    annualAllowed: "0",
+    annualDeduction: "0",
+    casualAllowed: "0",
+    casualDeduction: "0",
 };
 
 const STAFF_MODULES = [
@@ -199,6 +209,43 @@ export default function Staff() {
             toast({ title: "Error", description: error.message, variant: "destructive" });
         }
     });
+
+    // Attendance handlers
+    const isHolidayDisabled = useMemo(() => {
+        if (!attendanceDate) return true;
+        const d = new Date(attendanceDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (d > today) return true;
+        return false;
+    }, [attendanceDate]);
+
+    const handleGenerateStaffAttendance = async () => {
+        if (!attendanceDate) {
+            toast({ title: "Please select a date", variant: "destructive" });
+            return;
+        }
+        try {
+            const response = await generateStaffAttendance(format(attendanceDate, "yyyy-MM-dd"));
+            toast({ title: response.message || "Attendance generated successfully" });
+            refetchAttendance();
+        } catch (error) {
+            toast({ title: error.message || "Failed to generate attendance", variant: "destructive" });
+        }
+    };
+
+    const handleMarkHoliday = async () => {
+        if (!attendanceDate) {
+            toast({ title: "Please select a date", variant: "destructive" });
+            return;
+        }
+        try {
+            await markDateAsHoliday(format(attendanceDate, "yyyy-MM-dd"), "Holiday");
+            toast({ title: "Date marked as holiday successfully" });
+        } catch (error) {
+            toast({ title: error.message || "Failed to mark date as holiday", variant: "destructive" });
+        }
+    };
     const { data: staffList = [], isLoading: staffLoading } = useQuery({
         queryKey: ["staff", roleFilter, statusFilter, searchTerm],
         queryFn: () => {
@@ -308,6 +355,13 @@ export default function Staff() {
             designation: staff.designation || "",
             empDepartment: staff.empDepartment || "",
             accessRights: staff.permissions?.modules || [],
+            // Leave settings
+            sickAllowed: staff.leaveSettings?.sickAllowed != null ? String(staff.leaveSettings.sickAllowed) : "0",
+            sickDeduction: staff.leaveSettings?.sickDeduction != null ? String(staff.leaveSettings.sickDeduction) : "0",
+            annualAllowed: staff.leaveSettings?.annualAllowed != null ? String(staff.leaveSettings.annualAllowed) : "0",
+            annualDeduction: staff.leaveSettings?.annualDeduction != null ? String(staff.leaveSettings.annualDeduction) : "0",
+            casualAllowed: staff.leaveSettings?.casualAllowed != null ? String(staff.leaveSettings.casualAllowed) : "0",
+            casualDeduction: staff.leaveSettings?.casualDeduction != null ? String(staff.leaveSettings.casualDeduction) : "0",
         });
         if (staff.photo_url) {
             setPhotoPreview(staff.photo_url);
@@ -362,6 +416,13 @@ export default function Staff() {
         submitData.append("permissions", JSON.stringify({ modules: formData.accessRights || [] }));
         // Add documents
         submitData.append("documents", JSON.stringify(formData.documents));
+        // Add leave settings
+        submitData.append("sickAllowed", formData.sickAllowed || "0");
+        submitData.append("sickDeduction", formData.sickDeduction || "0");
+        submitData.append("annualAllowed", formData.annualAllowed || "0");
+        submitData.append("annualDeduction", formData.annualDeduction || "0");
+        submitData.append("casualAllowed", formData.casualAllowed || "0");
+        submitData.append("casualDeduction", formData.casualDeduction || "0");
 
         if (photoFile) {
             submitData.append("photo", photoFile);
@@ -632,31 +693,46 @@ export default function Staff() {
                                                     <TableCell>{getStatusBadge(staff.status)}</TableCell>
                                                     <TableCell className="text-right">
                                                         <div className="flex justify-end gap-2">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                onClick={() => setViewingStaff(staff)}
-                                                            >
-                                                                <Eye className="w-4 h-4" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                onClick={() => handleOpenEdit(staff)}
-                                                            >
-                                                                <Pencil className="w-4 h-4" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="text-red-500 hover:text-red-600"
-                                                                onClick={() => {
-                                                                    setStaffToDelete(staff);
-                                                                    setDeleteOpen(true);
-                                                                }}
-                                                            >
-                                                                <Trash2 className="w-4 h-4" />
-                                                            </Button>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        onClick={() => setViewingStaff(staff)}
+                                                                    >
+                                                                        <Eye className="w-4 h-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>View</TooltipContent>
+                                                            </Tooltip>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        onClick={() => handleOpenEdit(staff)}
+                                                                    >
+                                                                        <Pencil className="w-4 h-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>Edit</TooltipContent>
+                                                            </Tooltip>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="text-red-500 hover:text-red-600"
+                                                                        onClick={() => {
+                                                                            setStaffToDelete(staff);
+                                                                            setDeleteOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>Delete</TooltipContent>
+                                                            </Tooltip>
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>
@@ -702,6 +778,12 @@ export default function Staff() {
                                             <SelectItem value="non-teaching">Non-Teaching</SelectItem>
                                         </SelectContent>
                                     </Select>
+                                    <Button onClick={handleGenerateStaffAttendance} disabled={!attendanceDate} variant="outline">
+                                        Generate Attendance
+                                    </Button>
+                                    <Button onClick={handleMarkHoliday} disabled={isHolidayDisabled} variant="outline">
+                                        Mark as Holiday
+                                    </Button>
                                 </div>
                             </CardHeader>
                             <CardContent>
@@ -809,7 +891,7 @@ export default function Staff() {
 
                 {/* Add/Edit Dialog */}
                 <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                             <DialogTitle>
                                 {editingStaff ? "Edit Staff Member" : "Add New Staff Member"}
@@ -1007,6 +1089,42 @@ export default function Staff() {
                                         </div>
                                     )}
                                 </div>
+
+                                {/* Leave Configuration */}
+                                <div className="pt-2">
+                                    <p className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">Leave Configuration</p>
+                                    <div className="grid grid-cols-3 gap-4">
+                                        {[
+                                            { label: "Sick", allowedKey: "sickAllowed", deductionKey: "sickDeduction" },
+                                            { label: "Annual", allowedKey: "annualAllowed", deductionKey: "annualDeduction" },
+                                            { label: "Casual", allowedKey: "casualAllowed", deductionKey: "casualDeduction" },
+                                        ].map(({ label, allowedKey, deductionKey }) => (
+                                            <div key={label} className="border rounded-lg p-3 space-y-3">
+                                                <p className="text-sm font-medium">{label} Leave</p>
+                                                <div>
+                                                    <Label className="text-xs text-muted-foreground">Allowed Days</Label>
+                                                    <Input
+                                                        type="number"
+                                                        min="0"
+                                                        value={formData[allowedKey]}
+                                                        onChange={(e) => setFormData({ ...formData, [allowedKey]: e.target.value })}
+                                                        placeholder="0"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs text-muted-foreground">Deduction per Extra Day (PKR)</Label>
+                                                    <Input
+                                                        type="number"
+                                                        min="0"
+                                                        value={formData[deductionKey]}
+                                                        onChange={(e) => setFormData({ ...formData, [deductionKey]: e.target.value })}
+                                                        placeholder="0"
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
                             </TabsContent>
 
                             <TabsContent value="roles" className="space-y-6 mt-4">
@@ -1186,19 +1304,39 @@ export default function Staff() {
                             </TabsContent>
                         </Tabs>
 
-                        <div className="flex justify-end gap-3 mt-4">
-                            <Button variant="outline" onClick={handleCloseDialog}>
-                                Cancel
-                            </Button>
+                        <div className="flex justify-between gap-3 mt-4">
                             <Button
-                                onClick={handleSubmit}
-                                disabled={createMutation.isPending || updateMutation.isPending}
+                                variant="outline"
+                                onClick={() => {
+                                    const tabs = ["basic", "employment", "roles", "details"];
+                                    const idx = tabs.indexOf(formTab);
+                                    if (idx > 0) setFormTab(tabs[idx - 1]);
+                                    else handleCloseDialog();
+                                }}
                             >
-                                {(createMutation.isPending || updateMutation.isPending) && (
-                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                )}
-                                {editingStaff ? "Update Staff" : "Add Staff"}
+                                {formTab === "basic" ? "Cancel" : "Back"}
                             </Button>
+                            {formTab !== "details" ? (
+                                <Button
+                                    onClick={() => {
+                                        const tabs = ["basic", "employment", "roles", "details"];
+                                        const idx = tabs.indexOf(formTab);
+                                        setFormTab(tabs[idx + 1]);
+                                    }}
+                                >
+                                    Next
+                                </Button>
+                            ) : (
+                                <Button
+                                    onClick={handleSubmit}
+                                    disabled={createMutation.isPending || updateMutation.isPending}
+                                >
+                                    {(createMutation.isPending || updateMutation.isPending) && (
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    )}
+                                    {editingStaff ? "Update Staff" : "Add Staff"}
+                                </Button>
+                            )}
                         </div>
                     </DialogContent>
                 </Dialog>

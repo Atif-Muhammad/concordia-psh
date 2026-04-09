@@ -12,6 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import React, { useState, useMemo } from "react";
 import { TrendingUp, TrendingDown, DollarSign, FileText, Trash2, Info, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Cell } from "recharts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -844,15 +845,20 @@ const Finance = () => {
                         <TableCell>{item.description}</TableCell>
                         <TableCell className="font-bold text-success">PKR {Number(item.amount).toLocaleString()}</TableCell>
                         <TableCell>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => setDeleteConfirm({ open: true, id: item.id, type: 'income' })}
-                            disabled={!!item.source}
-                            title={!!item.source ? `Cannot delete automated ${item.category} records` : 'Delete'}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => setDeleteConfirm({ open: true, id: item.id, type: 'income' })}
+                                disabled={!!item.source}
+                                title={!!item.source ? `Cannot delete automated ${item.category} records` : 'Delete'}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete</TooltipContent>
+                          </Tooltip>
                         </TableCell>
                       </TableRow>)
                     )}
@@ -947,15 +953,20 @@ const Finance = () => {
                       <TableCell>{item.description}</TableCell>
                       <TableCell className="font-bold text-destructive">PKR {Number(item.amount).toLocaleString()}</TableCell>
                       <TableCell>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => setDeleteConfirm({ open: true, id: item.id, type: 'expense' })}
-                          disabled={!!item.source}
-                          title={!!item.source ? `Cannot delete automated ${item.category} records` : 'Delete'}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => setDeleteConfirm({ open: true, id: item.id, type: 'expense' })}
+                              disabled={!!item.source}
+                              title={!!item.source ? `Cannot delete automated ${item.category} records` : 'Delete'}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Delete</TooltipContent>
+                        </Tooltip>
                       </TableCell>
                     </TableRow>)
                   )}
@@ -1127,20 +1138,30 @@ const Finance = () => {
                       <TableCell>{closing.remarks}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setEditClosingData(closing)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => setDeleteConfirm({ open: true, id: closing.id, type: 'closing' })}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setEditClosingData(closing)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Edit</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => setDeleteConfirm({ open: true, id: closing.id, type: 'closing' })}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete</TooltipContent>
+                          </Tooltip>
                         </div>
                       </TableCell>
                     </TableRow>)

@@ -26,6 +26,10 @@ export class StudentService {
         feeInstallments: {
           orderBy: { installmentNumber: 'asc' },
         },
+        academicRecords: {
+            orderBy: { id: 'desc' },
+          include: { session: true },
+        },
       } as any,
     });
   }
@@ -131,6 +135,10 @@ export class StudentService {
         studentArrears: {
           include: { class: true, program: true }
         },
+        academicRecords: {
+            orderBy: { id: 'desc' },
+          include: { session: true },
+        },
       },
     });
 
@@ -149,6 +157,9 @@ export class StudentService {
     sectionId?: number | null;
     status?: string | null;
     session?: string | null;
+    sessionId?: number | null;
+    unbilledInMonth?: string | null;
+    unbilledInSessionId?: number | null;
     startDate?: string | null;
     endDate?: string | null;
     page?: number;
@@ -181,6 +192,35 @@ export class StudentService {
       where.session = filters.session;
     }
 
+    if (filters?.sessionId && filters?.sessionId > 0) {
+      where.academicRecords = {
+        some: {
+          sessionId: Number(filters.sessionId),
+        },
+      };
+    }
+
+    if (filters?.unbilledInMonth && filters?.unbilledInSessionId) {
+      const [yearStr, monthStr] = filters.unbilledInMonth.split('-');
+      const monthIdx = parseInt(monthStr, 10);
+      const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const targetMonthName = monthNames[monthIdx - 1];
+
+      where.AND = [
+        // Must have an installment for this month/session that is completely unbilled/unpaid
+        {
+          feeInstallments: {
+            some: {
+              month: targetMonthName,
+              sessionId: Number(filters.unbilledInSessionId),
+              pendingAmount: 0,
+              paidAmount: 0
+            }
+          }
+        }
+      ];
+    }
+
     if (filters?.startDate && filters?.endDate) {
       where.statusDate = {
         gte: new Date(filters.startDate),
@@ -202,8 +242,30 @@ export class StudentService {
             include: { class: true },
             orderBy: { installmentNumber: 'asc' } 
           },
+          challans: {
+            where: { status: { in: ['PENDING', 'OVERDUE', 'PARTIAL'] } },
+            select: {
+              id: true,
+              month: true,
+              session: true,
+              amount: true,
+              paidAmount: true,
+              fineAmount: true,
+              lateFeeFine: true,
+              status: true,
+              dueDate: true,
+              installmentNumber: true,
+              studentClassId: true,
+              studentFeeInstallmentId: true,
+              remainingAmount: true,
+            }
+          },
           studentArrears: {
             include: { class: true, program: true }
+          },
+          academicRecords: {
+            orderBy: { id: 'desc' },
+            include: { session: true },
           },
         },
       }),
@@ -220,7 +282,7 @@ export class StudentService {
   }
 
   async createStudent(payload: StudentDto) {
-    const { installments, ...rest } = payload;
+    const { installments, sessionId, ...rest } = payload;
 
     let installmentsData: any[] = [];
     if (installments && typeof installments === 'string') {
@@ -266,6 +328,7 @@ export class StudentService {
               dueDate: dueDate,
               month: i.month || null,
               session: i.session || null,
+              sessionId: payload.sessionId ? Number(payload.sessionId) : null,
               classId: Number(payload.classId),
               remainingAmount: Number(i.amount),
             };
@@ -274,33 +337,43 @@ export class StudentService {
       },
     });
 
+    // Create Academic Record
+    if (payload.sessionId) {
+      await this.prismaService.studentAcademicRecord.create({
+        data: {
+          studentId: result.id,
+          sessionId: Number(payload.sessionId),
+          classId: Number(payload.classId),
+          sectionId: payload.sectionId ? Number(payload.sectionId) : null,
+          programId: Number(payload.programId),
+          isCurrent: true,
+        }
+      });
+    }
+
     return result;
   }
 
   async updateStudent(id: number, payload: Partial<StudentDto>) {
-    // console.log(payload)
     const student = await this.prismaService.student.findUnique({
       where: { id },
+      include: { academicRecords: true }
     });
     if (!student)
       throw new NotFoundException(`Student with id ${id} not found`);
 
-    // Check for promotion fee clearance
     if (payload.classId && Number(payload.classId) !== student.classId) {
-      // 1. Find current fee structure
       if (student.programId && student.classId) {
-        const currentFeeStructure =
-          await this.prismaService.feeStructure.findUnique({
-            where: {
-              programId_classId: {
-                programId: student.programId,
-                classId: student.classId,
-              },
+        const currentFeeStructure = await this.prismaService.feeStructure.findUnique({
+          where: {
+            programId_classId: {
+              programId: student.programId,
+              classId: student.classId,
             },
-          });
+          },
+        });
 
         if (currentFeeStructure) {
-          // 2. Calculate paid amount and installments for current session
           const paidChallans = await this.prismaService.feeChallan.findMany({
             where: {
               studentId: student.id,
@@ -309,30 +382,17 @@ export class StudentService {
             },
           });
 
-          const totalPaid = paidChallans.reduce(
-            (sum, c) => sum + c.paidAmount,
-            0,
-          );
+          const totalPaid = paidChallans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
           const paidInstallments = paidChallans.length;
 
-          // 3. Check clearance
-          // Cleared if:
-          // - Paid all installments (count >= total installments)
-          // - OR Paid full amount (amount >= total amount)
-          // CRITICAL: Respect custom student tuition fee if set
-          const targetAmount =
-            (student as any).tuitionFee && (student as any).tuitionFee > 0
-              ? (student as any).tuitionFee
-              : currentFeeStructure.totalAmount;
+          const targetAmount = (student as any).tuitionFee && (student as any).tuitionFee > 0
+            ? (student as any).tuitionFee
+            : currentFeeStructure.totalAmount;
 
-          const isCleared =
-            paidInstallments >= currentFeeStructure.installments ||
-            totalPaid >= targetAmount;
+          const isCleared = paidInstallments >= currentFeeStructure.installments || totalPaid >= targetAmount;
 
           if (!isCleared) {
-            const currentClass = await this.prismaService.class.findUnique({
-              where: { id: student.classId },
-            });
+            const currentClass = await this.prismaService.class.findUnique({ where: { id: student.classId } });
             throw new BadRequestException(
               `Cannot promote student. Outstanding fees for current class (${currentClass?.name || 'Unknown Class'}). ` +
               `Paid: ${paidInstallments}/${currentFeeStructure.installments} installments, ` +
@@ -343,52 +403,21 @@ export class StudentService {
       }
     }
 
-    // 1. Remove raw FK fields to avoid type conflict
     const {
-      programId,
-      classId,
-      sectionId,
-      documents,
-      dob,
-      admissionDate,
-      photo,
-      installments,
-      inquiryId,
-      ...rest
+      programId, classId, sectionId, documents, dob, admissionDate,
+      installments, sessionId, ...rest
     } = payload;
 
-    // 2. Build clean data object
     const data: any = { ...rest };
-
-    if (payload.status) {
-      data.status = payload.status;
-    }
-
-    // Handle DOB
-    if (dob) {
-      data.dob = new Date(dob);
-    }
-
-    // Handle Admission Date
-    if (admissionDate) {
-      data.admissionDate = new Date(admissionDate);
-    }
-
-    // Handle documents (ensure it's an object)
+    if (payload.status) data.status = payload.status;
+    if (dob) data.dob = new Date(dob);
+    if (admissionDate) data.admissionDate = new Date(admissionDate);
     if (documents !== undefined) {
-      data.documents =
-        typeof documents === 'string' ? JSON.parse(documents) : documents;
+      data.documents = typeof documents === 'string' ? JSON.parse(documents) : documents;
     }
 
-    // Connect relations only if IDs are provided
-    if (programId !== undefined) {
-      data.program = { connect: { id: Number(programId) } };
-    }
-
-    if (classId !== undefined) {
-      data.class = { connect: { id: Number(classId) } };
-    }
-
+    if (programId !== undefined) data.program = { connect: { id: Number(programId) } };
+    if (classId !== undefined) data.class = { connect: { id: Number(classId) } };
     if (sectionId !== undefined) {
       const sId = Number(sectionId);
       if (sectionId !== null && sectionId !== "" && sId > 0) {
@@ -398,114 +427,107 @@ export class StudentService {
       }
     }
 
-    // Optional: handle photo_url / photo_public_id from controller
     if (payload.photo_url) data.photo_url = payload.photo_url;
     if (payload.photo_public_id) data.photo_public_id = payload.photo_public_id;
+    if (payload.tuitionFee !== undefined) data.tuitionFee = Number(payload.tuitionFee);
+    if (payload.numberOfInstallments !== undefined) data.numberOfInstallments = Number(payload.numberOfInstallments);
+    if (payload.lateFeeFine !== undefined) data.lateFeeFine = Number(payload.lateFeeFine);
 
-    if (payload.tuitionFee !== undefined)
-      data.tuitionFee = Number(payload.tuitionFee);
-    if (payload.numberOfInstallments !== undefined)
-      data.numberOfInstallments = Number(payload.numberOfInstallments);
-    if (payload.lateFeeFine !== undefined)
-      data.lateFeeFine = Number(payload.lateFeeFine);
+    let resolvedSessionName = student.session;
+    const targetSessionId = sessionId !== undefined ? Number(sessionId) : null;
+    if (targetSessionId && targetSessionId > 0) {
+      const sessionRecord = await this.prismaService.academicSession.findUnique({
+        where: { id: targetSessionId },
+        select: { name: true }
+      });
+      if (sessionRecord) resolvedSessionName = sessionRecord.name;
+    }
+    data.session = resolvedSessionName;
 
-    // Handle Installments Update
-    if (payload.installments) {
-      let installmentsData: any[] = [];
-      if (typeof payload.installments === 'string') {
-        try {
-          installmentsData = JSON.parse(payload.installments);
-        } catch (e) { }
-      } else if (Array.isArray(payload.installments)) {
-        installmentsData = payload.installments;
-      }
-
-      const targetClassId = Number(payload.classId || student.classId);
-
-      // Server-side validation: installment sum must not exceed agreed tuition fee
-      const agreedTuitionFee = payload.tuitionFee !== undefined ? Number(payload.tuitionFee) : (student.tuitionFee || 0);
-      if (agreedTuitionFee > 0) {
-        const totalInstallmentsAmount = installmentsData.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
-        if (totalInstallmentsAmount > agreedTuitionFee) {
-          throw new BadRequestException(
-            `Total installments (Rs. ${totalInstallmentsAmount}) cannot exceed agreed tuition fee (Rs. ${agreedTuitionFee}).`
-          );
-        }
-      }
-
-      // Fetch existing installments for this class
-      const existingInstallments = await this.prismaService.studentFeeInstallment.findMany({
+    // Validate tuition fee against standard fee structure
+    const effectiveProgramId = Number(programId || student.programId);
+    const effectiveClassId = Number(classId || student.classId);
+    if (effectiveProgramId && effectiveClassId) {
+      const structure = await this.prismaService.feeStructure.findUnique({
         where: {
-          studentId: id,
-          classId: targetClassId,
+          programId_classId: {
+            programId: effectiveProgramId,
+            classId: effectiveClassId,
+          },
         },
       });
-
-      // Track installment numbers found in payload to handle deletions for THIS class
-      const incomingInstallmentNumbers = installmentsData.map(i => Number(i.installmentNumber));
-      
-      // Delete installments for this class that are NOT in the incoming payload
-      await this.prismaService.studentFeeInstallment.deleteMany({
-        where: {
-          studentId: id,
-          classId: targetClassId,
-          installmentNumber: { notIn: incomingInstallmentNumbers }
-        }
-      });
-
-      for (const i of installmentsData) {
-        const installmentNumber = Number(i.installmentNumber);
-        const amount = Number(i.amount);
-        const dueDate = new Date(i.dueDate);
-
-        if (isNaN(dueDate.getTime())) {
-          throw new BadRequestException(
-            `Invalid due date provided for installment ${installmentNumber}`,
-          );
-        }
-
-        const existing = existingInstallments.find(ei => ei.installmentNumber === installmentNumber);
-
-        if (existing) {
-          // Check if data changed
-          const existingDate = new Date(existing.dueDate);
-          if (existing.amount !== amount || existingDate.getTime() !== dueDate.getTime()
-            || existing.month !== (i.month || null) || existing.session !== (i.session || null)) {
-            await this.prismaService.studentFeeInstallment.update({
-              where: { id: existing.id },
-              data: { 
-                amount, 
-                dueDate, 
-                month: i.month || null, 
-                session: i.session || null,
-                remainingAmount: amount - (existing.paidAmount || 0) - (existing.pendingAmount || 0)
-              },
-            });
-          }
-        } else {
-          // Create new
-          await this.prismaService.studentFeeInstallment.create({
-            data: {
-              studentId: id,
-              classId: targetClassId,
-              installmentNumber,
-              amount,
-              dueDate,
-              month: i.month || null,
-              session: i.session || null,
-              remainingAmount: amount,
-            },
-          });
-        }
+      if (structure && Number(payload.tuitionFee || student.tuitionFee) > structure.totalAmount) {
+        throw new BadRequestException(`Agreed tuition fee cannot exceed the standard fee of Rs. ${structure.totalAmount}`);
       }
     }
 
-    const updatedStudent = await this.prismaService.student.update({
-      where: { id },
-      data,
-    });
+    return await this.prismaService.$transaction(async (tx) => {
+      if (payload.installments) {
+        let installmentsData: any[] = [];
+        if (typeof payload.installments === 'string') {
+          try { installmentsData = JSON.parse(payload.installments); } catch (e) { }
+        } else if (Array.isArray(payload.installments)) {
+          installmentsData = payload.installments;
+        }
 
-    return updatedStudent;
+        const targetClassId_forInst = Number(payload.classId || student.classId);
+        const agreedTuitionFee = Number(payload.tuitionFee ?? student.tuitionFee ?? 0);
+        
+        if (agreedTuitionFee > 0) {
+          const totalInstallmentsAmount = installmentsData.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+          if (totalInstallmentsAmount > agreedTuitionFee) {
+            throw new BadRequestException(`Total installments (Rs. ${totalInstallmentsAmount}) cannot exceed agreed tuition fee (Rs. ${agreedTuitionFee}).`);
+          }
+        }
+
+        const iNumbers = installmentsData.map(i => Number(i.installmentNumber));
+        await tx.studentFeeInstallment.deleteMany({
+          where: { studentId: id, classId: targetClassId_forInst, installmentNumber: { notIn: iNumbers } }
+        });
+
+        for (const i of installmentsData) {
+          const instNum = Number(i.installmentNumber);
+          const amount = Number(i.amount);
+          await tx.studentFeeInstallment.upsert({
+            where: { studentId_classId_installmentNumber: { studentId: id, classId: targetClassId_forInst, installmentNumber: instNum } },
+            create: {
+              studentId: id, classId: targetClassId_forInst, installmentNumber: instNum,
+              amount, dueDate: new Date(i.dueDate), month: i.month || null,
+              session: i.session || resolvedSessionName || null, remainingAmount: amount,
+            },
+            update: {
+              amount, dueDate: new Date(i.dueDate), month: i.month || null,
+              session: i.session || resolvedSessionName || null,
+            }
+          });
+        }
+      }
+
+      if (targetSessionId && targetSessionId > 0) {
+        await tx.studentAcademicRecord.updateMany({ where: { studentId: id }, data: { isCurrent: false } });
+        
+        const recData = {
+          isCurrent: true,
+          classId: Number(classId || student.classId),
+          sectionId: sectionId !== undefined ? (sectionId ? Number(sectionId) : null) : student.sectionId,
+          programId: Number(programId || student.programId),
+        };
+
+        const existingRec = student.academicRecords?.find(ar => ar.sessionId === targetSessionId);
+        if (existingRec) {
+          await tx.studentAcademicRecord.update({ 
+            where: { id: existingRec.id }, 
+            data: recData 
+          });
+        } else {
+          await tx.studentAcademicRecord.create({ 
+            data: { ...recData, studentId: id, sessionId: targetSessionId } 
+          });
+        }
+      }
+
+      return await tx.student.update({ where: { id }, data });
+    });
   }
 
   async removeStudent(id: number) {
@@ -553,10 +575,12 @@ export class StudentService {
     targetSectionId?: number,
     targetProgramId?: number,
     targetSession?: string,
+    targetSessionId?: number,
   ) {
     const student = await this.prismaService.student.findUnique({
       where: { id },
       include: {
+        academicRecords: true,
         class: {
           include: {
             program: { include: { classes: { include: { sections: true } } } },
@@ -683,236 +707,214 @@ export class StudentService {
             targetClassId,
             targetSectionId,
             targetProgramId,
-            targetSession
+            targetSession,
+            targetSessionId
           };
         }
       }
     }
 
     // No arrears OR force promote - proceed with promotion
-    let program = student.class.program;
-    let nextClass;
-    let matchingSection;
+    return await this.prismaService.$transaction(async (tx) => {
+      let program = student.class.program;
+      let nextClass;
+      let matchingSection;
 
-    // A. Handle Target Program Override
-    if (targetProgramId) {
-      const newProgram = await this.prismaService.program.findUnique({
-        where: { id: Number(targetProgramId) },
-        include: { classes: { include: { sections: true } } }
-      });
-      if (!newProgram) throw new BadRequestException('Target program not found');
-      program = newProgram as any;
-    }
-
-    if (targetClassId) {
-      // Manual Promotion Override
-      console.log('🔧 Manual Promotion Requested to Class ID:', targetClassId);
-
-      // Verify class belongs to the target(or current) program
-      const targetClass = program.classes.find(
-        (c) => c.id === Number(targetClassId),
-      );
-      if (!targetClass) {
-        throw new BadRequestException(
-          "Target class does not belong to the selected program",
-        );
+      // A. Handle Target Program Override
+      if (targetProgramId) {
+        const newProgram = await tx.program.findUnique({
+          where: { id: Number(targetProgramId) },
+          include: { classes: { include: { sections: true } } }
+        });
+        if (!newProgram) throw new BadRequestException('Target program not found');
+        program = newProgram as any;
       }
-      nextClass = targetClass;
 
-      if (targetSectionId) {
-        matchingSection = nextClass.sections.find(
-          (s) => s.id === Number(targetSectionId),
+      if (targetClassId) {
+        // Manual Promotion Override
+        const targetClass = program.classes.find(
+          (c) => c.id === Number(targetClassId),
         );
-      }
-    } else {
-      // Automatic Promotion Logic
-      const sortedClasses = program.classes.sort((a, b) => {
-        if (a.isSemester && b.isSemester) {
-          return (a.semester ?? 0) - (b.semester ?? 0);
+        if (!targetClass) {
+          throw new BadRequestException(
+            "Target class does not belong to the selected program",
+          );
         }
-        if (!a.isSemester && !b.isSemester) {
-          return (a.year ?? 0) - (b.year ?? 0);
-        }
-        if (a.isSemester && !b.isSemester) return 1;
-        if (!a.isSemester && b.isSemester) return -1;
-        return 0;
-      });
+        nextClass = targetClass;
 
-      const curIdx = sortedClasses.findIndex((c) => c.id === student.classId);
-      if (curIdx === -1 || curIdx >= sortedClasses.length - 1) {
-        // If not found in current sorted (e.g. program changed), default to first class
-        nextClass = sortedClasses[0];
+        if (targetSectionId) {
+          matchingSection = nextClass.sections.find(
+            (s) => s.id === Number(targetSectionId),
+          );
+        }
       } else {
-        nextClass = sortedClasses[curIdx + 1];
-        matchingSection = nextClass.sections.find(
-          (s) => s.name === student.section?.name,
-        );
+        // Automatic Promotion Logic
+        const sortedClasses = program.classes.sort((a, b) => {
+          if (a.isSemester && b.isSemester) return (a.semester ?? 0) - (b.semester ?? 0);
+          if (!a.isSemester && !b.isSemester) return (a.year ?? 0) - (b.year ?? 0);
+          if (a.isSemester && !b.isSemester) return 1;
+          if (!a.isSemester && b.isSemester) return -1;
+          return 0;
+        });
+
+        const curIdx = sortedClasses.findIndex((c) => c.id === student.classId);
+        if (curIdx === -1 || curIdx >= sortedClasses.length - 1) {
+          nextClass = sortedClasses[0];
+        } else {
+          nextClass = sortedClasses[curIdx + 1];
+          matchingSection = nextClass.sections.find(
+            (s) => s.name === student.section?.name,
+          );
+        }
       }
-    }
 
-    // Calculate prefixes for roll number update
-    const getPrefix = (pPrefix: any, cPrefix: any) => {
-      const p = pPrefix || '';
-      const c = cPrefix || '';
-      if (p && c && c.startsWith(p)) return c;
-      return `${p}${c}`;
-    };
+      // Calculate prefixes for roll number update
+      const getPrefix = (pPrefix: any, cPrefix: any) => {
+        const p = pPrefix || '';
+        const c = cPrefix || '';
+        if (p && c && c.startsWith(p)) return c;
+        return `${p}${c}`;
+      };
 
-    const oldPrefix = getPrefix(student.program?.rollPrefix, student.class?.rollPrefix);
-    const newPrefix = getPrefix(program?.rollPrefix, nextClass?.rollPrefix);
+      const oldPrefix = getPrefix(student.program?.rollPrefix, student.class?.rollPrefix);
+      const newPrefix = getPrefix(program?.rollPrefix, nextClass?.rollPrefix);
 
-    let updatedRollNumber = student.rollNumber;
-    if (oldPrefix && updatedRollNumber?.startsWith(oldPrefix)) {
-      updatedRollNumber = newPrefix + updatedRollNumber.slice(oldPrefix.length);
-    }
+      let updatedRollNumber = student.rollNumber;
+      if (oldPrefix && updatedRollNumber?.startsWith(oldPrefix)) {
+        updatedRollNumber = newPrefix + updatedRollNumber.slice(oldPrefix.length);
+      }
 
-    // Update student basics
-    const studentUpdateData: any = {
-      class: { connect: { id: nextClass.id } },
-      section: matchingSection
-        ? { connect: { id: matchingSection.id } }
-        : { disconnect: true },
-      passedOut: false,
-      rollNumber: updatedRollNumber,
-    };
+      const effectiveProgramId = targetProgramId ? Number(targetProgramId) : student.programId;
+      const effectiveSessionId = targetSessionId ? Number(targetSessionId) : null;
+      let effectiveSession = targetSession || student.session;
 
-    if (targetProgramId) {
-      studentUpdateData.program = { connect: { id: Number(targetProgramId) } };
-    }
-    if (targetSession) {
-      studentUpdateData.session = targetSession;
-    }
+      // Resolve session name if ID is provided but name is missing
+      if (effectiveSessionId && (!targetSession || targetSession === student.session)) {
+        const sessionRecord = await tx.academicSession.findUnique({
+          where: { id: effectiveSessionId },
+          select: { name: true }
+        });
+        if (sessionRecord) {
+          effectiveSession = sessionRecord.name;
+        }
+      }
 
-    const promoted = await this.prismaService.student.update({
-      where: { id },
-      data: studentUpdateData,
-    });
+      // 1. Update Student Basic Info
+      const studentUpdateData: any = {
+        class: { connect: { id: nextClass.id } },
+        section: matchingSection
+          ? { connect: { id: matchingSection.id } }
+          : { disconnect: true },
+        passedOut: false,
+        rollNumber: updatedRollNumber,
+        session: effectiveSession, // Sync legacy string field
+      };
 
-    // --- SAVE ARREARS TO StudentArrear TABLE ---
-    if (outstandingAmount > 0 && student.classId && student.programId) {
-      console.log(`📝 Saving ${outstandingAmount} as session arrears for student ${id}`);
-      await this.prismaService.studentArrear.upsert({
-        where: {
-          studentId_classId_programId: {
-            studentId: id,
-            classId: student.classId,
-            programId: student.programId,
+      if (targetProgramId) {
+        studentUpdateData.program = { connect: { id: Number(targetProgramId) } };
+      }
+
+      // 2. Manage Arrears
+      if (outstandingAmount > 0 && student.classId && student.programId) {
+        await tx.studentArrear.upsert({
+          where: {
+            studentId_classId_programId: {
+              studentId: id,
+              classId: student.classId,
+              programId: student.programId,
+            },
           },
-        },
-        create: {
-          studentId: id,
-          classId: student.classId!,
-          programId: student.programId!,
-          arrearAmount: outstandingAmount,
-        },
-        update: {
-          arrearAmount: outstandingAmount,
+          create: {
+            studentId: id,
+            classId: student.classId!,
+            programId: student.programId!,
+            arrearAmount: outstandingAmount,
+          },
+          update: {
+            arrearAmount: outstandingAmount,
+          },
+        });
+      }
+
+      // 3. Automated Fees
+      const newFeeStructure = await tx.feeStructure.findUnique({
+        where: {
+          programId_classId: {
+            programId: effectiveProgramId!,
+            classId: nextClass.id,
+          },
         },
       });
-    }
 
-    // --- AUTO-GENERATE NEW FEES FOR PROMOTED CLASS ---
-    console.log(
-      `🚀 Promotion Fee Logic: Student ${id} -> Class ${nextClass.id}`,
-    );
+      const totalAmount = newFeeStructure ? newFeeStructure.totalAmount : student.tuitionFee || 0;
+      const installmentCount = newFeeStructure?.installments || student.numberOfInstallments || 1;
 
-    const effectiveProgramId = targetProgramId ? Number(targetProgramId) : student.programId;
-    const effectiveSession = targetSession || student.session;
+      if (totalAmount > 0) {
+        studentUpdateData.tuitionFee = totalAmount;
+        studentUpdateData.numberOfInstallments = installmentCount;
 
-    // A. Fetch fee structure for the new class
-    const newFeeStructure = await this.prismaService.feeStructure.findUnique({
-      where: {
-        programId_classId: {
-          programId: effectiveProgramId!,
-          classId: nextClass.id,
-        },
-      },
-    });
-
-    const totalAmount = newFeeStructure
-      ? newFeeStructure.totalAmount
-      : student.tuitionFee || 0;
-
-    const installmentCount =
-      newFeeStructure?.installments || student.numberOfInstallments || 1;
-
-    console.log(
-      `📊 Fees: Total=${totalAmount}, Installments=${installmentCount} (Structure Found: ${!!newFeeStructure})`,
-    );
-
-    if (totalAmount > 0) {
-      const defaultInstallmentAmount = Math.floor(
-        totalAmount / installmentCount,
-      );
-
-      const newInstallments = Array.from({ length: installmentCount }).map(
-        (_, idx) => {
+        const defaultInstallmentAmount = Math.floor(totalAmount / installmentCount);
+        const newInstallments = Array.from({ length: installmentCount }).map((_, idx) => {
           const d = new Date();
-          // Offset by 1 month to start from next month, then staggered
           d.setMonth(d.getMonth() + idx + 1);
-          d.setDate(10); // Standardize to 10th for consistent ranking
-
-          const mName = d.toLocaleString('default', { month: 'long' });
-
+          d.setDate(10);
           return {
-            installmentNumber: idx + 1,
-            amount: defaultInstallmentAmount,
-            dueDate: d,
-            month: mName,
-            session: effectiveSession,
-          };
-        },
-      );
-
-      // Fix rounding
-      const totalCalculated = defaultInstallmentAmount * installmentCount;
-      const diff = totalAmount - totalCalculated;
-      if (diff !== 0 && newInstallments.length > 0) {
-        newInstallments[newInstallments.length - 1].amount += diff;
-      }
-
-      // C. Update Student Record & Append New Installments
-      await this.prismaService.$transaction([
-        this.prismaService.student.update({
-          where: { id },
-          data: {
-            programId: effectiveProgramId, // Reflect destination program
-            classId: nextClass.id,         // Reflect destination class
-            session: effectiveSession,     // Reflect destination session
-            tuitionFee: totalAmount,       // Update agreed tuition for the new class/plan
-            numberOfInstallments: installmentCount,
-          },
-        }),
-        // Push the new installments to the existing collection (No deleteMany called)
-        this.prismaService.studentFeeInstallment.createMany({
-          data: newInstallments.map((i) => ({
             studentId: id,
             classId: nextClass.id,
-            installmentNumber: i.installmentNumber,
-            amount: i.amount,
-            dueDate: i.dueDate,
-            month: i.month,
-            remainingAmount: i.amount,
-            session: i.session,
-          })),
-          skipDuplicates: true, // Safety: Avoid overriding if already promoted to this class
-        }),
-      ]);
+            installmentNumber: idx + 1,
+            amount: idx === installmentCount - 1 
+              ? totalAmount - (defaultInstallmentAmount * (installmentCount - 1))
+              : defaultInstallmentAmount,
+            dueDate: d,
+            month: d.toLocaleString('default', { month: 'long' }),
+            remainingAmount: idx === installmentCount - 1 
+              ? totalAmount - (defaultInstallmentAmount * (installmentCount - 1))
+              : defaultInstallmentAmount,
+            session: effectiveSession,
+            sessionId: effectiveSessionId,
+          };
+        });
 
-      console.log(
-        `✅ Success: Generated ${installmentCount} fees for Student ${id} in Class ${nextClass.name} (Session: ${effectiveSession})`,
-      );
-    } else {
-      console.warn(
-        `⚠️ Warning: No tuition amount found for Student ${id} promotion (Class ${nextClass.name}). Skipping fee generation.`,
-      );
-    }
+        await tx.studentFeeInstallment.createMany({
+          data: newInstallments,
+          skipDuplicates: true,
+        });
+      }
 
-    return {
-      requiresConfirmation: false,
-      promoted: true,
-      student: promoted,
-    };
+      const promoted = await tx.student.update({
+        where: { id },
+        data: studentUpdateData,
+      });
+
+      // 4. Academic Record / Session Update
+      if (effectiveSessionId && effectiveSessionId > 0) {
+        const currentRecord = student.academicRecords?.find(ar => ar.isCurrent);
+        const isSameSession = currentRecord?.sessionId === effectiveSessionId;
+
+        if (!isSameSession) {
+          await tx.studentAcademicRecord.updateMany({
+            where: { studentId: id },
+            data: { isCurrent: false }
+          });
+          await tx.studentAcademicRecord.create({
+            data: {
+              studentId: id,
+              sessionId: effectiveSessionId,
+              classId: nextClass.id,
+              sectionId: matchingSection ? matchingSection.id : null,
+              programId: effectiveProgramId,
+              isCurrent: true,
+            }
+          });
+        }
+      }
+
+      return {
+        requiresConfirmation: false,
+        promoted: true,
+        student: promoted,
+      };
+    });
   }
   async demote(id: number) {
     const student = await this.prismaService.student.findUnique({
@@ -924,6 +926,10 @@ export class StudentService {
           },
         },
         section: true,
+        academicRecords: {
+          orderBy: { id: 'desc' },
+          include: { session: true },
+        },
       },
     });
 
@@ -954,38 +960,7 @@ export class StudentService {
       (s) => s.name === student.section?.name,
     );
 
-    // --- REMOVE StudentArrear RECORD ON DEMOTION ---
-    // If student is demoted back to the previous class, we remove the arrears 
-    // that were moved to the StudentArrear table during promotion.
-    if (student.programId) {
-      await this.prismaService.studentArrear.deleteMany({
-        where: {
-          studentId: id,
-          classId: prevClass.id,
-          programId: student.programId,
-        },
-      });
-    }
-
-    // --- AUTO-DELETE INVALID CHALLANS FOR DEMOTION ---
-    // Remove unpaid challans associated with the current class (the one they are leaving)
-    await this.feeManagementService.removeChallansForDemotion(
-      id,
-      student.classId,
-    );
-
-    // --- DELETE CURRENT CLASS INSTALLMENTS ---
-    // Since promotion appends new installments, demotion should remove them
-    // to "reset" back to the previous class's plan.
-    await this.prismaService.studentFeeInstallment.deleteMany({
-      where: {
-        studentId: id,
-        classId: student.classId,
-      },
-    });
-
     // --- RESTORE PREVIOUS FEE STRUCTURE ---
-    // Try to find if the student had a custom installment plan for the previous class
     const previousInstallments = await this.prismaService.studentFeeInstallment.findMany({
       where: {
         studentId: id,
@@ -998,11 +973,9 @@ export class StudentService {
     let restoredInstallmentsCount = 0;
 
     if (previousInstallments.length > 0) {
-      console.log(`♻️ Restoring custom installment plan for student ${id} in class ${prevClass.name}`);
       restoredTuitionFee = previousInstallments.reduce((sum, inst) => sum + inst.amount, 0);
       restoredInstallmentsCount = previousInstallments.length;
     } else {
-      // Fallback: If no history exists, use standard fee structure
       const targetFeeStructure = await this.prismaService.feeStructure.findUnique({
         where: {
           programId_classId: {
@@ -1011,42 +984,11 @@ export class StudentService {
           },
         },
       });
-
       restoredTuitionFee = targetFeeStructure ? targetFeeStructure.totalAmount : 0;
       restoredInstallmentsCount = targetFeeStructure ? targetFeeStructure.installments : 1;
-
-      console.log(
-        `📉 Demotion Fallback (No History): Tuition: ${restoredTuitionFee}, Installments: ${restoredInstallmentsCount}`,
-      );
     }
 
-    // Regenerate Installments ONLY if no history was found
-    let fallbackInstallmentsToCreate: any[] = [];
-    if (previousInstallments.length === 0 && restoredTuitionFee > 0) {
-      const defaultInstallmentAmount = Math.floor(
-        restoredTuitionFee / restoredInstallmentsCount,
-      );
-      fallbackInstallmentsToCreate = Array.from({ length: restoredInstallmentsCount }).map(
-        (_, idx) => ({
-          studentId: id,
-          classId: prevClass.id,
-          installmentNumber: idx + 1,
-          amount: defaultInstallmentAmount,
-          dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)),
-          remainingAmount: defaultInstallmentAmount,
-        }),
-      );
-
-      // Fix rounding
-      const totalCalculated = defaultInstallmentAmount * restoredInstallmentsCount;
-      const diff = restoredTuitionFee - totalCalculated;
-      if (diff !== 0 && fallbackInstallmentsToCreate.length > 0) {
-        fallbackInstallmentsToCreate[fallbackInstallmentsToCreate.length - 1].amount += diff;
-        fallbackInstallmentsToCreate[fallbackInstallmentsToCreate.length - 1].remainingAmount += diff;
-      }
-    }
-
-    // Calculate roll number update
+    // Role Number logic
     const getPrefix = (pPrefix: any, cPrefix: any) => {
       const p = pPrefix || '';
       const c = cPrefix || '';
@@ -1062,37 +1004,67 @@ export class StudentService {
       updatedRollNumber = newPrefix + updatedRollNumber.slice(oldPrefix.length);
     }
 
-    const updatedStudent = await this.prismaService.$transaction([
-      this.prismaService.student.update({
+    // Academic Record Management
+    const currentRecord = student.academicRecords?.[0]; // LIFO (desc)
+    const previousRecord = student.academicRecords?.[1];
+
+    let restoredSessionName = student.session;
+    if (previousRecord) {
+      restoredSessionName = previousRecord.session?.name || student.session;
+    }
+
+    return await this.prismaService.$transaction(async (tx) => {
+      // 1. Cleanup Arrears for the class we are demoting TO (the arrears that were moved)
+      if (student.programId) {
+        await tx.studentArrear.deleteMany({
+          where: {
+            studentId: id,
+            classId: prevClass.id,
+            programId: student.programId,
+          },
+        });
+      }
+
+      // 2. Remove Challans for the class we are LEAVING
+      await this.feeManagementService.removeChallansForDemotion(id, student.classId);
+
+      // 3. Remove installments for the current class
+      await tx.studentFeeInstallment.deleteMany({
+        where: { studentId: id, classId: student.classId },
+      });
+
+      // 4. Academic Record Rollback
+      if (currentRecord) {
+        // Delete the latest record (the one they are demoting FROM)
+        await tx.studentAcademicRecord.delete({
+          where: { id: currentRecord.id }
+        });
+      }
+      
+      if (previousRecord) {
+        // Restore previous record as isCurrent: true
+        await tx.studentAcademicRecord.update({
+          where: { id: previousRecord.id },
+          data: { isCurrent: true }
+        });
+      }
+
+      // 5. Update Student Info
+      return await tx.student.update({
         where: { id },
         data: {
           class: { connect: { id: prevClass.id } },
           section: matchingSection
             ? { connect: { id: matchingSection.id } }
             : { disconnect: true },
-          passedOut: false,
           rollNumber: updatedRollNumber,
-          // RESTORE FEES
           tuitionFee: restoredTuitionFee,
           numberOfInstallments: restoredInstallmentsCount,
+          session: restoredSessionName, // Sync session string
+          passedOut: false,
         },
-      }),
-      // Remove installments for the current class (the one they are leaving)
-      this.prismaService.studentFeeInstallment.deleteMany({
-        where: {
-          studentId: id,
-          classId: student.classId,
-        },
-      }),
-      // If no history existed, create the fallback ones
-      ...(previousInstallments.length === 0 && fallbackInstallmentsToCreate.length > 0
-        ? [this.prismaService.studentFeeInstallment.createMany({
-          data: fallbackInstallmentsToCreate,
-        })]
-        : []),
-    ]);
-
-    return updatedStudent[0];
+      });
+    });
   }
 
   async passout(id: number) {
@@ -1224,6 +1196,7 @@ export class StudentService {
 
   async rejoin(id: number, reason: string, details?: { 
     session?: string, 
+    sessionId?: string,
     programId?: string, 
     classId?: string, 
     sectionId?: string,
@@ -1232,6 +1205,7 @@ export class StudentService {
     const student = await this.prismaService.student.findUnique({
       where: { id },
       include: {
+        academicRecords: true,
         class: true,
         section: true,
         program: true
@@ -1254,14 +1228,27 @@ export class StudentService {
         },
       });
 
+      let effectiveSession = details?.session || student.session;
+      const effectiveSessionId = details?.sessionId ? Number(details.sessionId) : null;
+
+      if (effectiveSessionId && (!details?.session || details.session === student.session)) {
+        const sessionRecord = await tx.academicSession.findUnique({
+          where: { id: effectiveSessionId },
+          select: { name: true }
+        });
+        if (sessionRecord) {
+          effectiveSession = sessionRecord.name;
+        }
+      }
+
       const updateData: any = {
         passedOut: false,
         status: 'ACTIVE',
         statusDate: new Date(),
+        session: effectiveSession, // Sync legacy string field
       };
 
-      if (!isSameClass && details) {
-        if (details.session) updateData.session = details.session;
+      if (details) {
         if (details.programId) updateData.program = { connect: { id: Number(details.programId) } };
         if (details.classId) updateData.class = { connect: { id: Number(details.classId) } };
         if (details.sectionId) {
@@ -1274,7 +1261,7 @@ export class StudentService {
         }
 
         // --- MANAGE ARREARS FOR OLD CLASS BEFORE SWITCHING (Consistent with Promote) ---
-        if (student.classId && student.programId) {
+        if (!isSameClass && student.classId && student.programId) {
           // Calculate arrears for the class they are leaving (before updating student record)
           const currentChallans = await tx.feeChallan.findMany({
             where: {
@@ -1338,9 +1325,10 @@ export class StudentService {
         }
 
         // --- AUTO-GENERATE NEW FEES FOR NEW CLASS IF NOT SAME CLASS ---
-        if (details.programId && details.classId) {
+        if (!isSameClass && details.programId && details.classId) {
           const newProgId = Number(details.programId);
           const newClassId = Number(details.classId);
+          const effectiveSessionId = details.sessionId ? Number(details.sessionId) : null;
 
           const newFeeStructure = await tx.feeStructure.findUnique({
             where: {
@@ -1374,6 +1362,7 @@ export class StudentService {
               remainingAmount: idx === installmentCount - 1 
                 ? totalAmount - (defaultInstallmentAmount * (installmentCount - 1))
                 : defaultInstallmentAmount,
+              sessionId: effectiveSessionId,
             }));
 
             // --- FIX: Delete existing installments for target class to avoid unique constraint --
@@ -1391,10 +1380,43 @@ export class StudentService {
         }
       }
 
-      return tx.student.update({
+      const updatedStudent = await tx.student.update({
         where: { id },
         data: updateData,
+        include: {
+          class: true,
+          section: true,
+          program: true
+        }
       });
+
+      // Update Academic Record
+      if (details?.sessionId) {
+        const targetSessionId = Number(details.sessionId);
+        if (targetSessionId > 0) {
+          const currentRecord = student.academicRecords?.find(ar => ar.isCurrent);
+          const isSameSession = currentRecord?.sessionId === targetSessionId;
+
+          if (!isSameSession) {
+            await tx.studentAcademicRecord.updateMany({
+              where: { studentId: id },
+              data: { isCurrent: false }
+            });
+            await tx.studentAcademicRecord.create({
+              data: {
+                studentId: id,
+                sessionId: targetSessionId,
+                classId: Number(details.classId || student.classId),
+                sectionId: details.sectionId ? Number(details.sectionId) : (isSameClass ? student.sectionId : null),
+                programId: Number(details.programId || student.programId),
+                isCurrent: true,
+              }
+            });
+          }
+        }
+      }
+
+      return updatedStudent;
     });
   }
 

@@ -30,10 +30,17 @@ import {
   createInventoryItem,
   updateInventoryItem,
   deleteInventoryItem,
-  searchStudents
+  searchStudents,
+  getExternalChallansByRegistration,
+  createExternalChallan,
+  updateExternalChallan,
+  deleteExternalChallan,
+  getFeeHeads
 } from "../../config/apis";
-import { Home, Bed, UtensilsCrossed, DollarSign, Edit, Trash2, UserPlus, Package, Search, X } from "lucide-react";
+import { Home, Bed, UtensilsCrossed, DollarSign, Edit, Trash2, UserPlus, Package, Search, X, Receipt, Plus } from "lucide-react";
+import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import {
@@ -79,6 +86,14 @@ const Hostel = () => {
   const { data: inventoryItems = [] } = useQuery({
     queryKey: ['inventoryItems'],
     queryFn: getInventoryItems
+  });
+
+  // Fees tab queries — declared after state (see below for useState)
+  const externalRegistrations = hostelRegistrations.filter(r => !r.studentId);
+
+  const { data: feeHeads = [] } = useQuery({
+    queryKey: ['feeHeads'],
+    queryFn: getFeeHeads,
   });
 
   // UI State
@@ -134,6 +149,26 @@ const Hostel = () => {
     quantity: 1,
     condition: "New",
     allocatedToRoom: ""
+  });
+
+  // Fees tab state
+  const [selectedExternalReg, setSelectedExternalReg] = useState(null);
+  const [challanOpen, setChallanOpen] = useState(false);
+  const [editingChallan, setEditingChallan] = useState(null);
+
+  const { data: externalChallans = [], refetch: refetchExternalChallans } = useQuery({
+    queryKey: ['externalChallans', selectedExternalReg],
+    queryFn: () => getExternalChallansByRegistration(selectedExternalReg),
+    enabled: !!selectedExternalReg,
+  });
+  const [challanFormData, setChallanFormData] = useState({
+    amount: "",
+    discount: "0",
+    fineAmount: "0",
+    dueDate: new Date().toISOString().split("T")[0],
+    month: "",
+    remarks: "",
+    selectedHeads: []
   });
 
   // Search students using API with debouncing
@@ -356,6 +391,9 @@ const Hostel = () => {
       } else if (type === 'inventory') {
         await deleteInventoryItem(item.id);
         queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
+      } else if (type === 'challan') {
+        await deleteExternalChallan(item.id);
+        refetchExternalChallans();
       }
       toast({ title: "Deleted successfully" });
     } catch (error) {
@@ -578,9 +616,10 @@ const Hostel = () => {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 h-auto gap-1">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 h-auto gap-1">
             <TabsTrigger value="registration">Registration</TabsTrigger>
             <TabsTrigger value="rooms">Rooms</TabsTrigger>
+            <TabsTrigger value="fees">Fees</TabsTrigger>
             {/* <TabsTrigger value="mess">Mess</TabsTrigger> */}
             <TabsTrigger value="expenses">Expenses</TabsTrigger>
             <TabsTrigger value="inventory">Inventory</TabsTrigger>
@@ -659,7 +698,9 @@ const Hostel = () => {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button size="sm" variant="ghost" onClick={() => {
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button size="sm" variant="ghost" onClick={() => {
                                 setEditMode({ reg: reg.id });
                                 setRegistrationType(reg.studentId ? "internal" : "external");
                                 const studentRoom = getStudentRoom(reg.studentId, reg.externalName);
@@ -678,11 +719,19 @@ const Hostel = () => {
                                 }
                                 setRegOpen(true);
                               }}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button size="sm" variant="destructive" onClick={() => confirmDelete('reg', reg)}>
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button size="sm" variant="destructive" onClick={() => confirmDelete('reg', reg)}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete</TooltipContent>
+                              </Tooltip>
                             </div>
                           </TableCell>
                         </TableRow>;
@@ -765,7 +814,9 @@ const Hostel = () => {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button size="sm" variant="ghost" onClick={() => {
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="sm" variant="ghost" onClick={() => {
                             setEditMode({ room: room.id });
                             setRoomFormData({
                               roomNumber: room.roomNumber,
@@ -774,11 +825,19 @@ const Hostel = () => {
                             });
                             setRoomOpen(true);
                           }}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button size="sm" variant="destructive" onClick={() => confirmDelete('room', room)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Edit</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="sm" variant="destructive" onClick={() => confirmDelete('room', room)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete</TooltipContent>
+                          </Tooltip>
                         </div>
                       </TableCell>
                     </TableRow>)}
@@ -881,7 +940,9 @@ const Hostel = () => {
                       <TableCell>{expense.remarks}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button size="sm" variant="ghost" onClick={() => {
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="sm" variant="ghost" onClick={() => {
                             setEditMode({ expense: expense.id });
                             setExpenseFormData({
                               expenseTitle: expense.expenseTitle,
@@ -891,16 +952,142 @@ const Hostel = () => {
                             });
                             setExpenseOpen(true);
                           }}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button size="sm" variant="destructive" onClick={() => confirmDelete('expense', expense)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Edit</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="sm" variant="destructive" onClick={() => confirmDelete('expense', expense)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete</TooltipContent>
+                          </Tooltip>
                         </div>
                       </TableCell>
                     </TableRow>)}
                   </TableBody>
                 </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="fees" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle>External Student Fee Challans</CardTitle>
+                  <Button
+                    onClick={() => {
+                      if (!selectedExternalReg) {
+                        toast({ title: "Please select an external student first", variant: "destructive" });
+                        return;
+                      }
+                      setEditingChallan(null);
+                      setChallanFormData({ amount: "", discount: "0", fineAmount: "0", dueDate: new Date().toISOString().split("T")[0], month: "", remarks: "", selectedHeads: [] });
+                      setChallanOpen(true);
+                    }}
+                    disabled={!selectedExternalReg}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create Challan
+                  </Button>
+                </div>
+                <div className="mt-4">
+                  <Label>Select External Student</Label>
+                  <Select value={selectedExternalReg || ""} onValueChange={setSelectedExternalReg}>
+                    <SelectTrigger className="w-full md:w-[350px]">
+                      <SelectValue placeholder="Select external student..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {externalRegistrations.map(reg => (
+                        <SelectItem key={reg.id} value={reg.id}>
+                          {reg.externalName} {reg.externalInstitute ? `(${reg.externalInstitute})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {!selectedExternalReg ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Receipt className="w-12 h-12 mx-auto mb-4 opacity-30" />
+                    <p>Select an external student to view or create fee challans</p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Challan No</TableHead>
+                        <TableHead>Month</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Paid</TableHead>
+                        <TableHead>Due Date</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {externalChallans.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                            No challans found for this student.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        externalChallans.map(challan => (
+                          <TableRow key={challan.id}>
+                            <TableCell className="font-medium">{challan.challanNumber}</TableCell>
+                            <TableCell>{challan.month || "-"}</TableCell>
+                            <TableCell>PKR {(challan.amount + challan.fineAmount - challan.discount).toLocaleString()}</TableCell>
+                            <TableCell className="text-green-600">PKR {challan.paidAmount.toLocaleString()}</TableCell>
+                            <TableCell>{challan.dueDate ? format(new Date(challan.dueDate), "dd MMM yyyy") : "-"}</TableCell>
+                            <TableCell>
+                              <Badge variant={challan.status === "PAID" ? "default" : challan.status === "VOID" ? "outline" : "destructive"}>
+                                {challan.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button size="sm" variant="ghost" onClick={() => {
+                                      setEditingChallan(challan);
+                                      setChallanFormData({
+                                        amount: String(challan.amount),
+                                        discount: String(challan.discount),
+                                        fineAmount: String(challan.fineAmount),
+                                        dueDate: challan.dueDate ? new Date(challan.dueDate).toISOString().split("T")[0] : "",
+                                        month: challan.month || "",
+                                        remarks: challan.remarks || "",
+                                        selectedHeads: challan.selectedHeads ? JSON.parse(challan.selectedHeads) : []
+                                      });
+                                      setChallanOpen(true);
+                                    }}>
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button size="sm" variant="destructive" onClick={() => confirmDelete('challan', challan)}>
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete</TooltipContent>
+                                </Tooltip>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -941,7 +1128,9 @@ const Hostel = () => {
                       <TableCell>{item.allocatedToRoom || "Not Allocated"}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button size="sm" variant="ghost" onClick={() => {
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="sm" variant="ghost" onClick={() => {
                             setEditMode({ inventory: item.id });
                             setInventoryFormData({
                               itemName: item.itemName,
@@ -952,11 +1141,19 @@ const Hostel = () => {
                             });
                             setInventoryOpen(true);
                           }}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button size="sm" variant="destructive" onClick={() => confirmDelete('inventory', item)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Edit</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="sm" variant="destructive" onClick={() => confirmDelete('inventory', item)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete</TooltipContent>
+                          </Tooltip>
                         </div>
                       </TableCell>
                     </TableRow>)}
@@ -1328,6 +1525,126 @@ const Hostel = () => {
               </div>
             </div>
             <Button onClick={handleAddInventory}>{editMode.inventory ? "Update" : "Add"} Item</Button>
+          </DialogContent>
+        </Dialog>
+
+        {/* External Challan Dialog */}
+        <Dialog open={challanOpen} onOpenChange={open => { setChallanOpen(open); if (!open) setEditingChallan(null); }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{editingChallan ? "Edit" : "Create"} Fee Challan</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Amount (PKR) *</Label>
+                  <Input type="number" value={challanFormData.amount} onChange={e => setChallanFormData({ ...challanFormData, amount: e.target.value })} placeholder="0" />
+                </div>
+                <div>
+                  <Label>Month</Label>
+                  <Input value={challanFormData.month} onChange={e => setChallanFormData({ ...challanFormData, month: e.target.value })} placeholder="e.g. January 2026" />
+                </div>
+                <div>
+                  <Label>Due Date *</Label>
+                  <Input type="date" value={challanFormData.dueDate} onChange={e => setChallanFormData({ ...challanFormData, dueDate: e.target.value })} />
+                </div>
+                <div>
+                  <Label>Discount (PKR)</Label>
+                  <Input type="number" value={challanFormData.discount} onChange={e => setChallanFormData({ ...challanFormData, discount: e.target.value })} />
+                </div>
+                <div>
+                  <Label>Fine Amount (PKR)</Label>
+                  <Input type="number" value={challanFormData.fineAmount} onChange={e => setChallanFormData({ ...challanFormData, fineAmount: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <Label>Fee Heads (optional)</Label>
+                <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2 mt-1">
+                  {feeHeads.map(head => {
+                    const isSelected = challanFormData.selectedHeads.some(h => h.id === head.id);
+                    return (
+                      <label key={head.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setChallanFormData({ ...challanFormData, selectedHeads: [...challanFormData.selectedHeads, { id: head.id, name: head.name, amount: head.amount, isSelected: true, type: 'additional' }] });
+                            } else {
+                              setChallanFormData({ ...challanFormData, selectedHeads: challanFormData.selectedHeads.filter(h => h.id !== head.id) });
+                            }
+                          }}
+                        />
+                        {head.name} — PKR {head.amount}
+                      </label>
+                    );
+                  })}
+                  {feeHeads.length === 0 && <p className="text-xs text-muted-foreground">No fee heads configured</p>}
+                </div>
+              </div>
+              <div>
+                <Label>Remarks</Label>
+                <Textarea value={challanFormData.remarks} onChange={e => setChallanFormData({ ...challanFormData, remarks: e.target.value })} rows={2} />
+              </div>
+              {editingChallan && (
+                <div>
+                  <Label>Status</Label>
+                  <Select value={editingChallan.status} onValueChange={val => setEditingChallan({ ...editingChallan, status: val })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PENDING">Pending</SelectItem>
+                      <SelectItem value="PAID">Paid</SelectItem>
+                      <SelectItem value="PARTIAL">Partial</SelectItem>
+                      <SelectItem value="OVERDUE">Overdue</SelectItem>
+                      <SelectItem value="VOID">Void</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={() => setChallanOpen(false)}>Cancel</Button>
+              <Button onClick={async () => {
+                if (!challanFormData.amount || !challanFormData.dueDate) {
+                  toast({ title: "Amount and due date are required", variant: "destructive" });
+                  return;
+                }
+                try {
+                  if (editingChallan) {
+                    await updateExternalChallan(editingChallan.id, {
+                      amount: Number(challanFormData.amount),
+                      discount: Number(challanFormData.discount),
+                      fineAmount: Number(challanFormData.fineAmount),
+                      dueDate: challanFormData.dueDate,
+                      month: challanFormData.month,
+                      remarks: challanFormData.remarks,
+                      selectedHeads: challanFormData.selectedHeads,
+                      status: editingChallan.status,
+                    });
+                    toast({ title: "Challan updated" });
+                  } else {
+                    await createExternalChallan({
+                      registrationId: selectedExternalReg,
+                      amount: Number(challanFormData.amount),
+                      discount: Number(challanFormData.discount),
+                      fineAmount: Number(challanFormData.fineAmount),
+                      dueDate: challanFormData.dueDate,
+                      month: challanFormData.month,
+                      remarks: challanFormData.remarks,
+                      selectedHeads: challanFormData.selectedHeads,
+                    });
+                    toast({ title: "Challan created" });
+                  }
+                  refetchExternalChallans();
+                  setChallanOpen(false);
+                  setEditingChallan(null);
+                } catch (error) {
+                  toast({ title: error.message || "Failed to save challan", variant: "destructive" });
+                }
+              }}>
+                {editingChallan ? "Update" : "Create"} Challan
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       </div>

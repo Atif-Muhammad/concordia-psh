@@ -115,4 +115,23 @@ export class StaffDto {
 
   @IsOptional()
   empDepartment?: string;
+
+  // Per-staff leave settings
+  @IsOptional()
+  sickAllowed?: string;
+
+  @IsOptional()
+  sickDeduction?: string;
+
+  @IsOptional()
+  annualAllowed?: string;
+
+  @IsOptional()
+  annualDeduction?: string;
+
+  @IsOptional()
+  casualAllowed?: string;
+
+  @IsOptional()
+  casualDeduction?: string;
 }

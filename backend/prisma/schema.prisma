@@ -80,6 +80,7 @@ model Program {
   feeStructures FeeStructure[]
   challanSnapshots FeeChallan[] @relation("ChallanStudentProgram")
   studentArrears   StudentArrear[]
+  academicRecords   StudentAcademicRecord[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -112,6 +113,7 @@ model Class {
   challanSnapshots FeeChallan[] @relation("ChallanStudentClass")
   studentArrears   StudentArrear[]
   studentFeeInstallments StudentFeeInstallment[]
+  academicRecords         StudentAcademicRecord[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -135,12 +137,31 @@ model Section {
   teacherMappings TeacherClassSectionMapping[] @relation("SectionTeacherMappings")
   attendance      Attendance[]
   challanSnapshots FeeChallan[] @relation("ChallanStudentSection")
+  academicRecords   StudentAcademicRecord[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([classId, name])
   @@map("section")
+}
+
+model AcademicSession {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(50) // e.g., "2021-2022"
+  startDate DateTime
+  endDate   DateTime
+  isActive  Boolean  @default(false)
+  
+  exams           Exam[]                  @relation("SessionExams")
+  challans        FeeChallan[]            @relation("SessionChallans")
+  installments    StudentFeeInstallment[] @relation("SessionInstallments")
+  academicRecords StudentAcademicRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("academicsession")
 }
 
 enum StaffType {
@@ -207,12 +228,37 @@ model Staff {
   contractStart DateTime?
   contractEnd   DateTime?
 
+  leaveSettings StaffLeaveSettings?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([empDepartment])
   @@index([status])
   @@map("staff")
+}
+
+model StaffLeaveSettings {
+  id      Int   @id @default(autoincrement())
+  staffId Int   @unique
+  staff   Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  // Sick Leave
+  sickAllowed    Int   @default(0)
+  sickDeduction  Float @default(0) // PKR deducted per day over limit
+
+  // Annual Leave
+  annualAllowed   Int   @default(0)
+  annualDeduction Float @default(0)
+
+  // Casual Leave
+  casualAllowed   Int   @default(0)
+  casualDeduction Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("staffleavesettings")
 }
 
 model Subject {
@@ -248,6 +294,7 @@ model Student {
   parentOrGuardianEmail String?   @db.VarChar(50)
   parentOrGuardianPhone String?   @db.VarChar(20)
   parentCNIC            String?   @db.VarChar(15)
+  studentCnic           String?   @db.VarChar(15)
   address               String?   @db.VarChar(255)
   gender                String?   @db.VarChar(10)
   religion              String?   @db.VarChar(50)
@@ -292,12 +339,41 @@ model Student {
   challans            FeeChallan[]
   studentArrears      StudentArrear[]
   statusHistory       StudentStatusHistory[]
+  academicRecords      StudentAcademicRecord[]
 
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("student")
+}
+
+model StudentAcademicRecord {
+  id         Int      @id @default(autoincrement())
+  studentId  Int
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  sessionId  Int
+  session    AcademicSession @relation(fields: [sessionId], references: [id])
+  
+  classId    Int
+  class      Class @relation(fields: [classId], references: [id])
+  
+  sectionId  Int?
+  section    Section? @relation(fields: [sectionId], references: [id])
+
+  programId  Int?
+  program    Program? @relation(fields: [programId], references: [id])
+
+  isCurrent  Boolean  @default(true)
+  enrollmentDate DateTime @default(now())
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([studentId])
+  @@index([sessionId])
+  @@map("studentacademicrecord")
 }
 
 enum StudentStatus {
@@ -653,6 +729,10 @@ model Exam {
   description String?
   program     Program @relation(fields: [programId], references: [id])
   class       Class?  @relation(fields: [classId], references: [id])
+  
+  sessionId   Int?
+  sessionRel  AcademicSession? @relation("SessionExams", fields: [sessionId], references: [id])
+  
   marks       Marks[]
   results     Result[]
   positions   Position[]
@@ -769,8 +849,33 @@ model HostelRegistration {
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
+  externalChallans       HostelExternalChallan[]
+
   @@index([studentId])
   @@map("hostelregistration")
+}
+
+model HostelExternalChallan {
+  id                   Int      @id @default(autoincrement())
+  registrationId       String
+  registration         HostelRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  challanNumber        String   @unique @db.VarChar(50)
+  amount               Float
+  paidAmount           Float    @default(0)
+  discount             Float    @default(0)
+  fineAmount           Float    @default(0)
+  dueDate              DateTime @db.Date
+  paidDate             DateTime? @db.Date
+  status               String   @default("PENDING") // PENDING | PAID | PARTIAL | OVERDUE | VOID
+  month                String?  @db.VarChar(50)
+  selectedHeads        String?  @db.Text // JSON array of fee head snapshots
+  remarks              String?  @db.Text
+  paymentHistory       Json?    @default("[]")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([registrationId])
+  @@map("hostelexternalchallan")
 }
 
 model Room {
@@ -997,6 +1102,7 @@ model FeeChallan {
   remainingAmount Float        @default(0)
   discount       Float         @default(0)
   fineAmount     Float         @default(0)
+  lateFeeFine    Float?         @default(0)
   
   dueDate        DateTime      @db.Date
   issueDate      DateTime      @default(now()) 
@@ -1011,8 +1117,6 @@ model FeeChallan {
   remarks        String?       @db.Text
 
   challanType     ChallanType?
-  includesArrears Boolean     @default(false)
-  arrearsAmount   Float       @default(0)
   
   studentArrearId Int?
   studentArrear   StudentArrear? @relation("StudentArrearChallans", fields: [studentArrearId], references: [id])
@@ -1032,6 +1136,16 @@ model FeeChallan {
 
   month          String?       @db.VarChar(50)
   session        String?       @db.VarChar(50)
+  
+  sessionId      Int?
+  sessionRel     AcademicSession? @relation("SessionChallans", fields: [sessionId], references: [id])
+
+  supersededById  Int?
+  supersededBy    FeeChallan? @relation("Supersession", fields: [supersededById], references: [id])
+  supersedes      FeeChallan[] @relation("Supersession")
+
+  previousChallans FeeChallan[] @relation("ArrearsChain")
+  nextChallans     FeeChallan[] @relation("ArrearsChain")
 
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
@@ -1328,8 +1442,12 @@ model StudentFeeInstallment {
   remainingAmount   Float    @default(0)
   status            InstallmentStatus @default(PENDING)
   dueDate           DateTime
+  paidDate          DateTime? // Set when installment is fully settled (via any challan in the chain)
   month             String?
   session           String?
+  
+  sessionId         Int?
+  sessionRel        AcademicSession? @relation("SessionInstallments", fields: [sessionId], references: [id])
   
   challans          FeeChallan[]
 

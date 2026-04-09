@@ -7,6 +7,8 @@ export class StudentDto {
   lName?: string;
   @IsNotEmpty({ message: 'Session must be selected' })
   session: string;
+  @IsOptional()
+  sessionId?: string;
   @IsNotEmpty({ message: 'Admission Date must be selected' })
   admissionDate: string;
   @IsNotEmpty({ message: "student's father or guardian must be provided" })
@@ -26,6 +28,8 @@ export class StudentDto {
   parentOrGuardianPhone: string;
   @IsOptional()
   parentCNIC?: string;
+  @IsOptional()
+  studentCnic?: string;
   @IsOptional()
   address?: string;
   @IsNotEmpty({ message: 'Gender must be selected' })

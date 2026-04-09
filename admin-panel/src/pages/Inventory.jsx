@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Package, Plus, Pencil, Trash2, DollarSign, TrendingUp, AlertCircle, ClipboardList, Wrench, History } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Badge } from "../components/ui/badge";
 
 const Inventory = () => {
@@ -669,21 +670,46 @@ const Inventory = () => {
                                                     <TableCell>{getConditionBadge(item.condition)}</TableCell>
                                                     <TableCell>
                                                         <div className="flex gap-1">
-                                                            <Button size="sm" variant="ghost" onClick={() => openEditDialog(item)} title="Edit">
-                                                                <Pencil className="h-4 w-4" />
-                                                            </Button>
-                                                            <Button size="sm" variant="ghost" onClick={() => openAssignDialog(item)} title="Assign">
-                                                                <ClipboardList className="h-4 w-4" />
-                                                            </Button>
-                                                            <Button size="sm" variant="ghost" onClick={() => openExpenseDialog(item)} title="Add Expense">
-                                                                <Wrench className="h-4 w-4" />
-                                                            </Button>
-                                                            <Button size="sm" variant="ghost" onClick={() => openHistoryDialog(item)} title="View History">
-                                                                <History className="h-4 w-4" />
-                                                            </Button>
-                                                            <Button size="sm" variant="ghost" onClick={() => handleDeleteItem(item.id)} title="Delete">
-                                                                <Trash2 className="h-4 w-4" />
-                                                            </Button>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button size="sm" variant="ghost" onClick={() => openEditDialog(item)} title="Edit">
+                                                                        <Pencil className="h-4 w-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>Edit</TooltipContent>
+                                                            </Tooltip>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button size="sm" variant="ghost" onClick={() => openAssignDialog(item)} title="Assign">
+                                                                        <ClipboardList className="h-4 w-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>Assign</TooltipContent>
+                                                            </Tooltip>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button size="sm" variant="ghost" onClick={() => openExpenseDialog(item)} title="Add Expense">
+                                                                        <Wrench className="h-4 w-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>Add Expense</TooltipContent>
+                                                            </Tooltip>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button size="sm" variant="ghost" onClick={() => openHistoryDialog(item)} title="View History">
+                                                                        <History className="h-4 w-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>View History</TooltipContent>
+                                                            </Tooltip>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button size="sm" variant="ghost" onClick={() => handleDeleteItem(item.id)} title="Delete">
+                                                                        <Trash2 className="h-4 w-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>Delete</TooltipContent>
+                                                            </Tooltip>
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>)}
@@ -732,12 +758,22 @@ const Inventory = () => {
                                                     <TableCell className="font-semibold">PKR {expense.amount.toLocaleString()}</TableCell>
                                                     <TableCell>
                                                         <div className="flex gap-1">
-                                                            <Button size="sm" variant="ghost" onClick={() => openExpenseEditDialog(expense)} title="Edit">
-                                                                <Pencil className="h-4 w-4" />
-                                                            </Button>
-                                                            <Button size="sm" variant="ghost" onClick={() => handleDeleteExpense(expense.id)} title="Delete">
-                                                                <Trash2 className="h-4 w-4" />
-                                                            </Button>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button size="sm" variant="ghost" onClick={() => openExpenseEditDialog(expense)} title="Edit">
+                                                                        <Pencil className="h-4 w-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>Edit</TooltipContent>
+                                                            </Tooltip>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button size="sm" variant="ghost" onClick={() => handleDeleteExpense(expense.id)} title="Delete">
+                                                                        <Trash2 className="h-4 w-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>Delete</TooltipContent>
+                                                            </Tooltip>
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>)}

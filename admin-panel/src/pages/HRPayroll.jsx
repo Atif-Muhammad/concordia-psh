@@ -16,6 +16,7 @@ import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -715,16 +716,26 @@ const HRPayroll = () => {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end space-x-2">
-                              <Button size="sm" variant="ghost" onClick={() => handleEditAdvance(advance)}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => {
-                                if (confirm("Are you sure you want to delete this record?")) {
-                                  deleteAdvanceMutation.mutate(advance.id);
-                                }
-                              }}>
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button size="sm" variant="ghost" onClick={() => handleEditAdvance(advance)}>
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => {
+                                    if (confirm("Are you sure you want to delete this record?")) {
+                                      deleteAdvanceMutation.mutate(advance.id);
+                                    }
+                                  }}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete</TooltipContent>
+                              </Tooltip>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -783,23 +794,33 @@ const HRPayroll = () => {
                             <TableCell>{dept.description}</TableCell>
                             <TableCell>
                               <div className="flex gap-2">
-                                <Button size="sm" variant="outline"
-                                  onClick={() => {
-                                    setEditingDepartment(dept);
-                                    setDeptFormData({
-                                      id: dept.id,
-                                      departmentName: dept.name,
-                                      headOfDepartment: dept.hod?.id,
-                                      description: dept.description
-                                    });
-                                    setDeptOpen(true);
-                                  }}>
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button size="sm" variant="destructive"
-                                  onClick={() => deleteDeptMutation.mutate(dept.id)}>
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button size="sm" variant="outline"
+                                      onClick={() => {
+                                        setEditingDepartment(dept);
+                                        setDeptFormData({
+                                          id: dept.id,
+                                          departmentName: dept.name,
+                                          headOfDepartment: dept.hod?.id,
+                                          description: dept.description
+                                        });
+                                        setDeptOpen(true);
+                                      }}>
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button size="sm" variant="destructive"
+                                      onClick={() => deleteDeptMutation.mutate(dept.id)}>
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete</TooltipContent>
+                                </Tooltip>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -875,10 +896,15 @@ const HRPayroll = () => {
                           <TableCell>{holiday.repeatYearly ? "Yes" : "No"}</TableCell>
                           <TableCell>{holiday.description}</TableCell>
                           <TableCell>
-                            <Button size="sm" variant="destructive"
-                              onClick={() => deleteHolidayMutation.mutate(holiday.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button size="sm" variant="destructive"
+                                  onClick={() => deleteHolidayMutation.mutate(holiday.id)}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Delete</TooltipContent>
+                            </Tooltip>
                           </TableCell>
                         </TableRow>
                       ))}

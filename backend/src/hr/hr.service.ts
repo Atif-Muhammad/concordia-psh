@@ -53,6 +53,7 @@ export class HrService {
       where,
       include: {
         department: { select: { name: true } },
+        leaveSettings: true,
       },
       orderBy: { name: 'asc' },
     });
@@ -70,6 +71,7 @@ export class HrService {
             section: true,
           },
         },
+        leaveSettings: true,
       },
     });
 
@@ -111,7 +113,7 @@ export class HrService {
         : payload.documents;
 
     try {
-      return await this.prismService.staff.create({
+      const created = await this.prismService.staff.create({
         data: {
           name: payload.name,
           fatherName: payload.fatherName || null,
@@ -172,6 +174,23 @@ export class HrService {
             : null,
         },
       });
+
+      // Upsert leave settings
+      const leaveData = {
+        sickAllowed: parseInt(payload.sickAllowed || '0'),
+        sickDeduction: parseFloat(payload.sickDeduction || '0'),
+        annualAllowed: parseInt(payload.annualAllowed || '0'),
+        annualDeduction: parseFloat(payload.annualDeduction || '0'),
+        casualAllowed: parseInt(payload.casualAllowed || '0'),
+        casualDeduction: parseFloat(payload.casualDeduction || '0'),
+      };
+      await this.prismService.staffLeaveSettings.upsert({
+        where: { staffId: created.id },
+        create: { staffId: created.id, ...leaveData },
+        update: leaveData,
+      });
+
+      return created;
     } catch (error: any) {
       if (error.code === 'P2002') {
         throw new BadRequestException(
@@ -305,6 +324,36 @@ export class HrService {
         },
       });
 
+      // Upsert leave settings if any leave field is provided
+      if (
+        payload.sickAllowed !== undefined ||
+        payload.sickDeduction !== undefined ||
+        payload.annualAllowed !== undefined ||
+        payload.annualDeduction !== undefined ||
+        payload.casualAllowed !== undefined ||
+        payload.casualDeduction !== undefined
+      ) {
+        await this.prismService.staffLeaveSettings.upsert({
+          where: { staffId: id },
+          create: {
+            staffId: id,
+            sickAllowed: parseInt(payload.sickAllowed || '0'),
+            sickDeduction: parseFloat(payload.sickDeduction || '0'),
+            annualAllowed: parseInt(payload.annualAllowed || '0'),
+            annualDeduction: parseFloat(payload.annualDeduction || '0'),
+            casualAllowed: parseInt(payload.casualAllowed || '0'),
+            casualDeduction: parseFloat(payload.casualDeduction || '0'),
+          },
+          update: {
+            sickAllowed: parseInt(payload.sickAllowed || '0'),
+            sickDeduction: parseFloat(payload.sickDeduction || '0'),
+            annualAllowed: parseInt(payload.annualAllowed || '0'),
+            annualDeduction: parseFloat(payload.annualDeduction || '0'),
+            casualAllowed: parseInt(payload.casualAllowed || '0'),
+            casualDeduction: parseFloat(payload.casualDeduction || '0'),
+          },
+        });
+      }
 
     } catch (error: any) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {

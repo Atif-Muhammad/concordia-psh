@@ -402,4 +402,86 @@ export class HostelService {
     }
     return this.prisma.hostelInventory.delete({ where: { id } });
   }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // STUDENT HOSTEL LOOKUP
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  async findRegistrationByStudentId(studentId: number) {
+    return this.prisma.hostelRegistration.findFirst({
+      where: { studentId },
+      include: {
+        student: {
+          select: { id: true, fName: true, lName: true, rollNumber: true }
+        }
+      }
+    });
+  }
+
+  async findRoomByStudentId(studentId: number) {
+    return this.prisma.roomAllocation.findFirst({
+      where: { studentId },
+      include: { room: true }
+    });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // EXTERNAL CHALLAN CRUD
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  async createExternalChallan(data: any) {
+    const count = await this.prisma.hostelExternalChallan.count();
+    const challanNumber = `HEC-${String(count + 1).padStart(6, '0')}`;
+
+    return this.prisma.hostelExternalChallan.create({
+      data: {
+        registrationId: data.registrationId,
+        challanNumber,
+        amount: Number(data.amount),
+        paidAmount: 0,
+        discount: Number(data.discount || 0),
+        fineAmount: Number(data.fineAmount || 0),
+        dueDate: new Date(data.dueDate),
+        status: 'PENDING',
+        month: data.month,
+        selectedHeads: data.selectedHeads ? JSON.stringify(data.selectedHeads) : null,
+        remarks: data.remarks,
+      },
+      include: { registration: true }
+    });
+  }
+
+  async findExternalChallansByRegistration(registrationId: string) {
+    return this.prisma.hostelExternalChallan.findMany({
+      where: { registrationId },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async updateExternalChallan(id: number, data: any) {
+    return this.prisma.hostelExternalChallan.update({
+      where: { id },
+      data: {
+        ...(data.status && { status: data.status }),
+        ...(data.paidAmount !== undefined && { paidAmount: Number(data.paidAmount) }),
+        ...(data.paidDate && { paidDate: new Date(data.paidDate) }),
+        ...(data.remarks !== undefined && { remarks: data.remarks }),
+        ...(data.discount !== undefined && { discount: Number(data.discount) }),
+        ...(data.fineAmount !== undefined && { fineAmount: Number(data.fineAmount) }),
+        ...(data.dueDate && { dueDate: new Date(data.dueDate) }),
+        ...(data.selectedHeads && { selectedHeads: JSON.stringify(data.selectedHeads) }),
+      }
+    });
+  }
+
+  async deleteExternalChallan(id: number) {
+    return this.prisma.hostelExternalChallan.delete({ where: { id } });
+  }
+
+  async findAllExternalChallans() {
+    return this.prisma.hostelExternalChallan.findMany({
+      include: { registration: true },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
 }

@@ -189,4 +189,30 @@ export class AcademicsController {
       Number(timetableId.timetableId),
     );
   }
+
+  // ACADEMIC SESSION
+  @Get('session/get/all')
+  async getAcademicSessions() {
+    return await this.academicService.getAcademicSessions();
+  }
+  @Post('session/create')
+  async createAcademicSession(@Body() payload: any) {
+    return await this.academicService.createAcademicSession(payload);
+  }
+  @Patch('session/update')
+  async updateAcademicSession(
+    @Query() sessionID: { sessionID: string },
+    @Body() payload: any,
+  ) {
+    return await this.academicService.updateAcademicSession(
+      Number(sessionID.sessionID),
+      payload,
+    );
+  }
+  @Delete('session/remove')
+  async removeAcademicSession(@Query() sessionID: { sessionID: string }) {
+    return await this.academicService.deleteAcademicSession(
+      Number(sessionID.sessionID),
+    );
+  }
 }

@@ -36,6 +36,11 @@ export class HostelController {
     return this.hostelService.findAllRegistrations();
   }
 
+  @Get('registrations/by-student/:studentId')
+  findRegistrationByStudentId(@Param('studentId') studentId: string) {
+    return this.hostelService.findRegistrationByStudentId(Number(studentId));
+  }
+
   @Get('registrations/:id')
   findOneRegistration(@Param('id') id: string) {
     return this.hostelService.findOneRegistration(id);
@@ -149,5 +154,43 @@ export class HostelController {
   @Delete('inventory/:id')
   deleteInventory(@Param('id') id: string) {
     return this.hostelService.deleteInventory(id);
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // STUDENT HOSTEL LOOKUP
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  @Get('room/by-student/:studentId')
+  findRoomByStudentId(@Param('studentId') studentId: string) {
+    return this.hostelService.findRoomByStudentId(Number(studentId));
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // EXTERNAL CHALLAN ENDPOINTS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  @Post('external-challans')
+  createExternalChallan(@Body() data: any) {
+    return this.hostelService.createExternalChallan(data);
+  }
+
+  @Get('external-challans')
+  findAllExternalChallans() {
+    return this.hostelService.findAllExternalChallans();
+  }
+
+  @Get('external-challans/by-registration/:registrationId')
+  findExternalChallansByRegistration(@Param('registrationId') registrationId: string) {
+    return this.hostelService.findExternalChallansByRegistration(registrationId);
+  }
+
+  @Patch('external-challans/:id')
+  updateExternalChallan(@Param('id') id: string, @Body() data: any) {
+    return this.hostelService.updateExternalChallan(Number(id), data);
+  }
+
+  @Delete('external-challans/:id')
+  deleteExternalChallan(@Param('id') id: string) {
+    return this.hostelService.deleteExternalChallan(Number(id));
   }
 }

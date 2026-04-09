@@ -44,6 +44,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { StudentResultsTab } from "./StudentResultsTab";
 import {
   AlertDialog,
@@ -1519,36 +1520,51 @@ const Examination = () => {
                             <TableCell className="whitespace-nowrap">{new Date(exam.endDate).toLocaleDateString()}</TableCell>
                             <TableCell>
                               <div className="flex gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    setViewingExam(exam);
-                                    setViewExamDialog(true);
-                                  }}
-                                >
-                                  <Eye className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => openEditExam(exam)}
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => {
-                                    setDeleteTarget({
-                                      type: "exam",
-                                      id: exam.id,
-                                    });
-                                    setDeleteDialog(true);
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setViewingExam(exam);
+                                        setViewExamDialog(true);
+                                      }}
+                                    >
+                                      <Eye className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>View Exam</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => openEditExam(exam)}
+                                    >
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit Exam</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => {
+                                        setDeleteTarget({
+                                          type: "exam",
+                                          id: exam.id,
+                                        });
+                                        setDeleteDialog(true);
+                                      }}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete Exam</TooltipContent>
+                                </Tooltip>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1976,9 +1992,14 @@ const Examination = () => {
                           <TableCell>{percentage}%</TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button variant="destructive" size="sm" onClick={() => { setDeleteTarget({ type: "marks", id: mark.id }); setDeleteDialog(true); }}>
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="destructive" size="sm" onClick={() => { setDeleteTarget({ type: "marks", id: mark.id }); setDeleteDialog(true); }}>
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete Marks</TooltipContent>
+                              </Tooltip>
                             </div>
                           </TableCell>
                         </TableRow>

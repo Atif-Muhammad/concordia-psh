@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -1819,20 +1820,30 @@ const Configuration = () => {
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-2 justify-end">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => openEditAdmin(admin)}
-                                >
-                                  <Edit className="w-4" />
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => openPasswordDialog(admin.id)}
-                                >
-                                  <Shield className="w-4 h-4" />
-                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => openEditAdmin(admin)}
+                                    >
+                                      <Edit className="w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => openPasswordDialog(admin.id)}
+                                    >
+                                      <Shield className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Change Password</TooltipContent>
+                                </Tooltip>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -2006,39 +2017,54 @@ const Configuration = () => {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setEditingChallan(template.id);
-                                  setChallanForm(template);
-                                  setChallanDialog(true);
-                                }}
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  setPreviewChallan(template.htmlContent)
-                                }
-                              >
-                                <Eye className="w-4 h-4" />
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingChallan(template.id);
+                                      setChallanForm(template);
+                                      setChallanDialog(true);
+                                    }}
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      setPreviewChallan(template.htmlContent)
+                                    }
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Preview</TooltipContent>
+                              </Tooltip>
                               {!template.isDefault && (
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => {
-                                    deleteChallanTemplate(template.id);
-                                    toast({
-                                      title: "Template deleted",
-                                    });
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => {
+                                        deleteChallanTemplate(template.id);
+                                        toast({
+                                          title: "Template deleted",
+                                        });
+                                      }}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete</TooltipContent>
+                                </Tooltip>
                               )}
                             </div>
                           </TableCell>
@@ -2204,48 +2230,63 @@ const Configuration = () => {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setEditingTeacherIdCard(template.id);
-                                  setTeacherIdCardForm(template);
-                                  setTeacherIdCardDialog(true);
-                                }}
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  setPreviewTeacherIdCard(template.htmlContent)
-                                }
-                              >
-                                <Eye className="w-4 h-4" />
-                              </Button>
-                              {!template.isDefault && (
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={async () => {
-                                    try {
-                                      await deleteStaffIDCardTemplate(template.id);
-                                      setTeacherIdCardTemplates(prev => prev.filter(t => t.id !== template.id));
-                                      toast({
-                                        title: "Template deleted",
-                                      });
-                                    } catch (err) {
-                                      toast({
-                                        title: "Error deleting template",
-                                        description: err.message,
-                                        variant: "destructive"
-                                      });
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingTeacherIdCard(template.id);
+                                      setTeacherIdCardForm(template);
+                                      setTeacherIdCardDialog(true);
+                                    }}
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      setPreviewTeacherIdCard(template.htmlContent)
                                     }
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Preview</TooltipContent>
+                              </Tooltip>
+                              {!template.isDefault && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={async () => {
+                                        try {
+                                          await deleteStaffIDCardTemplate(template.id);
+                                          setTeacherIdCardTemplates(prev => prev.filter(t => t.id !== template.id));
+                                          toast({
+                                            title: "Template deleted",
+                                          });
+                                        } catch (err) {
+                                          toast({
+                                            title: "Error deleting template",
+                                            description: err.message,
+                                            variant: "destructive"
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete</TooltipContent>
+                                </Tooltip>
                               )}
                             </div>
                           </TableCell>

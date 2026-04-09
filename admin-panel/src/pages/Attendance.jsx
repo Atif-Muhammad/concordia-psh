@@ -24,7 +24,9 @@ import {
   updateLeave,
   getAttendanceReport,
   getTeacherClasses,
-  searchStudents
+  searchStudents,
+  generateStudentAttendance,
+  markDateAsHoliday
 } from "../../config/apis";
 import { StudentAttendanceTab } from "./StudentAttendanceTab";
 
@@ -279,6 +281,46 @@ const Attendance = () => {
       ...prev,
       [studentId]: status
     }));
+  };
+
+  const isHolidayDisabled = useMemo(() => {
+    if (!markDate) return true;
+    const d = new Date(markDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (d > today) return true;
+    return false;
+  }, [markDate]);
+
+  const handleGenerateStudentAttendance = async () => {
+    const missing = [];
+    if (!selectedClassId) missing.push("Class");
+    if (!selectedSubjectId) missing.push("Subject");
+    if (!markDate) missing.push("Date");
+    if (missing.length > 0) {
+      toast({ title: `Missing fields: ${missing.join(", ")}`, variant: "destructive" });
+      return;
+    }
+    try {
+      const response = await generateStudentAttendance(selectedClassId, selectedSectionId, selectedSubjectId, markDate);
+      toast({ title: response.message || "Attendance generated successfully" });
+      refetchAttendance();
+    } catch (error) {
+      toast({ title: error.message || "Failed to generate attendance", variant: "destructive" });
+    }
+  };
+
+  const handleMarkHoliday = async () => {
+    if (!markDate) {
+      toast({ title: "Please select a date", variant: "destructive" });
+      return;
+    }
+    try {
+      await markDateAsHoliday(markDate, "Holiday");
+      toast({ title: "Date marked as holiday successfully" });
+    } catch (error) {
+      toast({ title: error.message || "Failed to mark date as holiday", variant: "destructive" });
+    }
   };
 
   const handleFetchAttendance = () => {
@@ -568,9 +610,17 @@ const Attendance = () => {
                     </div>
 
                     <div className="flex justify-between">
-                      <Button onClick={handleFetchAttendance} disabled={!selectedClassId || !selectedSubjectId || !markDate || isFetching} variant="outline">
-                        Fetch Students
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button onClick={handleFetchAttendance} disabled={!selectedClassId || !selectedSubjectId || !markDate || isFetching} variant="outline">
+                          Fetch Students
+                        </Button>
+                        <Button onClick={handleGenerateStudentAttendance} disabled={!selectedClassId || !selectedSubjectId || !markDate || isFetching} variant="outline">
+                          Generate Attendance
+                        </Button>
+                        <Button onClick={handleMarkHoliday} disabled={isHolidayDisabled} variant="outline">
+                          Mark as Holiday
+                        </Button>
+                      </div>
                       <Button onClick={handleSaveAttendance} disabled={!selectedSubjectId || isFetching || fetchedStudents.length === 0}>
                         <CheckCircle2 className="w-4 h-4 mr-2" />
                         Save Attendance

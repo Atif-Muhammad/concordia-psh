@@ -38,6 +38,7 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -75,6 +76,9 @@ import {
   getLatestRollNumber,
   getClasses,
   getSections,
+  getAcademicSessions,
+  getHostelRegistrationByStudent,
+  getHostelRoomByStudent,
 } from "../../config/apis";
 import StudentForm from "@/components/students/StudentForm";
 import {
@@ -106,6 +110,8 @@ import {
   Calendar,
   DollarSign,
   Settings2,
+  Home,
+  Bed,
 } from "lucide-react";
 
 const EMPTY_OBJECT = {};
@@ -147,9 +153,10 @@ const Students = () => {
   const [selectedStatus, setSelectedStatus] = useState("ACTIVE");
   const [promotionReason, setPromotionReason] = useState("");
   const [selectedFeeSession, setSelectedFeeSession] = useState("current");
+  const [challanTypeFilter, setChallanTypeFilter] = useState("all"); // "all" | "tuition" | "extra"
   const [selectedStudent, setSelectedStudent] = useState({});
   const [rejoinDetails, setRejoinDetails] = useState({
-    session: "",
+    sessionId: "",
     programId: "",
     classId: "",
     sectionId: "",
@@ -160,7 +167,7 @@ const Students = () => {
   const [generatedIdCard, setGeneratedIdCard] = useState("");
 
   const [promoDetails, setPromoDetails] = useState({
-    session: "",
+    sessionId: "",
     programId: "",
     classId: "",
     sectionId: ""
@@ -176,20 +183,17 @@ const Students = () => {
   const [filterProgram, setFilterProgram] = useState(null);
   const [filterClass, setFilterClass] = useState(null);
   const [filterSection, setFilterSection] = useState(null);
-  const currentYear = new Date().getFullYear();
-  const defaultSession = new Date().getMonth() >= 6
-    ? `${currentYear}-${currentYear + 1}`
-    : `${currentYear - 1}-${currentYear}`;
-  const [filterSession, setFilterSession] = useState(defaultSession);
+  const [filterSessionId, setFilterSessionId] = useState("all");
   const [showFilters, setShowFilters] = useState(false);
 
   // Dialog-specific filters (independent from main page)
   const [dialogFilterProgram, setDialogFilterProgram] = useState(null);
   const [dialogFilterClass, setDialogFilterClass] = useState(null);
   const [dialogFilterSection, setDialogFilterSection] = useState(null);
-  const [dialogFilterSession, setDialogFilterSession] = useState(defaultSession);
+  const [dialogFilterSessionId, setDialogFilterSessionId] = useState("all");
 
   const [showFeeConfig, setShowFeeConfig] = useState(true);
+  const [pageSize, setPageSize] = useState(20);
   const searchTimeoutRef = useRef(null);
 
 
@@ -211,6 +215,11 @@ const Students = () => {
     queryFn: getSections,
   });
 
+  const { data: academicSessions = [] } = useQuery({
+    queryKey: ["academic-sessions"],
+    queryFn: getAcademicSessions,
+  });
+
 
   const {
     data: infiniteStudentsData,
@@ -220,15 +229,17 @@ const Students = () => {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["students", filterProgram, filterClass, filterSection, searchQuery, selectedStatus, filterSession],
+    queryKey: ["students", filterProgram, filterClass, filterSection, searchQuery, selectedStatus, filterSessionId, pageSize],
     queryFn: ({ pageParam = 1 }) => {
+      const limit = pageSize === 0 ? 10000 : pageSize; // 0 = "All"
       if (selectedStatus === "ACTIVE") {
-        return getStudents(filterProgram, filterClass, filterSection, searchQuery, "ACTIVE", filterSession, pageParam, 20);
+        return getStudents(filterProgram, filterClass, filterSection, searchQuery, "ACTIVE", "", pageParam, limit, "", "", filterSessionId);
       } else {
-        return getPassedOutStudents(filterProgram, filterClass, filterSection, searchQuery, selectedStatus, filterSession, pageParam, 20);
+        return getPassedOutStudents(filterProgram, filterClass, filterSection, searchQuery, selectedStatus, "", pageParam, limit, filterSessionId);
       }
     },
     getNextPageParam: (lastPage) => {
+      if (pageSize === 0) return undefined; // "All" — no next page
       if (lastPage.page < lastPage.totalPages) {
         return lastPage.page + 1;
       }
@@ -246,25 +257,25 @@ const Students = () => {
   const dialogQueryEnabled = promoteOpen && !!dialogFilterProgram && dialogFilterProgram !== "*";
 
   const { data: dialogStudentsRaw = { students: [] }, isLoading: dialogStudentsLoading } = useQuery({
-    queryKey: ["dialog-students", dialogFilterProgram, dialogFilterClass, dialogFilterSection, dialogFilterSession],
+    queryKey: ["dialog-students", dialogFilterProgram, dialogFilterClass, dialogFilterSection, dialogFilterSessionId],
     queryFn: () => {
-      return getStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "ACTIVE", dialogFilterSession, 1, 200);
+      return getStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "ACTIVE", "", 1, 200, "", "", dialogFilterSessionId);
     },
     enabled: dialogQueryEnabled && !isRejoinMode,
   });
 
   // For rejoin mode: fetch EXPELLED and STRUCK_OFF students separately then merge
   const { data: expelledRaw = { students: [] }, isLoading: expelledLoading } = useQuery({
-    queryKey: ["dialog-students-expelled", dialogFilterProgram, dialogFilterClass, dialogFilterSection, dialogFilterSession],
+    queryKey: ["dialog-students-expelled", dialogFilterProgram, dialogFilterClass, dialogFilterSection, dialogFilterSessionId],
     queryFn: () => {
-      return getPassedOutStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "EXPELLED", dialogFilterSession, 1, 200);
+      return getPassedOutStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "EXPELLED", "", 1, 200, dialogFilterSessionId);
     },
     enabled: dialogQueryEnabled && isRejoinMode,
   });
   const { data: struckOffRaw = { students: [] }, isLoading: struckOffLoading } = useQuery({
-    queryKey: ["dialog-students-struckoff", dialogFilterProgram, dialogFilterClass, dialogFilterSection, dialogFilterSession],
+    queryKey: ["dialog-students-struckoff", dialogFilterProgram, dialogFilterClass, dialogFilterSection, dialogFilterSessionId],
     queryFn: () => {
-      return getPassedOutStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "STRUCK_OFF", dialogFilterSession, 1, 200);
+      return getPassedOutStudents(dialogFilterProgram, dialogFilterClass, dialogFilterSection, "", "STRUCK_OFF", "", 1, 200, dialogFilterSessionId);
     },
     enabled: dialogQueryEnabled && isRejoinMode,
   });
@@ -312,7 +323,7 @@ const Students = () => {
 
 
   const bulkPromotionMut = useMutation({
-    mutationFn: async ({ ids, action, reason, forcePromote = false, targetClassId, targetSectionId, targetProgramId, targetSession }) => {
+    mutationFn: async ({ ids, action, reason, forcePromote = false, targetClassId, targetSectionId, targetProgramId, targetSession, targetSessionId }) => {
       console.log('📥 Mutation received:', { ids, action, reason, forcePromote, targetClassId, targetSectionId, targetProgramId, targetSession });
 
       const fn =
@@ -332,7 +343,7 @@ const Students = () => {
         console.log('🔄 Taking INITIAL promotion path (forcePromote is falsy)');
         for (const id of ids) {
           // Pass target indicators to promoteStudents
-          const response = await fn(id, false, targetClassId, targetSectionId, targetProgramId, targetSession);
+          const response = await fn(id, false, targetClassId, targetSectionId, targetProgramId, targetSession, targetSessionId);
 
           // If student has arrears, stop and show dialog
           if (response.requiresConfirmation) {
@@ -345,6 +356,7 @@ const Students = () => {
               targetClassId,    // Pass manual targets to preserve context if user forces promote later
               targetSectionId,
               targetProgramId,
+              targetSessionId,
               targetSession
             };
           }
@@ -355,8 +367,7 @@ const Students = () => {
       console.log('🚀 Taking FORCE promotion path (forcePromote:', forcePromote, ')');
       const promises = ids.map((id) => {
         if (action === "promote") {
-          // Pass targetClassId and targetSectionId even when force promoting
-          return fn(id, reason || forcePromote, targetClassId, targetSectionId, targetProgramId, targetSession);
+          return fn(id, reason || forcePromote, targetClassId, targetSectionId, targetProgramId, targetSession, targetSessionId);
         }
         return fn(id, reason || forcePromote);
       });
@@ -375,6 +386,7 @@ const Students = () => {
           targetClassId: result.targetClassId,    // Preserve manual targets
           targetSectionId: result.targetSectionId,
           targetProgramId: result.targetProgramId,
+          targetSessionId: result.targetSessionId,
           targetSession: result.targetSession
         });
       } else {
@@ -383,8 +395,8 @@ const Students = () => {
         setPromoteOpen(false);
         setPromotionReason("");
         setSelectedForPromotion([]);
-        setRejoinDetails({ session: "", programId: "", classId: "", sectionId: "", sameClass: true });
-        setPromoDetails({ session: "", programId: "", classId: "", sectionId: "" });
+        setRejoinDetails({ sessionId: "", programId: "", classId: "", sectionId: "", sameClass: true });
+        setPromoDetails({ sessionId: "", programId: "", classId: "", sectionId: "" });
       }
     },
     onError: (e) =>
@@ -422,6 +434,19 @@ const Students = () => {
   const { data: studentDetails, isLoading: detailsLoading } = useQuery({
     queryKey: ["studentDetails", viewStudent?.id],
     queryFn: () => getStudentById(viewStudent.id),
+    enabled: !!viewStudent?.id,
+  });
+
+  // Fetch hostel registration and room for the viewed student
+  const { data: studentHostelReg, isLoading: hostelRegLoading } = useQuery({
+    queryKey: ["studentHostelReg", viewStudent?.id],
+    queryFn: () => getHostelRegistrationByStudent(viewStudent.id),
+    enabled: !!viewStudent?.id,
+  });
+
+  const { data: studentHostelRoom, isLoading: hostelRoomLoading } = useQuery({
+    queryKey: ["studentHostelRoom", viewStudent?.id],
+    queryFn: () => getHostelRoomByStudent(viewStudent.id),
     enabled: !!viewStudent?.id,
   });
 
@@ -560,6 +585,11 @@ const Students = () => {
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [selectedChallanForHistory, setSelectedChallanForHistory] = useState(null);
 
+  // Status History tab filters
+  const [historyFilterSession, setHistoryFilterSession] = useState("all");
+  const [historyFilterStatus, setHistoryFilterStatus] = useState("all");
+  const [historyFilterChallanType, setHistoryFilterChallanType] = useState("all");
+
   // ──────────────────────────────────────────────────────────────
   // Cascading Filter Helpers
   // ──────────────────────────────────────────────────────────────
@@ -597,47 +627,53 @@ const Students = () => {
       return {
         sessions: [],
         overall: { totalFees: 0, totalPaid: 0, totalDues: 0 },
+        extraChallans: [],
         currentSessionData: null,
         selectedSessionData: null
       };
     }
-    // Group challans by session
+
+    // Fix 2+3: Partition challans — separate FEE_HEADS_ONLY from regular
+    const extraChallans = studentFees.filter(c => c.challanType === 'FEE_HEADS_ONLY');
+    const regularChallans = studentFees.filter(c => c.challanType !== 'FEE_HEADS_ONLY');
+
     const sessionMap = new Map();
     let totalAllSessions = 0;
     let paidAllSessions = 0;
     let duesAllSessions = 0;
-    studentFees.forEach(challan => {
-      // Determine session key (priority: feeStructure > snapshot > unclassified)
+
+    regularChallans.forEach(challan => {
+      // Fix 3: Always use snapshot fields for session key, never feeStructure
       let sessionKey;
-      if (challan.feeStructureId && challan.feeStructure) {
-        sessionKey = `structure-${challan.feeStructureId}`;
-      } else if (challan.studentClassId && challan.studentProgramId) {
+      if (challan.studentClassId && challan.studentProgramId) {
         sessionKey = `snapshot-${challan.studentProgramId}-${challan.studentClassId}`;
       } else {
         sessionKey = 'unclassified';
       }
+
       if (!sessionMap.has(sessionKey)) {
-        // Determine if this is the current session
-        const challanClassId = challan.feeStructure?.classId || challan.studentClassId;
-        const challanProgramId = challan.feeStructure?.programId || challan.studentProgramId;
+        // Fix 3: isCurrentSession uses snapshot fields only
         const isCurrentSession =
-          challanClassId === viewStudent.classId &&
-          challanProgramId === viewStudent.programId;
+          challan.studentClassId === viewStudent.classId &&
+          challan.studentProgramId === viewStudent.programId;
         sessionMap.set(sessionKey, {
           sessionKey,
+          studentClassId: challan.studentClassId,
+          studentProgramId: challan.studentProgramId,
           feeStructureId: challan.feeStructureId,
           feeStructure: challan.feeStructure,
-          program: challan.feeStructure?.program || challan.studentProgram,
-          class: challan.feeStructure?.class || challan.studentClass,
+          // Fix 3: derive program/class from snapshot, not feeStructure
+          program: challan.studentProgram || challan.feeStructure?.program,
+          class: challan.studentClass || challan.feeStructure?.class,
           challans: [],
           isCurrentSession
         });
       }
       sessionMap.get(sessionKey).challans.push(challan);
-      // Calculate overall stats - use net amount (amount - discount)
-      // Fines are added to dues but maybe not to "total fees" base? 
-      // Actually, for consistency with "Payable", let's include accrued fines if we want to show total expected.
-      // But usually "Total Fees" is the base. Let's stick to Net Tuition for Total Fees.
+
+      // Fix 1: Exclude VOID from overall totals
+      if (challan.status === 'VOID') return;
+
       totalAllSessions += (challan.amount - (challan.discount || 0)) || 0;
       paidAllSessions += challan.paidAmount || 0;
       if (challan.status !== 'PAID') {
@@ -645,9 +681,8 @@ const Students = () => {
         duesAllSessions += Math.max(0, netPayable - (challan.paidAmount || 0));
       }
     });
-    // Process each session's statistics
+
     const sessions = Array.from(sessionMap.values()).map(session => {
-      // Sort challans by installment number and due date
       session.challans.sort((a, b) => {
         if (a.installmentNumber !== b.installmentNumber) {
           return (a.installmentNumber || 0) - (b.installmentNumber || 0);
@@ -655,35 +690,54 @@ const Students = () => {
         return new Date(a.dueDate || 0) - new Date(b.dueDate || 0);
       });
 
-      const sessionFee = session.isCurrentSession
-        ? (viewStudent.tuitionFee || session.feeStructure?.totalAmount || 0)
-        : (session.challans.reduce((sum, c) => sum + ((c.amount - (c.discount || 0)) || 0), 0));
-      const paidThisSession = session.challans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
-      const remainingDues = session.challans
+      // Fix 1: Exclude VOID from per-session stats
+      const nonVoidChallans = session.challans.filter(c => c.status !== 'VOID');
+      const paidChallans = nonVoidChallans.filter(c => c.status === 'PAID');
+
+      // Fix 4: Derive stats from feeInstallments when available
+      const matchingInsts = (viewStudent.feeInstallments || []).filter(
+        i => i.classId === session.studentClassId
+      );
+
+      let sessionFee, paidInstallments, totalInstallments;
+
+      if (matchingInsts.length > 0) {
+        // Use installment plan as source of truth
+        sessionFee = matchingInsts.reduce((sum, i) => sum + (i.amount || 0), 0);
+        totalInstallments = matchingInsts.length;
+        paidInstallments = matchingInsts.filter(i => i.status === 'PAID').length;
+      } else {
+        // Fallback: derive from non-VOID challan amounts
+        sessionFee = session.isCurrentSession
+          ? (viewStudent.tuitionFee || session.feeStructure?.totalAmount || nonVoidChallans.reduce((sum, c) => sum + ((c.amount - (c.discount || 0)) || 0), 0))
+          : nonVoidChallans.reduce((sum, c) => sum + ((c.amount - (c.discount || 0)) || 0), 0);
+        totalInstallments = session.feeStructure?.installments || nonVoidChallans.length;
+        // Count paid installments from coveredInstallments
+        paidInstallments = 0;
+        paidChallans.forEach(c => {
+          if (c.coveredInstallments) {
+            const parts = c.coveredInstallments.split('-');
+            paidInstallments = Math.max(paidInstallments, parseInt(parts[parts.length - 1]) || 0);
+          } else if (c.installmentNumber) {
+            paidInstallments = Math.max(paidInstallments, c.installmentNumber);
+          }
+        });
+      }
+
+      const paidThisSession = nonVoidChallans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
+      // Fix 1: Exclude VOID from remainingDues
+      const remainingDues = nonVoidChallans
         .filter(c => c.status !== 'PAID')
         .reduce((sum, c) => {
           const netPayable = (c.amount - (c.discount || 0) + (c.fineAmount || 0));
           return sum + Math.max(0, netPayable - (c.paidAmount || 0));
         }, 0);
-      // Calculate paid installments from coveredInstallments
-      let paidInstallments = 0;
-      session.challans.filter(c => c.status === 'PAID').forEach(c => {
-        if (c.coveredInstallments) {
-          const parts = c.coveredInstallments.split('-');
-          if (parts.length === 2) {
-            paidInstallments = Math.max(paidInstallments, parseInt(parts[1]));
-          } else {
-            paidInstallments = Math.max(paidInstallments, parseInt(parts[0]));
-          }
-        } else if (c.installmentNumber) {
-          paidInstallments = Math.max(paidInstallments, c.installmentNumber);
-        }
-      });
-      const totalInstallments = session.feeStructure?.installments || session.challans.length;
-      // Session label
+
+      // Fix 3: sessionLabel from snapshot
       const sessionLabel = session.class && session.program
         ? `${session.class.name} - ${session.program.name}`
         : 'Unclassified';
+
       return {
         ...session,
         sessionLabel,
@@ -693,20 +747,23 @@ const Students = () => {
           remainingDues,
           paidInstallments,
           totalInstallments,
-          pendingInstallments: totalInstallments - paidInstallments
+          pendingInstallments: Math.max(0, totalInstallments - paidInstallments),
+          currentLateFee: nonVoidChallans.reduce((sum, c) => sum + (c.lateFeeFine || 0), 0),
         }
       };
     });
-    // Sort: current first, then others
+
     sessions.sort((a, b) => {
       if (a.isCurrentSession) return -1;
       if (b.isCurrentSession) return 1;
       return 0;
     });
+
     const currentSessionData = sessions.find(s => s.isCurrentSession) || null;
     const selectedSessionData = selectedFeeSession === "current"
       ? currentSessionData
       : sessions.find(s => s.sessionKey === selectedFeeSession) || currentSessionData;
+
     return {
       sessions,
       overall: {
@@ -714,6 +771,7 @@ const Students = () => {
         totalPaid: paidAllSessions,
         totalDues: duesAllSessions
       },
+      extraChallans,
       currentSessionData,
       selectedSessionData
     };
@@ -744,7 +802,7 @@ const Students = () => {
       targetClassId: promotionAction === "promote_manual" ? promoDetails.classId : undefined,
       targetSectionId: promotionAction === "promote_manual" ? promoDetails.sectionId : undefined,
       targetProgramId: promotionAction === "promote_manual" ? promoDetails.programId : undefined,
-      targetSession: promotionAction === "promote_manual" ? promoDetails.session : undefined,
+      targetSessionId: promotionAction === "promote_manual" ? promoDetails.sessionId : undefined,
       ...(promotionAction === "rejoin" ? rejoinDetails : {})
     });
   };
@@ -782,7 +840,7 @@ const Students = () => {
     setFilterProgram(null);
     setFilterClass(null);
     setFilterSection(null);
-    setFilterSession(defaultSession);
+    setFilterSessionId("all");
     setSearchQuery("");
     setShowFilters(false);
   };
@@ -813,7 +871,7 @@ const Students = () => {
                 setDialogFilterProgram(null); 
                 setDialogFilterClass(null); 
                 setDialogFilterSection(null); 
-                setDialogFilterSession(filterSession || defaultSession);
+                setDialogFilterSessionId(filterSessionId || "all");
                 setSelectedForPromotion([]); 
                 setPromotionReason(""); 
                 setPromotionAction("promote"); 
@@ -845,15 +903,16 @@ const Students = () => {
                 <Select
                   value={filterProgram || ""}
                   onValueChange={(value) => {
-                    setFilterProgram(value || null);
+                    setFilterProgram(value === "all" ? null : (value || null));
                     setFilterClass(null);
                     setFilterSection(null);
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select Program" />
+                    <SelectValue placeholder="All Programs" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="all">All Programs</SelectItem>
                     {programData.map((p) => (
                       <SelectItem key={p.id} value={p.id.toString()}>
                         {p.name} ({p.department?.name})
@@ -868,15 +927,16 @@ const Students = () => {
                 <Select
                   value={filterClass || ""}
                   onValueChange={(value) => {
-                    setFilterClass(value || null);
+                    setFilterClass(value === "all" ? null : (value || null));
                     setFilterSection(null);
                   }}
                   disabled={!filterProgram}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder={filterProgram ? "Select Class" : "Select Program First"} />
+                    <SelectValue placeholder={filterProgram ? "All Classes" : "Select Program First"} />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="all">All Classes</SelectItem>
                     {getClassesForProgram(filterProgram).map((c) => (
                       <SelectItem key={c.id} value={c.id.toString()}>
                         {c.name}
@@ -907,24 +967,19 @@ const Students = () => {
               <div>
                 <Label>Session</Label>
                 <Select
-                  value={filterSession}
-                  onValueChange={(value) => setFilterSession(value)}
+                  value={filterSessionId}
+                  onValueChange={(value) => setFilterSessionId(value)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select Session" />
+                    <SelectValue placeholder="All Sessions" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(() => {
-                      const yr = new Date().getFullYear();
-                      const gap = getProgramGap(filterProgram);
-                      const sessions = [];
-                      for (let y = yr - 5; y <= yr + 15; y++) {
-                        sessions.push(`${y}-${y + gap}`);
-                      }
-                      return sessions.map(s => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
-                      ));
-                    })()}
+                    <SelectItem value="all">All Sessions</SelectItem>
+                    {academicSessions.map(s => (
+                      <SelectItem key={s.id} value={s.id.toString()}>
+                        {s.name} {s.isActive ? "(Current)" : ""}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -1032,48 +1087,72 @@ const Students = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setViewOpen(true); }} title="View Profile">
-                              <Eye className="w-4 h-4" />
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setViewOpen(true); }}>
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>View Profile</TooltipContent>
+                            </Tooltip>
 
                             {selectedStatus === "ACTIVE" && (
-                              <Button size="sm" variant="outline" onClick={() => openEdit(student)} title="Edit Student">
-                                <Edit className="w-4 h-4" />
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button size="sm" variant="outline" onClick={() => openEdit(student)}>
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit Student</TooltipContent>
+                              </Tooltip>
                             )}
 
                             {(selectedStatus === "EXPELLED" || selectedStatus === "STRUCK_OFF") && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
-                                 onClick={() => {
-                                   setPromotionAction("rejoin");
-                                   setSelectedForPromotion([student.id]);
-                                   setRejoinDetails({
-                                     session: student.session || "",
-                                     programId: student.programId?.toString() || "",
-                                     classId: student.classId?.toString() || "",
-                                     sectionId: student.sectionId?.toString() || ""
-                                   });
-                                   setDialogFilterSession(student.session || defaultSession);
-                                   setPromoteOpen(true);
-                                 }}
-                                title="Re-join Student"
-                              >
-                                <RotateCcw className="w-4 h-4 mr-1" /> Re-join
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                                    onClick={() => {
+                                      setPromotionAction("rejoin");
+                                      setSelectedForPromotion([student.id]);
+                                      setRejoinDetails({
+                                        sessionId: student.sessionId?.toString() || "",
+                                        programId: student.programId?.toString() || "",
+                                        classId: student.classId?.toString() || "",
+                                        sectionId: student.sectionId?.toString() || ""
+                                      });
+                                      setDialogFilterSessionId(student.sessionId?.toString() || "all");
+                                      setPromoteOpen(true);
+                                    }}
+                                  >
+                                    <RotateCcw className="w-4 h-4 mr-1" /> Re-join
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Re-join Student</TooltipContent>
+                              </Tooltip>
                             )}
 
                             {selectedStatus === "ACTIVE" && (
-                              <Button size="sm" variant="outline" onClick={() => { setStudentToDelete(student.id); setDeleteDialogOpen(true); }} title="Delete Student">
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button size="sm" variant="outline" onClick={() => { setStudentToDelete(student.id); setDeleteDialogOpen(true); }}>
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete Student</TooltipContent>
+                              </Tooltip>
                             )}
 
-                            <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setIdCardOpen(true); }} title="Generate ID Card">
-                              <IdCard className="w-4 h-4" />
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setIdCardOpen(true); }}>
+                                  <IdCard className="w-4 h-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Generate ID Card</TooltipContent>
+                            </Tooltip>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1094,6 +1173,23 @@ const Students = () => {
                 </Button>
               </div>
             )}
+            <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+              <span>Showing {studentsData.length} students</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs">Per page:</span>
+                <Select value={pageSize.toString()} onValueChange={(v) => setPageSize(Number(v))}>
+                  <SelectTrigger className="h-7 w-[80px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="20">20</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                    <SelectItem value="100">100</SelectItem>
+                    <SelectItem value="0">All</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </CardContent>
         </Card>
         {/* Add/Edit Dialog */}
@@ -1112,6 +1208,7 @@ const Students = () => {
               programs={programData}
               classes={classesData}
               sections={sectionsData}
+              academicSessions={academicSessions}
               getLatestRollNumber={getLatestRollNumber}
               onCancel={() => {
                 setOpen(false);
@@ -1139,12 +1236,13 @@ const Students = () => {
             </DialogHeader>
             {viewStudent && (
               <Tabs defaultValue="info" className="w-full">
-                <TabsList className="grid w-full grid-cols-5">
+                <TabsList className="grid w-full grid-cols-6">
                   <TabsTrigger value="info">Info</TabsTrigger>
                   <TabsTrigger value="fees">Fees</TabsTrigger>
                   <TabsTrigger value="attendance">Attendance</TabsTrigger>
                   <TabsTrigger value="results">Results</TabsTrigger>
                   <TabsTrigger value="history">Status History</TabsTrigger>
+                  <TabsTrigger value="hostel">Hostel</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="info" className="space-y-4">
@@ -1176,6 +1274,7 @@ const Students = () => {
                       <div><span className="font-semibold">Parent Email:</span> {viewStudent.parentOrGuardianEmail || "-"}</div>
                       <div><span className="font-semibold">Parent Phone:</span> {viewStudent.parentOrGuardianPhone || "-"}</div>
                       <div><span className="font-semibold">Parent CNIC:</span> {viewStudent.parentCNIC || "-"}</div>
+                      <div><span className="font-semibold">Student CNIC:</span> {viewStudent.studentCnic || "-"}</div>
                       <div><span className="font-semibold">DOB:</span> {viewStudent.dob ? new Date(viewStudent.dob).toLocaleDateString() : "-"}</div>
                       <div className="col-span-2"><span className="font-semibold">Address:</span> {viewStudent.address || "-"}</div>
                       <div className="flex items-center gap-2">
@@ -1222,12 +1321,20 @@ const Students = () => {
 
                 <TabsContent value="fees">
                   <Tabs defaultValue="payment-history" className="w-full">
-                    <TabsList className="bg-muted p-1 mb-6 h-10 w-fit">
+                    <TabsList className="bg-muted p-1 mb-6 h-10 w-full grid grid-cols-3">
                       <TabsTrigger value="payment-history" className="px-6">
                         <History className="w-4 h-4 mr-2" /> Payment History
                       </TabsTrigger>
                       <TabsTrigger value="installment-plan" className="px-6">
                         <Calendar className="w-4 h-4 mr-2" /> Installment Plan
+                      </TabsTrigger>
+                      <TabsTrigger value="extra-charges" className="px-6">
+                        <Plus className="w-4 h-4 mr-2" /> Extra Charges
+                        {feesData.extraChallans?.length > 0 && (
+                          <span className="ml-1.5 bg-orange-500 text-white text-[10px] rounded-full px-1.5 py-0.5 font-bold">
+                            {feesData.extraChallans.length}
+                          </span>
+                        )}
                       </TabsTrigger>
                     </TabsList>
 
@@ -1240,7 +1347,7 @@ const Students = () => {
                       ) : (
                         <div className="space-y-6 animate-in fade-in duration-300">
                           {/* Overall Summary */}
-                          <div>
+                          {/* <div>
                             <h4 className="text-sm font-semibold text-muted-foreground mb-3">Overall Summary (All-Time)</h4>
                             <div className="grid grid-cols-3 gap-4">
                               <Card>
@@ -1262,28 +1369,43 @@ const Students = () => {
                                 </CardContent>
                               </Card>
                             </div>
-                          </div>
-                          {/* Session Filter */}
-                          <div>
-                            <Label>Select Session/Class</Label>
-                            <Select value={selectedFeeSession} onValueChange={setSelectedFeeSession}>
-                              <SelectTrigger className="w-full">
-                                <SelectValue>
-                                  {selectedFeeSession === "current"
-                                    ? "Current Session"
-                                    : feesData.sessions.find(s => s.sessionKey === selectedFeeSession)?.sessionLabel || "Select session"
-                                  }
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="current">Current Session</SelectItem>
-                                {feesData.sessions.filter(s => !s.isCurrentSession).map(session => (
-                                  <SelectItem key={session.sessionKey} value={session.sessionKey}>
-                                    {session.sessionLabel}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                          </div> */}
+                          {/* Session + Challan Type Filters */}
+                          <div className="flex flex-wrap gap-3 items-end">
+                            <div className="flex-1 min-w-[200px]">
+                              <Label className="text-xs">Session / Class</Label>
+                              <Select value={selectedFeeSession} onValueChange={setSelectedFeeSession}>
+                                <SelectTrigger className="w-full">
+                                  <SelectValue>
+                                    {selectedFeeSession === "current"
+                                      ? "Current Session"
+                                      : feesData.sessions.find(s => s.sessionKey === selectedFeeSession)?.sessionLabel || "Select session"
+                                    }
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="current">Current Session</SelectItem>
+                                  {feesData.sessions.filter(s => !s.isCurrentSession).map(session => (
+                                    <SelectItem key={session.sessionKey} value={session.sessionKey}>
+                                      {session.sessionLabel}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="min-w-[160px]">
+                              <Label className="text-xs">Challan Type</Label>
+                              <Select value={challanTypeFilter} onValueChange={setChallanTypeFilter}>
+                                <SelectTrigger className="w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="all">All Challans</SelectItem>
+                                  <SelectItem value="tuition">Tuition Only</SelectItem>
+                                  <SelectItem value="extra">Extra Charges</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
                           </div>
                           {/* Current Session Warning */}
                           {selectedFeeSession === "current" && !feesData.currentSessionData && feesData.sessions.length > 0 && (
@@ -1358,28 +1480,42 @@ const Students = () => {
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
-                                    {feesData.selectedSessionData.challans.length === 0 ? (
-                                      <TableRow>
-                                        <TableCell colSpan={7} className="text-center py-4 text-muted-foreground">
-                                          No challans for this session
-                                        </TableCell>
-                                      </TableRow>
-                                    ) : (
-                                      feesData.selectedSessionData.challans.map(fee => (
-                                        <TableRow key={fee.id}>
+                                    {(() => {
+                                      const filtered = feesData.selectedSessionData.challans.filter(fee => {
+                                        if (challanTypeFilter === "tuition") return fee.challanType !== 'FEE_HEADS_ONLY';
+                                        if (challanTypeFilter === "extra") return fee.challanType === 'FEE_HEADS_ONLY';
+                                        return true;
+                                      });
+                                      if (filtered.length === 0) return (
+                                        <TableRow>
+                                          <TableCell colSpan={7} className="text-center py-4 text-muted-foreground">
+                                            No challans for this session
+                                          </TableCell>
+                                        </TableRow>
+                                      );
+                                      return filtered.map(fee => (
+                                        <TableRow key={fee.id} className={fee.status === 'VOID' ? 'opacity-50' : ''}>
                                           <TableCell className="font-medium">{fee.challanNumber || fee.id}</TableCell>
                                           <TableCell>
-                                            <div>PKR {(fee.amount - (fee.discount || 0) + (fee.fineAmount || 0) + (fee.lateFeeFine || 0)).toLocaleString()}</div>
-                                            {fee.lateFeeFine > 0 && (
-                                              <div className="text-[10px] text-destructive font-bold">
-                                                Inc. Late Fee: PKR {fee.lateFeeFine.toLocaleString()}
-                                              </div>
+                                            {fee.status === 'VOID' ? (
+                                              <span className="text-muted-foreground line-through text-xs">
+                                                PKR {(fee.amount - (fee.discount || 0) + (fee.fineAmount || 0)).toLocaleString()}
+                                              </span>
+                                            ) : (
+                                              <>
+                                                <div>PKR {(fee.amount - (fee.discount || 0) + (fee.fineAmount || 0) + (fee.lateFeeFine || 0)).toLocaleString()}</div>
+                                                {fee.lateFeeFine > 0 && (
+                                                  <div className="text-[10px] text-destructive font-bold">
+                                                    Inc. Late Fee: PKR {fee.lateFeeFine.toLocaleString()}
+                                                  </div>
+                                                )}
+                                              </>
                                             )}
                                           </TableCell>
                                           <TableCell className="text-green-600">PKR {fee.paidAmount?.toLocaleString() || 0}</TableCell>
                                           <TableCell>
-                                            <Badge variant={fee.status === "PAID" ? "default" : "destructive"}>
-                                              {fee.status}
+                                            <Badge variant={fee.status === "PAID" ? "default" : fee.status === "VOID" ? "outline" : "destructive"}>
+                                              {fee.status === "VOID" ? "Superseded" : fee.status}
                                             </Badge>
                                           </TableCell>
                                           <TableCell>{fee.coveredInstallments || fee.installmentNumber || "-"}</TableCell>
@@ -1409,8 +1545,8 @@ const Students = () => {
                                               )}
                                             </TableCell>
                                         </TableRow>
-                                      ))
-                                    )}
+                                      ));
+                                    })()}
                                   </TableBody>
                                 </Table>
                               </div>
@@ -1499,6 +1635,54 @@ const Students = () => {
                            ));
                          })()
                        )}
+                    </TabsContent>
+
+                    <TabsContent value="extra-charges" className="space-y-4 animate-in fade-in duration-300">
+                      {!feesData.extraChallans || feesData.extraChallans.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg">
+                          <DollarSign className="w-10 h-10 text-muted-foreground mb-3 opacity-20" />
+                          <p className="text-lg text-muted-foreground mb-1">No extra charges</p>
+                          <p className="text-sm text-muted-foreground">No supplementary fee challans on record for this student.</p>
+                        </div>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Challan No</TableHead>
+                              <TableHead>Month</TableHead>
+                              <TableHead>Heads</TableHead>
+                              <TableHead>Amount</TableHead>
+                              <TableHead>Paid</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Due Date</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {feesData.extraChallans.map(fee => {
+                              let headsLabel = '-';
+                              try {
+                                const heads = typeof fee.selectedHeads === 'string' ? JSON.parse(fee.selectedHeads) : (fee.selectedHeads || []);
+                                headsLabel = heads.filter(h => h?.isSelected !== false).map(h => h.name).join(', ') || '-';
+                              } catch {}
+                              return (
+                                <TableRow key={fee.id}>
+                                  <TableCell className="font-medium">{fee.challanNumber}</TableCell>
+                                  <TableCell>{fee.month || (fee.dueDate ? format(new Date(fee.dueDate), "MMM yyyy") : '-')}</TableCell>
+                                  <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">{headsLabel}</TableCell>
+                                  <TableCell>PKR {(fee.amount + (fee.fineAmount || 0)).toLocaleString()}</TableCell>
+                                  <TableCell className="text-green-600">PKR {(fee.paidAmount || 0).toLocaleString()}</TableCell>
+                                  <TableCell>
+                                    <Badge variant={fee.status === 'PAID' ? 'default' : fee.status === 'VOID' ? 'outline' : 'destructive'}>
+                                      {fee.status === 'VOID' ? 'Superseded' : fee.status}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>{fee.dueDate ? format(new Date(fee.dueDate), "dd MMM yyyy") : '-'}</TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      )}
                     </TabsContent>
                   </Tabs>
                 </TabsContent>
@@ -1795,40 +1979,165 @@ const Students = () => {
                   )}
                 </TabsContent>
                 <TabsContent value="history" className="flex-1 overflow-y-auto">
+                  {/* Filters */}
+                  <div className="flex flex-wrap gap-3 mb-4">
+                    <div className="min-w-[160px]">
+                      <Label className="text-xs">Session</Label>
+                      <Select value={historyFilterSession} onValueChange={setHistoryFilterSession}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="All Sessions" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Sessions</SelectItem>
+                          {academicSessions.map(s => (
+                            <SelectItem key={s.id} value={s.id.toString()}>
+                              {s.name} {s.isActive ? "(Current)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="min-w-[160px]">
+                      <Label className="text-xs">Status</Label>
+                      <Select value={historyFilterStatus} onValueChange={setHistoryFilterStatus}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="All Statuses" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Statuses</SelectItem>
+                          <SelectItem value="ACTIVE">Active</SelectItem>
+                          <SelectItem value="GRADUATED">Graduated</SelectItem>
+                          <SelectItem value="EXPELLED">Expelled</SelectItem>
+                          <SelectItem value="STRUCK_OFF">Struck Off</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="min-w-[160px]">
+                      <Label className="text-xs">Challan Type</Label>
+                      <Select value={historyFilterChallanType} onValueChange={setHistoryFilterChallanType}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="All Types" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Types</SelectItem>
+                          <SelectItem value="tuition">Tuition Fee Challan</SelectItem>
+                          <SelectItem value="extra">Extra Challan</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {(historyFilterSession !== "all" || historyFilterStatus !== "all" || historyFilterChallanType !== "all") && (
+                      <div className="flex items-end">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => { setHistoryFilterSession("all"); setHistoryFilterStatus("all"); setHistoryFilterChallanType("all"); }}
+                        >
+                          <X className="w-3 h-3 mr-1" /> Clear
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                   {detailsLoading ? (
                     <div className="flex items-center justify-center py-12">
                       <p className="text-muted-foreground">Loading status history...</p>
                     </div>
-                  ) : studentDetails?.statusHistory && studentDetails.statusHistory.length > 0 ? (
-                    <div className="space-y-4">
-                      {studentDetails.statusHistory.map((history, idx) => (
-                        <div key={history.id} className="relative pl-6 pb-6 border-l-2 last:border-0 border-primary/20">
-                          <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full bg-primary" />
-                          <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-2">
-                              <Badge variant={history.newStatus === "ACTIVE" ? "default" : "destructive"}>
-                                {history.newStatus}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground">
-                                {new Date(history.createdAt).toLocaleString()}
-                              </span>
-                            </div>
-                            <p className="text-sm font-medium mt-1">
-                              {history.previousStatus ? `${history.previousStatus} → ` : ""}{history.newStatus}
-                            </p>
-                            {history.reason && (
-                              <p className="text-sm text-muted-foreground italic bg-muted/50 p-2 rounded mt-1">
-                                "{history.reason}"
+                  ) : (() => {
+                    const allHistory = studentDetails?.statusHistory || [];
+                    const filtered = allHistory.filter(h => {
+                      if (historyFilterStatus !== "all" && h.newStatus !== historyFilterStatus) return false;
+                      if (historyFilterSession !== "all" && h.sessionId?.toString() !== historyFilterSession) return false;
+                      if (historyFilterChallanType !== "all") {
+                        if (historyFilterChallanType === "tuition" && h.challanType === "FEE_HEADS_ONLY") return false;
+                        if (historyFilterChallanType === "extra" && h.challanType !== "FEE_HEADS_ONLY") return false;
+                      }
+                      return true;
+                    });
+                    if (filtered.length === 0) return (
+                      <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <p className="text-lg text-muted-foreground mb-2">No status history found</p>
+                        <p className="text-sm text-muted-foreground">
+                          {allHistory.length > 0 ? "No records match the selected filters." : "This student has no recorded status changes yet."}
+                        </p>
+                      </div>
+                    );
+                    return (
+                      <div className="space-y-4">
+                        {filtered.map((history) => (
+                          <div key={history.id} className="relative pl-6 pb-6 border-l-2 last:border-0 border-primary/20">
+                            <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full bg-primary" />
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <Badge variant={history.newStatus === "ACTIVE" ? "default" : "destructive"}>
+                                  {history.newStatus}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {new Date(history.createdAt).toLocaleString()}
+                                </span>
+                                {history.sessionId && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {academicSessions.find(s => s.id.toString() === history.sessionId?.toString())?.name || `Session ${history.sessionId}`}
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-sm font-medium mt-1">
+                                {history.previousStatus ? `${history.previousStatus} → ` : ""}{history.newStatus}
                               </p>
-                            )}
+                              {history.reason && (
+                                <p className="text-sm text-muted-foreground italic bg-muted/50 p-2 rounded mt-1">
+                                  "{history.reason}"
+                                </p>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </TabsContent>
+                <TabsContent value="hostel" className="space-y-4">
+                  {hostelRegLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <p className="text-muted-foreground">Loading hostel info...</p>
+                    </div>
+                  ) : !studentHostelReg ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg">
+                      <Home className="w-12 h-12 text-muted-foreground mb-4 opacity-20" />
+                      <p className="text-lg text-muted-foreground mb-2">Not registered in hostel</p>
+                      <p className="text-sm text-muted-foreground">This student has no hostel registration.</p>
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                      <p className="text-lg text-muted-foreground mb-2">No status history found</p>
-                      <p className="text-sm text-muted-foreground">This student has no recorded status changes yet.</p>
+                    <div className="space-y-4">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            <Home className="w-5 h-5 text-primary" />
+                            Hostel Registration
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="grid grid-cols-2 gap-4">
+                          <div><span className="font-semibold">Hostel:</span> {studentHostelReg.hostelName}</div>
+                          <div><span className="font-semibold">Status:</span> <Badge variant={studentHostelReg.status === "active" ? "default" : "secondary"}>{studentHostelReg.status}</Badge></div>
+                          <div><span className="font-semibold">Registration Date:</span> {studentHostelReg.registrationDate ? new Date(studentHostelReg.registrationDate).toLocaleDateString() : "-"}</div>
+                          <div><span className="font-semibold">Registration ID:</span> <span className="text-xs text-muted-foreground font-mono">{studentHostelReg.id}</span></div>
+                        </CardContent>
+                      </Card>
+                      {studentHostelRoom && (
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="text-lg flex items-center gap-2">
+                              <Bed className="w-5 h-5 text-primary" />
+                              Room Allocation
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="grid grid-cols-2 gap-4">
+                            <div><span className="font-semibold">Room Number:</span> {studentHostelRoom.room?.roomNumber}</div>
+                            <div><span className="font-semibold">Room Type:</span> {studentHostelRoom.room?.roomType}</div>
+                            <div><span className="font-semibold">Capacity:</span> {studentHostelRoom.room?.capacity}</div>
+                            <div><span className="font-semibold">Occupancy:</span> {studentHostelRoom.room?.currentOccupancy} / {studentHostelRoom.room?.capacity}</div>
+                            <div><span className="font-semibold">Allocation Date:</span> {studentHostelRoom.allocationDate ? new Date(studentHostelRoom.allocationDate).toLocaleDateString() : "-"}</div>
+                          </CardContent>
+                        </Card>
+                      )}
                     </div>
                   )}
                 </TabsContent>
@@ -1852,20 +2161,15 @@ const Students = () => {
               <div className="grid grid-cols-4 gap-4 p-4 bg-muted rounded-lg">
                 <div>
                   <Label>Session</Label>
-                  <Select value={dialogFilterSession} onValueChange={(v) => { setDialogFilterSession(v || ""); setSelectedForPromotion([]); }}>
-                    <SelectTrigger><SelectValue placeholder="Select Session" /></SelectTrigger>
+                  <Select value={dialogFilterSessionId} onValueChange={(v) => { setDialogFilterSessionId(v || "all"); setSelectedForPromotion([]); }}>
+                    <SelectTrigger><SelectValue placeholder="All Sessions" /></SelectTrigger>
                     <SelectContent>
-                      {(() => {
-                        const yr = new Date().getFullYear();
-                        const gap = getProgramGap(dialogFilterProgram);
-                        const sessions = [];
-                        for (let y = yr - 5; y <= yr + 5; y++) {
-                          sessions.push(`${y}-${y + gap}`);
-                        }
-                        return sessions.map(s => (
-                          <SelectItem key={s} value={s}>{s}</SelectItem>
-                        ));
-                      })()}
+                      <SelectItem value="all">All Sessions</SelectItem>
+                      {academicSessions.map(s => (
+                        <SelectItem key={s.id} value={s.id.toString()}>
+                          {s.name} {s.isActive ? "(Current)" : ""}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1987,20 +2291,16 @@ const Students = () => {
                     <div>
                       <Label>Target Session *</Label>
                       <Select
-                        value={promoDetails.session}
-                        onValueChange={(v) => setPromoDetails(prev => ({ ...prev, session: v }))}
+                        value={promoDetails.sessionId}
+                        onValueChange={(v) => setPromoDetails(prev => ({ ...prev, sessionId: v }))}
                       >
                         <SelectTrigger className="bg-white"><SelectValue placeholder="Select Session" /></SelectTrigger>
                         <SelectContent>
-                          {(() => {
-                            const yr = new Date().getFullYear();
-                            const gap = getProgramGap(promoDetails.programId || dialogFilterProgram);
-                            const sessions = [];
-                            for (let y = yr - 5; y <= yr + 15; y++) {
-                              sessions.push(`${y}-${y + gap}`);
-                            }
-                            return sessions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>);
-                          })()}
+                          {academicSessions.map(s => (
+                            <SelectItem key={s.id} value={s.id.toString()}>
+                              {s.name} {s.isActive ? "(Current)" : ""}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -2079,22 +2379,16 @@ const Students = () => {
                           <div>
                             <Label>Session *</Label>
                             <Select
-                              value={rejoinDetails.session}
-                              onValueChange={(v) => setRejoinDetails(prev => ({ ...prev, session: v }))}
+                              value={rejoinDetails.sessionId}
+                              onValueChange={(v) => setRejoinDetails(prev => ({ ...prev, sessionId: v }))}
                             >
                               <SelectTrigger className="bg-white"><SelectValue placeholder="Select Session" /></SelectTrigger>
                               <SelectContent>
-                                {(() => {
-                                  const currentYear = new Date().getFullYear();
-                                  const gap = getProgramGap(rejoinDetails.programId);
-                                  const sessions = [];
-                                  for (let y = currentYear - 5; y <= currentYear + 5; y++) {
-                                    sessions.push(`${y}-${y + gap}`);
-                                  }
-                                  return sessions.map(s => (
-                                    <SelectItem key={s} value={s}>{s}</SelectItem>
-                                  ));
-                                })()}
+                                {academicSessions.map(s => (
+                                  <SelectItem key={s.id} value={s.id.toString()}>
+                                    {s.name} {s.isActive ? "(Current)" : ""}
+                                  </SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
@@ -2171,8 +2465,8 @@ const Students = () => {
                   disabled={
                     selectedForPromotion.length === 0 ||
                     ((promotionAction === "expel" || promotionAction === "struck-off" || promotionAction === "rejoin") && !promotionReason.trim()) ||
-                    (promotionAction === "rejoin" && !rejoinDetails.sameClass && (!rejoinDetails.session || !rejoinDetails.programId || !rejoinDetails.classId)) ||
-                    (promotionAction === "promote_manual" && (!promoDetails.session || !promoDetails.programId || !promoDetails.classId))
+                    (promotionAction === "rejoin" && !rejoinDetails.sameClass && (!rejoinDetails.sessionId || !rejoinDetails.programId || !rejoinDetails.classId)) ||
+                    (promotionAction === "promote_manual" && (!promoDetails.sessionId || !promoDetails.programId || !promoDetails.classId))
                   }
                 >
                   Apply ({selectedForPromotion.length} selected)
@@ -2388,7 +2682,10 @@ const Students = () => {
                       action: "promote",
                       forcePromote: true,
                       targetClassId: promotionDialog.targetClassId,
-                      targetSectionId: promotionDialog.targetSectionId
+                      targetSectionId: promotionDialog.targetSectionId,
+                      targetProgramId: promotionDialog.targetProgramId,
+                      targetSessionId: promotionDialog.targetSessionId,
+                      targetSession: promotionDialog.targetSession
                     });
                     console.log('✅ Force promote completed');
                     toast({ title: "Student promoted" });
