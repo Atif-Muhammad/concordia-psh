@@ -87,7 +87,12 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/$1",
+      "^@prisma/client$": "<rootDir>/../node_modules/@prisma/client",
+      "^@prisma/client/(.*)$": "<rootDir>/../node_modules/@prisma/client/$1"
+    }
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

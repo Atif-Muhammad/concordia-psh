@@ -103,7 +103,7 @@ model Class {
   timetable Timetable[] @relation("ClassTimetable")
 
   sections               Section[]                    @relation("ClassSections")
-  subjects               Subject[]                    @relation("ClassSubjects")
+  subjectMappings        SubjectClassMapping[]         @relation("ClassSubjectMappings")
   teacherSectionMappings TeacherClassSectionMapping[] @relation("ClassTeacherSectionMappings")
   students               Student[]                    @relation("ClassStudents")
   attendance             Attendance[]
@@ -262,24 +262,38 @@ model StaffLeaveSettings {
 }
 
 model Subject {
-  id          Int     @id @default(autoincrement())
-  name        String  @db.VarChar(100)
-  code        String? @unique @db.VarChar(20)
-  creditHours Int?
-  description String? @db.VarChar(255)
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(100)
 
-  classId     Int
-  classes     Class                   @relation("ClassSubjects", fields: [classId], references: [id])
-  timetables  Timetable[]             @relation("SubjectTimetables")
-  teachers    TeacherSubjectMapping[] @relation("SubjectTeacherMappings")
-  assignments Assignment[]            @relation("SubjectAssignments")
-  attendance  Attendance[]
+  timetables    Timetable[]             @relation("SubjectTimetables")
+  teachers      TeacherSubjectMapping[] @relation("SubjectTeacherMappings")
+  assignments   Assignment[]            @relation("SubjectAssignments")
+  attendance    Attendance[]
   examSchedules ExamSchedule[]
+  classMappings SubjectClassMapping[]   @relation("SubjectMappings")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("subject")
+}
+
+model SubjectClassMapping {
+  id          Int     @id @default(autoincrement())
+  subjectId   Int
+  classId     Int
+  creditHours Int?
+  code        String? @db.VarChar(20)
+  description String? @db.VarChar(255)
+
+  subject Subject @relation("SubjectMappings", fields: [subjectId], references: [id], onDelete: Cascade)
+  class   Class   @relation("ClassSubjectMappings", fields: [classId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([subjectId, classId])
+  @@map("subjectclassmapping")
 }
 
 model Student {

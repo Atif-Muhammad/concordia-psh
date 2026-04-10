@@ -1,4 +1,4 @@
-import { ConflictException, HttpStatus, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ProgramDto } from './dtos/programs/program.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Level } from 'src/common/constants/level.enum';
@@ -9,6 +9,7 @@ import { SubjectDto } from './dtos/subjects/subject.dto';
 import { TsmDto } from './dtos/tsms/tsm.dto';
 import { TimetableDto } from './dtos/timetable/timetable.dto';
 import { TcsmDto } from './dtos/tcms/tcm.dto';
+import { ScmDto } from './dtos/scm/scm.dto';
 
 @Injectable()
 export class AcademicsService {
@@ -206,8 +207,8 @@ export class AcademicsService {
     return await this.prismaService.section.create({
       data: {
         name: payload.name,
-        capacity: Number(payload.capacity),
-        room: payload.room,
+        capacity: payload.capacity != null ? Number(payload.capacity) : null,
+        room: payload.room ?? null,
         classId: Number(payload.classId),
       },
     });
@@ -217,8 +218,8 @@ export class AcademicsService {
       where: { id },
       data: {
         name: payload.name,
-        capacity: Number(payload.capacity),
-        room: payload.room,
+        capacity: payload.capacity != null ? Number(payload.capacity) : null,
+        room: payload.room ?? null,
         classId: Number(payload.classId),
       },
     });
@@ -237,10 +238,6 @@ export class AcademicsService {
     return await this.prismaService.subject.create({
       data: {
         name: payload.name,
-        code: payload.code,
-        creditHours: Number(payload.creditHours),
-        description: payload.description,
-        classId: Number(payload.classId),
       },
     });
   }
@@ -249,10 +246,6 @@ export class AcademicsService {
       where: { id },
       data: {
         name: payload.name,
-        code: payload.code,
-        creditHours: Number(payload.creditHours),
-        description: payload.description,
-        classId: Number(payload.classId),
       },
     });
   }
@@ -435,5 +428,70 @@ export class AcademicsService {
 
   async deleteAcademicSession(id: number) {
     return await this.prismaService.academicSession.delete({ where: { id } });
+  }
+
+  // SCM (SubjectClassMapping)
+  async getScms() {
+    return await this.prismaService.subjectClassMapping.findMany({
+      include: {
+        subject: { select: { name: true } },
+        class: {
+          select: {
+            name: true,
+            program: { select: { name: true } },
+          },
+        },
+      },
+    });
+  }
+
+  async createScm(payload: ScmDto) {
+    try {
+      return await this.prismaService.subjectClassMapping.create({
+        data: {
+          subjectId: Number(payload.subjectId),
+          classId: Number(payload.classId),
+          creditHours: payload.creditHours != null ? Number(payload.creditHours) : null,
+          code: payload.code ?? null,
+          description: payload.description ?? null,
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ConflictException(
+          'A mapping for this subject and class already exists',
+        );
+      }
+      throw err;
+    }
+  }
+
+  async updateScm(id: number, payload: Partial<ScmDto>) {
+    try {
+      return await this.prismaService.subjectClassMapping.update({
+        where: { id },
+        data: {
+          creditHours: payload.creditHours != null ? Number(payload.creditHours) : null,
+          code: payload.code ?? null,
+          description: payload.description ?? null,
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2025') {
+        throw new NotFoundException(`SubjectClassMapping with id ${id} not found`);
+      }
+      throw err;
+    }
+  }
+
+  async removeScm(id: number) {
+    try {
+      return await this.prismaService.subjectClassMapping.delete({ where: { id } });
+    } catch (err: any) {
+      if (err?.code === 'P2025') {
+        throw new NotFoundException(`SubjectClassMapping with id ${id} not found`);
+      }
+      throw err;
+    }
   }
 }

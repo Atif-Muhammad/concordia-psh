@@ -265,12 +265,16 @@ export class TeacherService {
               select: {
                 id: true,
                 name: true,
-                classes: {
+                classMappings: {
                   select: {
-                    id: true,
-                    name: true,
-                    sections: {
-                      select: { id: true, name: true },
+                    class: {
+                      select: {
+                        id: true,
+                        name: true,
+                        sections: {
+                          select: { id: true, name: true },
+                        },
+                      },
                     },
                   },
                 },
@@ -287,7 +291,7 @@ export class TeacherService {
       where: {
         teacherId: teacherId,
         subject: {
-          classId: classId,
+          classMappings: { some: { classId } },
         },
       },
       select: {
@@ -295,8 +299,6 @@ export class TeacherService {
           select: {
             id: true,
             name: true,
-            code: true,
-            classId: true,
           },
         },
       },

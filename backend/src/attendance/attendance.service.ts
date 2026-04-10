@@ -84,10 +84,15 @@ export class AttendanceService {
     if (subjectId) {
       const subject = await this.prismaService.subject.findUnique({
         where: { id: subjectId },
-        select: { id: true, classId: true },
+        select: { id: true },
       });
       if (!subject) throw new ForbiddenException('Subject not found');
-      if (subject.classId !== resolvedClassId) {
+
+      // Verify subject is mapped to the resolved class
+      const scm = await this.prismaService.subjectClassMapping.findFirst({
+        where: { subjectId, classId: resolvedClassId },
+      });
+      if (!scm) {
         throw new ForbiddenException(
           'This subject does not belong to the selected class/section',
         );
@@ -311,9 +316,9 @@ export class AttendanceService {
         class: {
           select: {
             name: true,
-            subjects: {
-              select: { id: true, name: true },
-              orderBy: { name: 'asc' },
+            subjectMappings: {
+              select: { subject: { select: { id: true, name: true } } },
+              orderBy: { subject: { name: 'asc' } },
             },
           },
         },
@@ -354,10 +359,10 @@ export class AttendanceService {
 
       // Map class subjects to include their attendance
       const subjectsData =
-        s.class?.subjects.map((subj) => ({
-          subjectId: subj.id,
-          subjectName: subj.name,
-          attendance: attendanceBySubject[subj.id] || [],
+        s.class?.subjectMappings.map((m) => ({
+          subjectId: m.subject.id,
+          subjectName: m.subject.name,
+          attendance: attendanceBySubject[m.subject.id] || [],
         })) || [];
 
       return {
@@ -443,7 +448,7 @@ export class AttendanceService {
             class: {
               select: {
                 id: true,
-                subjects: { select: { id: true } },
+                subjectMappings: { select: { subjectId: true } },
               },
             },
             section: { select: { id: true } },
@@ -455,7 +460,7 @@ export class AttendanceService {
     const fromDate = new Date(data!.fromDate);
     const toDate = new Date(data!.toDate);
 
-    const subjectIds = data!.requester.class.subjects.map((s) => s.id);
+    const subjectIds = data!.requester.class.subjectMappings.map((m) => m.subjectId);
     const classId = data!.requester.class.id;
     const sectionId = data!.requester.section?.id;
     const studentId = data!.studentId;
@@ -741,10 +746,14 @@ export class AttendanceService {
       },
       select: {
         id: true,
-        subjects: {
+        subjectMappings: {
           select: {
-            id: true,
-            teachers: { select: { teacherId: true } },
+            subjectId: true,
+            subject: {
+              select: {
+                teachers: { select: { teacherId: true } },
+              },
+            },
           },
         },
         students: {
@@ -785,8 +794,9 @@ export class AttendanceService {
     const newEntries: any[] = [];
 
     for (const cls of classes) {
-      for (const subject of cls.subjects) {
-        const teacherId = subject.teachers?.[0]?.teacherId ?? null;
+      for (const mapping of cls.subjectMappings) {
+        const teacherId = mapping.subject.teachers?.[0]?.teacherId ?? null;
+        const subjectId = mapping.subjectId;
 
         // ➤ For section-based students
         const filteredSections = sectionId
@@ -794,7 +804,7 @@ export class AttendanceService {
           : cls.sections;
         for (const section of filteredSections) {
           for (const student of section.students) {
-            const key = `${student.id}-${cls.id}-${section.id}-${subject.id}`;
+            const key = `${student.id}-${cls.id}-${section.id}-${subjectId}`;
             if (!existingKeys.has(key)) {
               let status: AttendanceStatus = 'PRESENT';
               let notes: string | null = null;
@@ -815,7 +825,7 @@ export class AttendanceService {
                 studentId: student.id,
                 classId: cls.id,
                 sectionId: section.id,
-                subjectId: subject.id,
+                subjectId,
                 teacherId,
                 date: targetDate,
                 status,
@@ -828,7 +838,7 @@ export class AttendanceService {
 
         // ➤ For direct class-level students (no section)
         for (const student of cls.students) {
-          const key = `${student.id}-${cls.id}-null-${subject.id}`;
+          const key = `${student.id}-${cls.id}-null-${subjectId}`;
           if (!existingKeys.has(key)) {
             let status: AttendanceStatus = 'PRESENT';
             let notes: string | null = null;
@@ -849,7 +859,7 @@ export class AttendanceService {
               studentId: student.id,
               classId: cls.id,
               sectionId: null,
-              subjectId: subject.id,
+              subjectId,
               teacherId,
               date: targetDate,
               status,

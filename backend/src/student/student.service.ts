@@ -1474,7 +1474,7 @@ export class StudentService {
     return await this.prismaService.attendance.findMany({
       where: { studentId },
       include: {
-        subject: { select: { name: true, code: true } },
+        subject: { select: { name: true } },
         class: { select: { name: true } },
         section: { select: { name: true } },
       },
@@ -1525,7 +1525,7 @@ export class StudentService {
     const attendanceRecords = await this.prismaService.attendance.findMany({
       where: { studentId },
       include: {
-        subject: { select: { name: true, code: true } },
+        subject: { select: { name: true } },
       },
       orderBy: { date: 'asc' },
     });

@@ -1046,7 +1046,7 @@ export const createSubject = async (data) => {
   try {
     const response = await axios.post(
       `${base_url}/academics/subject/create`,
-      data,
+      { name: data.name },
       { withCredentials: true }
     );
     return response.data;
@@ -1064,7 +1064,7 @@ export const updateSubject = async (subID, data) => {
   try {
     const response = await axios.patch(
       `${base_url}/academics/subject/update?subID=${subID}`,
-      data,
+      { name: data.name },
       { withCredentials: true }
     );
     return response.data;
@@ -1092,6 +1092,73 @@ export const deleteSubject = async (subID) => {
       error.message ||
       "Something went wrong";
 
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// subject-class mappings (SCM)
+export const getSubjectClassMappings = async () => {
+  try {
+    const response = await axios.get(`${base_url}/academics/scm/get/all`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+export const createSubjectClassMapping = async (data) => {
+  try {
+    const response = await axios.post(
+      `${base_url}/academics/scm/create`,
+      data,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+export const updateSubjectClassMapping = async (scmID, data) => {
+  try {
+    const response = await axios.patch(
+      `${base_url}/academics/scm/update?scmID=${scmID}`,
+      data,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+export const deleteSubjectClassMapping = async (scmID) => {
+  try {
+    const response = await axios.delete(
+      `${base_url}/academics/scm/remove?scmID=${scmID}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }
 };

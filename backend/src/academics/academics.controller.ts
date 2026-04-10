@@ -15,6 +15,7 @@ import { SubjectDto } from './dtos/subjects/subject.dto';
 import { TsmDto } from './dtos/tsms/tsm.dto';
 import { TimetableDto } from './dtos/timetable/timetable.dto';
 import { TcsmDto } from './dtos/tcms/tcm.dto';
+import { ScmDto } from './dtos/scm/scm.dto';
 
 @Controller('academics')
 export class AcademicsController {
@@ -162,6 +163,24 @@ export class AcademicsController {
   @Delete('tcm/remove')
   async removeTcm(@Query() tcmID: { tcmID: string }) {
     return await this.academicService.removeTcsm(Number(tcmID.tcmID));
+  }
+
+  // scm
+  @Get('scm/get/all')
+  async getScms() {
+    return await this.academicService.getScms();
+  }
+  @Post('scm/create')
+  async createScm(@Body() dto: ScmDto) {
+    return await this.academicService.createScm(dto);
+  }
+  @Patch('scm/update')
+  async updateScm(@Query('scmID') id: string, @Body() dto: any) {
+    return await this.academicService.updateScm(Number(id), dto);
+  }
+  @Delete('scm/remove')
+  async removeScm(@Query('scmID') id: string) {
+    return await this.academicService.removeScm(Number(id));
   }
 
   // timetable

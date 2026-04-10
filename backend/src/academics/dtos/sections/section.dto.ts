@@ -10,9 +10,9 @@ export class SectionDto {
   @IsNotEmpty({ message: 'Class must be specified' })
   classId: string | number;
 
-  @IsNotEmpty({ message: 'Section capacity must be provided' })
-  capacity: string | number;
+  @IsOptional()
+  capacity?: string | number;
 
-  @IsNotEmpty({ message: 'Room name/number must be provided' })
-  room: string;
+  @IsOptional()
+  room?: string;
 }

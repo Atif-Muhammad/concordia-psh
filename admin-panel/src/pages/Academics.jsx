@@ -99,6 +99,10 @@ import {
   createAcademicSession,
   updateAcademicSession,
   deleteAcademicSession,
+  getSubjectClassMappings,
+  createSubjectClassMapping,
+  updateSubjectClassMapping,
+  deleteSubjectClassMapping,
 } from "../../config/apis";
 
 const Academics = () => {
@@ -166,6 +170,11 @@ const Academics = () => {
     queryFn: getAcademicSessions,
     retry: 1,
   });
+  const { data: scmMappings = [] } = useQuery({
+    queryKey: ["scmMappings"],
+    queryFn: getSubjectClassMappings,
+    retry: 1,
+  });
 
   // Mutations
   const programMutation = useMutation({
@@ -206,6 +215,11 @@ const Academics = () => {
     mutationFn: ({ id, data }) => (id ? updateAcademicSession(id, data) : createAcademicSession(data)),
     onSuccess: () => queryClient.invalidateQueries(["academicSessions"]),
   });
+  const scmMutation = useMutation({
+    mutationFn: ({ id, data }) =>
+      id ? updateSubjectClassMapping(id, data) : createSubjectClassMapping(data),
+    onSuccess: () => queryClient.invalidateQueries(["scmMappings"]),
+  });
 
   const deleteMutations = {
     program: useMutation({ mutationFn: deleteProgram, onSuccess: () => queryClient.invalidateQueries(["programs"]) }),
@@ -217,6 +231,7 @@ const Academics = () => {
     timetable: useMutation({ mutationFn: deleteTimetable, onSuccess: () => queryClient.invalidateQueries(["timetables"]) }),
     assignment: useMutation({ mutationFn: deleteAssignment, onSuccess: () => queryClient.invalidateQueries(["assignments"]) }),
     session: useMutation({ mutationFn: deleteAcademicSession, onSuccess: () => queryClient.invalidateQueries(["academicSessions"]) }),
+    scm: useMutation({ mutationFn: deleteSubjectClassMapping, onSuccess: () => queryClient.invalidateQueries(["scmMappings"]) }),
   };
 
   // Local state
@@ -232,7 +247,8 @@ const Academics = () => {
   const [programForm, setProgramForm] = useState({ name: "", description: "", level: "INTERMEDIATE", departmentId: "", duration: "", customDuration: "" });
   const [classForm, setClassForm] = useState({ name: "", programId: "", year: "", semester: "", isSemester: false });
   const [sectionForm, setSectionForm] = useState({ sectionLetter: "A", shift: "Morning", classId: "", capacity: "", room: "" });
-  const [subjectForm, setSubjectForm] = useState({ name: "", code: "", classId: "", creditHours: "", description: "" });
+  const [subjectForm, setSubjectForm] = useState({ name: "" });
+  const [scmForm, setScmForm] = useState({ subjectId: "", classId: "", creditHours: "", code: "", description: "" });
   const [mappingForm, setMappingForm] = useState({ teacherId: "", subjectId: "" });
   const [classMappingForm, setClassMappingForm] = useState({ teacherId: "", classId: "", sectionId: "" });
   const [timetableForm, setTimetableForm] = useState({
@@ -301,7 +317,8 @@ const Academics = () => {
       program: { name: "", description: "", level: "INTERMEDIATE", departmentId: "", duration: "2 years", customDuration: "" },
       class: { name: "", programId: "", year: "", semester: "", isSemester: false },
       section: { sectionLetter: "A", shift: "Morning", classId: "", capacity: "", room: "", customName: "" },
-      subject: { name: "", code: "", classId: "", creditHours: "", description: "" },
+      subject: { name: "" },
+      scm: { subjectId: "", classId: "", creditHours: "", code: "", description: "" },
       mapping: { teacherId: "", subjectId: "" },
       classMapping: { teacherId: "", classId: "", sectionId: "" },
       timetable: { teacherId: "", subjectId: "", sectionId: "", dayOfWeek: "Monday", startTime: "", endTime: "", room: "" },
@@ -318,6 +335,7 @@ const Academics = () => {
       section: { form: sectionForm, setForm: setSectionForm, mutation: sectionMutation },
       subject: { form: subjectForm, setForm: setSubjectForm, mutation: subjectMutation },
       session: { form: sessionForm, setForm: setSessionForm, mutation: sessionMutation },
+      scm: { form: scmForm, setForm: setScmForm, mutation: scmMutation },
       mapping: { form: mappingForm, setForm: setMappingForm, mutation: teacherSubjectMutation },
       classMapping: { form: classMappingForm, setForm: setClassMappingForm, mutation: teacherClassMutation },
       timetable: { form: timetableForm, setForm: setTimetableForm, mutation: timetableMutation },
@@ -410,23 +428,24 @@ const Academics = () => {
     }
 
     if (type === "subject") {
-      const cls = classes.find(c => c.id === Number(subjectForm.classId));
-      const prog = programs.find(p => p.id === cls?.programId);
-      const isBS = prog?.level === "UNDERGRADUATE";
-      if (!subjectForm.name || !subjectForm.classId) {
-        toast({ title: "Name and class are required", variant: "destructive" });
+      if (!subjectForm.name.trim()) {
+        toast({ title: "Subject name is required", variant: "destructive" });
         return;
       }
-      if (isBS && (!subjectForm.code || !subjectForm.creditHours)) {
-        toast({ title: "Code and credit hours are required for BS programs", variant: "destructive" });
+      data = { name: subjectForm.name };
+    }
+
+    if (type === "scm") {
+      if (!scmForm.subjectId || !scmForm.classId) {
+        toast({ title: "Subject and class are required", variant: "destructive" });
         return;
       }
       data = {
-        name: subjectForm.name,
-        code: isBS ? subjectForm.code : null,
-        classId: Number(subjectForm.classId),
-        creditHours: isBS ? Number(subjectForm.creditHours) : null,
-        description: subjectForm.description || null,
+        subjectId: Number(scmForm.subjectId),
+        classId: Number(scmForm.classId),
+        creditHours: scmForm.creditHours ? Number(scmForm.creditHours) : null,
+        code: scmForm.code || null,
+        description: scmForm.description || null,
       };
     }
 
@@ -544,14 +563,14 @@ const Academics = () => {
 
 
     if (type === "subject") {
-      const cls = classes.find(c => c.id === item.classId);
-      const prog = programs.find(p => p.id === cls?.programId);
-      const isBS = prog?.level === "UNDERGRADUATE";
-      setSubjectForm({
-        name: item.name,
-        code: isBS ? (item.code || "") : "",
+      setSubjectForm({ name: item.name });
+    }
+    if (type === "scm") {
+      setScmForm({
+        subjectId: item.subjectId.toString(),
         classId: item.classId.toString(),
-        creditHours: isBS ? (item.creditHours?.toString() || "") : "",
+        creditHours: item.creditHours?.toString() || "",
+        code: item.code || "",
         description: item.description || "",
       });
     }
@@ -610,6 +629,7 @@ const Academics = () => {
       section: setSectionForm,
       subject: setSubjectForm,
       mapping: setMappingForm,
+      scm: setScmForm,
       classMapping: setClassMappingForm,
       timetable: setTimetableForm,
       assignment: setAssignmentForm,
@@ -641,7 +661,7 @@ const Academics = () => {
             <TabsTrigger value="classes">Classes</TabsTrigger>
             <TabsTrigger value="sections">Sections</TabsTrigger>
             <TabsTrigger value="subjects">Subjects</TabsTrigger>
-            <TabsTrigger value="mapping">T-Subject</TabsTrigger>
+            <TabsTrigger value="scm">S-Class</TabsTrigger>
             <TabsTrigger value="classMapping">T-Class</TabsTrigger>
             <TabsTrigger value="timetable">Timetable</TabsTrigger>
             {/* <TabsTrigger value="assignments">Assignments</TabsTrigger> */}
@@ -1967,38 +1987,6 @@ const Academics = () => {
                       <DialogTitle>{editing ? "Edit" : "Add"} Subject</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
-                      {/* CLASS (Required) */}
-                      <div>
-                        <Label>Class *</Label>
-                        <Select
-                          value={subjectForm.classId}
-                          onValueChange={(v) => {
-                            const cls = classes.find(c => c.id === Number(v));
-                            const prog = programs.find(p => p.id === cls?.programId);
-                            const isBS = prog?.level === "UNDERGRADUATE";
-                            setSubjectForm({
-                              ...subjectForm,
-                              classId: v,
-                              creditHours: isBS ? subjectForm.creditHours : "",
-                              code: isBS ? subjectForm.code : "",
-                            });
-                          }}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Select class" /></SelectTrigger>
-                          <SelectContent>
-                            {classes.map((c) => {
-                              const prog = programs.find(p => p.id === c.programId);
-                              const dept = departments.find(d => d.id === prog?.departmentId);
-                              return (
-                                <SelectItem key={c.id} value={c.id.toString()}>
-                                  {c.name} ({prog?.name}) – {dept?.name}
-                                </SelectItem>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
                       {/* NAME */}
                       <div>
                         <Label>Name *</Label>
@@ -2009,63 +1997,11 @@ const Academics = () => {
                         />
                       </div>
 
-                      {/* CODE — Only for BS */}
-                      {(() => {
-                        const cls = classes.find(c => c.id === Number(subjectForm.classId));
-                        const prog = programs.find(p => p.id === cls?.programId);
-                        const isBS = prog?.level === "UNDERGRADUATE";
-                        if (!isBS) return null;
-                        return (
-                          <div>
-                            <Label>Code</Label>
-                            <Input
-                              value={subjectForm.code}
-                              onChange={(e) => setSubjectForm({ ...subjectForm, code: e.target.value })}
-                              placeholder="e.g. PHY-101"
-                            />
-                          </div>
-                        );
-                      })()}
-
-                      {/* CREDIT HOURS — Only for BS */}
-                      {(() => {
-                        const cls = classes.find(c => c.id === Number(subjectForm.classId));
-                        const prog = programs.find(p => p.id === cls?.programId);
-                        const isBS = prog?.level === "UNDERGRADUATE";
-                        if (!isBS) return null;
-                        return (
-                          <div>
-                            <Label>Credit Hours</Label>
-                            <Input
-                              type="number"
-                              value={subjectForm.creditHours}
-                              onChange={(e) => setSubjectForm({ ...subjectForm, creditHours: e.target.value })}
-                              placeholder="e.g. 3"
-                            />
-                          </div>
-                        );
-                      })()}
-
-                      {/* DESCRIPTION */}
-                      <div>
-                        <Label>Description (Optional)</Label>
-                        <Input
-                          value={subjectForm.description}
-                          onChange={(e) => setSubjectForm({ ...subjectForm, description: e.target.value })}
-                          placeholder="Brief subject info"
-                        />
-                      </div>
-
                       {/* SUBMIT */}
                       <Button
                         onClick={() => handleSubmit("subject")}
                         className="w-full"
-                        disabled={
-                          !subjectForm.classId ||
-                          !subjectForm.name ||
-                          (programs.find(p => p.id === classes.find(c => c.id === Number(subjectForm.classId))?.programId)?.level === "UNDERGRADUATE" &&
-                            (!subjectForm.code || !subjectForm.creditHours))
-                        }
+                        disabled={!subjectForm.name.trim()}
                       >
                         {editing ? "Update" : "Add"} Subject
                       </Button>
@@ -2075,83 +2011,24 @@ const Academics = () => {
               </CardHeader>
 
               <CardContent>
-                {/* FILTERS */}
-                <div className="flex gap-4 mb-6">
-                  <div className="flex-1">
-                    <Label>Filter by Program</Label>
-                    <Select
-                      value={subjectFilterProgram}
-                      onValueChange={(val) => {
-                        setSubjectFilterProgram(val);
-                        setSubjectFilterClass("all");
-                      }}
-                    >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Programs</SelectItem>
-                        {programs.map((p) => (
-                          <SelectItem key={p.id} value={p.id.toString()}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex-1">
-                    <Label>Filter by Class</Label>
-                    <Select value={subjectFilterClass} onValueChange={setSubjectFilterClass}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Classes</SelectItem>
-                        {classes
-                          .filter((c) =>
-                            subjectFilterProgram === "all" || c.programId === Number(subjectFilterProgram)
-                          )
-                          .map((c) => (
-                            <SelectItem key={c.id} value={c.id.toString()}>
-                              {c.name} ({c.program?.name})
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
                 {/* TABLE */}
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Credit Hrs</TableHead>
-                      <TableHead>Class</TableHead>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Department</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {subjects
                       .filter((s) => {
-                        const cls = classes.find((c) => c.id === s.classId);
-                        if (!cls) return false;
-                        if (subjectFilterClass !== "all" && s.classId !== Number(subjectFilterClass)) return false;
-                        if (subjectFilterProgram !== "all" && cls.programId !== Number(subjectFilterProgram)) return false;
+                        if (subjectFilterProgram !== "all" || subjectFilterClass !== "all") return true;
                         return true;
                       })
                       .map((s) => {
-                        const cls = classes.find((c) => c.id === s.classId);
-                        const prog = programs.find((p) => p.id === cls?.programId);
-                        const dept = departments.find((d) => d.id === prog?.departmentId);
-                        const isBS = prog?.level === "UNDERGRADUATE";
                         return (
                           <TableRow key={s.id}>
                             <TableCell className="font-medium">{s.name}</TableCell>
-                            <TableCell>{isBS ? s.code || "—" : "—"}</TableCell>
-                            <TableCell>{isBS ? s.creditHours || "—" : "—"}</TableCell>
-                            <TableCell>{cls?.name || "—"}</TableCell>
-                            <TableCell>{prog?.name || "—"}</TableCell>
-                            <TableCell>{dept?.name || "—"}</TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-2">
                                 <Tooltip>
@@ -2188,58 +2065,100 @@ const Academics = () => {
             </Card>
           </TabsContent>
 
-          {/* TEACHER SUBJECT MAPPING */}
-          <TabsContent value="mapping">
+          {/* SUBJECT-CLASS MAPPING */}
+          <TabsContent value="scm">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
-                  <Users className="w-5 h-5" /> Teacher-Subject Mapping
+                  <BookOpen className="w-5 h-5" /> Subject-Class Mapping
                 </CardTitle>
-                <Dialog open={dialog.type === "mapping" && dialog.open} onOpenChange={(open) => setDialog({ type: "mapping", open })}>
+                <Dialog open={dialog.type === "scm" && dialog.open} onOpenChange={(open) => setDialog({ type: "scm", open })}>
                   <DialogTrigger asChild>
-                    <Button onClick={() => openDialog("mapping")}>
+                    <Button onClick={() => openDialog("scm")}>
                       <PlusCircle className="w-4 h-4 mr-2" /> Add Mapping
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>{editing ? "Edit" : "Add"} Mapping</DialogTitle>
+                      <DialogTitle>{editing ? "Edit" : "Add"} Subject-Class Mapping</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
+                      {/* SUBJECT (Required) */}
                       <div>
-                        <Label>Teacher</Label>
+                        <Label>Subject *</Label>
                         <Select
-                          value={mappingForm.teacherId}
-                          onValueChange={(v) => setMappingForm({ ...mappingForm, teacherId: v })}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Select teacher" /></SelectTrigger>
-                          <SelectContent>
-                            {teachers.map((t) => (
-                              <SelectItem key={t.id} value={t.id}>
-                                {t.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Subject</Label>
-                        <Select
-                          value={mappingForm.subjectId}
-                          onValueChange={(v) => setMappingForm({ ...mappingForm, subjectId: v })}
+                          value={scmForm.subjectId}
+                          onValueChange={(v) => setScmForm({ ...scmForm, subjectId: v })}
                         >
                           <SelectTrigger><SelectValue placeholder="Select subject" /></SelectTrigger>
                           <SelectContent>
                             {subjects.map((s) => (
-                              <SelectItem key={s.id} value={s.id}>
+                              <SelectItem key={s.id} value={s.id.toString()}>
                                 {s.name}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </div>
-                      <Button onClick={() => handleSubmit("mapping")} className="w-full">
-                        {editing ? "Update" : "Add"}
+
+                      {/* CLASS (Required) */}
+                      <div>
+                        <Label>Class *</Label>
+                        <Select
+                          value={scmForm.classId}
+                          onValueChange={(v) => setScmForm({ ...scmForm, classId: v })}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Select class" /></SelectTrigger>
+                          <SelectContent>
+                            {classes.map((c) => {
+                              const prog = programs.find(p => p.id === c.programId);
+                              return (
+                                <SelectItem key={c.id} value={c.id.toString()}>
+                                  {c.name} ({prog?.name})
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* CREDIT HOURS (Optional) */}
+                      <div>
+                        <Label>Credit Hours (Optional)</Label>
+                        <Input
+                          type="number"
+                          value={scmForm.creditHours}
+                          onChange={(e) => setScmForm({ ...scmForm, creditHours: e.target.value })}
+                          placeholder="e.g. 3"
+                        />
+                      </div>
+
+                      {/* CODE (Optional) */}
+                      <div>
+                        <Label>Code (Optional)</Label>
+                        <Input
+                          value={scmForm.code}
+                          onChange={(e) => setScmForm({ ...scmForm, code: e.target.value })}
+                          placeholder="e.g. PHY-101"
+                        />
+                      </div>
+
+                      {/* DESCRIPTION (Optional) */}
+                      <div>
+                        <Label>Description (Optional)</Label>
+                        <Input
+                          value={scmForm.description}
+                          onChange={(e) => setScmForm({ ...scmForm, description: e.target.value })}
+                          placeholder="Brief description"
+                        />
+                      </div>
+
+                      <Button
+                        onClick={() => handleSubmit("scm")}
+                        className="w-full"
+                        disabled={!scmForm.subjectId || !scmForm.classId}
+                      >
+                        {editing ? "Update" : "Add"} Mapping
                       </Button>
                     </div>
                   </DialogContent>
@@ -2249,49 +2168,58 @@ const Academics = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Teacher</TableHead>
                       <TableHead>Subject</TableHead>
+                      <TableHead>Class</TableHead>
+                      <TableHead>Program</TableHead>
+                      <TableHead>Credit Hrs</TableHead>
+                      <TableHead>Code</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {teacherMappings.map((m) => {
-                      const teacher = teachers.find((t) => t.id === m.teacherId);
-                      const subject = subjects.find((s) => s.id === m.subjectId);
-                      return (
-                        <TableRow key={m.id}>
-                          <TableCell>{teacher?.name || "-"}</TableCell>
-                          <TableCell>{subject?.name || "-"}</TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button variant="outline" size="sm" onClick={() => openEdit("mapping", m)}>
-                                    <Edit className="w-4 h-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Edit</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    onClick={() => {
-                                      setDeleteTarget({ type: "mapping", id: m.id });
-                                      setDeleteDialog(true);
-                                    }}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Delete</TooltipContent>
-                              </Tooltip>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                    {scmMappings.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.subject?.name || "—"}</TableCell>
+                        <TableCell>{item.class?.name || "—"}</TableCell>
+                        <TableCell>{item.class?.program?.name || "—"}</TableCell>
+                        <TableCell>{item.creditHours ?? "—"}</TableCell>
+                        <TableCell>{item.code || "—"}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="outline" size="sm" onClick={() => openEdit("scm", item)}>
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Edit</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => {
+                                    setDeleteTarget({ type: "scm", id: item.id });
+                                    setDeleteDialog(true);
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Delete</TooltipContent>
+                            </Tooltip>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {scmMappings.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          No subject-class mappings found.
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>

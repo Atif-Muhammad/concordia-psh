@@ -165,23 +165,40 @@ async function main() {
   // ─── 7. SUBJECTS ───
   console.log('📝 Creating subjects...');
   const subjects = await Promise.all([
+    // Unique subject names (reusable across classes)
+    prisma.subject.create({ data: { name: 'Physics' } }),
+    prisma.subject.create({ data: { name: 'Chemistry' } }),
+    prisma.subject.create({ data: { name: 'Biology' } }),
+    prisma.subject.create({ data: { name: 'English' } }),
+    prisma.subject.create({ data: { name: 'Urdu' } }),
+    prisma.subject.create({ data: { name: 'Mathematics' } }),
+    prisma.subject.create({ data: { name: 'Computer Science' } }),
+    prisma.subject.create({ data: { name: 'Intro to Computing' } }),
+    prisma.subject.create({ data: { name: 'Calculus I' } }),
+    prisma.subject.create({ data: { name: 'English Composition' } }),
+  ]);
+  const [physics, chemistry, biology, english, urdu, mathematics, computerScience, introComputing, calculusI, englishComp] = subjects;
+
+  // ─── 7b. SUBJECT-CLASS MAPPINGS ───
+  console.log('🔗 Creating subject-class mappings...');
+  await Promise.all([
     // PM 1st Year
-    prisma.subject.create({ data: { name: 'Physics', code: 'PHY-101', creditHours: 4, classId: pm1.id } }),
-    prisma.subject.create({ data: { name: 'Chemistry', code: 'CHM-101', creditHours: 4, classId: pm1.id } }),
-    prisma.subject.create({ data: { name: 'Biology', code: 'BIO-101', creditHours: 4, classId: pm1.id } }),
-    prisma.subject.create({ data: { name: 'English', code: 'ENG-101', creditHours: 3, classId: pm1.id } }),
-    prisma.subject.create({ data: { name: 'Urdu', code: 'URD-101', creditHours: 3, classId: pm1.id } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: physics.id, classId: pm1.id, code: 'PHY-101', creditHours: 4 } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: chemistry.id, classId: pm1.id, code: 'CHM-101', creditHours: 4 } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: biology.id, classId: pm1.id, code: 'BIO-101', creditHours: 4 } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: english.id, classId: pm1.id, code: 'ENG-101', creditHours: 3 } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: urdu.id, classId: pm1.id, code: 'URD-101', creditHours: 3 } }),
     // PE 1st Year
-    prisma.subject.create({ data: { name: 'Physics', code: 'PHY-PE1', creditHours: 4, classId: pe1.id } }),
-    prisma.subject.create({ data: { name: 'Chemistry', code: 'CHM-PE1', creditHours: 4, classId: pe1.id } }),
-    prisma.subject.create({ data: { name: 'Mathematics', code: 'MTH-PE1', creditHours: 4, classId: pe1.id } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: physics.id, classId: pe1.id, code: 'PHY-PE1', creditHours: 4 } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: chemistry.id, classId: pe1.id, code: 'CHM-PE1', creditHours: 4 } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: mathematics.id, classId: pe1.id, code: 'MTH-PE1', creditHours: 4 } }),
     // ICS 1st Year
-    prisma.subject.create({ data: { name: 'Computer Science', code: 'CS-101', creditHours: 4, classId: ics1.id } }),
-    prisma.subject.create({ data: { name: 'Mathematics', code: 'MTH-ICS1', creditHours: 4, classId: ics1.id } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: computerScience.id, classId: ics1.id, code: 'CS-101', creditHours: 4 } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: mathematics.id, classId: ics1.id, code: 'MTH-ICS1', creditHours: 4 } }),
     // BSCS Sem 1
-    prisma.subject.create({ data: { name: 'Intro to Computing', code: 'CS-111', creditHours: 3, classId: bscs1.id } }),
-    prisma.subject.create({ data: { name: 'Calculus I', code: 'MTH-111', creditHours: 3, classId: bscs1.id } }),
-    prisma.subject.create({ data: { name: 'English Composition', code: 'ENG-111', creditHours: 3, classId: bscs1.id } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: introComputing.id, classId: bscs1.id, code: 'CS-111', creditHours: 3 } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: calculusI.id, classId: bscs1.id, code: 'MTH-111', creditHours: 3 } }),
+    prisma.subjectClassMapping.create({ data: { subjectId: englishComp.id, classId: bscs1.id, code: 'ENG-111', creditHours: 3 } }),
   ]);
 
   // ─── 8. FEE HEADS ───

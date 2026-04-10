@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import { validateCurrentTab } from "@/lib/staffValidation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     Plus,
@@ -167,6 +168,58 @@ const STAFF_MODULES = [
     "Configuration",
 ];
 
+// ---------------------------------------------------------------------------
+// StepIndicator Component
+// ---------------------------------------------------------------------------
+
+const STEP_LABELS = ["Basic Info", "Employment", "Roles", "Role Details"];
+
+function StepIndicator({ currentStep, completedSteps, onStepClick }) {
+    return (
+        <div className="flex items-center w-full mb-6 px-2">
+            {STEP_LABELS.map((label, i) => {
+                const step = i + 1;
+                const isActive = step === currentStep;
+                const isCompleted = completedSteps.has(step);
+                const isUpcoming = !isActive && !isCompleted;
+
+                let circleClass = "flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold border-2 cursor-pointer select-none transition-colors duration-200 ";
+                if (isActive) {
+                    circleClass += "bg-primary text-primary-foreground border-primary";
+                } else if (isCompleted) {
+                    circleClass += "bg-green-500 text-white border-green-500";
+                } else {
+                    circleClass += "bg-muted text-muted-foreground border-muted";
+                }
+
+                return (
+                    <React.Fragment key={step}>
+                        <div className="flex flex-col items-center gap-1">
+                            <div
+                                className={circleClass}
+                                onClick={() => onStepClick(step)}
+                                data-step={step}
+                                data-state={isActive ? "active" : isCompleted ? "completed" : "upcoming"}
+                            >
+                                {step}
+                            </div>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">{label}</span>
+                        </div>
+                        {i < STEP_LABELS.length - 1 && (
+                            <div className="flex-1 h-0.5 mx-1 mb-4 bg-muted overflow-hidden rounded">
+                                <div
+                                    className="h-full bg-green-500 transition-all duration-300"
+                                    style={{ width: isCompleted ? "100%" : "0%" }}
+                                />
+                            </div>
+                        )}
+                    </React.Fragment>
+                );
+            })}
+        </div>
+    );
+}
+
 export default function Staff() {
     const queryClient = useQueryClient();
     const { toast } = useToast();
@@ -184,6 +237,8 @@ export default function Staff() {
     const [photoFile, setPhotoFile] = useState(null);
     const [photoPreview, setPhotoPreview] = useState(null);
     const [formTab, setFormTab] = useState("basic");
+    const [errors, setErrors] = useState({});
+    const [completedSteps, setCompletedSteps] = useState(new Set());
 
     // Attendance State
     const [activeTab, setActiveTab] = useState("directory");
@@ -320,6 +375,8 @@ export default function Staff() {
         setPhotoFile(null);
         setPhotoPreview(null);
         setFormTab("basic");
+        setErrors({});
+        setCompletedSteps(new Set());
     };
 
     const handleOpenCreate = () => {
@@ -438,6 +495,51 @@ export default function Staff() {
     const handleConfirmDelete = () => {
         if (staffToDelete) {
             deleteMutation.mutate(staffToDelete.id);
+        }
+    };
+
+    const handleNext = () => {
+        const tabErrors = validateCurrentTab(formTab, formData, !!editingStaff);
+        if (Object.keys(tabErrors).length > 0) {
+            setErrors(tabErrors);
+            return;
+        }
+        setErrors({});
+        const tabs = ["basic", "employment", "roles", "details"];
+        const idx = tabs.indexOf(formTab);
+        if (idx < tabs.length - 1) {
+            // Mark current step as completed (step = idx + 1)
+            setCompletedSteps(prev => new Set([...prev, idx + 1]));
+            setFormTab(tabs[idx + 1]);
+        }
+    };
+
+    const tabToStep = { basic: 1, employment: 2, roles: 3, details: 4 };
+    const stepToTab = { 1: "basic", 2: "employment", 3: "roles", 4: "details" };
+
+    const handleStepClick = (step) => {
+        const currentStep = tabToStep[formTab];
+        if (step === currentStep) return;
+        if (step < currentStep) {
+            // Backward: navigate freely, clear errors, remove completed steps >= step
+            setErrors({});
+            setCompletedSteps(prev => {
+                const next = new Set(prev);
+                for (let s = step; s <= 4; s++) next.delete(s);
+                return next;
+            });
+            setFormTab(stepToTab[step]);
+        } else {
+            // Forward: validate current tab first
+            const tabErrors = validateCurrentTab(formTab, formData, !!editingStaff);
+            if (Object.keys(tabErrors).length > 0) {
+                setErrors(tabErrors);
+                return;
+            }
+            setErrors({});
+            // Mark current step as completed
+            setCompletedSteps(prev => new Set([...prev, currentStep]));
+            setFormTab(stepToTab[step]);
         }
     };
 
@@ -902,12 +1004,11 @@ export default function Staff() {
                         </DialogHeader>
 
                         <Tabs value={formTab} onValueChange={setFormTab}>
-                            <TabsList className="grid w-full grid-cols-4">
-                                <TabsTrigger value="basic">Basic Info</TabsTrigger>
-                                <TabsTrigger value="employment">Employment</TabsTrigger>
-                                <TabsTrigger value="roles">Roles</TabsTrigger>
-                                <TabsTrigger value="details">Role Details</TabsTrigger>
-                            </TabsList>
+                            <StepIndicator
+                                currentStep={{ basic: 1, employment: 2, roles: 3, details: 4 }[formTab]}
+                                completedSteps={completedSteps}
+                                onStepClick={handleStepClick}
+                            />
 
                             <TabsContent value="basic" className="space-y-4 mt-4">
                                 {/* Photo Upload */}
@@ -939,15 +1040,20 @@ export default function Staff() {
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <Label>Name *</Label>
+                                        <Label>Name <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
                                         <Input
                                             value={formData.name}
-                                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                            onChange={(e) => {
+                                                setFormData({ ...formData, name: e.target.value });
+                                                setErrors(prev => { const next = {...prev}; delete next.name; return next; });
+                                            }}
                                             placeholder="Full Name"
+                                            className={errors.name ? "border-destructive" : ""}
                                         />
+                                        {errors.name && <p className="text-xs text-destructive mt-1">{errors.name}</p>}
                                     </div>
                                     <div>
-                                        <Label>Father's Name</Label>
+                                        <Label>Father's Name <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
                                         <Input
                                             value={formData.fatherName}
                                             onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })}
@@ -955,7 +1061,7 @@ export default function Staff() {
                                         />
                                     </div>
                                     <div>
-                                        <Label>CNIC</Label>
+                                        <Label>CNIC <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
                                         <Input
                                             value={formData.cnic}
                                             onChange={(e) => setFormData({ ...formData, cnic: e.target.value })}
@@ -963,16 +1069,21 @@ export default function Staff() {
                                         />
                                     </div>
                                     <div>
-                                        <Label>Email</Label>
+                                        <Label>Email <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
                                         <Input
                                             type="email"
                                             value={formData.email}
-                                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                            onChange={(e) => {
+                                                setFormData({ ...formData, email: e.target.value });
+                                                setErrors(prev => { const next = {...prev}; delete next.email; return next; });
+                                            }}
                                             placeholder="email@example.com"
+                                            className={errors.email ? "border-destructive" : ""}
                                         />
+                                        {errors.email && <p className="text-xs text-destructive mt-1">{errors.email}</p>}
                                     </div>
                                     <div>
-                                        <Label>Phone</Label>
+                                        <Label>Phone <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
                                         <Input
                                             value={formData.phone}
                                             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
@@ -980,17 +1091,28 @@ export default function Staff() {
                                         />
                                     </div>
                                     <div>
-                                        <Label>{editingStaff ? "New Password (optional)" : "Password *"}</Label>
+                                        <Label>
+                                            {editingStaff ? "New Password" : "Password"}
+                                            {!editingStaff
+                                                ? <span className="text-xs text-muted-foreground ml-1">Required</span>
+                                                : <span className="text-xs text-muted-foreground ml-1">Optional</span>
+                                            }
+                                        </Label>
                                         <Input
                                             type="password"
                                             value={formData.password}
-                                            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                            onChange={(e) => {
+                                                setFormData({ ...formData, password: e.target.value });
+                                                setErrors(prev => { const next = {...prev}; delete next.password; return next; });
+                                            }}
                                             placeholder={editingStaff ? "Leave blank to keep current" : "Password"}
+                                            className={errors.password ? "border-destructive" : ""}
                                         />
+                                        {errors.password && <p className="text-xs text-destructive mt-1">{errors.password}</p>}
                                     </div>
                                 </div>
                                 <div>
-                                    <Label>Religion</Label>
+                                    <Label>Religion <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
                                     <Input
                                         value={formData.religion}
                                         onChange={(e) => setFormData({ ...formData, religion: e.target.value })}
@@ -998,7 +1120,7 @@ export default function Staff() {
                                     />
                                 </div>
                                 <div>
-                                    <Label>Address</Label>
+                                    <Label>Address <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
                                     <Input
                                         value={formData.address}
                                         onChange={(e) => setFormData({ ...formData, address: e.target.value })}
@@ -1010,12 +1132,15 @@ export default function Staff() {
                             <TabsContent value="employment" className="space-y-4 mt-4">
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <Label>Staff Type</Label>
+                                        <Label>Staff Type <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
                                         <Select
                                             value={formData.staffType}
-                                            onValueChange={(value) => setFormData({ ...formData, staffType: value })}
+                                            onValueChange={(value) => {
+                                                setFormData({ ...formData, staffType: value });
+                                                setErrors(prev => { const next = {...prev}; delete next.staffType; return next; });
+                                            }}
                                         >
-                                            <SelectTrigger>
+                                            <SelectTrigger className={errors.staffType ? "border-destructive" : ""}>
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -1024,14 +1149,18 @@ export default function Staff() {
                                                 ))}
                                             </SelectContent>
                                         </Select>
+                                        {errors.staffType && <p className="text-xs text-destructive mt-1">{errors.staffType}</p>}
                                     </div>
                                     <div>
-                                        <Label>Status</Label>
+                                        <Label>Status <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
                                         <Select
                                             value={formData.status}
-                                            onValueChange={(value) => setFormData({ ...formData, status: value })}
+                                            onValueChange={(value) => {
+                                                setFormData({ ...formData, status: value });
+                                                setErrors(prev => { const next = {...prev}; delete next.status; return next; });
+                                            }}
                                         >
-                                            <SelectTrigger>
+                                            <SelectTrigger className={errors.status ? "border-destructive" : ""}>
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -1040,52 +1169,78 @@ export default function Staff() {
                                                 ))}
                                             </SelectContent>
                                         </Select>
+                                        {errors.status && <p className="text-xs text-destructive mt-1">{errors.status}</p>}
                                     </div>
                                     <div>
-                                        <Label>Basic Pay (PKR)</Label>
+                                        <Label>Basic Pay (PKR) <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
                                         <Input
                                             type="number"
                                             value={formData.basicPay}
-                                            onChange={(e) => setFormData({ ...formData, basicPay: e.target.value })}
+                                            onChange={(e) => {
+                                                setFormData({ ...formData, basicPay: e.target.value });
+                                                setErrors(prev => { const next = {...prev}; delete next.basicPay; return next; });
+                                            }}
                                             placeholder="50000"
+                                            className={errors.basicPay ? "border-destructive" : ""}
                                         />
+                                        {errors.basicPay && <p className="text-xs text-destructive mt-1">{errors.basicPay}</p>}
                                     </div>
                                     <div>
-                                        <Label>Join Date</Label>
+                                        <Label>Join Date <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
                                         <Input
                                             type="date"
                                             value={formData.joinDate}
-                                            onChange={(e) => setFormData({ ...formData, joinDate: e.target.value })}
+                                            onChange={(e) => {
+                                                setFormData({ ...formData, joinDate: e.target.value });
+                                                setErrors(prev => { const next = {...prev}; delete next.joinDate; return next; });
+                                            }}
+                                            className={errors.joinDate ? "border-destructive" : ""}
                                         />
+                                        {errors.joinDate && <p className="text-xs text-destructive mt-1">{errors.joinDate}</p>}
                                     </div>
                                     {formData.staffType === "CONTRACT" && (
                                         <>
                                             <div>
-                                                <Label>Contract Start</Label>
+                                                <Label>Contract Start <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
                                                 <Input
                                                     type="date"
                                                     value={formData.contractStart}
-                                                    onChange={(e) => setFormData({ ...formData, contractStart: e.target.value })}
+                                                    onChange={(e) => {
+                                                        setFormData({ ...formData, contractStart: e.target.value });
+                                                        setErrors(prev => { const next = {...prev}; delete next.contractStart; return next; });
+                                                    }}
+                                                    className={errors.contractStart ? "border-destructive" : ""}
                                                 />
+                                                {errors.contractStart && <p className="text-xs text-destructive mt-1">{errors.contractStart}</p>}
                                             </div>
                                             <div>
-                                                <Label>Contract End</Label>
+                                                <Label>Contract End <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
                                                 <Input
                                                     type="date"
                                                     value={formData.contractEnd}
-                                                    onChange={(e) => setFormData({ ...formData, contractEnd: e.target.value })}
+                                                    onChange={(e) => {
+                                                        setFormData({ ...formData, contractEnd: e.target.value });
+                                                        setErrors(prev => { const next = {...prev}; delete next.contractEnd; return next; });
+                                                    }}
+                                                    className={errors.contractEnd ? "border-destructive" : ""}
                                                 />
+                                                {errors.contractEnd && <p className="text-xs text-destructive mt-1">{errors.contractEnd}</p>}
                                             </div>
                                         </>
                                     )}
                                     {(formData.status === "TERMINATED" || formData.status === "RETIRED") && (
                                         <div>
-                                            <Label>Leave Date</Label>
+                                            <Label>Leave Date <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
                                             <Input
                                                 type="date"
                                                 value={formData.leaveDate}
-                                                onChange={(e) => setFormData({ ...formData, leaveDate: e.target.value })}
+                                                onChange={(e) => {
+                                                    setFormData({ ...formData, leaveDate: e.target.value });
+                                                    setErrors(prev => { const next = {...prev}; delete next.leaveDate; return next; });
+                                                }}
+                                                className={errors.leaveDate ? "border-destructive" : ""}
                                             />
+                                            {errors.leaveDate && <p className="text-xs text-destructive mt-1">{errors.leaveDate}</p>}
                                         </div>
                                     )}
                                 </div>
@@ -1102,7 +1257,7 @@ export default function Staff() {
                                             <div key={label} className="border rounded-lg p-3 space-y-3">
                                                 <p className="text-sm font-medium">{label} Leave</p>
                                                 <div>
-                                                    <Label className="text-xs text-muted-foreground">Allowed Days</Label>
+                                                    <Label className="text-xs text-muted-foreground">Allowed Days <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
                                                     <Input
                                                         type="number"
                                                         min="0"
@@ -1112,7 +1267,7 @@ export default function Staff() {
                                                     />
                                                 </div>
                                                 <div>
-                                                    <Label className="text-xs text-muted-foreground">Deduction per Extra Day (PKR)</Label>
+                                                    <Label className="text-xs text-muted-foreground">Deduction per Extra Day (PKR) <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
                                                     <Input
                                                         type="number"
                                                         min="0"
@@ -1129,6 +1284,7 @@ export default function Staff() {
 
                             <TabsContent value="roles" className="space-y-6 mt-4">
                                 <div className="space-y-4">
+                                    <p className="text-xs text-muted-foreground">At least one role toggle must be enabled to proceed.</p>
                                     <div className="flex items-center justify-between p-4 border rounded-lg">
                                         <div className="flex items-center gap-3">
                                             <GraduationCap className="w-6 h-6 text-blue-500" />
@@ -1141,7 +1297,10 @@ export default function Staff() {
                                         </div>
                                         <Switch
                                             checked={formData.isTeaching}
-                                            onCheckedChange={(checked) => setFormData({ ...formData, isTeaching: checked })}
+                                            onCheckedChange={(checked) => {
+                                                setFormData({ ...formData, isTeaching: checked });
+                                                setErrors(prev => { const next = {...prev}; delete next.roles; return next; });
+                                            }}
                                         />
                                     </div>
 
@@ -1157,7 +1316,10 @@ export default function Staff() {
                                         </div>
                                         <Switch
                                             checked={formData.isNonTeaching}
-                                            onCheckedChange={(checked) => setFormData({ ...formData, isNonTeaching: checked })}
+                                            onCheckedChange={(checked) => {
+                                                setFormData({ ...formData, isNonTeaching: checked });
+                                                setErrors(prev => { const next = {...prev}; delete next.roles; return next; });
+                                            }}
                                         />
                                     </div>
 
@@ -1166,6 +1328,7 @@ export default function Staff() {
                                             Please select at least one role
                                         </p>
                                     )}
+                                    {errors.roles && <p className="text-xs text-destructive mt-1">{errors.roles}</p>}
                                 </div>
                             </TabsContent>
 
@@ -1310,19 +1473,25 @@ export default function Staff() {
                                 onClick={() => {
                                     const tabs = ["basic", "employment", "roles", "details"];
                                     const idx = tabs.indexOf(formTab);
-                                    if (idx > 0) setFormTab(tabs[idx - 1]);
-                                    else handleCloseDialog();
+                                    if (idx > 0) {
+                                        setErrors({});
+                                        const prevStep = idx; // step number of the tab we're going back to
+                                        setCompletedSteps(prev => {
+                                            const next = new Set(prev);
+                                            for (let s = prevStep; s <= 4; s++) next.delete(s);
+                                            return next;
+                                        });
+                                        setFormTab(tabs[idx - 1]);
+                                    } else {
+                                        handleCloseDialog();
+                                    }
                                 }}
                             >
                                 {formTab === "basic" ? "Cancel" : "Back"}
                             </Button>
                             {formTab !== "details" ? (
                                 <Button
-                                    onClick={() => {
-                                        const tabs = ["basic", "employment", "roles", "details"];
-                                        const idx = tabs.indexOf(formTab);
-                                        setFormTab(tabs[idx + 1]);
-                                    }}
+                                    onClick={handleNext}
                                 >
                                     Next
                                 </Button>

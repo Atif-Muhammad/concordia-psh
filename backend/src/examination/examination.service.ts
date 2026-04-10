@@ -508,6 +508,12 @@ export class ExaminationService {
 
         // Calculate grade based on program duration
         // 4-year and 5-year programs use GPA system, others use percentage-based grading
+        if (!exam.program.duration && !exam.program.level) {
+          console.warn(
+            `[generateResultsForExam] Program "${exam.program.name}" (id: ${exam.program.id}) ` +
+            `has null duration and level. Defaulting to intermediate grading scale.`
+          );
+        }
         const isUndergraduate =
           exam.program.duration?.includes('4') ||
           exam.program.duration?.includes('5') ||

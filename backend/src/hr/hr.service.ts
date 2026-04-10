@@ -246,7 +246,7 @@ export class HrService {
         : undefined;
 
     try {
-      return await this.prismService.staff.update({
+      const updated = await this.prismService.staff.update({
         where: { id },
         data: {
           name: payload.name,
@@ -333,28 +333,22 @@ export class HrService {
         payload.casualAllowed !== undefined ||
         payload.casualDeduction !== undefined
       ) {
+        const leaveData = {
+          sickAllowed: parseInt(payload.sickAllowed || '0'),
+          sickDeduction: parseFloat(payload.sickDeduction || '0'),
+          annualAllowed: parseInt(payload.annualAllowed || '0'),
+          annualDeduction: parseFloat(payload.annualDeduction || '0'),
+          casualAllowed: parseInt(payload.casualAllowed || '0'),
+          casualDeduction: parseFloat(payload.casualDeduction || '0'),
+        };
         await this.prismService.staffLeaveSettings.upsert({
           where: { staffId: id },
-          create: {
-            staffId: id,
-            sickAllowed: parseInt(payload.sickAllowed || '0'),
-            sickDeduction: parseFloat(payload.sickDeduction || '0'),
-            annualAllowed: parseInt(payload.annualAllowed || '0'),
-            annualDeduction: parseFloat(payload.annualDeduction || '0'),
-            casualAllowed: parseInt(payload.casualAllowed || '0'),
-            casualDeduction: parseFloat(payload.casualDeduction || '0'),
-          },
-          update: {
-            sickAllowed: parseInt(payload.sickAllowed || '0'),
-            sickDeduction: parseFloat(payload.sickDeduction || '0'),
-            annualAllowed: parseInt(payload.annualAllowed || '0'),
-            annualDeduction: parseFloat(payload.annualDeduction || '0'),
-            casualAllowed: parseInt(payload.casualAllowed || '0'),
-            casualDeduction: parseFloat(payload.casualDeduction || '0'),
-          },
+          create: { staffId: id, ...leaveData },
+          update: leaveData,
         });
       }
 
+      return updated;
     } catch (error: any) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2002') {
