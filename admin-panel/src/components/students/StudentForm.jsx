@@ -44,11 +44,19 @@ const StudentForm = ({
             currentSessionId = initialData.academicRecords[0].sessionId?.toString() || "";
         }
 
+        // Resolve session name from academicSessions if not provided directly
+        const resolveSessionName = (sessionId, sessionName) => {
+            if (sessionName) return sessionName;
+            if (!sessionId) return "";
+            const found = academicSessions.find(s => s.id.toString() === sessionId.toString());
+            return found?.name || "";
+        };
+
         return {
             fName: initialData.fName || "",
             lName: initialData.lName || "",
             sessionId: currentSessionId,
-            session: initialData.session || "",
+            session: resolveSessionName(currentSessionId, initialData.session || ""),
             fatherOrguardian: initialData.fatherOrguardian || "",
             rollNumber: initialData.rollNumber || "",
             parentOrGuardianEmail: initialData.parentOrGuardianEmail || "",
@@ -68,6 +76,12 @@ const StudentForm = ({
             lateFeeFine: initialData.lateFeeFine || 0,
             installments: initialData.installments || initialData.feeInstallments || [],
             documents: docs,
+            // New fields
+            admissionFormNumber: initialData.admissionFormNumber || "",
+            previousBoardName: initialData.previousBoardName || "",
+            previousBoardRollNumber: initialData.previousBoardRollNumber || "",
+            obtainedMarks: initialData.obtainedMarks?.toString() || "",
+            totalMarks: initialData.totalMarks?.toString() || "",
         };
     });
 
@@ -86,7 +100,12 @@ const StudentForm = ({
             fName: initialData.fName || "",
             lName: initialData.lName || "",
             sessionId: currentSessionId,
-            session: initialData.session || "",
+            session: (() => {
+                if (initialData.session) return initialData.session;
+                if (!currentSessionId) return "";
+                const found = academicSessions.find(s => s.id.toString() === currentSessionId.toString());
+                return found?.name || "";
+            })(),
             fatherOrguardian: initialData.fatherOrguardian || "",
             rollNumber: initialData.rollNumber || "",
             parentOrGuardianEmail: initialData.parentOrGuardianEmail || "",
@@ -106,6 +125,12 @@ const StudentForm = ({
             lateFeeFine: initialData.lateFeeFine || 0,
             installments: initialData.installments || initialData.feeInstallments || [],
             documents: docs,
+            // New fields
+            admissionFormNumber: initialData.admissionFormNumber || "",
+            previousBoardName: initialData.previousBoardName || "",
+            previousBoardRollNumber: initialData.previousBoardRollNumber || "",
+            obtainedMarks: initialData.obtainedMarks?.toString() || "",
+            totalMarks: initialData.totalMarks?.toString() || "",
         });
         setImagePreview(initialData.photo_url || "");
         setImageFile(null);
@@ -202,18 +227,28 @@ const StudentForm = ({
                 const generate = async () => {
                     if (!getLatestRollNumber) return;
                     try {
-                        const currentYearSub = new Date().getFullYear().toString().slice(-2);
-                        const searchPrefix = `${calculatedPrefix}${currentYearSub}-`;
+                        // Use the first year of the selected session (e.g. "2025-2026" -> "25")
+                        // Fall back to current year if no session selected
+                        let yearSub = new Date().getFullYear().toString().slice(-2);
+                        if (formData.sessionId) {
+                            const sessionRecord = academicSessions.find(s => s.id.toString() === formData.sessionId.toString());
+                            if (sessionRecord?.name) {
+                                // Session name format: "2025-2026" or "2025" — take first 4-digit year
+                                const match = sessionRecord.name.match(/(\d{4})/);
+                                if (match) yearSub = match[1].slice(-2);
+                            }
+                        }
+                        const searchPrefix = `${calculatedPrefix}${yearSub}-`;
                         const latestFull = await getLatestRollNumber(searchPrefix);
 
-                        let nextSuffix = `${currentYearSub}-001`;
+                        let nextSuffix = `${yearSub}-001`;
                         if (latestFull) {
                             const parts = latestFull.split("-");
                             const lastPart = parts[parts.length - 1];
                             if (!isNaN(parseInt(lastPart))) {
                                 const nextNum = parseInt(lastPart, 10) + 1;
                                 const nextNumStr = nextNum.toString().padStart(3, '0');
-                                nextSuffix = `${currentYearSub}-${nextNumStr}`;
+                                nextSuffix = `${yearSub}-${nextNumStr}`;
                             }
                         }
                         setFormData(prev => ({ ...prev, rollNumber: `${calculatedPrefix}${nextSuffix}` }));
@@ -225,7 +260,7 @@ const StudentForm = ({
             }
             setPrevPrefix(calculatedPrefix);
         }
-    }, [calculatedPrefix, isEditing, getLatestRollNumber, formData.rollNumber, prevPrefix]);
+    }, [calculatedPrefix, isEditing, getLatestRollNumber, formData.rollNumber, prevPrefix, formData.sessionId, academicSessions]);
 
     useEffect(() => {
         if (!formData.programId || !formData.admissionDate || sessionManuallySet.current || isEditing || !academicSessions.length) return;
@@ -240,6 +275,15 @@ const StudentForm = ({
             }));
         }
     }, [formData.programId, formData.admissionDate, academicSessions, formData.sessionId, isEditing]);
+
+    // Resolve session name once academicSessions loads (handles pre-loaded sessionId from inquiry)
+    useEffect(() => {
+        if (!academicSessions.length || !formData.sessionId || formData.session) return;
+        const found = academicSessions.find(s => s.id.toString() === formData.sessionId.toString());
+        if (found) {
+            setFormData(prev => ({ ...prev, session: found.name }));
+        }
+    }, [academicSessions, formData.sessionId, formData.session]);
 
     // === HANDLERS ===
 
@@ -525,7 +569,9 @@ const StudentForm = ({
             'parentOrGuardianEmail', 'parentOrGuardianPhone', 'parentCNIC', 'address',
             'gender', 'religion', 'dob', 'admissionDate', 'programId', 'classId', 'sectionId',
             'tuitionFee', 'numberOfInstallments', 'lateFeeFine',
-            'installments', 'documents', 'status', 'session', 'sessionId', 'studentCnic'
+            'installments', 'documents', 'status', 'session', 'sessionId', 'studentCnic',
+            'admissionFormNumber', 'previousBoardName', 'previousBoardRollNumber',
+            'obtainedMarks', 'totalMarks',
         ];
 
         const submissionData = new FormData();
@@ -804,6 +850,28 @@ const StudentForm = ({
                         <div className="col-span-1">
                             <Label>Address <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <Input value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} placeholder="Full address" />
+                        </div>
+
+                        {/* Previous Academic Info */}
+                        <div>
+                            <Label>Admission Form # <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                            <Input value={formData.admissionFormNumber} onChange={e => setFormData({ ...formData, admissionFormNumber: e.target.value })} placeholder="e.g. AF-2025-001" />
+                        </div>
+                        <div>
+                            <Label>Previous Board Name <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                            <Input value={formData.previousBoardName} onChange={e => setFormData({ ...formData, previousBoardName: e.target.value })} placeholder="e.g. BISE Peshawar" />
+                        </div>
+                        <div>
+                            <Label>Previous Board Roll # <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                            <Input value={formData.previousBoardRollNumber} onChange={e => setFormData({ ...formData, previousBoardRollNumber: e.target.value })} placeholder="e.g. 123456" />
+                        </div>
+                        <div>
+                            <Label>Obtained Marks <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                            <div className="flex items-center gap-1">
+                                <Input type="number" value={formData.obtainedMarks} onChange={e => setFormData({ ...formData, obtainedMarks: e.target.value })} placeholder="e.g. 850" />
+                                <span className="text-muted-foreground text-sm font-medium px-1">/</span>
+                                <Input type="number" value={formData.totalMarks} onChange={e => setFormData({ ...formData, totalMarks: e.target.value })} placeholder="e.g. 1100" />
+                            </div>
                         </div>
                     </div>
                 </div>

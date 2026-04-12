@@ -16,9 +16,14 @@ import { CreateFeeChallanDto } from './dtos/create-fee-challan.dto';
 import { UpdateFeeChallanDto } from './dtos/update-fee-challan.dto';
 import { FeeReportQueryDto } from './dtos/fee-report-query.dto';
 
+import { LateFeeCronService } from './late-fee.cron';
+
 @Controller('fee-management')
 export class FeeManagementController {
-  constructor(private readonly feeService: FeeManagementService) { }
+  constructor(
+    private readonly feeService: FeeManagementService,
+    private readonly lateFeeCron: LateFeeCronService,
+  ) { }
 
   // Fee Heads
   @Post('head/create')
@@ -171,5 +176,11 @@ export class FeeManagementController {
   @Delete('template/delete')
   async deleteFeeChallanTemplate(@Query('id') id: string) {
     return await this.feeService.deleteFeeChallanTemplate(Number(id));
+  }
+
+  /** Manual trigger for late fee accrual (admin use / backfill) */
+  @Post('late-fee/accrue')
+  async triggerLateFeeAccrual() {
+    return await this.lateFeeCron.runLateFeeAccrual();
   }
 }

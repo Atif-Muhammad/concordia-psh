@@ -1,7 +1,9 @@
-import { PermissionGuard } from './permission.guard';
+import { PermissionsGuard } from './permission.guard';
+import { Reflector } from '@nestjs/core';
 
-describe('PermissionGuard', () => {
+describe('PermissionsGuard', () => {
   it('should be defined', () => {
-    expect(new PermissionGuard()).toBeDefined();
+    const reflector = new Reflector();
+    expect(new PermissionsGuard(reflector)).toBeDefined();
   });
 });

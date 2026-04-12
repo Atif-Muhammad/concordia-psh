@@ -59,4 +59,16 @@ export class StudentDto {
   lateFeeFine?: number;
   @IsOptional()
   installments?: string; // JSON string for multipart/form-data
+
+  // Previous academic info
+  @IsOptional()
+  admissionFormNumber?: string;
+  @IsOptional()
+  previousBoardName?: string;
+  @IsOptional()
+  previousBoardRollNumber?: string;
+  @IsOptional()
+  obtainedMarks?: number;
+  @IsOptional()
+  totalMarks?: number;
 }

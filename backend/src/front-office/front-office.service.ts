@@ -16,8 +16,10 @@ export class FrontOfficeService {
       data: {
         ...payload,
         programInterest: Number(payload.programInterest),
+        sessionId: payload.sessionId ? Number(payload.sessionId) : undefined,
         status: payload.status as unknown as InquiryStatus,
         remarks: payload.remarks || [],
+        followUpDate: payload.followUpDate ? new Date(payload.followUpDate) : undefined,
       },
     });
   }
@@ -33,11 +35,8 @@ export class FrontOfficeService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          program: {
-            select: {
-              name: true,
-            },
-          },
+          program: { select: { name: true } },
+          session: { select: { id: true, name: true } },
         },
       }),
       this.prismaService.inquiry.count({ where }),
@@ -62,6 +61,12 @@ export class FrontOfficeService {
     }
     if (payload.programInterest) {
       updateData.programInterest = Number(payload.programInterest);
+    }
+    if (payload.sessionId !== undefined) {
+      updateData.sessionId = payload.sessionId ? Number(payload.sessionId) : null;
+    }
+    if (payload.followUpDate !== undefined) {
+      updateData.followUpDate = payload.followUpDate ? new Date(payload.followUpDate) : null;
     }
 
     return await this.prismaService.inquiry.update({

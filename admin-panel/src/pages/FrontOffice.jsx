@@ -95,6 +95,7 @@ import {
   getEmployeesByDept,
   getLatestRollNumber,
   addInquiryRemark,
+  getAcademicSessions,
 } from "../../config/apis";
 import StudentForm from "@/components/students/StudentForm";
 import { formatTime } from "../lib/utils";
@@ -183,6 +184,10 @@ const FrontOffice = () => {
     queryKey: ["sections"],
     queryFn: getSections, // Changed from getSectionNames to get full objects
   });
+  const { data: academicSessions = [] } = useQuery({
+    queryKey: ["academic-sessions"],
+    queryFn: getAcademicSessions,
+  });
   const calculatedPrefix = useMemo(() => {
     if (!selectedInquiryForAccept || !studentFormData.classId) return "";
     const pId =
@@ -211,27 +216,33 @@ const FrontOffice = () => {
     if (calculatedPrefix && acceptInquiryDialog) {
       const generateRollNumber = async () => {
         try {
-          const currentYearSub = new Date().getFullYear().toString().slice(-2);
-          const searchPrefix = `${calculatedPrefix}${currentYearSub}-`;
+          // Use first year of selected session (e.g. "2025-2026" -> "25")
+          let yearSub = new Date().getFullYear().toString().slice(-2);
+          const sessionId = studentFormData.sessionId;
+          if (sessionId) {
+            const sessionRecord = academicSessions.find(s => s.id.toString() === sessionId.toString());
+            if (sessionRecord?.name) {
+              const match = sessionRecord.name.match(/(\d{4})/);
+              if (match) yearSub = match[1].slice(-2);
+            }
+          }
+          const searchPrefix = `${calculatedPrefix}${yearSub}-`;
           const latestFull = await getLatestRollNumber(searchPrefix);
 
-          let nextSuffix = `${currentYearSub}-001`;
+          let nextSuffix = `${yearSub}-001`;
           if (latestFull) {
             const parts = latestFull.split("-");
             const lastPart = parts[parts.length - 1];
             if (!isNaN(parseInt(lastPart))) {
               const nextNum = parseInt(lastPart, 10) + 1;
               const nextNumStr = nextNum.toString().padStart(3, '0');
-              nextSuffix = `${currentYearSub}-${nextNumStr}`;
+              nextSuffix = `${yearSub}-${nextNumStr}`;
             }
           }
           setStudentFormData(prev => ({ ...prev, rollNumber: `${calculatedPrefix}${nextSuffix}` }));
         } catch (error) {
           console.error("Error auto-generating roll number:", error);
-          setStudentFormData(prev => ({
-            ...prev,
-            rollNumber: calculatedPrefix,
-          }));
+          setStudentFormData(prev => ({ ...prev, rollNumber: calculatedPrefix }));
         }
       };
       generateRollNumber();
@@ -249,6 +260,14 @@ const FrontOffice = () => {
     programInterest: "",
     previousInstitute: "",
     remarks: "",
+    inquiryType: "",
+    gender: "",
+    sessionId: "",
+    prospectusSold: false,
+    prospectusFee: "",
+    prospectusReceipt: "",
+    followUpDate: "",
+    followUpSlab: "",
   });
 
   const [visitorForm, setVisitorForm] = useState({
@@ -523,6 +542,14 @@ const FrontOffice = () => {
       programInterest: "",
       previousInstitute: "",
       remarks: "",
+      inquiryType: "",
+      gender: "",
+      sessionId: "",
+      prospectusSold: false,
+      prospectusFee: "",
+      prospectusReceipt: "",
+      followUpDate: "",
+      followUpSlab: "",
     });
     setEditingInquiry(null);
     setInquiryDialog(false);
@@ -577,14 +604,21 @@ const FrontOffice = () => {
       return;
     }
 
+    const payload = {
+      ...inquiryForm,
+      sessionId: inquiryForm.sessionId ? Number(inquiryForm.sessionId) : undefined,
+      prospectusFee: inquiryForm.prospectusFee ? Number(inquiryForm.prospectusFee) : undefined,
+      prospectusSold: !!inquiryForm.prospectusSold,
+    };
+
     if (editingInquiry) {
-      const { remarks, ...payload } = inquiryForm;
-      updateMutation.mutate({ id: editingInquiry.id, payload });
+      const { remarks, ...rest } = payload;
+      updateMutation.mutate({ id: editingInquiry.id, payload: rest });
       if (remarks) {
         addRemarkMutation.mutate({ id: editingInquiry.id, remark: remarks });
       }
     } else {
-      createMutation.mutate({ ...inquiryForm, status: "NEW" });
+      createMutation.mutate({ ...payload, status: "NEW" });
     }
   };
 
@@ -599,6 +633,14 @@ const FrontOffice = () => {
       programInterest: inquiry.programInterest || inquiry.program?.id || "",
       previousInstitute: inquiry.previousInstitute,
       remarks: "", // Clear for new remark adding
+      inquiryType: inquiry.inquiryType || "",
+      gender: inquiry.gender || "",
+      sessionId: inquiry.sessionId?.toString() || "",
+      prospectusSold: inquiry.prospectusSold || false,
+      prospectusFee: inquiry.prospectusFee?.toString() || "",
+      prospectusReceipt: inquiry.prospectusReceipt || "",
+      followUpDate: inquiry.followUpDate ? inquiry.followUpDate.split("T")[0] : "",
+      followUpSlab: inquiry.followUpSlab || "",
     });
     setEditingInquiry(inquiry);
     setInquiryDialog(true);
@@ -633,6 +675,8 @@ const FrontOffice = () => {
       sectionId: inquiry.sectionId?.toString() || "",
       gender: inquiry.gender || "",
       dob: inquiry.dob ? inquiry.dob.split('T')[0] : "",
+      sessionId: inquiry.sessionId?.toString() || "",
+      session: inquiry.session?.name || academicSessions?.find(s => s.id === inquiry.sessionId)?.name || "",
       documents: {
         fatherCnic: !!inquiry.fatherCnic,
         address: !!inquiry.address,
@@ -910,105 +954,169 @@ const FrontOffice = () => {
                         Add Inquiry
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                       <DialogHeader>
-                        <DialogTitle>
-                          {editingInquiry ? "Edit" : "New"} Inquiry
-                        </DialogTitle>
+                        <DialogTitle>{editingInquiry ? "Edit" : "New"} Inquiry</DialogTitle>
                       </DialogHeader>
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Student Name *</Label>
-                            <Input
-                              value={inquiryForm.studentName}
-                              onChange={(e) =>
-                                setInquiryForm({ ...inquiryForm, studentName: e.target.value })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Father Name</Label>
-                            <Input
-                              value={inquiryForm.fatherName}
-                              onChange={(e) =>
-                                setInquiryForm({ ...inquiryForm, fatherName: e.target.value })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Father CNIC</Label>
-                            <Input
-                              value={inquiryForm.fatherCnic}
-                              onChange={(e) =>
-                                setInquiryForm({ ...inquiryForm, fatherCnic: e.target.value })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Contact Number *</Label>
-                            <Input
-                              value={inquiryForm.contactNumber}
-                              onChange={(e) =>
-                                setInquiryForm({ ...inquiryForm, contactNumber: e.target.value })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Email</Label>
-                            <Input
-                              value={inquiryForm.email}
-                              onChange={(e) =>
-                                setInquiryForm({ ...inquiryForm, email: e.target.value })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Program Interest</Label>
-                            <Select
-                              value={inquiryForm.programInterest}
-                              onValueChange={(v) =>
-                                setInquiryForm({ ...inquiryForm, programInterest: v })
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select program" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {programs?.map((program) => (
-                                  <SelectItem key={program.id} value={program.id}>
-                                    {program.name} — {program.department?.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                      <div className="space-y-5">
+                        {/* Student Information */}
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Student Information</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label>Student Name *</Label>
+                              <Input value={inquiryForm.studentName} onChange={(e) => setInquiryForm({ ...inquiryForm, studentName: e.target.value })} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Father Name</Label>
+                              <Input value={inquiryForm.fatherName} onChange={(e) => setInquiryForm({ ...inquiryForm, fatherName: e.target.value })} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Father CNIC</Label>
+                              <Input value={inquiryForm.fatherCnic} onChange={(e) => setInquiryForm({ ...inquiryForm, fatherCnic: e.target.value })} placeholder="12345-1234567-1" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Contact Number *</Label>
+                              <Input value={inquiryForm.contactNumber} onChange={(e) => setInquiryForm({ ...inquiryForm, contactNumber: e.target.value })} placeholder="0300-1234567" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Email</Label>
+                              <Input value={inquiryForm.email} onChange={(e) => setInquiryForm({ ...inquiryForm, email: e.target.value })} placeholder="email@example.com" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Gender</Label>
+                              <Select value={inquiryForm.gender} onValueChange={(v) => setInquiryForm({ ...inquiryForm, gender: v })}>
+                                <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Male">Male</SelectItem>
+                                  <SelectItem value="Female">Female</SelectItem>
+                                  <SelectItem value="Other">Other</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1 md:col-span-2">
+                              <Label>Address</Label>
+                              <Input value={inquiryForm.address} onChange={(e) => setInquiryForm({ ...inquiryForm, address: e.target.value })} />
+                            </div>
                           </div>
                         </div>
-                        <div className="space-y-2">
-                          <Label>Address</Label>
-                          <Input
-                            value={inquiryForm.address}
-                            onChange={(e) =>
-                              setInquiryForm({ ...inquiryForm, address: e.target.value })
-                            }
-                          />
+
+                        {/* Inquiry Details */}
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Inquiry Details</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label>Program Interest</Label>
+                              <Select value={String(inquiryForm.programInterest || "")} onValueChange={(v) => setInquiryForm({ ...inquiryForm, programInterest: v })}>
+                                <SelectTrigger><SelectValue placeholder="Select program" /></SelectTrigger>
+                                <SelectContent>
+                                  {programs?.map((p) => (
+                                    <SelectItem key={p.id} value={String(p.id)}>{p.name} — {p.department?.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Session</Label>
+                              <Select value={inquiryForm.sessionId} onValueChange={(v) => setInquiryForm({ ...inquiryForm, sessionId: v })}>
+                                <SelectTrigger><SelectValue placeholder="Select session" /></SelectTrigger>
+                                <SelectContent>
+                                  {academicSessions?.map((s) => (
+                                    <SelectItem key={s.id} value={String(s.id)}>{s.name}{s.isActive ? " (Active)" : ""}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Inquiry Type</Label>
+                              <Select value={inquiryForm.inquiryType} onValueChange={(v) => setInquiryForm({ ...inquiryForm, inquiryType: v })}>
+                                <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="PHYSICAL">Physical</SelectItem>
+                                  <SelectItem value="HEAD_OFFICE">Head Office (HO)</SelectItem>
+                                  <SelectItem value="REGIONAL_OFFICE">Regional Office (RO)</SelectItem>
+                                  <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
+                                  <SelectItem value="TELEPHONE">Telephone</SelectItem>
+                                  <SelectItem value="REFERENCE">Reference</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Previous Institute</Label>
+                              <Input value={inquiryForm.previousInstitute} onChange={(e) => setInquiryForm({ ...inquiryForm, previousInstitute: e.target.value })} />
+                            </div>
+                          </div>
                         </div>
-                        <div className="space-y-2">
-                          <Label>Previous Institute</Label>
-                          <Input
-                            value={inquiryForm.previousInstitute}
-                            onChange={(e) =>
-                              setInquiryForm({
-                                ...inquiryForm,
-                                previousInstitute: e.target.value,
-                              })
-                            }
-                          />
+
+                        {/* Prospectus */}
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Prospectus</p>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                            <div className="space-y-1">
+                              <Label>Prospectus Sold</Label>
+                              <Select
+                                value={inquiryForm.prospectusSold ? "yes" : "no"}
+                                onValueChange={(v) => setInquiryForm({
+                                  ...inquiryForm,
+                                  prospectusSold: v === "yes",
+                                  prospectusFee: v === "no" ? "" : inquiryForm.prospectusFee,
+                                  prospectusReceipt: v === "no" ? "" : inquiryForm.prospectusReceipt,
+                                })}
+                              >
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="no">No</SelectItem>
+                                  <SelectItem value="yes">Yes</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            {inquiryForm.prospectusSold && (
+                              <>
+                                <div className="space-y-1">
+                                  <Label>Prospectus Fee (PKR)</Label>
+                                  <Input type="number" value={inquiryForm.prospectusFee} onChange={(e) => setInquiryForm({ ...inquiryForm, prospectusFee: e.target.value })} placeholder="e.g. 500" />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label>Receipt Number</Label>
+                                  <Input value={inquiryForm.prospectusReceipt} onChange={(e) => setInquiryForm({ ...inquiryForm, prospectusReceipt: e.target.value })} placeholder="Receipt #" />
+                                </div>
+                              </>
+                            )}
+                          </div>
                         </div>
-                        {editingInquiry && Array.isArray(editingInquiry.remarks) && editingInquiry.remarks.length > 0 && (
-                          <div className="space-y-2">
-                            <Label>Previous Remarks</Label>
-                            <div className="max-h-32 overflow-y-auto space-y-2 p-2 pr-2 bg-muted/20 rounded border text-sm scrollbar-thin">
+
+                        {/* Follow Up (edit/update mode only) */}
+                        {editingInquiry && (
+                          <div>
+                            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Follow Up</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label>Follow Up Date</Label>
+                                <Input type="date" value={inquiryForm.followUpDate} onChange={(e) => setInquiryForm({ ...inquiryForm, followUpDate: e.target.value })} />
+                              </div>
+                              <div className="space-y-1">
+                                <Label>Follow Up Slab</Label>
+                                <Select value={inquiryForm.followUpSlab} onValueChange={(v) => setInquiryForm({ ...inquiryForm, followUpSlab: v })}>
+                                  <SelectTrigger><SelectValue placeholder="Select slab" /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="1_DAY">1 Day</SelectItem>
+                                    <SelectItem value="3_DAYS">3 Days</SelectItem>
+                                    <SelectItem value="1_WEEK">1 Week</SelectItem>
+                                    <SelectItem value="2_WEEKS">2 Weeks</SelectItem>
+                                    <SelectItem value="1_MONTH">1 Month</SelectItem>
+                                    <SelectItem value="CUSTOM">Custom</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Remarks */}
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Remarks</p>
+                          {editingInquiry && Array.isArray(editingInquiry.remarks) && editingInquiry.remarks.length > 0 && (
+                            <div className="max-h-32 overflow-y-auto space-y-2 p-2 bg-muted/20 rounded border text-sm mb-2 scrollbar-thin">
                               {editingInquiry.remarks.map((r, i) => (
                                 <div key={i} className="border-b last:border-0 pb-1">
                                   <div className="flex justify-between items-center text-[10px] text-muted-foreground">
@@ -1019,34 +1127,24 @@ const FrontOffice = () => {
                                 </div>
                               ))}
                             </div>
-                          </div>
-                        )}
-                        {/* Legacy Remark as String */}
-                        {editingInquiry && typeof editingInquiry.remarks === 'string' && editingInquiry.remarks.trim() !== "" && (
-                           <div className="space-y-2">
-                            <Label>Previous Remark</Label>
-                            <div className="p-2 bg-muted/20 rounded border text-sm">
+                          )}
+                          {editingInquiry && typeof editingInquiry.remarks === 'string' && editingInquiry.remarks.trim() !== "" && (
+                            <div className="p-2 bg-muted/20 rounded border text-sm mb-2">
                               <p className="text-xs">{editingInquiry.remarks}</p>
                             </div>
-                          </div>
-                        )}
-                        <div className="space-y-2">
-                          <Label>{editingInquiry ? "Add New Remark" : "Remarks"}</Label>
+                          )}
                           <Textarea
-                            placeholder={editingInquiry ? "Enter new remark..." : "Enter inquiry remarks..."}
+                            placeholder={editingInquiry ? "Add a new remark..." : "Enter inquiry remarks..."}
                             value={inquiryForm.remarks}
-                            onChange={(e) =>
-                              setInquiryForm({ ...inquiryForm, remarks: e.target.value })
-                            }
+                            onChange={(e) => setInquiryForm({ ...inquiryForm, remarks: e.target.value })}
+                            rows={3}
                           />
                         </div>
                       </div>
                       <DialogFooter>
-                        <Button variant="outline" onClick={closeInquiryDialog}>
-                          Cancel
-                        </Button>
-                        <Button onClick={handleInquirySubmit}>
-                          {editingInquiry ? "Update" : "Submit"} Inquiry
+                        <Button variant="outline" onClick={closeInquiryDialog}>Cancel</Button>
+                        <Button onClick={handleInquirySubmit} disabled={createMutation.isPending || updateMutation.isPending}>
+                          {createMutation.isPending || updateMutation.isPending ? "Saving..." : (editingInquiry ? "Update" : "Submit") + " Inquiry"}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -1905,88 +2003,151 @@ const FrontOffice = () => {
             setViewDetailsDialog({ ...viewDetailsDialog, open })
           }
         >
-          <DialogContent className="max-h-[90vh] md:max-w-[600px] overflow-y-auto">
+          <DialogContent className="max-h-[90vh] md:max-w-[680px] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-xl font-semibold border-b pb-4">
                 {viewDetailsDialog.type ? viewDetailsDialog.type.charAt(0).toUpperCase() + viewDetailsDialog.type.slice(1) : "Details"} Information
               </DialogTitle>
             </DialogHeader>
 
-            {viewDetailsDialog.data && (
+            {viewDetailsDialog.data && viewDetailsDialog.type === "inquiry" ? (
+              <div className="space-y-5 mt-2">
+                {/* Status badge */}
+                <div className="flex items-center gap-2">
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(viewDetailsDialog.data.status)}`}>
+                    {viewDetailsDialog.data.status || "NEW"}
+                  </span>
+                  {viewDetailsDialog.data.inquiryType && (
+                    <span className="px-3 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                      {viewDetailsDialog.data.inquiryType.replace(/_/g, " ")}
+                    </span>
+                  )}
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {viewDetailsDialog.data.createdAt ? new Date(viewDetailsDialog.data.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : ""}
+                  </span>
+                </div>
+
+                {/* Student Info */}
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Student Information</p>
+                  <div className="grid grid-cols-2 gap-3 bg-muted/20 rounded-lg p-3">
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Student Name</p><p className="text-sm font-medium">{viewDetailsDialog.data.studentName || "—"}</p></div>
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Father Name</p><p className="text-sm font-medium">{viewDetailsDialog.data.fatherName || "—"}</p></div>
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Contact</p><p className="text-sm font-medium">{viewDetailsDialog.data.contactNumber || "—"}</p></div>
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Email</p><p className="text-sm font-medium">{viewDetailsDialog.data.email || "—"}</p></div>
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Gender</p><p className="text-sm font-medium">{viewDetailsDialog.data.gender || "—"}</p></div>
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Father CNIC</p><p className="text-sm font-medium">{viewDetailsDialog.data.fatherCnic || "—"}</p></div>
+                    <div className="col-span-2"><p className="text-[10px] text-muted-foreground uppercase font-semibold">Address</p><p className="text-sm font-medium">{viewDetailsDialog.data.address || "—"}</p></div>
+                  </div>
+                </div>
+
+                {/* Inquiry Details */}
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Inquiry Details</p>
+                  <div className="grid grid-cols-2 gap-3 bg-muted/20 rounded-lg p-3">
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Program Interest</p><p className="text-sm font-medium">{viewDetailsDialog.data.program?.name || "—"}</p></div>
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Session</p><p className="text-sm font-medium">{viewDetailsDialog.data.session?.name || "—"}</p></div>
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Previous Institute</p><p className="text-sm font-medium">{viewDetailsDialog.data.previousInstitute || "—"}</p></div>
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Inquiry Type</p><p className="text-sm font-medium">{viewDetailsDialog.data.inquiryType?.replace(/_/g, " ") || "—"}</p></div>
+                  </div>
+                </div>
+
+                {/* Prospectus */}
+                {viewDetailsDialog.data.prospectusSold && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Prospectus</p>
+                    <div className="grid grid-cols-3 gap-3 bg-green-50 border border-green-200 rounded-lg p-3">
+                      <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Sold</p><p className="text-sm font-medium text-green-700">Yes</p></div>
+                      <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Fee</p><p className="text-sm font-medium">PKR {viewDetailsDialog.data.prospectusFee || "—"}</p></div>
+                      <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Receipt #</p><p className="text-sm font-medium">{viewDetailsDialog.data.prospectusReceipt || "—"}</p></div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Follow Up */}
+                {(viewDetailsDialog.data.followUpDate || viewDetailsDialog.data.followUpSlab) && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Follow Up</p>
+                    <div className="grid grid-cols-2 gap-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                      <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Follow Up Date</p><p className="text-sm font-medium">{viewDetailsDialog.data.followUpDate ? new Date(viewDetailsDialog.data.followUpDate).toLocaleDateString() : "—"}</p></div>
+                      <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Slab</p><p className="text-sm font-medium">{viewDetailsDialog.data.followUpSlab?.replace(/_/g, " ") || "—"}</p></div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Remarks */}
+                {Array.isArray(viewDetailsDialog.data.remarks) && viewDetailsDialog.data.remarks.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Remarks History</p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
+                      {viewDetailsDialog.data.remarks.map((remark, index) => (
+                        <div key={index} className="bg-muted/30 p-3 rounded-md text-sm">
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="font-semibold text-primary text-xs">{remark.author || "Staff"}</span>
+                            <span className="text-[10px] text-muted-foreground italic">{remark.date ? new Date(remark.date).toLocaleString() : ""}</span>
+                          </div>
+                          <p className="text-muted-foreground leading-snug text-xs">{remark.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {typeof viewDetailsDialog.data.remarks === 'string' && viewDetailsDialog.data.remarks.trim() && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Remark</p>
+                    <div className="bg-muted/30 p-3 rounded-md text-sm text-muted-foreground">{viewDetailsDialog.data.remarks}</div>
+                  </div>
+                )}
+              </div>
+            ) : viewDetailsDialog.data && (
               <div className="space-y-6 mt-4">
                 {/* Primary Info Section */}
                 <div className="grid grid-cols-2 gap-4">
                   {Object.entries(viewDetailsDialog.data)
                     .filter(([key]) => !["id", "assignedToId", "assignedTo", "remarks", "updatedAt", "description", "details", "documents"].includes(key))
                     .map(([key, value]) => {
-                      // Formatting logic
                       if (!value && value !== 0) return null;
-
                       let displayValue = typeof value === "object" && value?.name ? value.name : String(value);
                       let label = key.replace(/([A-Z])/g, " $1").trim();
-
-                      // Specific formatting
                       if (key.toLowerCase().includes("date") || key === "createdAt") {
-                        if (value) displayValue = new Date(value).toLocaleDateString(undefined, {
-                          year: 'numeric', month: 'long', day: 'numeric'
-                        });
+                        if (value) displayValue = new Date(value).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
                         label = key === "createdAt" ? "Date" : label;
                       }
-
-                      // Status Badge-like look (simple text)
                       if (key === "status") {
-                        displayValue = <span className={`px-2 py-0.5 rounded text-sm font-medium border ${value === 'Pending' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' :
-                          value === 'Resolved' || value === 'Approved' ? 'bg-green-50 border-green-200 text-green-700' :
-                            'bg-gray-50 border-gray-200 text-gray-700'
-                          }`}>{value}</span>
+                        displayValue = <span className={`px-2 py-0.5 rounded text-sm font-medium border ${value === 'Pending' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : value === 'Resolved' || value === 'Approved' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>{value}</span>;
                       }
-
                       return (
                         <div key={key} className="space-y-1">
-                          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            {label}
-                          </h4>
-                          <div className="text-sm font-medium text-foreground">
-                            {displayValue}
-                          </div>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</h4>
+                          <div className="text-sm font-medium text-foreground">{displayValue}</div>
                         </div>
                       );
                     })}
                 </div>
 
-                {/* Full Width Sections (Description/Details) */}
                 {(viewDetailsDialog.data.description || viewDetailsDialog.data.details) && (
                   <div className="space-y-2 pt-4 border-t">
-                    <h4 className="text-sm font-semibold flex items-center gap-2">
-                      Details / Description
-                    </h4>
+                    <h4 className="text-sm font-semibold">Details / Description</h4>
                     <div className="bg-muted/30 p-4 rounded-md text-sm leading-relaxed whitespace-pre-wrap">
                       {viewDetailsDialog.data.description || viewDetailsDialog.data.details}
                     </div>
                   </div>
                 )}
 
-                {/* Assigned Employees Section Specifics */}
                 {viewDetailsDialog.type === "complaint" && viewDetailsDialog.data.assignedTo?.length > 0 && (
                   <div className="space-y-3 pt-4 border-t">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Assigned Employees</h4>
                     <div className="flex flex-wrap gap-4">
                       {viewDetailsDialog.data.assignedTo.map((emp) => (
                         <div key={emp.id} className="flex items-center gap-2 bg-muted/50 p-2 rounded-lg">
-                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
-                            {emp.name?.charAt(0)}
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium">{emp.name}</p>
-                            <p className="text-xs text-muted-foreground">{emp.empDepartment}</p>
-                          </div>
+                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">{emp.name?.charAt(0)}</div>
+                          <div><p className="text-sm font-medium">{emp.name}</p><p className="text-xs text-muted-foreground">{emp.empDepartment}</p></div>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
 
-                {/* Complaint Remarks Section */}
                 {viewDetailsDialog.type === "complaint" && viewDetailsDialog.data.remarks?.length > 0 && (
                   <div className="space-y-3 pt-4 border-t">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status History & Remarks</h4>
@@ -1995,9 +2156,7 @@ const FrontOffice = () => {
                         <div key={remark.id} className="bg-muted/30 p-3 rounded-md text-sm">
                           <div className="flex justify-between items-start mb-1">
                             <span className="font-semibold text-primary">{remark.author?.name || "Staff"}</span>
-                            <span className="text-[10px] text-muted-foreground italic">
-                              {new Date(remark.createdAt).toLocaleString()}
-                            </span>
+                            <span className="text-[10px] text-muted-foreground italic">{new Date(remark.createdAt).toLocaleString()}</span>
                           </div>
                           <p className="text-muted-foreground leading-snug">{remark.remark}</p>
                         </div>
@@ -2006,47 +2165,12 @@ const FrontOffice = () => {
                   </div>
                 )}
 
-                {/* Inquiry Remarks Section */}
-                {viewDetailsDialog.type === "inquiry" && Array.isArray(viewDetailsDialog.data.remarks) && viewDetailsDialog.data.remarks.length > 0 && (
-                  <div className="space-y-3 pt-4 border-t">
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Remarks History</h4>
-                    <div className="space-y-3 max-h-48 overflow-y-auto pr-2 scrollbar-thin">
-                      {viewDetailsDialog.data.remarks.map((remark, index) => (
-                        <div key={index} className="bg-muted/30 p-3 rounded-md text-sm">
-                          <div className="flex justify-between items-start mb-1">
-                            <span className="font-semibold text-primary">{remark.author || "Staff"}</span>
-                            <span className="text-[10px] text-muted-foreground italic">
-                              {remark.date ? new Date(remark.date).toLocaleString() : ""}
-                            </span>
-                          </div>
-                          <p className="text-muted-foreground leading-snug">{remark.text}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {/* Legacy Inquiry Remark as String */}
-                {viewDetailsDialog.type === "inquiry" && typeof viewDetailsDialog.data.remarks === 'string' && viewDetailsDialog.data.remarks.trim() !== "" && (
-                  <div className="space-y-3 pt-4 border-t">
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Previous Remark</h4>
-                    <div className="bg-muted/30 p-3 rounded-md text-sm">
-                      <p className="text-muted-foreground leading-snug">{viewDetailsDialog.data.remarks}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Single Assigned Employee (for other types if needed) */}
                 {viewDetailsDialog.type !== "complaint" && viewDetailsDialog.data.assignedTo && (
                   <div className="space-y-1 pt-4 border-t">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Assigned Employee</h4>
                     <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
-                        {viewDetailsDialog.data.assignedTo.name?.charAt(0)}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{viewDetailsDialog.data.assignedTo.name}</p>
-                        <p className="text-xs text-muted-foreground">{viewDetailsDialog.data.assignedTo.empDepartment}</p>
-                      </div>
+                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">{viewDetailsDialog.data.assignedTo.name?.charAt(0)}</div>
+                      <div><p className="text-sm font-medium">{viewDetailsDialog.data.assignedTo.name}</p><p className="text-xs text-muted-foreground">{viewDetailsDialog.data.assignedTo.empDepartment}</p></div>
                     </div>
                   </div>
                 )}
@@ -2096,6 +2220,7 @@ const FrontOffice = () => {
               programs={programs}
               classes={classes}
               sections={sections}
+              academicSessions={academicSessions}
               getLatestRollNumber={getLatestRollNumber}
               onCancel={closeAcceptInquiryDialog}
               onSubmit={(data) => {

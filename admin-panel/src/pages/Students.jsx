@@ -1271,12 +1271,14 @@ const Students = () => {
                       <div><span className="font-semibold">Session:</span> {viewStudent.session || "-"}</div>
                       <div><span className="font-semibold">Gender:</span> {viewStudent.gender || "-"}</div>
                       <div><span className="font-semibold">Religion:</span> {viewStudent.religion || "-"}</div>
+                      <div><span className="font-semibold">DOB:</span> {viewStudent.dob ? new Date(viewStudent.dob).toLocaleDateString() : "-"}</div>
                       <div><span className="font-semibold">Parent Email:</span> {viewStudent.parentOrGuardianEmail || "-"}</div>
                       <div><span className="font-semibold">Parent Phone:</span> {viewStudent.parentOrGuardianPhone || "-"}</div>
                       <div><span className="font-semibold">Parent CNIC:</span> {viewStudent.parentCNIC || "-"}</div>
                       <div><span className="font-semibold">Student CNIC:</span> {viewStudent.studentCnic || "-"}</div>
-                      <div><span className="font-semibold">DOB:</span> {viewStudent.dob ? new Date(viewStudent.dob).toLocaleDateString() : "-"}</div>
                       <div className="col-span-2"><span className="font-semibold">Address:</span> {viewStudent.address || "-"}</div>
+
+                      {/* Fee info */}
                       <div className="flex items-center gap-2">
                         <TrendingUp className="w-4 h-4 text-blue-600" />
                         <span className="font-semibold">Total Tuition Fee:</span>
@@ -1286,6 +1288,28 @@ const Students = () => {
                         <span className="font-semibold">Installments:</span>
                         <span className="ml-2">{viewStudent.numberOfInstallments} {viewStudent.numberOfInstallments === 1 ? "Installment" : "Installments"}</span>
                       </div>
+
+                      {/* Previous academic info */}
+                      {viewStudent.admissionFormNumber && (
+                        <div><span className="font-semibold">Admission Form #:</span> {viewStudent.admissionFormNumber}</div>
+                      )}
+                      {viewStudent.previousBoardName && (
+                        <div><span className="font-semibold">Previous Board:</span> {viewStudent.previousBoardName}</div>
+                      )}
+                      {viewStudent.previousBoardRollNumber && (
+                        <div><span className="font-semibold">Board Roll #:</span> {viewStudent.previousBoardRollNumber}</div>
+                      )}
+                      {(viewStudent.obtainedMarks || viewStudent.totalMarks) && (
+                        <div>
+                          <span className="font-semibold">Previous Marks:</span>
+                          <span className="ml-2 font-mono">
+                            {viewStudent.obtainedMarks ?? "—"} / {viewStudent.totalMarks ?? "—"}
+                            {viewStudent.obtainedMarks && viewStudent.totalMarks
+                              ? ` (${Math.round((viewStudent.obtainedMarks / viewStudent.totalMarks) * 100)}%)`
+                              : ""}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                   {/* Documents */}

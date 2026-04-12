@@ -539,8 +539,7 @@ async function main() {
             studentSectionId: cfg.sectionId,
             studentFeeInstallmentId: inst.id,
             challanType: 'INSTALLMENT',
-            tuitionPaid: status === 'PAID' ? paidAmount : (status === 'PARTIAL' ? paidAmount : 0),
-            remarks: `Installment ${inst.installmentNumber} - ${inst.month} ${inst.session}`,
+           remarks: `Installment ${inst.installmentNumber} - ${inst.month} ${inst.session}`,
           },
         });
 
@@ -611,8 +610,6 @@ async function main() {
         selectedHeads: JSON.stringify([
           { id: admissionH.id, name: 'Admission Fee', amount: 5000, type: 'additional' },
         ]),
-        tuitionPaid: 0,
-        additionalPaid: s.id % 2 === 0 ? 5000 : 0,
         remarks: 'Admission Fee Payment',
       },
     });

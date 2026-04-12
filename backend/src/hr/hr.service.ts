@@ -5,11 +5,14 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { computeDays, deriveMonth } from './hr.helpers';
 import { EmployeeDto } from './dtos/employee.dot';
 import { StaffDto } from './dtos/staff.dto';
+import { CreateStaffLeaveDto, StaffLeaveFilterDto, UpdateStaffLeaveDto } from './dtos/staff-leave.dto';
 import {
   EmployeeDepartment,
   Prisma,
+  StaffLeaveType,
   StaffStatus,
   StaffType,
 } from '@prisma/client';
@@ -887,6 +890,140 @@ export class HrService {
   }
 
   // Leave Management
+  async createStaffLeave(dto: CreateStaffLeaveDto) {
+    const startDate = new Date(dto.startDate);
+    const endDate = new Date(dto.endDate);
+
+    if (startDate > endDate) {
+      throw new BadRequestException('startDate must not be after endDate');
+    }
+
+    const days = this.computeDays(startDate, endDate);
+    const month = this.deriveMonth(startDate);
+    const leaveType: StaffLeaveType = dto.leaveType ?? StaffLeaveType.CASUAL;
+
+    try {
+      return await this.prismService.staffLeave.create({
+        data: {
+          staffId: dto.staffId,
+          leaveType,
+          startDate,
+          endDate,
+          days,
+          month,
+          reason: dto.reason,
+        },
+      });
+    } catch (error: any) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        throw new BadRequestException(
+          `Staff with id ${dto.staffId} does not exist`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async updateStaffLeave(id: number, dto: UpdateStaffLeaveDto) {
+    // If either date is provided but not both, fetch the existing record to fill in the missing date
+    let resolvedStartDate: Date | undefined;
+    let resolvedEndDate: Date | undefined;
+
+    if (dto.startDate || dto.endDate) {
+      if (dto.startDate && dto.endDate) {
+        resolvedStartDate = new Date(dto.startDate);
+        resolvedEndDate = new Date(dto.endDate);
+      } else {
+        // Fetch existing record to get the missing date
+        const existing = await this.prismService.staffLeave.findUnique({
+          where: { id },
+        });
+        if (!existing) {
+          throw new NotFoundException(`StaffLeave with ID ${id} not found`);
+        }
+        resolvedStartDate = dto.startDate ? new Date(dto.startDate) : existing.startDate;
+        resolvedEndDate = dto.endDate ? new Date(dto.endDate) : existing.endDate;
+      }
+    }
+
+    const data: any = {};
+
+    if (dto.leaveType !== undefined) data.leaveType = dto.leaveType;
+    if (dto.reason !== undefined) data.reason = dto.reason;
+    if (dto.status !== undefined) data.status = dto.status;
+
+    if (resolvedStartDate && resolvedEndDate) {
+      data.startDate = resolvedStartDate;
+      data.endDate = resolvedEndDate;
+      data.days = this.computeDays(resolvedStartDate, resolvedEndDate);
+      data.month = this.deriveMonth(resolvedStartDate);
+    }
+
+    try {
+      return await this.prismService.staffLeave.update({
+        where: { id },
+        data,
+      });
+    } catch (error: any) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException(`StaffLeave with ID ${id} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async deleteStaffLeave(id: number) {
+    try {
+      await this.prismService.staffLeave.delete({ where: { id } });
+      return { message: 'StaffLeave deleted successfully' };
+    } catch (error: any) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException(`StaffLeave with ID ${id} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async getStaffLeaves(filters: StaffLeaveFilterDto) {
+    const where: any = {};
+
+    if (filters.month !== undefined) {
+      where.month = filters.month;
+    }
+    if (filters.staffId !== undefined) {
+      where.staffId = filters.staffId;
+    }
+    if (filters.status !== undefined) {
+      where.status = filters.status;
+    }
+    if (filters.leaveType !== undefined) {
+      where.leaveType = filters.leaveType;
+    }
+
+    return this.prismService.staffLeave.findMany({
+      where,
+      include: {
+        staff: {
+          select: {
+            name: true,
+            isTeaching: true,
+            designation: true,
+            specialization: true,
+          },
+        },
+      },
+    });
+  }
+
   async getLeaveSheet(month: string, type?: 'teacher' | 'employee' | 'all') {
     const where: any = { status: 'ACTIVE' };
 
@@ -1323,6 +1460,26 @@ export class HrService {
     return await this.prismService.payrollTemplate.delete({
       where: { id },
     });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Private Helper Methods
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /**
+   * Returns the inclusive calendar-day count between two dates.
+   * Validates: Requirements 3.10
+   */
+  private computeDays(start: Date, end: Date): number {
+    return computeDays(start, end);
+  }
+
+  /**
+   * Returns the YYYY-MM string derived from the start date.
+   * Validates: Requirements 3.11
+   */
+  private deriveMonth(start: Date): string {
+    return deriveMonth(start);
   }
 
   // History

@@ -75,8 +75,6 @@ export class StudentController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    if (!programId && !classId && !sectionId && !searchQuery) return [];
-
     const effectiveStatus = status || 'ACTIVE';
 
     if (searchQuery && searchQuery.trim() !== '') {

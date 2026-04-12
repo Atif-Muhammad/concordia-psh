@@ -294,7 +294,7 @@ export class DashboardService {
       totalExpectedTuition += tuition;
     });
 
-    // 2. Collected: Sum of tuitionPaid for Paid/Partial Challans in period
+    // 2. Collected: Sum of paidAmount for Paid/Partial Challans in period
     const collectionWhere: any = {
       status: { in: ['PAID', 'PARTIAL'] },
     };
@@ -307,11 +307,11 @@ export class DashboardService {
 
     const collectedChallans = await this.prisma.feeChallan.findMany({
       where: collectionWhere,
-      select: { tuitionPaid: true },
+      select: { paidAmount: true, amount: true, discount: true },
     });
 
     const totalCollectedTuition = collectedChallans.reduce(
-      (sum, c) => sum + (c.tuitionPaid || 0),
+      (sum, c) => sum + Math.min(c.paidAmount || 0, Math.max(0, (c.amount || 0) - (c.discount || 0))),
       0,
     );
 

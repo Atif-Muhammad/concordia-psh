@@ -157,6 +157,7 @@ model AcademicSession {
   challans        FeeChallan[]            @relation("SessionChallans")
   installments    StudentFeeInstallment[] @relation("SessionInstallments")
   academicRecords StudentAcademicRecord[]
+  inquiries       Inquiry[]               @relation("InquirySession")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -322,6 +323,13 @@ model Student {
   tuitionFee            Int?      @default(0)
   numberOfInstallments  Int?      @default(1)
   lateFeeFine           Int?      @default(0)
+
+  // Previous academic info
+  admissionFormNumber      String?   @db.VarChar(100)
+  previousBoardName        String?   @db.VarChar(200)
+  previousBoardRollNumber  String?   @db.VarChar(100)
+  obtainedMarks            Int?
+  totalMarks               Int?
 
   feeInstallments       StudentFeeInstallment[]
 
@@ -602,6 +610,16 @@ enum InquiryStatus {
   REJECTED
   FOLLOW_UP
 }
+
+enum InquiryType {
+  PHYSICAL
+  HEAD_OFFICE
+  REGIONAL_OFFICE
+  SOCIAL_MEDIA
+  TELEPHONE
+  REFERENCE
+}
+
 model Inquiry{
   id Int @id @unique @default(autoincrement())
   studentName        String
@@ -613,9 +631,20 @@ model Inquiry{
   programInterest    Int?    
   previousInstitute  String?      
   remarks            Json?
-  status             InquiryStatus      @default(NEW) // new | approved | rejected | follow-up
+  status             InquiryStatus @default(NEW)
+
+  // New fields
+  inquiryType        InquiryType?
+  gender             String?       @db.VarChar(10)
+  sessionId          Int?
+  prospectusSold     Boolean       @default(false)
+  prospectusFee      Float?
+  prospectusReceipt  String?       @db.VarChar(100)
+  followUpDate       DateTime?
+  followUpSlab       String?       @db.VarChar(100)
   
   program Program? @relation(fields: [programInterest], references: [id])
+  session AcademicSession? @relation("InquirySession", fields: [sessionId], references: [id])
   student Student?
 
   createdAt          DateTime     @default(now())
@@ -1111,12 +1140,12 @@ model FeeChallan {
   
   amount         Float
   paidAmount     Float         @default(0)
-  tuitionPaid    Float         @default(0)  // Portion of payment that went to tuition
-  additionalPaid Float         @default(0)  // Portion of payment that went to additional charges
+  totalAmount    Float         @default(0)  // amount + fineAmount + lateFeeFine (kept in sync)
   remainingAmount Float        @default(0)
   discount       Float         @default(0)
   fineAmount     Float         @default(0)
   lateFeeFine    Float?         @default(0)
+  settledAmount  Float?        @default(0)  // For VOID challans: amount settled via superseding challan payment
   
   dueDate        DateTime      @db.Date
   issueDate      DateTime      @default(now()) 
@@ -1249,7 +1278,7 @@ model StaffLeave {
   employeeId   Int?
   teacherId    Int?
   
-  // leaveType       StaffLeaveType @default(CASUAL)
+  leaveType       StaffLeaveType @default(CASUAL)
   startDate       DateTime  @db.Date
   endDate         DateTime  @db.Date
   days            Int       @default(0) // Number of days
@@ -1450,15 +1479,20 @@ model StudentFeeInstallment {
   classId           Int
   class             Class    @relation(fields: [classId], references: [id])
   installmentNumber Int
-  amount            Int
+  amount            Int                              // Base tuition amount (fixed at plan creation)
+  totalAmount       Float    @default(0)             // amount + lateFeeAccrued (recalculated by cron)
   paidAmount        Float    @default(0)
   pendingAmount     Float    @default(0)
   remainingAmount   Float    @default(0)
   status            InstallmentStatus @default(PENDING)
   dueDate           DateTime
-  paidDate          DateTime? // Set when installment is fully settled (via any challan in the chain)
+  paidDate          DateTime?
   month             String?
   session           String?
+
+  // Incremental late fee tracking
+  lateFeeAccrued          Float    @default(0)   // Total late fee accumulated so far
+  lateFeeLastCalculatedAt DateTime?              // Last time lateFeeAccrued was updated
   
   sessionId         Int?
   sessionRel        AcademicSession? @relation("SessionInstallments", fields: [sessionId], references: [id])

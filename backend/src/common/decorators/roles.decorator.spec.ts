@@ -1,7 +1,12 @@
-import { RolesDecorator } from './roles.decorator';
+import { Roles } from './roles.decorator';
 
-describe('RolesDecorator', () => {
+describe('Roles Decorator', () => {
   it('should be defined', () => {
-    expect(new RolesDecorator()).toBeDefined();
+    expect(Roles).toBeDefined();
+  });
+
+  it('should return a decorator function', () => {
+    const decorator = Roles('admin', 'user');
+    expect(typeof decorator).toBe('function');
   });
 });

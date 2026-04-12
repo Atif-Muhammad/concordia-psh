@@ -314,6 +314,11 @@ export class StudentService {
           ? Number(payload.numberOfInstallments)
           : 1,
         lateFeeFine: payload.lateFeeFine ? Number(payload.lateFeeFine) : 0,
+        admissionFormNumber: payload.admissionFormNumber || null,
+        previousBoardName: payload.previousBoardName || null,
+        previousBoardRollNumber: payload.previousBoardRollNumber || null,
+        obtainedMarks: payload.obtainedMarks ? Number(payload.obtainedMarks) : null,
+        totalMarks: payload.totalMarks ? Number(payload.totalMarks) : null,
         feeInstallments: {
           create: installmentsData.map((i) => {
             const dueDate = new Date(i.dueDate);
@@ -433,6 +438,13 @@ export class StudentService {
     if (payload.numberOfInstallments !== undefined) data.numberOfInstallments = Number(payload.numberOfInstallments);
     if (payload.lateFeeFine !== undefined) data.lateFeeFine = Number(payload.lateFeeFine);
 
+    // New fields
+    if (payload.admissionFormNumber !== undefined) data.admissionFormNumber = payload.admissionFormNumber || null;
+    if (payload.previousBoardName !== undefined) data.previousBoardName = payload.previousBoardName || null;
+    if (payload.previousBoardRollNumber !== undefined) data.previousBoardRollNumber = payload.previousBoardRollNumber || null;
+    if (payload.obtainedMarks !== undefined) data.obtainedMarks = payload.obtainedMarks ? Number(payload.obtainedMarks) : null;
+    if (payload.totalMarks !== undefined) data.totalMarks = payload.totalMarks ? Number(payload.totalMarks) : null;
+
     let resolvedSessionName = student.session;
     const targetSessionId = sessionId !== undefined ? Number(sessionId) : null;
     if (targetSessionId && targetSessionId > 0) {
@@ -488,18 +500,37 @@ export class StudentService {
         for (const i of installmentsData) {
           const instNum = Number(i.installmentNumber);
           const amount = Number(i.amount);
-          await tx.studentFeeInstallment.upsert({
+          const upserted = await tx.studentFeeInstallment.upsert({
             where: { studentId_classId_installmentNumber: { studentId: id, classId: targetClassId_forInst, installmentNumber: instNum } },
             create: {
               studentId: id, classId: targetClassId_forInst, installmentNumber: instNum,
               amount, dueDate: new Date(i.dueDate), month: i.month || null,
               session: i.session || resolvedSessionName || null, remainingAmount: amount,
+              totalAmount: amount, // totalAmount starts as base amount (no late fee yet)
             },
             update: {
               amount, dueDate: new Date(i.dueDate), month: i.month || null,
               session: i.session || resolvedSessionName || null,
+              // When base amount changes, reset totalAmount to new base (cron will re-add late fee)
+              // But only reset if amount actually changed to avoid wiping accrued late fee
             }
           });
+
+          // Sync amount change to the linked active challan (if any)
+          const activeChallan = await (tx.feeChallan as any).findFirst({
+            where: {
+              studentFeeInstallmentId: upserted.id,
+              status: { notIn: ['PAID', 'VOID'] },
+            },
+            select: { id: true, fineAmount: true, lateFeeFine: true },
+          });
+          if (activeChallan) {
+            const newChallanTotal = amount + (activeChallan.fineAmount || 0) + (activeChallan.lateFeeFine || 0);
+            await (tx.feeChallan as any).update({
+              where: { id: activeChallan.id },
+              data: { amount, totalAmount: newChallanTotal },
+            });
+          }
         }
       }
 
@@ -619,49 +650,33 @@ export class StudentService {
         include: { feeStructure: true },
       });
 
-      let totalTuitionPaid = 0;
-      // Prioritize student's agreed tuition fee over program standard
-      let expectedTuitionTotal = (student as any).tuitionFee || 0;
-
+      // Calculate outstanding amount by summing actual unpaid/partial challans
+      // Exclude VOID challans that are 100% settled
       for (const challan of currentChallans) {
-        if (challan.status === 'PAID' || challan.status === 'PARTIAL') {
-          // Only count the portion of payment that went toward TUITION (amount field)
-          // challan.amount = tuition only
-          // challan.fineAmount = additional charges
-          // challan.paidAmount = total paid (might include both)
+        // Skip PAID challans (fully paid)
+        if (challan.status === 'PAID') continue;
 
-          // Calculate how much of the payment went toward tuition:
-          // We must compare against the NET tuition (amount - discount)
-          const netTuitionAmount =
-            (challan.amount || 0) - (challan.discount || 0);
-          const tuitionPortionPaid =
-            challan.tuitionPaid ??
-            Math.min(challan.paidAmount || 0, netTuitionAmount);
-          totalTuitionPaid += tuitionPortionPaid;
+        // Skip VOID challans that are 100% settled
+        if (challan.status === 'VOID') {
+          const totalDue = (challan.amount || 0) + (challan.fineAmount || 0) - (challan.discount || 0);
+          const settledAmount = challan.settledAmount || 0;
+          if (settledAmount >= totalDue) {
+            // This VOID challan is fully settled, skip it
+            continue;
+          }
         }
-        // If student tuition fee is not set, fallback to structure total
-        if (expectedTuitionTotal === 0 && challan.feeStructure) {
-          expectedTuitionTotal = challan.feeStructure.totalAmount;
-        }
-      }
 
-      // Fallback: If no challans found (or no structure linked), fetch structure directly
-      // This handles cases where student was enrolled but no challan was ever generated
-      if (expectedTuitionTotal === 0) {
-        const structure = await this.prismaService.feeStructure.findUnique({
-          where: {
-            programId_classId: {
-              programId: student.programId,
-              classId: student.classId,
-            },
-          },
-        });
-        if (structure) {
-          expectedTuitionTotal = structure.totalAmount;
+        // For UNPAID, PARTIAL, OVERDUE, and unsettled VOID challans, add the remaining balance
+        const challanBalance = 
+          (challan.amount || 0) + 
+          (challan.fineAmount || 0) - 
+          (challan.discount || 0) - 
+          (challan.paidAmount || 0);
+        
+        if (challanBalance > 0) {
+          outstandingAmount += challanBalance;
         }
       }
-
-      outstandingAmount = expectedTuitionTotal - totalTuitionPaid;
 
       // If arrears found
       if (outstandingAmount > 0) {
@@ -685,7 +700,19 @@ export class StudentService {
               className: student.class?.name,
               programName: student.program?.name,
               unpaidChallans: currentChallans
-                .filter((c: any) => c.status !== 'PAID')
+                .filter((c: any) => {
+                  // Exclude PAID challans
+                  if (c.status === 'PAID') return false;
+                  
+                  // Exclude VOID challans that are 100% settled
+                  if (c.status === 'VOID') {
+                    const totalDue = (c.amount || 0) + (c.fineAmount || 0) - (c.discount || 0);
+                    const settledAmount = c.settledAmount || 0;
+                    if (settledAmount >= totalDue) return false;
+                  }
+                  
+                  return true;
+                })
                 .map((c: any) => ({
                   installmentNumber: c.installmentNumber,
                   challanNumber: c.challanNumber,
@@ -1280,7 +1307,7 @@ export class StudentService {
           for (const challan of currentChallans) {
             if (challan.status === 'PAID' || challan.status === 'PARTIAL') {
               const netTuitionAmount = (challan.amount || 0) - (challan.discount || 0);
-              const tuitionPortionPaid = challan.tuitionPaid ?? Math.min(challan.paidAmount || 0, netTuitionAmount);
+              const tuitionPortionPaid = Math.min(challan.paidAmount || 0, netTuitionAmount);
               totalTuitionPaid += tuitionPortionPaid;
             }
             if (expectedTuitionTotal === 0 && challan.feeStructure) {

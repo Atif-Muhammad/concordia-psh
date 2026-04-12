@@ -99,17 +99,6 @@ const Examination = () => {
   const [viewExamDialog, setViewExamDialog] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const [marksDialog, setMarksDialog] = useState(false);
-  const [editingMarks, setEditingMarks] = useState(null);
-  const [marksForm, setMarksForm] = useState({
-    examId: "",
-    studentId: "",
-    subject: "",
-    totalMarks: "",
-    obtainedMarks: "",
-    teacherRemarks: "",
-  });
-
   const [examForm, setExamForm] = useState({
     examName: "",
     program: "",
@@ -917,14 +906,14 @@ const Examination = () => {
       // Generate Marks Rows HTML
       // Generate Marks Rows HTML
       const marksRowsHtml = subjectsData.map((subject, index) => `
-      <tr style="border-bottom: 1px solid #000;">
+      < tr style = "border-bottom: 1px solid #000;" >
           <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${index + 1}</td>
           <td style="border-right: 1px solid #000; padding: 4px;">${subject.name}</td>
           <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${subject.totalMarks}</td>
           <td style="text-align: center; border-right: 1px solid #000; padding: 4px; ${subject.isAbsent ? 'background-color: #fee2e2; color: #dc2626; font-weight: bold;' : ''}">${subject.isAbsent ? 'Absent' : subject.obtainedMarks}</td>
           <td style="text-align: center; border-right: 1px solid #000; padding: 4px;">${subject.percentage}%</td>
           <td style="text-align: center; padding: 4px;">${subject.grade}</td>
-        </tr>
+        </tr >
   `).join("");
 
       // Start with the template
@@ -949,7 +938,7 @@ const Examination = () => {
         .replace(/{{rollNo}}/g, student.rollNumber || 'N/A')
         .replace(/{{regNo}}/g, student.rollNumber || 'N/A')
         .replace(/{{admNo}}/g, student.id || 'N/A')
-        .replace(/{{class}}/g, (exam.class?.name ?? student?.class?.name ?? 'N/A') + (exam?.program?.name ? ` (${exam.program.name})` : ''))
+        .replace(/{{class}}/g, exam.class?.name + (exam?.program?.name ? ` (${exam?.program?.name})` : '') || (student.class ? student.class.name : '') + (exam?.program?.name ? `(${exam?.program?.name})` : ''))
         .replace(/{{section}}/g, student.section ? student.section.name : '')
         .replace(/{{sectionVisibilityClass}}/g, student.section ? '' : 'hidden-section')
 
@@ -957,8 +946,8 @@ const Examination = () => {
         .replace(
           /{{studentPhotoOrPlaceholder}}/g,
           student.photo_url
-            ? `<img src="${student.photo_url}" alt="Student Photo" style="width: 100%; height: 100%; object-fit: cover;" />`
-            : `<div class="student-photo-placeholder" style="font-size: 10px; color: #666;">No Photo</div>`
+            ? `< img src = "${student.photo_url}" alt = "Student Photo" style = "width: 100%; height: 100%; object-fit: cover;" /> `
+            : `< div class="student-photo-placeholder" style = "font-size: 10px; color: #666;" > No Photo</div > `
         )
         .replace(/{{studentPhoto}}/g, student.photo_url || '')
 
@@ -1837,6 +1826,27 @@ const Examination = () => {
                                         const subjectKey = `${student.id}-${s.name}`;
                                         const marksValue = bulkMarksData[student.id]?.[s.name] ?? "";
                                         const isAbsent = bulkAbsentees[student.id]?.[s.name] ?? false;
+
+                                        // Try to pre-fill from existing marks on first render or when data changes
+                                        if (marksValue === "" && marks.length > 0) {
+                                          const existingMark = marks.find(m =>
+                                            m.studentId === student.id &&
+                                            m.examId === exam.id &&
+                                            m.subject === s.name
+                                          );
+                                          if (existingMark) {
+                                            setTimeout(() => {
+                                              setBulkMarksData(prev => ({
+                                                ...prev,
+                                                [student.id]: { ...(prev[student.id] || {}), [s.name]: existingMark.obtainedMarks }
+                                              }));
+                                              setBulkAbsentees(prev => ({
+                                                ...prev,
+                                                [student.id]: { ...(prev[student.id] || {}), [s.name]: existingMark.isAbsent }
+                                              }));
+                                            }, 0);
+                                          }
+                                        }
 
                                         return (
                                           <TableCell key={s.id} className={`p-2 border-r text-center ${isAbsent ? 'bg-red-50/50' : ''}`}>

@@ -9,6 +9,7 @@ import {
   UseGuards,
   Req,
   Param,
+  HttpCode,
 } from '@nestjs/common';
 import { JwtAccGuard } from 'src/common/guards/jwt-access.guard';
 import { PermissionsGuard } from 'src/common/guards/permission.guard';
@@ -24,6 +25,7 @@ import {
 import { HrService } from './hr.service';
 import { EmployeeDto } from './dtos/employee.dot';
 import { StaffDto } from './dtos/staff.dto';
+import { StaffLeaveFilterDto, CreateStaffLeaveDto, UpdateStaffLeaveDto } from './dtos/staff-leave.dto';
 
 @Controller('hr')
 export class HrController {
@@ -59,6 +61,30 @@ export class HrController {
       search,
       status,
     });
+  }
+
+  @Get('staff-leaves')
+  async getStaffLeaves(@Query() filters: StaffLeaveFilterDto) {
+    return await this.hrService.getStaffLeaves(filters);
+  }
+
+  @Post('staff-leaves')
+  @HttpCode(201)
+  async createStaffLeave(@Body() dto: CreateStaffLeaveDto) {
+    return await this.hrService.createStaffLeave(dto);
+  }
+
+  @Patch('staff-leaves/:id')
+  async updateStaffLeave(
+    @Param('id') id: string,
+    @Body() dto: UpdateStaffLeaveDto,
+  ) {
+    return await this.hrService.updateStaffLeave(Number(id), dto);
+  }
+
+  @Delete('staff-leaves/:id')
+  async deleteStaffLeave(@Param('id') id: string) {
+    return await this.hrService.deleteStaffLeave(Number(id));
   }
 
   @Get('staff/:id')

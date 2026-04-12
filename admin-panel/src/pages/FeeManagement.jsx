@@ -213,21 +213,21 @@ const FeeManagement = () => {
     }, 0);
   };
 
-  // Sum remaining amounts from VOID'd challans that this challan supersedes
-  // but are NOT already counted in the previousChallans chain (avoid double-counting)
+  // Sum remaining amounts from VOID'd challans that this challan supersedes (recursively)
+  // Only counts challans NOT already covered by the previousChallans (ArrearsChain) relation
   const getSupersededArrears = (challan) => {
     if (!challan || !challan.supersedes || !Array.isArray(challan.supersedes)) return 0;
+    // Build set of IDs already counted via previousChallans to avoid double-counting
     const prevIds = new Set((challan.previousChallans || []).map(p => p.id));
     return challan.supersedes.reduce((total, prev) => {
       if (prev.status === 'VOID' && !prevIds.has(prev.id)) {
-        const rem = Math.max(0,
+        const totalDue = Math.max(0,
           (prev.amount || 0) +
           (prev.fineAmount || 0) +
           (prev.lateFeeFine || 0) -
-          (prev.paidAmount || 0) -
           (prev.discount || 0)
         );
-        return total + rem;
+        return total + totalDue + getSupersededArrears(prev);
       }
       return total;
     }, 0);
@@ -324,11 +324,16 @@ const FeeManagement = () => {
         const [, sm] = generateForm.month.split('-').map(Number);
         const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
         const mName = (monthNames[sm - 1] || '').toLowerCase();
+        const selectedSessionName = generateForm.sessionId && generateForm.sessionId !== 'all'
+          ? (academicSessions.find(s => s.id.toString() === generateForm.sessionId)?.name || '')
+          : '';
         const eligible = filtered.filter(s => {
           return (s.feeInstallments || []).some(inst => {
             const nameMatch = (inst.month || '').trim().toLowerCase() === mName;
             if (generateForm.sessionId && generateForm.sessionId !== 'all') {
-              return nameMatch && inst.sessionId?.toString() === generateForm.sessionId;
+              const byId = inst.sessionId?.toString() === generateForm.sessionId;
+              const byName = selectedSessionName && (inst.session || '') === selectedSessionName;
+              return nameMatch && (byId || byName);
             }
             return nameMatch;
           });
@@ -1166,16 +1171,68 @@ const FeeManagement = () => {
       '{{section}}': studentSection,
       '{{program}}': studentProgram,
       '{{feeHeadsRows}}': feeHeadsRowsHtml,
-      '{{Tuition Fee}}': (tuitionOnly - tuitionPaid).toLocaleString(),
+      '{{Tuition Fee}}': tuitionOnly.toLocaleString(), // Show full tuition amount, not balance
       '{{arrears}}': (originalArrears - arrearsPaid).toLocaleString(),
       '{{arrearsRows}}': arrearsDetailRows,
       '{{discount}}': scholarship.toLocaleString(),
-      '{{totalPayable}}': netPayable.toLocaleString(),
+      '{{totalPayable}}': (() => {
+        // For settled VOID challans, show 0 as total payable
+        if (challan.status === 'VOID' && (challan.settledAmount || 0) > 0) {
+          const totalDue = (challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.discount || 0);
+          const remaining = Math.max(0, totalDue - (challan.settledAmount || 0));
+          return remaining.toLocaleString();
+        }
+        return netPayable.toLocaleString();
+      })(),
       '{{rupeesInWords}}': numberToWords(netPayable),
-      '{{program}}': studentProgram,
       '{{paymentHistoryMonths}}': paymentHistoryMonths,
       '{{paymentHistoryTotals}}': paymentHistoryTotals,
       '{{paymentHistoryPaid}}': paymentHistoryPaid,
+      
+      // Paid row - show for challans with payment or settlement
+      '{{paidRow}}': (challan.paidAmount > 0 || (challan.status === 'VOID' && (challan.settledAmount || 0) > 0)) ? `
+        <tr style="background-color: #d4edda;">
+          <td style="font-weight: bold;">Paid</td>
+          <td>${challan.status === 'VOID' ? (challan.settledAmount || 0).toLocaleString() : (challan.paidAmount || 0).toLocaleString()}</td>
+        </tr>
+      ` : '',
+      
+      // Payment details for PAID challans
+      '{{totalPaid}}': (challan.paidAmount || 0).toLocaleString(),
+      '{{paidDate}}': challan.paidDate ? formatDate(challan.paidDate) : 'N/A',
+      '{{paymentRemarks}}': challan.paymentRemarks || challan.remarks || 'Paid cash in accounts office',
+      '{{remaining}}': Math.max(0, standardTotal - (challan.paidAmount || 0)).toLocaleString(),
+      
+      // Payment details row - show for PAID challans or settled VOID challans
+      '{{paymentDetailsRow}}': (challan.status === 'PAID' || (challan.status === 'VOID' && (challan.settledAmount || 0) > 0)) ? `
+        <tr style="background-color: #d4edda; border: 2px solid #28a745;">
+          <td colspan="2" style="padding: 8px;">
+            <div style="font-weight: bold; margin-bottom: 4px;">Payment Details:</div>
+            <div style="font-size: 9px;">
+              <strong>Total ${challan.status === 'VOID' ? 'Settled' : 'Paid'}:</strong> Rs. ${challan.status === 'VOID' ? (challan.settledAmount || 0).toLocaleString() : (challan.paidAmount || 0).toLocaleString()} 
+              <strong style="margin-left: 10px;">${challan.status === 'VOID' ? 'Settled' : 'Paid'} Date:</strong> ${(() => {
+                if (challan.status === 'VOID') {
+                  // For VOID challans, get the paidDate from the superseding challan
+                  return challan.supersededBy?.paidDate ? formatDate(challan.supersededBy.paidDate) : 'N/A';
+                }
+                return challan.paidDate ? formatDate(challan.paidDate) : 'N/A';
+              })()}
+            </div>
+            <div style="font-size: 9px; margin-top: 2px;">
+              <strong>Remaining:</strong> Rs. ${(() => {
+                if (challan.status === 'VOID') {
+                  const totalDue = (challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.discount || 0);
+                  return Math.max(0, totalDue - (challan.settledAmount || 0)).toLocaleString();
+                }
+                return Math.max(0, standardTotal - (challan.paidAmount || 0)).toLocaleString();
+              })()}
+            </div>
+            <div style="font-size: 9px; margin-top: 2px; font-style: italic;">
+              <strong>Remarks:</strong> ${challan.paymentRemarks || challan.remarks || (challan.status === 'VOID' ? 'Settled via superseding challan' : 'Paid cash in accounts office')}
+            </div>
+          </td>
+        </tr>
+      ` : '',
 
       // Uppercase variants for modern templates
       '{{CHALLAN_NO}}': challan.challanNumber,
@@ -1641,7 +1698,22 @@ const FeeManagement = () => {
                                </div>
                              )}
                           </TableCell>
-                          <TableCell className="font-medium text-red-600">PKR {formatAmount(challan.lateFeeFine)}</TableCell>
+                          <TableCell className="font-medium text-red-600">
+                            PKR {formatAmount(challan.lateFeeFine)}
+                            {challan.status === "VOID" && (challan.lateFeeFine || 0) > 0 && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="ml-1 inline-flex items-center cursor-help">
+                                    <AlertCircle className="w-3 h-3 text-amber-500" />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs text-xs">
+                                  Late fee of PKR {formatAmount(challan.lateFeeFine)} is preserved for audit.
+                                  {challan.supersededBy ? ` Included in Challan #${challan.supersededBy.challanNumber}.` : " Rolled into superseding challan."}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </TableCell>
                           <TableCell className="font-bold">
                             PKR {formatAmount(getChallanTotal(challan))}
                           </TableCell>
@@ -1650,9 +1722,50 @@ const FeeManagement = () => {
                             <div>{new Date(challan.dueDate).toLocaleDateString()}</div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "warning" : challan.status === "VOID" ? "outline" : "secondary"}>
-                              {challan.status === "VOID" ? "Superseded" : challan.status}
-                            </Badge>
+                            <div className="flex flex-col gap-1">
+                              <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "warning" : challan.status === "VOID" ? "outline" : "secondary"}>
+                                {challan.status === "VOID" ? "Superseded" : challan.status}
+                              </Badge>
+                              {challan.status === "VOID" && challan.supersededBy && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="flex items-center gap-0.5 text-[9px] text-muted-foreground cursor-help">
+                                      <span className="truncate max-w-[80px]">{challan.month || `Inst #${challan.installmentNumber}`}</span>
+                                      <ArrowRight className="w-2.5 h-2.5 shrink-0" />
+                                      <span className="truncate max-w-[80px] font-medium text-slate-600">#{challan.supersededBy.challanNumber}</span>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-xs">
+                                    <p className="font-semibold mb-1">Superseding Chain</p>
+                                    <p>This installment&apos;s debt (including late fees) was rolled into Challan #{challan.supersededBy.challanNumber}.</p>
+                                    {(challan.lateFeeFine || 0) > 0 && (
+                                      <p className="mt-1 text-amber-300">Late fee of PKR {formatAmount(challan.lateFeeFine)} is included in the superseding challan.</p>
+                                    )}
+                                    {(() => {
+                                      const totalDue = (challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.discount || 0);
+                                      const settled = challan.settledAmount || 0;
+                                      if (settled <= 0) return null;
+                                      const remaining = Math.max(0, totalDue - settled);
+                                      return (
+                                        <div className="mt-1 border-t border-white/20 pt-1 space-y-0.5">
+                                          <p>Total: PKR {formatAmount(totalDue)}</p>
+                                          <p className="text-green-300">Settled: PKR {formatAmount(settled)}</p>
+                                          {remaining > 0
+                                            ? <p className="text-amber-300">Remaining: PKR {formatAmount(remaining)}</p>
+                                            : <p className="text-green-300">✓ Fully settled</p>
+                                          }
+                                        </div>
+                                      );
+                                    })()}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                              {challan.status === "VOID" && (challan.settledAmount || 0) > 0 && (
+                                <div className="text-[9px] text-green-600 font-medium">
+                                  Settled: PKR {formatAmount(challan.settledAmount)}
+                                </div>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
@@ -1667,7 +1780,7 @@ const FeeManagement = () => {
                                 </TooltipTrigger>
                                 <TooltipContent>View Details</TooltipContent>
                               </Tooltip>
-                              {challan.status !== "PAID" && <Tooltip>
+                              {challan.status !== "PAID" && !(challan.status === "VOID" && (challan.settledAmount || 0) > 0) && <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button size="sm" variant="outline" onClick={async () => {
                                 setEditingChallan(challan);
@@ -1706,7 +1819,7 @@ const FeeManagement = () => {
                                     id: inst.id,
                                     installmentNumber: inst.installmentNumber,
                                     amount: inst.remainingAmount || (inst.amount - (inst.paidAmount || 0)),
-                                    lateFee: calculateLateFee(inst.dueDate, lateFeeFine)
+                                    lateFee: inst.lateFeeAccrued != null ? inst.lateFeeAccrued : calculateLateFee(inst.dueDate, lateFeeFine)
                                   }));
 
                                   autoArrearsTotal = autoSelectedArrears.reduce((sum, a) => sum + a.amount, 0);
@@ -1733,7 +1846,7 @@ const FeeManagement = () => {
                                       id: inst.id,
                                       installmentNumber: inst.installmentNumber,
                                       amount: inst.remainingAmount || (inst.amount - (inst.paidAmount || 0)),
-                                      lateFee: calculateLateFee(inst.dueDate, lateFeeFine)
+                                      lateFee: inst.lateFeeAccrued != null ? inst.lateFeeAccrued : calculateLateFee(inst.dueDate, lateFeeFine)
                                     }));
                                   
                                   // filter unique for safety
@@ -1830,8 +1943,8 @@ const FeeManagement = () => {
                               </Tooltip>
                               {challan.status !== "PAID" && challan.status !== "VOID" && <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <Button size="sm" variant="outline" onClick={() => handlePayment(challan)}>
-                                    <CheckCircle2 className="w-4 h-4" />
+                                  <Button size="sm" variant="outline" className="text-success border-success hover:bg-success hover:text-white" onClick={() => handlePayment(challan)}>
+                                    Pay
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>Record Payment</TooltipContent>
@@ -3045,7 +3158,7 @@ const FeeManagement = () => {
           resetChallanForm();
         }
       }}>
-         <DialogContent className="max-w-6xl max-h-[96vh] overflow-y-auto p-0 border-none shadow-2xl">
+         <DialogContent className="max-w-full h-[100vh] overflow-y-auto p-0 border-none shadow-2xl">
           <DialogHeader className="bg-white border-b p-4">
             <div className="flex justify-between items-center">
               <DialogTitle className="text-lg font-bold text-slate-800">Pay Students Fee</DialogTitle>
@@ -3982,6 +4095,56 @@ const FeeManagement = () => {
                 </div>
               </div>
 
+              {/* VOID Challan Transparency Note */}
+              {selectedChallanDetails.status === "VOID" && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex gap-3 items-start">
+                  <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div className="space-y-1 text-sm w-full">
+                    <p className="font-semibold text-amber-800">This challan was superseded</p>
+                    {selectedChallanDetails.supersededBy && (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-700">
+                        <span className="font-medium">{selectedChallanDetails.month || `Inst #${selectedChallanDetails.installmentNumber}`} (VOID)</span>
+                        <ArrowRight className="w-3 h-3" />
+                        <span className="font-bold">#{selectedChallanDetails.supersededBy.challanNumber} ({selectedChallanDetails.supersededBy.status})</span>
+                      </div>
+                    )}
+                    {/* Settlement breakdown */}
+                    {(() => {
+                      const totalDue = (selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0) - (selectedChallanDetails.discount || 0);
+                      const settled = selectedChallanDetails.settledAmount || 0;
+                      const remaining = Math.max(0, totalDue - settled);
+                      const fullySettled = settled >= totalDue - 0.01 && totalDue > 0;
+                      return (
+                        <div className="mt-1 grid grid-cols-3 gap-2 text-xs">
+                          <div className="bg-white rounded p-1.5 border border-amber-200">
+                            <p className="text-amber-600 font-semibold">Total Due</p>
+                            <p className="font-bold">PKR {formatAmount(totalDue)}</p>
+                          </div>
+                          <div className="bg-white rounded p-1.5 border border-green-200">
+                            <p className="text-green-600 font-semibold">Settled</p>
+                            <p className="font-bold text-green-700">PKR {formatAmount(settled)}</p>
+                          </div>
+                          <div className={`bg-white rounded p-1.5 border ${fullySettled ? 'border-green-200' : 'border-amber-200'}`}>
+                            <p className={`font-semibold ${fullySettled ? 'text-green-600' : 'text-amber-600'}`}>Remaining</p>
+                            <p className={`font-bold ${fullySettled ? 'text-green-700' : 'text-amber-700'}`}>
+                              {fullySettled ? '✓ Settled' : `PKR ${formatAmount(remaining)}`}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {(selectedChallanDetails.lateFeeFine || 0) > 0 && (
+                      <p className="text-amber-700 text-xs">
+                        Late fee of <span className="font-bold">PKR {formatAmount(selectedChallanDetails.lateFeeFine)}</span> is locked for audit trail.
+                      </p>
+                    )}
+                    {selectedChallanDetails.remarks && (
+                      <p className="text-[10px] text-amber-600 italic mt-1">{selectedChallanDetails.remarks}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* itemized Financial Breakdown */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <Card className="lg:col-span-2 shadow-sm border-slate-200">
@@ -4066,7 +4229,22 @@ const FeeManagement = () => {
                         {/* Fines & Late Fees */}
                         {selectedChallanDetails.lateFeeFine > 0 && (
                           <TableRow className="text-destructive bg-destructive/5 font-medium">
-                            <TableCell className="py-2">Late Fee Fine (Calculated Overdue)</TableCell>
+                            <TableCell className="py-2">
+                              {selectedChallanDetails.status === "VOID"
+                                ? <span className="flex items-center gap-1.5">
+                                    Late Fee Fine (Preserved)
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <AlertCircle className="w-3 h-3 text-amber-500 cursor-help" />
+                                      </TooltipTrigger>
+                                      <TooltipContent className="max-w-xs text-xs">
+                                        This late fee is preserved on the VOID challan for audit trail. The debt (including this late fee) has been rolled into the superseding challan.
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </span>
+                                : "Late Fee Fine (Calculated Overdue)"
+                              }
+                            </TableCell>
                             <TableCell className="text-right font-bold py-2">{formatAmount(selectedChallanDetails.lateFeeFine)}</TableCell>
                           </TableRow>
                         )}
@@ -4111,33 +4289,36 @@ const FeeManagement = () => {
                        </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs text-muted-foreground">Total Billed</span>
-                          <span className="text-sm font-bold">
-                            PKR {formatAmount((selectedChallanDetails.amount || 0) + getSelectedHeadsTotal(selectedChallanDetails) + (selectedChallanDetails.lateFeeFine || 0) + getRecursiveArrears(selectedChallanDetails) - (selectedChallanDetails.discount || 0))}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs text-muted-foreground">Amount Paid</span>
-                          <span className="text-sm font-bold text-success">PKR {formatAmount(selectedChallanDetails.paidAmount || 0)}</span>
-                        </div>
-                        <div className="pt-2 border-t flex justify-between items-center">
-                          <span className="text-sm font-bold text-slate-800">Remaining Balance</span>
-                          <span className="text-base font-black text-destructive">
-                            PKR {formatAmount(
-                              Math.max(0, 
-                                (selectedChallanDetails.amount || 0) + 
-                                getSelectedHeadsTotal(selectedChallanDetails) + 
-                                (selectedChallanDetails.lateFeeFine || 0) + 
-                                getRecursiveArrears(selectedChallanDetails) - 
-                                (selectedChallanDetails.discount || 0) - 
-                                (selectedChallanDetails.paidAmount || 0)
-                              )
-                            )}
-                          </span>
-                        </div>
-                      </div>
+                      {(() => {
+                        const isVoid = selectedChallanDetails.status === 'VOID';
+                        // For VOID challans: total due is own amount only (no arrears — those belong to superseding challan)
+                        // effective paid = settledAmount (allocated from superseding challan payment)
+                        const totalDue = isVoid
+                          ? Math.max(0, (selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0) - (selectedChallanDetails.discount || 0))
+                          : Math.max(0, (selectedChallanDetails.amount || 0) + getSelectedHeadsTotal(selectedChallanDetails) + (selectedChallanDetails.lateFeeFine || 0) + getRecursiveArrears(selectedChallanDetails) - (selectedChallanDetails.discount || 0));
+                        const effectivePaid = isVoid
+                          ? (selectedChallanDetails.settledAmount || 0)
+                          : (selectedChallanDetails.paidAmount || 0);
+                        const remaining = Math.max(0, totalDue - effectivePaid);
+                        return (
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs text-muted-foreground">Total Billed</span>
+                              <span className="text-sm font-bold">PKR {formatAmount(totalDue)}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs text-muted-foreground">{isVoid ? "Settled via Superseding" : "Amount Paid"}</span>
+                              <span className="text-sm font-bold text-success">PKR {formatAmount(effectivePaid)}</span>
+                            </div>
+                            <div className="pt-2 border-t flex justify-between items-center">
+                              <span className="text-sm font-bold text-slate-800">Remaining Balance</span>
+                              <span className={`text-base font-black ${remaining === 0 ? 'text-success' : 'text-destructive'}`}>
+                                {remaining === 0 ? '✓ Fully Settled' : `PKR ${formatAmount(remaining)}`}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </CardContent>
                   </Card>
 
@@ -4262,11 +4443,9 @@ const FeeManagement = () => {
                 <div className="grid gap-2 grid-cols-2 md:grid-cols-4">
                   <div className="space-y-1">
                     <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Select Month</Label>
-                    <Input
-                      type="month"
+                    <Select
                       value={generateForm.month}
-                      onChange={(e) => {
-                        const val = e.target.value;
+                      onValueChange={(val) => {
                         setGenerateForm(prev => {
                           const newState = { ...prev, month: val };
                           if (!sessionManuallySet.current) {
@@ -4286,8 +4465,23 @@ const FeeManagement = () => {
                           return newState;
                         });
                       }}
-                      className="h-8 text-xs"
-                    />
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Select month" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((monthName, index) => {
+                          const monthNum = (index + 1).toString().padStart(2, '0');
+                          const currentYear = new Date().getFullYear();
+                          const monthValue = `${currentYear}-${monthNum}`;
+                          return (
+                            <SelectItem key={monthValue} value={monthValue}>
+                              {monthName}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[11px] font-semibold text-muted-foreground uppercase">Due Date</Label>
@@ -4457,7 +4651,8 @@ const FeeManagement = () => {
                                 <TableHead className="w-[40px] p-0 text-center"></TableHead>
                                 <TableHead className="text-[10px] uppercase font-bold p-2">Student</TableHead>
                                 <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Inst. Amt</TableHead>
-<TableHead className="text-[10px] uppercase font-bold p-2 text-right">Arrears</TableHead>
+                                <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Late Fee</TableHead>
+                                <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Arrears</TableHead>
                                 <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Total Due</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -4466,6 +4661,9 @@ const FeeManagement = () => {
                                 const [selYear, selMonth] = generateForm.month.split('-').map(Number);
                                 const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
                                 const mNameMatch = monthNames[selMonth - 1];
+                                const selectedSessionName = generateForm.sessionId && generateForm.sessionId !== 'all'
+                                  ? (academicSessions.find(s => s.id.toString() === generateForm.sessionId)?.name || '')
+                                  : '';
 
                                 const filteredRows = bulkStudents.filter(student => {
                                   const studentInsts = (student.feeInstallments || []);
@@ -4473,7 +4671,9 @@ const FeeManagement = () => {
                                     const instMonthStr = (inst.month || "").trim().toLowerCase();
                                     const nameMatches = instMonthStr === mNameMatch.toLowerCase();
                                     if (generateForm.sessionId && generateForm.sessionId !== "all") {
-                                      return nameMatches && inst.sessionId?.toString() === generateForm.sessionId;
+                                      const byId = inst.sessionId?.toString() === generateForm.sessionId;
+                                      const byName = selectedSessionName && (inst.session || '') === selectedSessionName;
+                                      return nameMatches && (byId || byName);
                                     }
                                     return nameMatches;
                                   });
@@ -4482,7 +4682,7 @@ const FeeManagement = () => {
                                 if (filteredRows.length === 0) {
                                   return (
                                     <TableRow>
-                                      <TableCell colSpan={5} className="py-8 text-center text-red-500 font-medium italic">
+                                      <TableCell colSpan={6} className="py-8 text-center text-red-500 font-medium italic">
                                         No installment plan found for {mNameMatch} {selYear} / {generateForm.sessionId !== 'all' ? (academicSessions.find(as => as.id.toString() === generateForm.sessionId)?.name || 'selected session') : 'any session'}
                                       </TableCell>
                                     </TableRow>
@@ -4495,7 +4695,9 @@ const FeeManagement = () => {
                                     const instMonthStr = (inst.month || "").trim().toLowerCase();
                                     const nameMatches = instMonthStr === mNameMatch.toLowerCase();
                                     if (generateForm.sessionId && generateForm.sessionId !== "all") {
-                                      return nameMatches && inst.sessionId?.toString() === generateForm.sessionId;
+                                      const byId = inst.sessionId?.toString() === generateForm.sessionId;
+                                      const byName = selectedSessionName && (inst.session || '') === selectedSessionName;
+                                      return nameMatches && (byId || byName);
                                     }
                                     return nameMatches;
                                   });
@@ -4517,8 +4719,9 @@ const FeeManagement = () => {
                                   const targetClassRank = getClassRank(currentInst?.class);
                                   const targetInstNum = currentInst?.installmentNumber || 0;
                                   const studentLateFee = student.lateFeeFine || lateFeeFine || 0;
+                                  const installmentLateFee = currentInst?.lateFeeAccrued || 0;
                                   const recurringHeadsAmt = (student.feeStructure?.feeHeads || [])
-                                    .filter(sh => !sh.feeHead?.isTuition && !sh.feeHead?.isDiscount && !sh.feeHead?.isLabFee)
+                                    .filter(sh => !sh.feeHead?.isTuition && !sh.feeHead?.isDiscount)
                                     .reduce((sum, sh) => sum + (sh.amount || 0), 0);
                                   
                                   const getArrearsBreakdown = () => {
@@ -4577,7 +4780,8 @@ const FeeManagement = () => {
                                     let uHeads = 0;
                                     unbilledPast.forEach(inst => {
                                       uTuition += (inst.amount - (inst.paidAmount || 0));
-                                      uLateFees += calculateLateFee(inst.dueDate, studentLateFee);
+                                      // Prefer stored incremental lateFeeAccrued if available, else calculate dynamically
+                                      uLateFees += (inst.lateFeeAccrued != null ? inst.lateFeeAccrued : calculateLateFee(inst.dueDate, studentLateFee));
                                       uHeads += recurringHeadsAmt;
                                     });
 
@@ -4591,12 +4795,24 @@ const FeeManagement = () => {
                                       .filter(pc => pc.status !== 'PAID')
                                       .reduce((s, pc) => s + (pc.lateFeeFine || 0), 0) + uLateFees;
 
+                                    // VOID predecessor breakdown for transparency (Task 4.3)
+                                    const voidPredecessors = pastChallans
+                                      .filter(pc => pc.status === 'VOID')
+                                      .map(pc => ({
+                                        month: pc.month || `Inst #${pc.installmentNumber}`,
+                                        tuition: Math.max(0, (pc.amount || 0) - (pc.paidAmount || 0) - (pc.discount || 0)),
+                                        lateFee: pc.lateFeeFine || 0,
+                                        challanNumber: pc.challanNumber,
+                                      }))
+                                      .filter(p => p.tuition > 0 || p.lateFee > 0);
+
                                     return {
                                       total: cRemaining + uTuition + uLateFees + uHeads + sTotal,
                                       lateFees,
                                       tuition: uTuition,
                                       heads: uHeads,
-                                      session: sTotal
+                                      session: sTotal,
+                                      voidPredecessors,
                                     };
                                   };
 
@@ -4689,6 +4905,9 @@ const FeeManagement = () => {
                                       <TableCell className="text-xs p-2 text-right font-medium whitespace-nowrap">
                                         Rs. {(currentInst ? (currentInst.amount + (recurringHeadsAmt || 0)) : 0).toLocaleString()}
                                       </TableCell>
+                                      <TableCell className="text-xs p-2 text-right font-medium whitespace-nowrap text-orange-600">
+                                        Rs. {(installmentLateFee || 0).toLocaleString()}
+                                      </TableCell>
                                       <TableCell className="text-xs p-2 text-right text-red-600 font-medium whitespace-nowrap">
                                         <div>Rs. {arrearsAmount.toLocaleString()}</div>
                                         {brk.lateFees > 0 && (
@@ -4696,9 +4915,34 @@ const FeeManagement = () => {
                                             incl. Late Fee: {brk.lateFees.toLocaleString()}
                                           </div>
                                         )}
+                                        {brk.voidPredecessors && brk.voidPredecessors.length > 0 && (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <div className="flex items-center justify-end gap-0.5 text-[9px] text-amber-600 cursor-help mt-0.5">
+                                                <AlertCircle className="w-2.5 h-2.5" />
+                                                <span>{brk.voidPredecessors.length} VOID</span>
+                                              </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="max-w-xs text-xs" side="left">
+                                              <p className="font-semibold mb-1.5">Arrears Breakdown (VOID Predecessors)</p>
+                                              <div className="space-y-1">
+                                                {brk.voidPredecessors.map((vp, vi) => (
+                                                  <div key={vi} className="flex justify-between gap-3 text-[10px]">
+                                                    <span className="text-slate-300">{vp.month}</span>
+                                                    <span>
+                                                      {vp.tuition > 0 && <span>{vp.tuition.toLocaleString()}</span>}
+                                                      {vp.lateFee > 0 && <span className="text-amber-300"> + Late Fee: {vp.lateFee.toLocaleString()}</span>}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                              <p className="mt-1.5 text-[9px] text-slate-400 italic">Total: PKR {arrearsAmount.toLocaleString()}</p>
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        )}
                                       </TableCell>
                                       <TableCell className="text-xs p-2 text-right font-black text-orange-700 whitespace-nowrap">
-                                        Rs. {(unpaidInstAmt + (recurringHeadsAmt || 0) + arrearsAmount).toLocaleString()}
+                                        Rs. {(unpaidInstAmt + (recurringHeadsAmt || 0) + (installmentLateFee || 0) + arrearsAmount).toLocaleString()}
                                       </TableCell>
                                     </TableRow>
                                   );

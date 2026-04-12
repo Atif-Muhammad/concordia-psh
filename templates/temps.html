@@ -576,7 +576,7 @@
 </html>
 
 <!-- new  -->
- <html>
+<html>
 <head>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
@@ -866,15 +866,15 @@
       <div class="details-grid">
         <div class="grid-row">
           <div class="grid-label">Challan Number</div>
-          <div class="grid-value">{{challanNo}}</div>
+          <div class="grid-value" style="background-color: #e0e0e0;">{{challanNo}}</div>
         </div>
         <div class="grid-row">
           <div class="grid-label">Issue Date</div>
-          <div class="grid-value">{{issueDate}}</div>
+          <div class="grid-value" style="background-color: #e0e0e0;">{{issueDate}}</div>
         </div>
         <div class="grid-row">
           <div class="grid-label">Valid Date</div>
-          <div class="grid-value">{{dueDate}}</div>
+          <div class="grid-value" style="background-color: #e0e0e0;">{{dueDate}}</div>
         </div>
         <div class="grid-row" style="border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px">
           <div class="grid-label">Student Name</div>
@@ -883,6 +883,10 @@
         <div class="grid-row">
           <div class="grid-label">Father Name</div>
           <div class="grid-value">{{fatherName}}</div>
+        </div>
+        <div class="grid-row">
+          <div class="grid-label">Class</div>
+          <div class="grid-value">{{class}}</div>
         </div>
         <div class="grid-row">
           <div class="grid-label">Student Id</div>
@@ -915,6 +919,7 @@
             <td>Discount</td>
             <td>{{discount}}</td>
           </tr>
+          {{paidRow}}
           <tr class="total-row">
             <td>Total Payable within due date</td>
             <td>{{totalPayable}}</td>
@@ -923,6 +928,7 @@
             <td>Late Fee Fine after due date</td>
             <td>Rs. 150 Per Day</td>
           </tr>
+          {{paymentDetailsRow}}
         </tbody>
       </table>
 
@@ -994,15 +1000,15 @@
       <div class="details-grid">
         <div class="grid-row">
           <div class="grid-label">Challan Number</div>
-          <div class="grid-value">{{challanNo}}</div>
+          <div class="grid-value" style="background-color: #e0e0e0;">{{challanNo}}</div>
         </div>
         <div class="grid-row">
           <div class="grid-label">Issue Date</div>
-          <div class="grid-value">{{issueDate}}</div>
+          <div class="grid-value" style="background-color: #e0e0e0;">{{issueDate}}</div>
         </div>
         <div class="grid-row">
           <div class="grid-label">Valid Date</div>
-          <div class="grid-value">{{dueDate}}</div>
+          <div class="grid-value" style="background-color: #e0e0e0;">{{dueDate}}</div>
         </div>
         <div class="grid-row" style="border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px">
           <div class="grid-label">Student Name</div>
@@ -1011,6 +1017,10 @@
         <div class="grid-row">
           <div class="grid-label">Father Name</div>
           <div class="grid-value">{{fatherName}}</div>
+        </div>
+        <div class="grid-row">
+          <div class="grid-label">Class</div>
+          <div class="grid-value">{{class}}</div>
         </div>
         <div class="grid-row">
           <div class="grid-label">Student Id</div>
@@ -1043,6 +1053,7 @@
             <td>Discount</td>
             <td>{{discount}}</td>
           </tr>
+          {{paidRow}}
           <tr class="total-row">
             <td>Total Payable within due date</td>
             <td>{{totalPayable}}</td>
@@ -1051,6 +1062,7 @@
             <td>Late Fee Fine after due date</td>
             <td>Rs. 150 Per Day</td>
           </tr>
+          {{paymentDetailsRow}}
         </tbody>
       </table>
 
@@ -1121,15 +1133,15 @@
       <div class="details-grid">
         <div class="grid-row">
           <div class="grid-label">Challan Number</div>
-          <div class="grid-value">{{challanNo}}</div>
+          <div class="grid-value" style="background-color: #e0e0e0;">{{challanNo}}</div>
         </div>
         <div class="grid-row">
           <div class="grid-label">Issue Date</div>
-          <div class="grid-value">{{issueDate}}</div>
+          <div class="grid-value" style="background-color: #e0e0e0;">{{issueDate}}</div>
         </div>
         <div class="grid-row">
           <div class="grid-label">Valid Date</div>
-          <div class="grid-value">{{dueDate}}</div>
+          <div class="grid-value" style="background-color: #e0e0e0;">{{dueDate}}</div>
         </div>
         <div class="grid-row" style="border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px">
           <div class="grid-label">Student Name</div>
@@ -1138,6 +1150,10 @@
         <div class="grid-row">
           <div class="grid-label">Father Name</div>
           <div class="grid-value">{{fatherName}}</div>
+        </div>
+        <div class="grid-row">
+          <div class="grid-label">Class</div>
+          <div class="grid-value">{{class}}</div>
         </div>
         <div class="grid-row">
           <div class="grid-label">Student Id</div>
@@ -1170,6 +1186,7 @@
             <td>Discount</td>
             <td>{{discount}}</td>
           </tr>
+          {{paidRow}}
           <tr class="total-row">
             <td>Total Payable within due date</td>
             <td>{{totalPayable}}</td>
@@ -1178,6 +1195,7 @@
             <td>Late Fee Fine after due date</td>
             <td>Rs. 150 Per Day</td>
           </tr>
+          {{paymentDetailsRow}}
         </tbody>
       </table>
 
