@@ -169,7 +169,6 @@ export class TeacherService {
         subjects: {
           include: { subject: true },
         },
-        timetables: true,
         assignments: true,
       },
     });
@@ -205,14 +204,7 @@ export class TeacherService {
       );
     }
 
-    // 4. CLEANUP: Delete timetable entries
-    if (teacher.timetables.length > 0) {
-      await this.prismaService.timetable.deleteMany({
-        where: { teacherId: teacherID },
-      });
-    }
-
-    // 5. CLEANUP: Delete assignments
+    // 4. CLEANUP: Delete assignments
     if (teacher.assignments.length > 0) {
       await this.prismaService.assignment.deleteMany({
         where: { teacherId: teacherID },

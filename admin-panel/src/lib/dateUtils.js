@@ -1,5 +1,13 @@
 import { differenceInYears, differenceInMonths, differenceInDays } from "date-fns";
 
+// Returns true if date is strictly in the future (after today at midnight)
+export function isActionDisabled(date) {
+    if (!date) return true;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return new Date(date) > today;
+}
+
 export const calculateDuration = (startDate, endDate) => {
     if (!startDate) return "N/A";
 

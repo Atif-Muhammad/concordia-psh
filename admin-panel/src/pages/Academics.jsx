@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   GraduationCap,
   BookOpen,
@@ -43,6 +44,8 @@ import {
   FileText,
   Printer,
   Calendar,
+  Eye,
+  Search,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -59,17 +62,14 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { hasModuleAccess, parseDurationToYears } from "../lib/utils";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import {
-  createAssignment,
   createClass,
   createProgram,
   createSection,
   createSubject,
   createTeacherClassMappings,
   createTeacherSubjectMapping,
-  createTimetable,
-  deleteAssignment,
   deleteClass,
   deleteProgram,
   deleteSection,
@@ -77,7 +77,6 @@ import {
   deleteTeacherClassMappings,
   deleteTeacherSubjectMapping,
   deleteTimetable,
-  getAssignments,
   getClasses,
   getPrograms,
   getDepartmentNames,
@@ -87,14 +86,12 @@ import {
   getTeacherNames,
   getTeacherSubjectMappings,
   getTimetables,
-  updateAssignment,
   updateClass,
   updateProgram,
   updateSection,
   updateSubject,
   updateTeacherClassMappings,
   updateTeacherSubjectMapping,
-  updateTimetable,
   getAcademicSessions,
   createAcademicSession,
   updateAcademicSession,
@@ -103,7 +100,41 @@ import {
   createSubjectClassMapping,
   updateSubjectClassMapping,
   deleteSubjectClassMapping,
+  getSubjectsForClassWithAssignments,
+  searchAcademicsStaff,
+  bulkAssignTeacherToClassSubjects,
+  upsertTimetable,
 } from "../../config/apis";
+
+function to12h(time) {
+  if (!time) return "";
+  const [h, m] = time.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+function groupSlotsToSchedules(slots) {
+  const map = new Map();
+  for (const s of slots) {
+    const key = s.subjectId.toString();
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push({ dayOfWeek: s.dayOfWeek, startTime: s.startTime, endTime: s.endTime });
+  }
+  return Array.from(map.entries()).map(([subjectId, dayAssignments]) => ({ subjectId, dayAssignments }));
+}
+
+function flattenSchedulesToSlots(schedules) {
+  const result = [];
+  for (const sched of schedules) {
+    if (!sched.subjectId) continue;
+    for (const da of sched.dayAssignments) {
+      if (!da.dayOfWeek || !da.startTime || !da.endTime) continue;
+      result.push({ dayOfWeek: da.dayOfWeek, startTime: da.startTime, endTime: da.endTime, subjectId: Number(sched.subjectId) });
+    }
+  }
+  return result;
+}
 
 const Academics = () => {
   const { toast } = useToast();
@@ -114,6 +145,13 @@ const Academics = () => {
   const [sectionFilterProgram, setSectionFilterProgram] = useState("all");
   const [sectionFilterClass, setSectionFilterClass] = useState("all");
   const currentUser = queryClient.getQueryData(["currentUser"]);
+
+  // Session filter state (declared before queries that depend on them)
+  const [scmSessionFilter, setScmSessionFilter] = useState("all");
+  const [tcmSessionFilter, setTcmSessionFilter] = useState("all");
+  const [scmDialogSessionId, setScmDialogSessionId] = useState("");
+  const [tcmDialogSessionId, setTcmDialogSessionId] = useState("");
+
   // Queries
   const { data: programs = [] } = useQuery({
     queryKey: ["programs"],
@@ -146,18 +184,16 @@ const Academics = () => {
     retry: 1,
   });
   const { data: teacherClassMappings = [] } = useQuery({
-    queryKey: ["teacherClassMappings"],
-    queryFn: getTeacherClassMappings,
+    queryKey: ["teacherClassMappings", tcmSessionFilter],
+    queryFn: () => getTeacherClassMappings(
+      tcmSessionFilter !== "all" ? Number(tcmSessionFilter) : undefined
+    ),
     retry: 1,
   });
+  const [timetableFilterSession, setTimetableFilterSession] = useState("all");
   const { data: timetables = [] } = useQuery({
-    queryKey: ["timetables"],
-    queryFn: getTimetables,
-    retry: 1,
-  });
-  const { data: assignments = [] } = useQuery({
-    queryKey: ["assignments"],
-    queryFn: getAssignments,
+    queryKey: ["timetables", timetableFilterSession],
+    queryFn: () => getTimetables(timetableFilterSession !== "all" ? timetableFilterSession : null),
     retry: 1,
   });
   const { data: teachers = [] } = useQuery({
@@ -171,8 +207,10 @@ const Academics = () => {
     retry: 1,
   });
   const { data: scmMappings = [] } = useQuery({
-    queryKey: ["scmMappings"],
-    queryFn: getSubjectClassMappings,
+    queryKey: ["scmMappings", scmSessionFilter],
+    queryFn: () => getSubjectClassMappings(
+      scmSessionFilter !== "all" ? Number(scmSessionFilter) : undefined
+    ),
     retry: 1,
   });
 
@@ -204,12 +242,8 @@ const Academics = () => {
     onSuccess: () => queryClient.invalidateQueries(["teacherClassMappings"]),
   });
   const timetableMutation = useMutation({
-    mutationFn: ({ id, data }) => (id ? updateTimetable(id, data) : createTimetable(data)),
+    mutationFn: (data) => upsertTimetable(data),
     onSuccess: () => queryClient.invalidateQueries(["timetables"]),
-  });
-  const assignmentMutation = useMutation({
-    mutationFn: ({ id, data }) => (id ? updateAssignment(id, data) : createAssignment(data)),
-    onSuccess: () => queryClient.invalidateQueries(["assignments"]),
   });
   const sessionMutation = useMutation({
     mutationFn: ({ id, data }) => (id ? updateAcademicSession(id, data) : createAcademicSession(data)),
@@ -229,7 +263,6 @@ const Academics = () => {
     mapping: useMutation({ mutationFn: deleteTeacherSubjectMapping, onSuccess: () => queryClient.invalidateQueries(["teacherSubjectMappings"]) }),
     classMapping: useMutation({ mutationFn: deleteTeacherClassMappings, onSuccess: () => queryClient.invalidateQueries(["teacherClassMappings"]) }),
     timetable: useMutation({ mutationFn: deleteTimetable, onSuccess: () => queryClient.invalidateQueries(["timetables"]) }),
-    assignment: useMutation({ mutationFn: deleteAssignment, onSuccess: () => queryClient.invalidateQueries(["assignments"]) }),
     session: useMutation({ mutationFn: deleteAcademicSession, onSuccess: () => queryClient.invalidateQueries(["academicSessions"]) }),
     scm: useMutation({ mutationFn: deleteSubjectClassMapping, onSuccess: () => queryClient.invalidateQueries(["scmMappings"]) }),
   };
@@ -242,60 +275,127 @@ const Academics = () => {
   const [subjectFilterProgram, setSubjectFilterProgram] = useState("all");
   const [subjectFilterClass, setSubjectFilterClass] = useState("all");
   const [timetableFilterClass, setTimetableFilterClass] = useState("all");
+  const [tcmTableStaffSearch, setTcmTableStaffSearch] = useState("");
+
+  useEffect(() => {
+    if (academicSessions?.length > 0) {
+      const active = academicSessions.find(s => s.isActive);
+      if (active) {
+        setScmSessionFilter(active.id.toString());
+        setTcmSessionFilter(active.id.toString());
+        setScmDialogSessionId(active.id.toString());
+        setTcmDialogSessionId(active.id.toString());
+      }
+    }
+  }, [academicSessions]);
 
   // Form states
   const [programForm, setProgramForm] = useState({ name: "", description: "", level: "INTERMEDIATE", departmentId: "", duration: "", customDuration: "" });
   const [classForm, setClassForm] = useState({ name: "", programId: "", year: "", semester: "", isSemester: false });
   const [sectionForm, setSectionForm] = useState({ sectionLetter: "A", shift: "Morning", classId: "", capacity: "", room: "" });
   const [subjectForm, setSubjectForm] = useState({ name: "" });
-  const [scmForm, setScmForm] = useState({ subjectId: "", classId: "", creditHours: "", code: "", description: "" });
+  const [scmDialogFilter, setScmDialogFilter] = useState({ programId: "all", classId: "" });
+  const [bulkSubjectSelection, setBulkSubjectSelection] = useState(new Map());
+  const [scmEditForm, setScmEditForm] = useState({ code: "", creditHours: "" });
+  const [scmTableFilter, setScmTableFilter] = useState({ programId: "all", classId: "all" });
   const [mappingForm, setMappingForm] = useState({ teacherId: "", subjectId: "" });
-  const [classMappingForm, setClassMappingForm] = useState({ teacherId: "", classId: "", sectionId: "" });
-  const [timetableForm, setTimetableForm] = useState({
-    teacherId: "",
-    subjectId: "",
-    sectionId: "",
-    classId: "",
-    dayOfWeek: "Monday",
-    startTime: "",
-    endTime: "",
-    room: "",
-  });
-  const [assignmentForm, setAssignmentForm] = useState({ title: "", description: "", dueDate: "", teacherId: "", subjectId: "", sectionId: "" });
+  const [classMappingForm, setClassMappingForm] = useState({ teacherId: "", classId: "", sectionId: "", tcmFilterProgramId: "" });
+
+  // TCM redesign state
+  const [tcmStaffSearch, setTcmStaffSearch] = useState("");
+  const [tcmStaffResults, setTcmStaffResults] = useState([]);
+  const [tcmStaffSearching, setTcmStaffSearching] = useState(false);
+  const [tcmSelectedStaff, setTcmSelectedStaff] = useState(null); // { id, name, isTeaching, isNonTeaching }
+  const [tcmSelectedProgramId, setTcmSelectedProgramId] = useState("");
+  const [tcmSelectedClassId, setTcmSelectedClassId] = useState("");
+  const [tcmClassSubjects, setTcmClassSubjects] = useState([]); // from getSubjectsForClassWithAssignments
+  const [tcmClassSubjectsLoading, setTcmClassSubjectsLoading] = useState(false);
+  const [tcmSelectedSubjectIds, setTcmSelectedSubjectIds] = useState(new Set());
+  const [tcmSelectedSectionId, setTcmSelectedSectionId] = useState("");
+  const [tcmSubmitting, setTcmSubmitting] = useState(false);
+  const tcmSearchTimeout = useRef(null);
+
+  // SCM view dialog state
+  const [scmViewItem, setScmViewItem] = useState(null);
+  // TCM view/edit state
+  const [tcmViewItem, setTcmViewItem] = useState(null);
+  const [tcmViewSubjects, setTcmViewSubjects] = useState([]);
+  const [tcmViewSubjectsLoading, setTcmViewSubjectsLoading] = useState(false);
+  // Timetable dialog state
+  const [ttDialogOpen, setTtDialogOpen] = useState(false);
+  const [ttClassId, setTtClassId] = useState("");
+  const [ttSectionId, setTtSectionId] = useState("");
+  const [ttSessionId, setTtSessionId] = useState("");
+  const [ttSubjectSchedules, setTtSubjectSchedules] = useState([]);
+  const [ttSaving, setTtSaving] = useState(false);
+
+  const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+  const openTimetableDialog = (existing) => {
+    if (existing) {
+      setTtClassId(existing.classId.toString());
+      setTtSectionId(existing.sectionId ? existing.sectionId.toString() : "");
+      setTtSessionId(existing.sessionId ? existing.sessionId.toString() : "");
+      setTtSubjectSchedules(groupSlotsToSchedules(existing.slots || []));
+    } else {
+      setTtClassId("");
+      setTtSectionId("");
+      setTtSessionId("");
+      setTtSubjectSchedules([]);
+    }
+    setTtDialogOpen(true);
+  };
+
+  const addSubjectSchedule = (subjectId) => {
+    setTtSubjectSchedules(prev => [...prev, { subjectId, dayAssignments: [{ dayOfWeek: "Monday", startTime: "", endTime: "" }] }]);
+  };
+
+  const removeSubjectSchedule = (schedIdx) => {
+    setTtSubjectSchedules(prev => prev.filter((_, i) => i !== schedIdx));
+  };
+
+  const addDayAssignment = (schedIdx) => {
+    setTtSubjectSchedules(prev => prev.map((s, i) =>
+      i === schedIdx ? { ...s, dayAssignments: [...s.dayAssignments, { dayOfWeek: "Monday", startTime: "", endTime: "" }] } : s
+    ));
+  };
+
+  const removeDayAssignment = (schedIdx, daIdx) => {
+    setTtSubjectSchedules(prev => prev.map((s, i) =>
+      i === schedIdx ? { ...s, dayAssignments: s.dayAssignments.filter((_, j) => j !== daIdx) } : s
+    ));
+  };
+
+  const updateDayAssignment = (schedIdx, daIdx, field, value) => {
+    setTtSubjectSchedules(prev => prev.map((s, i) =>
+      i === schedIdx ? {
+        ...s,
+        dayAssignments: s.dayAssignments.map((da, j) => j === daIdx ? { ...da, [field]: value } : da)
+      } : s
+    ));
+  };
+
+  const handleTimetableSave = async () => {
+    if (!ttClassId) return;
+    const slots = flattenSchedulesToSlots(ttSubjectSchedules);
+    setTtSaving(true);
+    try {
+      await upsertTimetable({
+        classId: Number(ttClassId),
+        sectionId: ttSectionId ? Number(ttSectionId) : null,
+        sessionId: ttSessionId ? Number(ttSessionId) : null,
+        slots,
+      });
+      queryClient.invalidateQueries(["timetables"]);
+      setTtDialogOpen(false);
+      toast({ title: "Timetable saved" });
+    } catch (err) {
+      toast({ title: "Error", description: err?.message || "Something went wrong", variant: "destructive" });
+    } finally {
+      setTtSaving(false);
+    }
+  };
   const [sessionForm, setSessionForm] = useState({ name: "", startDate: "", endDate: "", isActive: false });
-
-  // Helper: Get valid teachers for selected subject + class
-  const getValidTeachers = () => {
-    const classId = Number(timetableForm.classId);
-    const subjectId = Number(timetableForm.subjectId);
-
-    if (!classId || !subjectId) return [];
-
-    const subjectTeachers = teacherMappings
-      .filter(m => m.subjectId === subjectId)
-      .map(m => m.teacherId);
-
-    const classTeachers = teacherClassMappings?.filter(m => m.classId === classId)
-      .map(m => m.teacherId);
-
-    const validTeacherIds = subjectTeachers.filter(id => classTeachers.includes(id));
-    return teachers.filter(t => validTeacherIds.includes(t.id));
-  };
-
-  const isTimetableFormValid = () => {
-    const validTeachers = getValidTeachers();
-    const selectedTeacher = timetableForm.teacherId ? teachers.find(t => t.id === Number(timetableForm.teacherId)) : null;
-    return (
-      timetableForm.classId &&
-      timetableForm.subjectId &&
-      timetableForm.dayOfWeek &&
-      timetableForm.startTime &&
-      timetableForm.endTime &&
-      validTeachers.length > 0 &&
-      selectedTeacher &&
-      validTeachers.includes(selectedTeacher)
-    );
-  };
 
   const programHasAutoClasses = (programId) => {
     const prog = programs.find((p) => p.id === programId);
@@ -318,9 +418,9 @@ const Academics = () => {
       class: { name: "", programId: "", year: "", semester: "", isSemester: false },
       section: { sectionLetter: "A", shift: "Morning", classId: "", capacity: "", room: "", customName: "" },
       subject: { name: "" },
-      scm: { subjectId: "", classId: "", creditHours: "", code: "", description: "" },
+      scm: { programId: "all", classId: "" },
       mapping: { teacherId: "", subjectId: "" },
-      classMapping: { teacherId: "", classId: "", sectionId: "" },
+      classMapping: { teacherId: "", classId: "", sectionId: "", tcmFilterProgramId: "" },
       timetable: { teacherId: "", subjectId: "", sectionId: "", dayOfWeek: "Monday", startTime: "", endTime: "", room: "" },
       assignment: { title: "", description: "", dueDate: "", teacherId: "", subjectId: "", sectionId: "" },
       session: { name: "", startDate: "", endDate: "", isActive: false },
@@ -335,11 +435,8 @@ const Academics = () => {
       section: { form: sectionForm, setForm: setSectionForm, mutation: sectionMutation },
       subject: { form: subjectForm, setForm: setSubjectForm, mutation: subjectMutation },
       session: { form: sessionForm, setForm: setSessionForm, mutation: sessionMutation },
-      scm: { form: scmForm, setForm: setScmForm, mutation: scmMutation },
       mapping: { form: mappingForm, setForm: setMappingForm, mutation: teacherSubjectMutation },
       classMapping: { form: classMappingForm, setForm: setClassMappingForm, mutation: teacherClassMutation },
-      timetable: { form: timetableForm, setForm: setTimetableForm, mutation: timetableMutation },
-      assignment: { form: assignmentForm, setForm: setAssignmentForm, mutation: assignmentMutation },
     };
     const config = forms[type];
     if (!config) return;
@@ -435,20 +532,6 @@ const Academics = () => {
       data = { name: subjectForm.name };
     }
 
-    if (type === "scm") {
-      if (!scmForm.subjectId || !scmForm.classId) {
-        toast({ title: "Subject and class are required", variant: "destructive" });
-        return;
-      }
-      data = {
-        subjectId: Number(scmForm.subjectId),
-        classId: Number(scmForm.classId),
-        creditHours: scmForm.creditHours ? Number(scmForm.creditHours) : null,
-        code: scmForm.code || null,
-        description: scmForm.description || null,
-      };
-    }
-
     if (type === "classMapping") {
       if (!classMappingForm.teacherId || !classMappingForm.classId) {
         toast({ title: "Teacher and class are required", variant: "destructive" });
@@ -477,23 +560,6 @@ const Academics = () => {
       };
     }
 
-    if (type === "timetable") {
-      if (!isTimetableFormValid()) {
-        toast({ title: "Invalid timetable: Teacher must be mapped to both subject and class", variant: "destructive" });
-        return;
-      }
-      data = {
-        teacherId: Number(timetableForm.teacherId),
-        subjectId: Number(timetableForm.subjectId),
-        sectionId: timetableForm.sectionId ? Number(timetableForm.sectionId) : null,
-        classId: Number(timetableForm.classId),
-        dayOfWeek: timetableForm.dayOfWeek,
-        startTime: timetableForm.startTime,
-        endTime: timetableForm.endTime,
-        room: timetableForm.room || null,
-      };
-    }
-
     config.mutation.mutate(
       { id: editing?.id, data },
       {
@@ -519,6 +585,94 @@ const Academics = () => {
         setDeleteTarget(null);
       },
     });
+  };
+
+  const [bulkScmPending, setBulkScmPending] = useState(false);
+
+  const handleBulkScmSubmit = async () => {
+    if (!scmDialogFilter.classId || bulkSubjectSelection.size === 0) return;
+    setBulkScmPending(true);
+    try {
+      const classId = Number(scmDialogFilter.classId);
+      for (const [subjectId, { code, creditHours }] of bulkSubjectSelection) {
+        // Skip if already mapped (session-scoped check)
+        const exists = scmMappings.some(
+          m => m.subjectId === subjectId &&
+               m.classId === classId &&
+               (scmDialogSessionId ? m.sessionId === Number(scmDialogSessionId) : !m.sessionId)
+        );
+        if (exists) continue;
+        
+        await createSubjectClassMapping({
+          subjectId,
+          classId,
+          code: code || null,
+          creditHours: creditHours ? Number(creditHours) : null,
+          sessionId: scmDialogSessionId ? Number(scmDialogSessionId) : null,
+        });
+      }
+      queryClient.invalidateQueries(["scmMappings"]);
+      setDialog({ type: "", open: false });
+      setEditing(null);
+      setScmDialogFilter(resetForm("scm"));
+      setBulkSubjectSelection(new Map());
+      toast({ title: "Mappings created successfully" });
+    } catch (err) {
+      toast({ title: "Error", description: err?.message || "Something went wrong", variant: "destructive" });
+    } finally {
+      setBulkScmPending(false);
+    }
+  };
+
+  const handleBulkScmUpdate = async () => {
+    if (!scmDialogFilter.classId || !editing) return;
+    setBulkScmPending(true);
+    try {
+      const classId = Number(scmDialogFilter.classId);
+      // Get existing mappings for this class
+      const existingMappings = scmMappings.filter(m => m.classId === classId);
+      const existingSubjectIds = new Set(existingMappings.map(m => m.subjectId));
+      const selectedSubjectIds = new Set(bulkSubjectSelection.keys());
+
+      // Delete unchecked mappings
+      for (const m of existingMappings) {
+        if (!selectedSubjectIds.has(m.subjectId)) {
+          await deleteSubjectClassMapping(m.id);
+        }
+      }
+
+      // Update or create checked mappings
+      for (const [subjectId, { code, creditHours, mappingId }] of bulkSubjectSelection) {
+        if (mappingId) {
+          // Update existing
+          await updateSubjectClassMapping(mappingId, {
+            code: code || null,
+            creditHours: creditHours ? Number(creditHours) : null,
+            sessionId: scmDialogSessionId ? Number(scmDialogSessionId) : null,
+          });
+        } else {
+          // Create new
+          await createSubjectClassMapping({
+            subjectId,
+            classId,
+            code: code || null,
+            creditHours: creditHours ? Number(creditHours) : null,
+            sessionId: scmDialogSessionId ? Number(scmDialogSessionId) : null,
+          });
+        }
+      }
+
+      queryClient.invalidateQueries(["scmMappings"]);
+      setDialog({ type: "", open: false });
+      setEditing(null);
+      setScmDialogFilter(resetForm("scm"));
+      setBulkSubjectSelection(new Map());
+      toast({ title: "Mappings updated successfully" });
+    } catch (err) {
+      toast({ title: "Error", description: err?.message || "Something went wrong", variant: "destructive" });
+    } finally {
+      setBulkScmPending(false);
+    }
   };
 
   const openEdit = (type, item) => {
@@ -565,15 +719,6 @@ const Academics = () => {
     if (type === "subject") {
       setSubjectForm({ name: item.name });
     }
-    if (type === "scm") {
-      setScmForm({
-        subjectId: item.subjectId.toString(),
-        classId: item.classId.toString(),
-        creditHours: item.creditHours?.toString() || "",
-        code: item.code || "",
-        description: item.description || "",
-      });
-    }
     if (type === "mapping") {
       setMappingForm({
         teacherId: item.teacherId.toString(),
@@ -585,28 +730,7 @@ const Academics = () => {
         teacherId: item.teacherId.toString(),
         classId: item.classId.toString(),
         sectionId: item.sectionId?.toString() ?? "",
-      });
-    }
-    if (type === "timetable") {
-      setTimetableForm({
-        teacherId: item.teacherId?.toString() || "",
-        subjectId: item.subjectId.toString(),
-        sectionId: item.sectionId?.toString() || "",
-        classId: item.classId.toString(),
-        dayOfWeek: item.dayOfWeek,
-        startTime: item.startTime,
-        endTime: item.endTime,
-        room: item.room || "",
-      });
-    }
-    if (type === "assignment") {
-      setAssignmentForm({
-        title: item.title,
-        description: item.description || "",
-        dueDate: item.dueDate || "",
-        teacherId: item.teacherId.toString(),
-        subjectId: item.subjectId.toString(),
-        sectionId: item.sectionId.toString(),
+        tcmFilterProgramId: "",
       });
     }
     if (type === "session") {
@@ -629,14 +753,128 @@ const Academics = () => {
       section: setSectionForm,
       subject: setSubjectForm,
       mapping: setMappingForm,
-      scm: setScmForm,
+      scm: setScmDialogFilter,
       classMapping: setClassMappingForm,
-      timetable: setTimetableForm,
-      assignment: setAssignmentForm,
       session: setSessionForm,
     };
     setters[type](resetForm(type));
+    if (type === "scm") setBulkSubjectSelection(new Map());
+    if (type === "classMapping") {
+      setTcmStaffSearch("");
+      setTcmStaffResults([]);
+      setTcmSelectedStaff(null);
+      setTcmSelectedProgramId("");
+      setTcmSelectedClassId("");
+      setTcmClassSubjects([]);
+      setTcmSelectedSubjectIds(new Set());
+      setTcmSelectedSectionId("");
+    }
     setDialog({ type, open: true });
+  };
+
+  // TCM: debounced staff search
+  const handleTcmStaffSearch = (q) => {
+    setTcmStaffSearch(q);
+    if (tcmSearchTimeout.current) clearTimeout(tcmSearchTimeout.current);
+    if (!q.trim()) { setTcmStaffResults([]); return; }
+    tcmSearchTimeout.current = setTimeout(async () => {
+      setTcmStaffSearching(true);
+      try {
+        const results = await searchAcademicsStaff(q);
+        setTcmStaffResults(results);
+      } catch { setTcmStaffResults([]); }
+      finally { setTcmStaffSearching(false); }
+    }, 300);
+  };
+
+  // TCM: load subjects for selected class
+  const loadTcmClassSubjects = async (classId) => {
+    if (!classId) { setTcmClassSubjects([]); return; }
+    setTcmClassSubjectsLoading(true);
+    try {
+      const data = await getSubjectsForClassWithAssignments(
+        Number(classId),
+        tcmDialogSessionId ? Number(tcmDialogSessionId) : undefined
+      );
+      setTcmClassSubjects(data);
+    } catch { setTcmClassSubjects([]); }
+    finally { setTcmClassSubjectsLoading(false); }
+  };
+
+  // Re-trigger subject load when session changes in TCM dialog
+  useEffect(() => {
+    if (tcmSelectedClassId) {
+      loadTcmClassSubjects(tcmSelectedClassId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tcmDialogSessionId]);
+
+  // TCM: get role label for staff
+  const getTcmStaffRole = (staff) => {
+    if (staff.isTeaching && staff.isNonTeaching) return "Dual Role";
+    if (staff.isTeaching) return "Teaching";
+    if (staff.isNonTeaching) return "Non-Teaching";
+    return "Staff";
+  };
+
+  // TCM: submit bulk assignment
+  const handleTcmBulkSubmit = async () => {
+    if (!tcmSelectedStaff || !tcmSelectedClassId || tcmSelectedSubjectIds.size === 0) return;
+    setTcmSubmitting(true);
+    try {
+      await bulkAssignTeacherToClassSubjects({
+        teacherId: tcmSelectedStaff.id,
+        classId: Number(tcmSelectedClassId),
+        subjectIds: Array.from(tcmSelectedSubjectIds),
+        sessionId: tcmDialogSessionId ? Number(tcmDialogSessionId) : null,
+        sectionId: tcmSelectedSectionId ? Number(tcmSelectedSectionId) : null,
+      });
+      queryClient.invalidateQueries(["teacherClassMappings"]);
+      queryClient.invalidateQueries(["teacherSubjectMappings"]);
+      setDialog({ type: "", open: false });
+      toast({ title: "Teacher assigned successfully" });
+    } catch (err) {
+      toast({ title: "Error", description: err?.message || "Something went wrong", variant: "destructive" });
+    } finally {
+      setTcmSubmitting(false);
+    }
+  };
+
+  // TCM: open detail dialog
+  const openTcmDetail = async (mapping) => {
+    setTcmViewItem(mapping);
+    setTcmViewSubjects([]);
+    setTcmViewSubjectsLoading(true);
+    try {
+      const sessionId = mapping.sessionId ? mapping.sessionId : undefined;
+      const data = await getSubjectsForClassWithAssignments(mapping.classId, sessionId);
+      const assigned = data.filter(scm =>
+        scm.subject.teachers?.some(tm => tm.teacherId === mapping.teacherId)
+      );
+      setTcmViewSubjects(assigned);
+    } catch {
+      setTcmViewSubjects([]);
+    } finally {
+      setTcmViewSubjectsLoading(false);
+    }
+  };
+
+  // TCM: open assign dialog pre-populated for editing
+  const openTcmEdit = (mapping) => {
+    const staff = teachers.find(t => t.id === mapping.teacherId);
+    setTcmSelectedStaff(staff ? { id: staff.id, name: staff.name, isTeaching: true, isNonTeaching: false } : null);
+    setTcmStaffSearch(staff?.name || "");
+    setTcmStaffResults([]);
+    setTcmSelectedProgramId(
+      classes.find(c => c.id === mapping.classId)?.programId?.toString() || ""
+    );
+    setTcmSelectedClassId(mapping.classId.toString());
+    setTcmDialogSessionId(mapping.sessionId ? mapping.sessionId.toString() : "");
+    setTcmSelectedSectionId(mapping.sectionId ? mapping.sectionId.toString() : "");
+    setTcmSelectedSubjectIds(new Set());
+    loadTcmClassSubjects(mapping.classId.toString());
+    setEditing(mapping);
+    setDialog({ type: "classMapping", open: true });
   };
 
   return (
@@ -792,389 +1030,353 @@ const Academics = () => {
             </Card>
           </TabsContent>
 
-          {/* TIMETABLE TAB - FULLY VALIDATED */}
+          {/* TIMETABLE TAB */}
           <TabsContent value="timetable">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <Clock className="w-5 h-5" /> Timetable
                 </CardTitle>
-                <Dialog
-                  open={dialog.type === "timetable" && dialog.open}
-                  onOpenChange={(open) => setDialog({ type: "timetable", open })}
-                >
-                  <DialogTrigger asChild>
-                    <Button
-                      disabled={!isTimetableFormValid() && dialog.open}
-                      onClick={() => openDialog("timetable")}
-                    >
-                      <PlusCircle className="w-4 h-4 mr-2" /> Add Entry
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                      <DialogTitle>{editing ? "Edit" : "Add"} Timetable Entry</DialogTitle>
-                    </DialogHeader>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* CLASS */}
+                <Button onClick={() => openTimetableDialog(null)}>
+                  <PlusCircle className="w-4 h-4 mr-2" /> Add / Edit Timetable
+                </Button>
+              </CardHeader>
+
+              {/* Timetable editor dialog */}
+              <Dialog open={ttDialogOpen} onOpenChange={setTtDialogOpen}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>
+                      {ttClassId
+                        ? `Timetable ${classes.find(c => c.id === Number(ttClassId))?.name || ""}${ttSectionId ? ` � ${sections.find(s => s.id === Number(ttSectionId))?.name || ""}` : ""}`
+                        : "New Timetable"}
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    {/* Class + Section selectors */}
+                    <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label>Class *</Label>
-                        <Select
-                          value={timetableForm.classId}
-                          onValueChange={(v) => {
-                            setTimetableForm({
-                              ...timetableForm,
-                              classId: v,
-                              sectionId: "",
-                              subjectId: "",
-                              teacherId: "",
-                            });
-                          }}
-                        >
+                        <Select value={ttClassId} onValueChange={(v) => { setTtClassId(v); setTtSectionId(""); setTtSubjectSchedules([]); }}>
                           <SelectTrigger><SelectValue placeholder="Select class" /></SelectTrigger>
                           <SelectContent>
-                            {classes.map((c) => {
+                            {classes.map(c => {
                               const prog = programs.find(p => p.id === c.programId);
-                              return (
-                                <SelectItem key={c.id} value={c.id.toString()}>
-                                  {c.name} ({prog?.name})
-                                </SelectItem>
-                              );
+                              return <SelectItem key={c.id} value={c.id.toString()}>{c.name} {prog?.name}</SelectItem>;
                             })}
                           </SelectContent>
                         </Select>
                       </div>
-
-                      {/* SECTION */}
-                      <div>
-                        <Label>Section (Optional)</Label>
-                        <Select
-                          value={timetableForm.sectionId || "all"}
-                          onValueChange={(v) =>
-                            setTimetableForm({
-                              ...timetableForm,
-                              sectionId: v === "all" ? "" : v,
-                            })
-                          }
-                          disabled={!timetableForm.classId}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder={timetableForm.classId ? "All Sections" : "Pick class first"} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Sections</SelectItem>
-                            {sections
-                              .filter((s) => s.classId === Number(timetableForm.classId))
-                              .map((s) => (
-                                <SelectItem key={s.id} value={s.id.toString()}>
-                                  {s.name}
-                                </SelectItem>
+                      {ttClassId && (
+                        <div>
+                          <Label>Section <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                          <Select value={ttSectionId || "all"} onValueChange={(v) => setTtSectionId(v === "all" ? "" : v)}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Sections</SelectItem>
+                              {sections.filter(s => s.classId === Number(ttClassId)).map(s => (
+                                <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
                               ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* SUBJECT */}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                       <div>
-                        <Label>Subject *</Label>
-                        <Select
-                          value={timetableForm.subjectId}
-                          onValueChange={(v) => {
-                            setTimetableForm({ ...timetableForm, subjectId: v, teacherId: "" });
-                          }}
-                          disabled={!timetableForm.classId}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Select subject" /></SelectTrigger>
-                          <SelectContent>
-                            {subjects
-                              .filter((s) => {
-                                const cls = classes.find((c) => c.id === s.classId);
-                                return cls?.id === Number(timetableForm.classId);
-                              })
-                              .map((s) => (
-                                <SelectItem key={s.id} value={s.id.toString()}>
-                                  {s.name}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* TEACHER - Only valid ones */}
-                      <div>
-                        <Label>Teacher *</Label>
-                        <Select
-                          value={timetableForm.teacherId}
-                          onValueChange={(v) => setTimetableForm({ ...timetableForm, teacherId: v })}
-                          disabled={!timetableForm.classId || !timetableForm.subjectId}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder={
-                              !timetableForm.classId || !timetableForm.subjectId
-                                ? "Select class & subject first"
-                                : getValidTeachers().length === 0
-                                  ? "No teacher mapped"
-                                  : "Select teacher"
-                            } />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {getValidTeachers().length === 0 ? (
-                              <SelectItem value="none" disabled>
-                                No teacher assigned to both subject & class
-                              </SelectItem>
-                            ) : (
-                              getValidTeachers().map((t) => (
-                                <SelectItem key={t.id} value={t.id.toString()}>
-                                  {t.name}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* DAY */}
-                      <div>
-                        <Label>Day</Label>
-                        <Select
-                          value={timetableForm.dayOfWeek}
-                          onValueChange={(v) => setTimetableForm({ ...timetableForm, dayOfWeek: v })}
-                        >
+                        <Label>Session <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                        <Select value={ttSessionId || "none"} onValueChange={(v) => setTtSessionId(v === "none" ? "" : v)}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map((d) => (
-                              <SelectItem key={d} value={d}>{d}</SelectItem>
+                            <SelectItem value="none">No Session</SelectItem>
+                            {academicSessions.map(s => (
+                              <SelectItem key={s.id} value={s.id.toString()}>
+                                <span className="flex items-center gap-2">{s.name}{s.isActive && <Badge className="bg-green-500 text-white text-xs py-0 px-1 h-4">Active</Badge>}</span>
+                              </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </div>
-
-                      <div>
-                        <Label>Start Time</Label>
-                        <Input
-                          type="time"
-                          value={timetableForm.startTime}
-                          onChange={(e) => setTimetableForm({ ...timetableForm, startTime: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <Label>End Time</Label>
-                        <Input
-                          type="time"
-                          value={timetableForm.endTime}
-                          onChange={(e) => setTimetableForm({ ...timetableForm, endTime: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <Label>Room (Optional)</Label>
-                        <Input
-                          value={timetableForm.room}
-                          onChange={(e) => setTimetableForm({ ...timetableForm, room: e.target.value })}
-                          placeholder="e.g. Lab-1"
-                        />
-                      </div>
                     </div>
-                    <Button
-                      className="mt-4 w-full"
-                      onClick={() => handleSubmit("timetable")}
-                      disabled={!isTimetableFormValid()}
-                    >
-                      {editing ? "Update" : "Add"} Entry
+
+                    {/* Subject-centric editor */}
+                    {ttClassId && (() => {
+                      const classScmMappings = scmMappings.filter(m => m.classId === Number(ttClassId));
+                      const addedSubjectIds = new Set(ttSubjectSchedules.map(s => s.subjectId.toString()));
+                      const availableMappings = classScmMappings.filter(m => !addedSubjectIds.has(m.subjectId.toString()));
+
+                      return (
+                        <div className="space-y-4">
+                          {/* Add Subject dropdown */}
+                          {classScmMappings.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No subjects are mapped to this class.</p>
+                          ) : (
+                            <div>
+                              <Label className="text-xs text-muted-foreground mb-1 block">Add Subject</Label>
+                              <Select
+                                value=""
+                                onValueChange={(v) => { if (v) addSubjectSchedule(v); }}
+                                disabled={availableMappings.length === 0}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder={availableMappings.length === 0 ? "All subjects added" : "Select subject to add…"} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {availableMappings.map(m => (
+                                    <SelectItem key={m.subjectId} value={m.subjectId.toString()}>
+                                      {m.subject?.name || `Subject #${m.subjectId}`}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+
+                          {/* Subject schedule cards */}
+                          {ttSubjectSchedules.map((sched, schedIdx) => {
+                            const mapping = classScmMappings.find(m => m.subjectId.toString() === sched.subjectId.toString());
+                            const subjectName = mapping?.subject?.name || `Subject #${sched.subjectId}`;
+                            return (
+                              <div key={schedIdx} className="border rounded-lg p-4 space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium text-sm">{subjectName}</span>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => removeSubjectSchedule(schedIdx)}
+                                    className="text-destructive hover:text-destructive h-7 px-2"
+                                  >
+                                    ✕ Remove Subject
+                                  </Button>
+                                </div>
+
+                                {/* Day assignment rows */}
+                                <div className="space-y-2">
+                                  {sched.dayAssignments.length > 0 && (
+                                    <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 text-xs text-muted-foreground px-1">
+                                      <span>Day</span>
+                                      <span>Start</span>
+                                      <span>End</span>
+                                      <span />
+                                    </div>
+                                  )}
+                                  {sched.dayAssignments.map((da, daIdx) => (
+                                    <div key={daIdx} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                                      <Select
+                                        value={da.dayOfWeek}
+                                        onValueChange={(v) => updateDayAssignment(schedIdx, daIdx, "dayOfWeek", v)}
+                                      >
+                                        <SelectTrigger className="h-8 text-xs">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {DAYS.map(day => (
+                                            <SelectItem key={day} value={day}>{day}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      <Input
+                                        type="time"
+                                        value={da.startTime}
+                                        onChange={(e) => updateDayAssignment(schedIdx, daIdx, "startTime", e.target.value)}
+                                        className="h-8 text-xs"
+                                      />
+                                      <Input
+                                        type="time"
+                                        value={da.endTime}
+                                        onChange={(e) => updateDayAssignment(schedIdx, daIdx, "endTime", e.target.value)}
+                                        className="h-8 text-xs"
+                                      />
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => removeDayAssignment(schedIdx, daIdx)}
+                                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                                      >
+                                        ✕
+                                      </Button>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => addDayAssignment(schedIdx)}
+                                  className="h-7 text-xs"
+                                >
+                                  + Add Day
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+
+                    <Button className="w-full" onClick={handleTimetableSave} disabled={!ttClassId || ttSaving}>
+                      {ttSaving ? "Saving..." : "Save Timetable"}
                     </Button>
-                    {!isTimetableFormValid() && (
-                      <p className="text-xs text-destructive mt-2">
-                        Teacher must be mapped to both subject and class.
-                      </p>
-                    )}
-                  </DialogContent>
-                </Dialog>
-              </CardHeader>
+                  </div>
+                </DialogContent>
+              </Dialog>
 
               <CardContent>
-                <div className="mb-4">
-                  <Label>Filter by Class</Label>
-                  <Select value={timetableFilterClass} onValueChange={setTimetableFilterClass}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Classes</SelectItem>
-                      {classes.map((c) => (
-                        <SelectItem key={c.id} value={c.id.toString()}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                {/* Filter */}
+                <div className="flex flex-wrap gap-3 mb-6">
+                  <div className="flex-1 min-w-[180px]">
+                    <Label className="text-xs text-muted-foreground mb-1 block">Class</Label>
+                    <Select value={timetableFilterClass} onValueChange={setTimetableFilterClass}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Classes</SelectItem>
+                        {classes.map(c => {
+                          const prog = programs.find(p => p.id === c.programId);
+                          return <SelectItem key={c.id} value={c.id.toString()}>{c.name} — {prog?.name}</SelectItem>;
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex-1 min-w-[180px]">
+                    <Label className="text-xs text-muted-foreground mb-1 block">Session</Label>
+                    <Select value={timetableFilterSession} onValueChange={setTimetableFilterSession}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Sessions</SelectItem>
+                        {academicSessions.map(s => (
+                          <SelectItem key={s.id} value={s.id.toString()}>
+                            <span className="flex items-center gap-2">{s.name}{s.isActive && <Badge className="bg-green-500 text-white text-xs py-0 px-1 h-4">Active</Badge>}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
-                {/* TIMETABLE GROUPING & SORTING */}
-                {Array.from(
-                  timetables.reduce((acc, t) => {
-                    const key = t.sectionId ?? "all";
-                    if (!acc.has(key)) acc.set(key, []);
-                    const entries = acc.get(key);
-                    if (entries) entries.push(t);
-                    return acc;
-                  }, new Map())
-                )
-                  .filter(([key, entries]) => {
-                    if (timetableFilterClass === "all") return true;
-                    if (key === "all") {
-                      return entries[0].classId == timetableFilterClass;
-                    }
-                    const section = sections.find(s => s.id === Number(key));
-                    return section?.classId == timetableFilterClass;
-                  })
-                  .map(([key, classTimetable]) => {
-                    const isAllSections = key === "all";
-                    const section = isAllSections ? null : sections.find(s => s.id === Number(key));
-                    const anyEntry = classTimetable[0];
-                    const cls = classes.find(c => c.id === anyEntry.classId);
-                    const prog = programs.find(p => p.id === cls?.programId);
-                    const className = cls?.name ?? "—";
-                    const programName = prog?.name ?? "—";
-                    const header = isAllSections
-                      ? `${className} (${programName})`
-                      : `${className} – ${section?.name}`;
+                {/* Weekly grid view */}
+                {(() => {
+                  const DAYS_LIST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+                  const DAY_SHORT = { Monday: "Mon", Tuesday: "Tue", Wednesday: "Wed", Thursday: "Thu", Friday: "Fri" };
 
-                    const dayOrder = { Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5 };
-                    const sortedTimetable = [...classTimetable].sort((a, b) => {
-                      const dayA = dayOrder[a.dayOfWeek];
-                      const dayB = dayOrder[b.dayOfWeek];
-                      if (dayA !== dayB) return dayA - dayB;
-                      const timeA = new Date(a.createdAt).getTime();
-                      const timeB = new Date(b.createdAt).getTime();
-                      if (timeA !== timeB) return timeB - timeA;
-                      return a.startTime.localeCompare(b.startTime);
+                  const filtered = timetables
+                    .filter(tt =>
+                      timetableFilterClass === "all" || tt.classId === Number(timetableFilterClass)
+                    )                    .slice()
+                    .sort((a, b) => {
+                      const aMin = (a.slots || []).map(s => s.startTime).sort()[0] || "";
+                      const bMin = (b.slots || []).map(s => s.startTime).sort()[0] || "";
+                      return aMin.localeCompare(bMin);
                     });
 
+                  if (filtered.length === 0) {
                     return (
-                      <Card key={key} className="mb-6">
-                        <CardHeader>
-                          <div className="flex items-center justify-between">
-                            <CardTitle className="text-lg">{header}</CardTitle>
-                            <Button size="sm" onClick={() => {
-                              const printWindow = window.open("", "_blank");
-                              if (!printWindow) return;
-                              const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
-                              const periods = Array.from(new Set(sortedTimetable.map(t => t.startTime))).sort();
+                      <div className="text-center py-16 text-muted-foreground">
+                        <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                        <p className="text-sm">No timetables yet.</p>
+                        <p className="text-xs mt-1">Click "Add / Edit Timetable" to get started.</p>
+                      </div>
+                    );
+                  }
 
-                              printWindow.document.write(`
-                                <!DOCTYPE html>
-                                <html>
-                                  <head>
-                                    <title>Timetable - ${header}</title>
-                                    <style>
-                                      body { font-family: Arial, sans-serif; padding: 40px; }
-                                      h1 { text-align: center; }
-                                      table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                                      th, td { border: 1px solid #000; padding: 10px; text-align: center; }
-                                      th { background-color: #f4f4f4; }
-                                    </style>
-                                  </head>
-                                  <body>
-                                    <h1>${header} Timetable</h1>
-                                    <table>
-                                      <thead>
-                                        <tr>
-                                          <th>Day</th>
-                                          ${periods.map(p => `<th>${p}</th>`).join("")}
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        ${days.map(day => `
-                                          <tr>
-                                            <td><strong>${day}</strong></td>
-                                            ${periods.map(p => {
-                                const entry = sortedTimetable.find(t => t.dayOfWeek === day && t.startTime === p);
-                                const subj = subjects.find(s => s.id === entry?.subjectId);
-                                const teach = teachers.find(t => t.id === entry?.teacherId);
-                                return entry
-                                  ? `<td>${subj?.name}<br/><small>${teach?.name}</small></td>`
-                                  : `<td>-</td>`;
-                              }).join("")}
-                                          </tr>`).join("")}
-                                      </tbody>
-                                    </table>
-                                  </body>
-                                </html>
-                              `);
-                              printWindow.document.close();
-                              printWindow.onload = () => printWindow.print();
-                            }}>
-                              <Printer className="w-4 h-4 mr-2" /> Print
+                  return filtered.map((tt) => {
+                    const cls = classes.find(c => c.id === tt.classId);
+                    const prog = programs.find(p => p.id === cls?.programId);
+                    const section = tt.sectionId ? sections.find(s => s.id === tt.sectionId) : null;
+                    const sessionLabel = tt.session?.name ? ` · ${tt.session.name}` : "";
+                    const label = (section ? `${cls?.name} — ${section.name}` : `${cls?.name} (${prog?.name})`) + sessionLabel;
+                    const slots = (tt.slots || []);
+                    const timeSlots = Array.from(new Set(slots.map(s => s.startTime).filter(Boolean))).sort();
+
+                    const handlePrint = () => {
+                      const win = window.open("", "_blank");
+                      if (!win) return;
+                      win.document.write(`<!DOCTYPE html><html><head><title>${label}</title><style>
+                        body{font-family:Arial,sans-serif;padding:32px}h2{text-align:center;margin-bottom:16px}
+                        table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:8px 10px;text-align:center;font-size:13px}
+                        th{background:#f0f0f0;font-weight:600}.empty{color:#aaa}
+                      </style></head><body><h2>${label} "" Timetable</h2><table><thead><tr>
+                        <th>Time</th>${DAYS_LIST.map(d => `<th>${d}</th>`).join("")}</tr></thead><tbody>
+                        ${timeSlots.map(startTime => {
+                          const endTime = slots.find(s => s.startTime === startTime)?.endTime || "";
+                          return `<tr><td><strong>${to12h(startTime)}</strong>${endTime ? `–${to12h(endTime)}` : ""}</td>${DAYS_LIST.map(day => {
+                            const s = slots.find(sl => sl.startTime === startTime && sl.dayOfWeek === day);
+                            if (!s) return `<td class="empty">""</td>`;
+                            const subj = subjects.find(sub => sub.id === Number(s.subjectId));
+                            const teach = s.teacher;
+                            return `<td>${subj?.name || "?"}<br/><small>${teach?.name || ""}</small></td>`;
+                          }).join("")}</tr>`;
+                        }).join("")}
+                      </tbody></table></body></html>`);
+                      win.document.close();
+                      win.onload = () => win.print();
+                    };
+
+                    return (
+                      <div key={tt.id} className="mb-8">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="font-semibold text-base">{label}</span>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" onClick={() => openTimetableDialog(tt)}>
+                              <Edit className="w-3.5 h-3.5 mr-1.5" /> Edit
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={handlePrint}>
+                              <Printer className="w-3.5 h-3.5 mr-1.5" /> Print
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => { setDeleteTarget({ type: "timetable", id: tt.id }); setDeleteDialog(true); }}>
+                              <Trash2 className="w-3.5 h-3.5" />
                             </Button>
                           </div>
-                        </CardHeader>
-                        <CardContent>
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Day</TableHead>
-                                <TableHead>Time</TableHead>
-                                <TableHead>Subject</TableHead>
-                                <TableHead>Teacher</TableHead>
-                                <TableHead>Room</TableHead>
-                                <TableHead>Section</TableHead>
-                                <TableHead>Actions</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {sortedTimetable.map((t) => {
-                                const subject = subjects.find(s => s.id === t.subjectId);
-                                const teacher = teachers.find(te => te.id === t.teacherId);
-                                return (
-                                  <TableRow key={t.id}>
-                                    <TableCell>{t.dayOfWeek}</TableCell>
-                                    <TableCell>{t.startTime} - {t.endTime}</TableCell>
-                                    <TableCell>{subject?.name || "-"}</TableCell>
-                                    <TableCell>{teacher?.name || "-"}</TableCell>
-                                    <TableCell>{t.room || "-"}</TableCell>
-                                    <TableCell>
-                                      {t.sectionId
-                                        ? sections.find(s => s.id === t.sectionId)?.name
-                                        : <span className="text-muted-foreground">All Sections</span>
-                                      }
-                                    </TableCell>
-                                    <TableCell>
-                                      <div className="flex gap-2">
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <Button variant="outline" size="sm" onClick={() => openEdit("timetable", t)}>
-                                              <Edit className="w-4 h-4" />
-                                            </Button>
-                                          </TooltipTrigger>
-                                          <TooltipContent>Edit</TooltipContent>
-                                        </Tooltip>
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <Button
-                                              variant="destructive"
-                                              size="sm"
-                                              onClick={() => {
-                                                setDeleteTarget({ type: "timetable", id: t.id });
-                                                setDeleteDialog(true);
-                                              }}
-                                            >
-                                              <Trash2 className="w-4 h-4" />
-                                            </Button>
-                                          </TooltipTrigger>
-                                          <TooltipContent>Delete</TooltipContent>
-                                        </Tooltip>
-                                      </div>
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              })}
-                            </TableBody>
-                          </Table>
-                        </CardContent>
-                      </Card>
+                        </div>
+                        {timeSlots.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No periods defined.</p>
+                        ) : (
+                          <div className="overflow-x-auto rounded-lg border">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="bg-muted/50">
+                                  <th className="px-3 py-2 text-left font-medium text-muted-foreground w-20 border-r text-xs">Day</th>
+                                  {timeSlots.map(startTime => {
+                                    const endTime = slots.find(s => s.startTime === startTime)?.endTime || "";
+                                    return (
+                                      <th key={startTime} className="px-3 py-2 text-center font-medium text-xs min-w-[110px] whitespace-nowrap">
+                                        <div>{to12h(startTime)}</div>
+                                        {endTime && <div className="text-muted-foreground/60 font-normal">{to12h(endTime)}</div>}
+                                      </th>
+                                    );
+                                  })}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {DAYS_LIST.map((day, i) => (
+                                  <tr key={day} className={i % 2 === 0 ? "" : "bg-muted/20"}>
+                                    <td className="px-3 py-2 border-r text-xs text-muted-foreground font-medium whitespace-nowrap align-middle">
+                                      {DAY_SHORT[day]}
+                                    </td>
+                                    {timeSlots.map(startTime => {
+                                      const slot = slots.find(s => s.startTime === startTime && s.dayOfWeek === day);
+                                      if (!slot) return <td key={startTime} className="px-3 py-2 text-center text-muted-foreground/30 text-xs">—</td>;
+                                      const subj = subjects.find(s => s.id === Number(slot.subjectId));
+                                      const teach = slot.teacher;
+                                      return (
+                                        <td key={startTime} className="px-2 py-1.5 align-top">
+                                          <div className="rounded-md bg-primary/5 border border-primary/10 px-2 py-1.5 text-xs space-y-0.5">
+                                            <div className="font-medium leading-tight">{subj?.name || "—"}</div>
+                                            {teach && <div className="text-muted-foreground leading-tight">{teach.name}</div>}
+                                          </div>
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
                     );
-                  })}
+                  });
+                })()}
               </CardContent>
             </Card>
           </TabsContent>
-
           {/* PROGRAMS */}
           <TabsContent value="programs">
             <Card>
@@ -1250,7 +1452,7 @@ const Academics = () => {
                           <SelectContent>
                             <SelectItem value="INTERMEDIATE">Intermediate (2 Years)</SelectItem>
                             <SelectItem value="UNDERGRADUATE">Undergraduate</SelectItem>
-                            <SelectItem value="DIPLOMA">Diploma (1–2 Years)</SelectItem>
+                            <SelectItem value="DIPLOMA">Diploma (1""2 Years)</SelectItem>
                             <SelectItem value="COACHING">Coaching Classes</SelectItem>
                             <SelectItem value="SHORT_COURSE">Short Course</SelectItem>
                           </SelectContent>
@@ -2072,150 +2274,351 @@ const Academics = () => {
                 <CardTitle className="flex items-center gap-2">
                   <BookOpen className="w-5 h-5" /> Subject-Class Mapping
                 </CardTitle>
-                <Dialog open={dialog.type === "scm" && dialog.open} onOpenChange={(open) => setDialog({ type: "scm", open })}>
+                <Dialog open={dialog.type === "scm" && dialog.open} onOpenChange={(open) => {
+                  setDialog({ type: "scm", open });
+                  if (!open) {
+                    setEditing(null);
+                    setScmEditForm({ code: "", creditHours: "" });
+                    setScmDialogFilter({ programId: "all", classId: "" });
+                    setBulkSubjectSelection(new Map());
+                  }
+                }}>
                   <DialogTrigger asChild>
                     <Button onClick={() => openDialog("scm")}>
                       <PlusCircle className="w-4 h-4 mr-2" /> Add Mapping
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>{editing ? "Edit" : "Add"} Subject-Class Mapping</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
-                      {/* SUBJECT (Required) */}
+                      {/* Filter bar - hide program in edit mode */}
+                      {!editing && (
+                        <div>
+                          <Label>Program</Label>
+                          <Select
+                            value={scmDialogFilter.programId}
+                            onValueChange={(v) =>
+                              setScmDialogFilter({ programId: v, classId: "" })
+                            }
+                          >
+                            <SelectTrigger><SelectValue placeholder="All Programs" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Programs</SelectItem>
+                              {programs.map((p) => (
+                                <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
                       <div>
-                        <Label>Subject *</Label>
+                        <Label>Class *</Label>
                         <Select
-                          value={scmForm.subjectId}
-                          onValueChange={(v) => setScmForm({ ...scmForm, subjectId: v })}
+                          value={scmDialogFilter.classId}
+                          onValueChange={(v) =>
+                            setScmDialogFilter({ ...scmDialogFilter, classId: v })
+                          }
+                          disabled={editing}
                         >
-                          <SelectTrigger><SelectValue placeholder="Select subject" /></SelectTrigger>
+                          <SelectTrigger><SelectValue placeholder="Select class" /></SelectTrigger>
                           <SelectContent>
-                            {subjects.map((s) => (
+                            {classes
+                              .filter(c =>
+                                scmDialogFilter.programId === "all" ||
+                                c.programId === Number(scmDialogFilter.programId)
+                              )
+                              .map((c) => {
+                                const prog = programs.find(p => p.id === c.programId);
+                                return (
+                                  <SelectItem key={c.id} value={c.id.toString()}>
+                                    {c.name} ({prog?.name})
+                                  </SelectItem>
+                                );
+                              })}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <Label>Session (Optional)</Label>
+                        <Select
+                          value={scmDialogSessionId || "none"}
+                          onValueChange={(v) => setScmDialogSessionId(v === "none" ? "" : v)}
+                        >
+                          <SelectTrigger><SelectValue placeholder="No session" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No session</SelectItem>
+                            {academicSessions.map((s) => (
                               <SelectItem key={s.id} value={s.id.toString()}>
-                                {s.name}
+                                <span className="flex items-center gap-2">{s.name}{s.isActive && <Badge className="bg-green-500 text-white text-xs py-0 px-1 h-4">Active</Badge>}</span>
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </div>
 
-                      {/* CLASS (Required) */}
-                      <div>
-                        <Label>Class *</Label>
-                        <Select
-                          value={scmForm.classId}
-                          onValueChange={(v) => setScmForm({ ...scmForm, classId: v })}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Select class" /></SelectTrigger>
-                          <SelectContent>
-                            {classes.map((c) => {
-                              const prog = programs.find(p => p.id === c.programId);
+                      {/* Subject checklist */}
+                      {scmDialogFilter.classId && (
+                        <div>
+                          <Label className="mb-2 block">Subjects</Label>
+                          <div className="max-h-72 overflow-y-auto space-y-2 border rounded-md p-2">
+                            {(subjects || []).length === 0 && (
+                              <p className="text-sm text-muted-foreground text-center py-4">No subjects found.</p>
+                            )}
+                            {(subjects || []).map((subject) => {
+                              const alreadyMapped = (scmMappings || []).some(
+                                m => m.subjectId === subject.id && 
+                                     m.classId === Number(scmDialogFilter.classId) &&
+                                     (scmDialogSessionId ? m.sessionId === Number(scmDialogSessionId) : !m.sessionId)
+                              );
+                              const isChecked = bulkSubjectSelection.has(subject.id);
                               return (
-                                <SelectItem key={c.id} value={c.id.toString()}>
-                                  {c.name} ({prog?.name})
-                                </SelectItem>
+                                <div key={subject.id} className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`subject-${subject.id}`}
+                                      checked={isChecked}
+                                      disabled={!editing && alreadyMapped}
+                                      onCheckedChange={(checked) => {
+                                        if (checked) {
+                                          setBulkSubjectSelection(prev =>
+                                            new Map(prev).set(subject.id, { code: "", creditHours: "" })
+                                          );
+                                        } else {
+                                          setBulkSubjectSelection(prev => {
+                                            const m = new Map(prev);
+                                            m.delete(subject.id);
+                                            return m;
+                                          });
+                                        }
+                                      }}
+                                    />
+                                    <label
+                                      htmlFor={`subject-${subject.id}`}
+                                      className={`text-sm flex-1 ${(!editing && alreadyMapped) ? "text-muted-foreground" : "cursor-pointer"}`}
+                                    >
+                                      {subject.name}
+                                      {!editing && alreadyMapped && (
+                                        <Badge variant="secondary" className="ml-2 text-xs">Already mapped</Badge>
+                                      )}
+                                    </label>
+                                  </div>
+                                  {isChecked && (
+                                    <div className="ml-6 grid grid-cols-2 gap-2">
+                                      <div>
+                                        <Label className="text-xs">Code</Label>
+                                        <Input
+                                          value={bulkSubjectSelection.get(subject.id)?.code || ""}
+                                          onChange={(e) => {
+                                            const value = e.target.value;
+                                            setBulkSubjectSelection(prev => {
+                                              const m = new Map(prev);
+                                              m.set(subject.id, { ...m.get(subject.id), code: value });
+                                              return m;
+                                            });
+                                          }}
+                                          placeholder="e.g. PHY-101"
+                                          className="h-7 text-xs"
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label className="text-xs">Credit Hours</Label>
+                                        <Input
+                                          type="number"
+                                          value={bulkSubjectSelection.get(subject.id)?.creditHours || ""}
+                                          onChange={(e) => {
+                                            const value = e.target.value;
+                                            setBulkSubjectSelection(prev => {
+                                              const m = new Map(prev);
+                                              m.set(subject.id, { ...m.get(subject.id), creditHours: value });
+                                              return m;
+                                            });
+                                          }}
+                                          placeholder="e.g. 3"
+                                          className="h-7 text-xs"
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               );
                             })}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* CREDIT HOURS (Optional) */}
-                      <div>
-                        <Label>Credit Hours (Optional)</Label>
-                        <Input
-                          type="number"
-                          value={scmForm.creditHours}
-                          onChange={(e) => setScmForm({ ...scmForm, creditHours: e.target.value })}
-                          placeholder="e.g. 3"
-                        />
-                      </div>
-
-                      {/* CODE (Optional) */}
-                      <div>
-                        <Label>Code (Optional)</Label>
-                        <Input
-                          value={scmForm.code}
-                          onChange={(e) => setScmForm({ ...scmForm, code: e.target.value })}
-                          placeholder="e.g. PHY-101"
-                        />
-                      </div>
-
-                      {/* DESCRIPTION (Optional) */}
-                      <div>
-                        <Label>Description (Optional)</Label>
-                        <Input
-                          value={scmForm.description}
-                          onChange={(e) => setScmForm({ ...scmForm, description: e.target.value })}
-                          placeholder="Brief description"
-                        />
-                      </div>
+                          </div>
+                        </div>
+                      )}
 
                       <Button
-                        onClick={() => handleSubmit("scm")}
+                        onClick={editing ? handleBulkScmUpdate : handleBulkScmSubmit}
                         className="w-full"
-                        disabled={!scmForm.subjectId || !scmForm.classId}
+                        disabled={
+                          bulkSubjectSelection.size === 0 ||
+                          !scmDialogFilter.classId ||
+                          bulkScmPending
+                        }
                       >
-                        {editing ? "Update" : "Add"} Mapping
+                        {bulkScmPending ? (editing ? "Updating..." : "Adding...") : (editing ? "Update Mappings" : "Add Mappings")}
                       </Button>
                     </div>
                   </DialogContent>
                 </Dialog>
               </CardHeader>
               <CardContent>
+                {/* SCM Table Filters */}
+                <div className="flex flex-wrap gap-4 mb-6">
+                  <div className="flex-1 min-w-[200px]">
+                    <Label>Session</Label>
+                    <Select value={scmSessionFilter} onValueChange={setScmSessionFilter}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Sessions</SelectItem>
+                        {academicSessions.map((s) => (
+                          <SelectItem key={s.id} value={s.id.toString()}>
+                            <span className="flex items-center gap-2">{s.name}{s.isActive && <Badge className="bg-green-500 text-white text-xs py-0 px-1 h-4">Active</Badge>}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex-1 min-w-[200px]">
+                    <Label>Program</Label>
+                    <Select
+                      value={scmTableFilter.programId}
+                      onValueChange={(v) =>
+                        setScmTableFilter({ programId: v, classId: "all" })
+                      }
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Programs</SelectItem>
+                        {programs.map((p) => (
+                          <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex-1 min-w-[200px]">
+                    <Label>Class</Label>
+                    <Select
+                      value={scmTableFilter.classId}
+                      onValueChange={(v) => setScmTableFilter({ ...scmTableFilter, classId: v })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Classes</SelectItem>
+                        {classes
+                          .filter((c) =>
+                            scmTableFilter.programId === "all" ||
+                            c.programId === Number(scmTableFilter.programId)
+                          )
+                          .map((c) => (
+                            <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Subject</TableHead>
                       <TableHead>Class</TableHead>
                       <TableHead>Program</TableHead>
-                      <TableHead>Credit Hrs</TableHead>
-                      <TableHead>Code</TableHead>
+                      <TableHead>Subjects</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {scmMappings.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>{item.subject?.name || "—"}</TableCell>
-                        <TableCell>{item.class?.name || "—"}</TableCell>
-                        <TableCell>{item.class?.program?.name || "—"}</TableCell>
-                        <TableCell>{item.creditHours ?? "—"}</TableCell>
-                        <TableCell>{item.code || "—"}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button variant="outline" size="sm" onClick={() => openEdit("scm", item)}>
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Edit</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => {
-                                    setDeleteTarget({ type: "scm", id: item.id });
-                                    setDeleteDialog(true);
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Delete</TooltipContent>
-                            </Tooltip>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {scmMappings.length === 0 && (
+                    {Array.from(
+                      scmMappings
+                        .filter((item) => {
+                          const cls = classes.find((c) => c.id === item.classId);
+                          if (scmTableFilter.programId !== "all" && cls?.programId !== Number(scmTableFilter.programId)) return false;
+                          if (scmTableFilter.classId !== "all" && item.classId !== Number(scmTableFilter.classId)) return false;
+                          return true;
+                        })
+                        .reduce((acc, item) => {
+                          if (!acc.has(item.classId)) acc.set(item.classId, []);
+                          acc.get(item.classId).push(item);
+                          return acc;
+                        }, new Map())
+                    ).map(([classId, mappings]) => {
+                      const cls = classes.find((c) => c.id === classId);
+                      const prog = programs.find((p) => p.id === cls?.programId);
+                      return (
+                        <TableRow key={classId}>
+                          <TableCell className="font-medium">{cls?.name || "—"}</TableCell>
+                          <TableCell>{prog?.name || "—"}</TableCell>
+                          <TableCell>{mappings.length} subject(s)</TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="sm" onClick={() => setScmViewItem({ classId, mappings })}>
+                                    <Eye className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>View Details</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="outline" size="sm" onClick={() => {
+                                    setEditing({ classId });
+                                    setScmDialogFilter({ programId: "all", classId: classId.toString() });
+                                    const preChecked = new Map();
+                                    mappings.forEach(m => {
+                                      preChecked.set(m.subjectId, {
+                                        code: m.code || "",
+                                        creditHours: m.creditHours != null ? m.creditHours.toString() : "",
+                                        mappingId: m.id,
+                                      });
+                                    });
+                                    setBulkSubjectSelection(preChecked);
+                                    setDialog({ type: "scm", open: true });
+                                  }}>
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={async () => {
+                                      if (!confirm(`Delete all ${mappings.length} subject mapping(s) for this class?`)) return;
+                                      try {
+                                        for (const m of mappings) {
+                                          await deleteSubjectClassMapping(m.id);
+                                        }
+                                        queryClient.invalidateQueries(["scmMappings"]);
+                                        toast({ title: "Mappings deleted successfully" });
+                                      } catch (err) {
+                                        toast({ title: "Error", description: err?.message || "Something went wrong", variant: "destructive" });
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete All</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {scmMappings.filter((item) => {
+                      const cls = classes.find((c) => c.id === item.classId);
+                      if (scmTableFilter.programId !== "all" && cls?.programId !== Number(scmTableFilter.programId)) return false;
+                      if (scmTableFilter.classId !== "all" && item.classId !== Number(scmTableFilter.classId)) return false;
+                      return true;
+                    }).length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                           No subject-class mappings found.
                         </TableCell>
                       </TableRow>
@@ -2226,145 +2629,331 @@ const Academics = () => {
             </Card>
           </TabsContent>
 
-          {/* CLASS TEACHER MAPPING — SIMPLIFIED */}
+          {/* CLASS TEACHER MAPPING "" SIMPLIFIED */}
           <TabsContent value="classMapping">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
-                  <Users className="w-5 h-5" /> Class Teachers
+                  <Users className="w-5 h-5" /> Teacher-Class Assignments
                 </CardTitle>
-                {/* ----------  CLASS TEACHER MAPPING DIALOG  ---------- */}
-                <Dialog open={dialog.type === "classMapping" && dialog.open}
-                  onOpenChange={(open) => setDialog({ type: "classMapping", open })}>
+                <Dialog
+                  open={dialog.type === "classMapping" && dialog.open}
+                  onOpenChange={(open) => {
+                    setDialog({ type: "classMapping", open });
+                    if (!open) {
+                      setTcmStaffSearch(""); setTcmStaffResults([]);
+                      setTcmSelectedStaff(null); setTcmSelectedProgramId("");
+                      setTcmSelectedClassId(""); setTcmClassSubjects([]);
+                      setTcmSelectedSubjectIds(new Set()); setTcmSelectedSectionId("");
+                    }
+                  }}
+                >
                   <DialogTrigger asChild>
                     <Button onClick={() => openDialog("classMapping")}>
-                      <PlusCircle className="w-4 h-4 mr-2" /> Assign Class Teacher
+                      <PlusCircle className="w-4 h-4 mr-2" /> Assign Teacher
                     </Button>
                   </DialogTrigger>
-
-                  <DialogContent>
+                  <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                      <DialogTitle>{editing ? "Change" : "Assign"} Class Teacher</DialogTitle>
+                      <DialogTitle>{editing ? "Edit Teacher Assignment" : "Assign Teacher to Class & Subjects"}</DialogTitle>
                     </DialogHeader>
-
                     <div className="space-y-4">
-
-                      {/* TEACHER */}
                       <div>
-                        <Label>Teacher *</Label>
-                        <Select
-                          value={classMappingForm.teacherId}
-                          onValueChange={(v) => setClassMappingForm({ ...classMappingForm, teacherId: v, sectionId: "" })}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Select teacher" /></SelectTrigger>
-                          <SelectContent>
-                            {teachers.map((t) => (
-                              <SelectItem key={t.id} value={t.id.toString()}>
-                                {t.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Label>Search Staff *</Label>
+                        {editing ? (
+                          <div className="flex items-center gap-2 mt-1 p-2 border rounded-md bg-muted">
+                            <Badge variant="outline">{tcmSelectedStaff?.name || "—"}</Badge>
+                            <Badge variant="secondary" className="text-xs">{tcmSelectedStaff ? getTcmStaffRole(tcmSelectedStaff) : ""}</Badge>
+                            <span className="text-xs text-muted-foreground ml-auto">Locked</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="relative">
+                              <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
+                              <Input
+                                className="pl-8"
+                                placeholder="Type name to search..."
+                                value={tcmStaffSearch}
+                                onChange={(e) => handleTcmStaffSearch(e.target.value)}
+                              />
+                            </div>
+                            {tcmStaffSearching && (
+                              <p className="text-xs text-muted-foreground mt-1">Searching...</p>
+                            )}
+                            {tcmStaffResults.length > 0 && !tcmSelectedStaff && (
+                              <div className="border rounded-md mt-1 max-h-40 overflow-y-auto">
+                                {tcmStaffResults.map((s) => (
+                                  <button
+                                    key={s.id}
+                                    type="button"
+                                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between"
+                                    onClick={() => {
+                                      setTcmSelectedStaff(s);
+                                      setTcmStaffSearch(s.name);
+                                      setTcmStaffResults([]);
+                                    }}
+                                  >
+                                    <span>{s.name}</span>
+                                    <Badge variant="secondary" className="text-xs ml-2">{getTcmStaffRole(s)}</Badge>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {tcmSelectedStaff && (
+                              <div className="flex items-center gap-2 mt-1">
+                                <Badge variant="outline">{tcmSelectedStaff.name}</Badge>
+                                <Badge variant="secondary" className="text-xs">{getTcmStaffRole(tcmSelectedStaff)}</Badge>
+                                <button
+                                  type="button"
+                                  className="text-xs text-muted-foreground underline"
+                                  onClick={() => {
+                                    setTcmSelectedStaff(null); setTcmStaffSearch("");
+                                    setTcmSelectedProgramId(""); setTcmSelectedClassId("");
+                                    setTcmClassSubjects([]); setTcmSelectedSubjectIds(new Set());
+                                  }}
+                                >Change</button>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
-
-                      {/* CLASS */}
-                      <div>
-                        <Label>Class *</Label>
-                        <Select
-                          value={classMappingForm.classId}
-                          onValueChange={(v) => setClassMappingForm({ ...classMappingForm, classId: v, sectionId: "" })}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Select class" /></SelectTrigger>
-                          <SelectContent>
-                            {classes.map((c) => {
-                              const prog = programs.find(p => p.id === c.programId);
-                              return (
-                                <SelectItem key={c.id} value={c.id.toString()}>
-                                  {c.name} ({prog?.name})
-                                </SelectItem>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* SECTION – ONLY when the selected class has sections */}
-                      {classMappingForm.classId && sections.some(s => s.classId === Number(classMappingForm.classId)) && (
+                      {tcmSelectedStaff && (
                         <div>
-                          <Label>Section (optional)</Label>
+                          <Label>Session (Optional)</Label>
                           <Select
-                            // “none” → user wants *all* sections → backend null
-                            value={classMappingForm.sectionId || "none"}
-                            onValueChange={(v) =>
-                              setClassMappingForm({
-                                ...classMappingForm,
-                                sectionId: v === "none" ? "" : v,
-                              })
-                            }
+                            value={tcmDialogSessionId || "none"}
+                            onValueChange={(v) => setTcmDialogSessionId(v === "none" ? "" : v)}
                           >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select section (optional)" />
-                            </SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder="No session" /></SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="none">No Section (All)</SelectItem>
+                              <SelectItem value="none">All Sessions</SelectItem>
+                              {academicSessions.map((s) => (
+                                <SelectItem key={s.id} value={s.id.toString()}>
+                                  <span className="flex items-center gap-2">{s.name}{s.isActive && <Badge className="bg-green-500 text-white text-xs py-0 px-1 h-4">Active</Badge>}</span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      {tcmSelectedStaff && (
+                        <div>
+                          <Label>Program</Label>
+                          <Select
+                            value={tcmSelectedProgramId || "all"}
+                            onValueChange={(v) => {
+                              setTcmSelectedProgramId(v);
+                              setTcmSelectedClassId("");
+                              setTcmClassSubjects([]);
+                              setTcmSelectedSubjectIds(new Set());
+                            }}
+                          >
+                            <SelectTrigger><SelectValue placeholder="All Programs" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Programs</SelectItem>
+                              {programs.map((p) => (
+                                <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      {tcmSelectedStaff && (
+                        <div>
+                          <Label>Class *</Label>
+                          <Select
+                            value={tcmSelectedClassId}
+                            onValueChange={(v) => {
+                              setTcmSelectedClassId(v);
+                              setTcmSelectedSectionId("");
+                              setTcmSelectedSubjectIds(new Set());
+                              loadTcmClassSubjects(v);
+                            }}
+                          >
+                            <SelectTrigger><SelectValue placeholder="Select class" /></SelectTrigger>
+                            <SelectContent>
+                              {classes
+                                .filter((c) =>
+                                  !tcmSelectedProgramId || tcmSelectedProgramId === "all" ||
+                                  c.programId === Number(tcmSelectedProgramId)
+                                )
+                                .map((c) => {
+                                  const prog = programs.find(p => p.id === c.programId);
+                                  return (
+                                    <SelectItem key={c.id} value={c.id.toString()}>
+                                      {c.name} ({prog?.name})
+                                    </SelectItem>
+                                  );
+                                })}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      {tcmSelectedClassId && (
+                        <div>
+                          <Label>Section (Optional)</Label>
+                          <Select
+                            value={tcmSelectedSectionId || "all"}
+                            onValueChange={(v) => setTcmSelectedSectionId(v === "all" ? "" : v)}
+                          >
+                            <SelectTrigger><SelectValue placeholder="All sections" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All sections</SelectItem>
                               {sections
-                                .filter((s) => s.classId === Number(classMappingForm.classId))
-                                .map((s) => (
-                                  <SelectItem key={s.id} value={s.id.toString()}>
-                                    {s.name}
-                                  </SelectItem>
+                                .filter(s => s.classId === Number(tcmSelectedClassId))
+                                .map(s => (
+                                  <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
                                 ))}
                             </SelectContent>
                           </Select>
                         </div>
                       )}
-
-                      {/* SUBMIT */}
+                      {tcmSelectedClassId && (
+                        <div>
+                          <Label className="mb-2 block">Subjects for this class *</Label>
+                          {tcmClassSubjectsLoading ? (
+                            <p className="text-sm text-muted-foreground">Loading subjects...</p>
+                          ) : tcmClassSubjects.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No subjects mapped to this class yet.</p>
+                          ) : (
+                            <div className="border rounded-md max-h-52 overflow-y-auto space-y-1 p-2">
+                              {tcmClassSubjects.map((scm) => {
+                                const subjectId = scm.subject.id;
+                                const subjectName = scm.subject.name;
+                                const assignedTeachers = scm.subject.teachers || [];
+                                const assignedToThisStaff = assignedTeachers.some((tm) => tm.teacherId === tcmSelectedStaff?.id);
+                                const assignedToOther = assignedTeachers.find((tm) => tm.teacherId !== tcmSelectedStaff?.id);
+                                const isChecked = tcmSelectedSubjectIds.has(subjectId);
+                                return (
+                                  <div key={subjectId} className="flex items-center gap-2 py-1">
+                                    <Checkbox
+                                      id={`tcm-subj-${subjectId}`}
+                                      checked={isChecked}
+                                      disabled={!!assignedToOther}
+                                      onCheckedChange={(checked) => {
+                                        setTcmSelectedSubjectIds((prev) => {
+                                          const next = new Set(prev);
+                                          if (checked) next.add(subjectId);
+                                          else next.delete(subjectId);
+                                          return next;
+                                        });
+                                      }}
+                                    />
+                                    <label
+                                      htmlFor={`tcm-subj-${subjectId}`}
+                                      className={`text-sm flex-1 ${assignedToOther ? "text-muted-foreground" : "cursor-pointer"}`}
+                                    >
+                                      {subjectName}
+                                    </label>
+                                    {assignedToThisStaff && (
+                                      <Badge variant="secondary" className="text-xs">Already assigned</Badge>
+                                    )}
+                                    {assignedToOther && (
+                                      <Badge variant="destructive" className="text-xs">
+                                        {assignedToOther.teacher?.name || "Other teacher"}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <Button
-                        onClick={() => handleSubmit("classMapping")}
                         className="w-full"
-                        disabled={!classMappingForm.teacherId || !classMappingForm.classId}
+                        onClick={handleTcmBulkSubmit}
+                        disabled={!tcmSelectedStaff || !tcmSelectedClassId || tcmSelectedSubjectIds.size === 0 || tcmSubmitting}
                       >
-                        {editing ? "Update" : "Assign"}
+                        {tcmSubmitting ? "Assigning..." : "Assign Teacher"}
                       </Button>
                     </div>
                   </DialogContent>
                 </Dialog>
               </CardHeader>
-
               <CardContent>
+                {/* TCM Session Filter */}
+                <div className="flex flex-wrap gap-4 mb-6">
+                  <div className="flex-1 min-w-[200px]">
+                    <Label>Session</Label>
+                    <Select value={tcmSessionFilter} onValueChange={setTcmSessionFilter}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Sessions</SelectItem>
+                        {academicSessions.map((s) => (
+                          <SelectItem key={s.id} value={s.id.toString()}>
+                            <span className="flex items-center gap-2">{s.name}{s.isActive && <Badge className="bg-green-500 text-white text-xs py-0 px-1 h-4">Active</Badge>}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex-1 min-w-[200px]">
+                    <Label>Search Teacher</Label>
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        className="pl-8"
+                        placeholder="Filter by teacher name..."
+                        value={tcmTableStaffSearch}
+                        onChange={(e) => setTcmTableStaffSearch(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Teacher</TableHead>
                       <TableHead>Class</TableHead>
                       <TableHead>Program</TableHead>
+                      <TableHead>Section</TableHead>
+                      <TableHead>Session</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {teacherClassMappings && teacherClassMappings?.map((m) => {
+                    {teacherClassMappings && teacherClassMappings
+                      .filter((m) => {
+                        if (!tcmTableStaffSearch.trim()) return true;
+                        const teacher = teachers.find((t) => t.id === m.teacherId);
+                        return teacher?.name?.toLowerCase().includes(tcmTableStaffSearch.toLowerCase());
+                      })
+                      .map((m) => {
                       const teacher = teachers.find((t) => t.id === m.teacherId);
                       const cls = classes.find((c) => c.id === m.classId);
                       const prog = programs.find((p) => p.id === cls?.programId);
+                      const session = academicSessions.find(s => s.id === m.sessionId);
                       return (
                         <TableRow key={m.id}>
                           <TableCell className="font-medium">{teacher?.name || "—"}</TableCell>
                           <TableCell>{cls?.name || "—"}</TableCell>
                           <TableCell>{prog?.name || "—"}</TableCell>
                           <TableCell>
-                            {cls?.name || "—"}
-                            {m.sectionId && (
-                              <span className="text-xs text-muted-foreground ml-1">
-                                [{sections.find(s => s.id === m.sectionId)?.name}]
-                              </span>
-                            )}
+                            {m.sectionId
+                              ? sections.find(s => s.id === m.sectionId)?.name || "—"
+                              : <span className="text-muted-foreground text-xs">All sections</span>
+                            }
+                          </TableCell>
+                          <TableCell>
+                            {session
+                              ? <span className="flex items-center gap-1">{session.name}{session.isActive && <Badge className="bg-green-500 text-white text-xs py-0 px-1 h-4">Active</Badge>}</span>
+                              : <span className="text-muted-foreground text-xs">""</span>
+                            }
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <Button variant="outline" size="sm" onClick={() => openEdit("classMapping", m)}>
+                                  <Button variant="outline" size="sm" onClick={() => openTcmDetail(m)}>
+                                    <Eye className="w-4 h-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>View Details</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="outline" size="sm" onClick={() => openTcmEdit(m)}>
                                     <Edit className="w-4 h-4" />
                                   </Button>
                                 </TooltipTrigger>
@@ -2383,13 +2972,20 @@ const Academics = () => {
                                     <Trash2 className="w-4 h-4" />
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>Delete</TooltipContent>
+                                <TooltipContent>Remove</TooltipContent>
                               </Tooltip>
                             </div>
                           </TableCell>
                         </TableRow>
                       );
                     })}
+                    {(!teacherClassMappings || teacherClassMappings.length === 0) && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          No teacher-class mappings found.
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -2411,6 +3007,128 @@ const Academics = () => {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* TCM DETAIL DIALOG */}
+          <Dialog open={!!tcmViewItem} onOpenChange={(open) => { if (!open) { setTcmViewItem(null); setTcmViewSubjects([]); } }}>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Teacher Assignment Details</DialogTitle>
+              </DialogHeader>
+              {tcmViewItem && (() => {
+                const teacher = teachers.find(t => t.id === tcmViewItem.teacherId);
+                const cls = classes.find(c => c.id === tcmViewItem.classId);
+                const prog = programs.find(p => p.id === cls?.programId);
+                const section = sections.find(s => s.id === tcmViewItem.sectionId);
+                const session = academicSessions.find(s => s.id === tcmViewItem.sessionId);
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4 pb-3 border-b">
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Teacher</Label>
+                        <p className="text-sm font-medium mt-0.5">{teacher?.name || "—"}</p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Class</Label>
+                        <p className="text-sm font-medium mt-0.5">{cls?.name || "—"}</p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Program</Label>
+                        <p className="text-sm font-medium mt-0.5">{prog?.name || "—"}</p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Section</Label>
+                        <p className="text-sm font-medium mt-0.5">{section?.name || <span className="text-muted-foreground">All sections</span>}</p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Session</Label>
+                        <p className="text-sm font-medium mt-0.5">
+                          {session
+                            ? <span className="flex items-center gap-1">{session.name}{session.isActive && <Badge className="bg-green-500 text-white text-xs py-0 px-1 h-4">Active</Badge>}</span>
+                            : <span className="text-muted-foreground">""</span>
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="mb-2 block">Assigned Subjects</Label>
+                      {tcmViewSubjectsLoading ? (
+                        <p className="text-sm text-muted-foreground">Loading subjects...</p>
+                      ) : tcmViewSubjects.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No subjects assigned for this session.</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Subject</TableHead>
+                              <TableHead>Code</TableHead>
+                              <TableHead>Credit Hrs</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {tcmViewSubjects.map((scm) => (
+                              <TableRow key={scm.id}>
+                                <TableCell>{scm.subject?.name || "—"}</TableCell>
+                                <TableCell>{scm.code || "—"}</TableCell>
+                                <TableCell>{scm.creditHours ?? "—"}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </DialogContent>
+          </Dialog>
+
+          {/* SCM VIEW DIALOG */}
+          <Dialog open={!!scmViewItem} onOpenChange={(open) => { if (!open) setScmViewItem(null); }}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Subject-Class Mapping Details</DialogTitle>
+              </DialogHeader>
+              {scmViewItem && scmViewItem.mappings && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4 pb-3 border-b">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Class</Label>
+                      <p className="text-sm font-medium mt-0.5">
+                        {classes.find(c => c.id === scmViewItem.classId)?.name || "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Program</Label>
+                      <p className="text-sm font-medium mt-0.5">
+                        {programs.find(p => p.id === classes.find(c => c.id === scmViewItem.classId)?.programId)?.name || "—"}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="mb-2 block">Subjects ({scmViewItem.mappings.length})</Label>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Subject</TableHead>
+                          <TableHead>Code</TableHead>
+                          <TableHead>Credit Hrs</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {scmViewItem.mappings.map((m) => (
+                          <TableRow key={m.id}>
+                            <TableCell>{m.subject?.name || "—"}</TableCell>
+                            <TableCell>{m.code || "—"}</TableCell>
+                            <TableCell>{m.creditHours ?? "—"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
 
           {/* Delete Confirmation */}
           <AlertDialog open={deleteDialog} onOpenChange={setDeleteDialog}>

@@ -57,4 +57,6 @@ export class InquiryDto {
   followUpDate?: string;
   @IsOptional()
   followUpSlab?: string;
+  @IsOptional()
+  referenceBody?: string;
 }

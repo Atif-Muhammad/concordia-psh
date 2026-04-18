@@ -7,4 +7,7 @@ export class TcsmDto {
   classId: string;
   @IsOptional()
   sectionId?: number | null;
+
+  @IsOptional()
+  sessionId?: number;
 }

@@ -13,7 +13,7 @@ import { ClassDto } from './dtos/classes/class.dto';
 import { SectionDto } from './dtos/sections/section.dto';
 import { SubjectDto } from './dtos/subjects/subject.dto';
 import { TsmDto } from './dtos/tsms/tsm.dto';
-import { TimetableDto } from './dtos/timetable/timetable.dto';
+import { ClassTimetableDto } from './dtos/timetable/timetable.dto';
 import { TcsmDto } from './dtos/tcms/tcm.dto';
 import { ScmDto } from './dtos/scm/scm.dto';
 
@@ -146,8 +146,8 @@ export class AcademicsController {
 
   // tcm
   @Get('tcm/get/all')
-  async getTcms() {
-    return await this.academicService.getTcsms();
+  async getTcms(@Query('sessionId') sessionId?: string) {
+    return await this.academicService.getTcsms(sessionId ? Number(sessionId) : undefined);
   }
   @Post('tcm/create')
   async createTcm(@Body() payload: TcsmDto) {
@@ -167,8 +167,18 @@ export class AcademicsController {
 
   // scm
   @Get('scm/get/all')
-  async getScms() {
-    return await this.academicService.getScms();
+  async getScms(@Query('sessionId') sessionId?: string) {
+    return await this.academicService.getScms(sessionId ? Number(sessionId) : undefined);
+  }
+  @Get('scm/subjects-for-class')
+  async getSubjectsForClassWithAssignments(
+    @Query('classId') classId: string,
+    @Query('sessionId') sessionId?: string,
+  ) {
+    return await this.academicService.getSubjectsForClassWithAssignments(
+      Number(classId),
+      sessionId ? Number(sessionId) : undefined,
+    );
   }
   @Post('scm/create')
   async createScm(@Body() dto: ScmDto) {
@@ -183,24 +193,31 @@ export class AcademicsController {
     return await this.academicService.removeScm(Number(id));
   }
 
+  // staff search
+  @Get('staff/search')
+  async searchStaff(@Query('q') q: string) {
+    return await this.academicService.searchStaff(q || '');
+  }
+
+  // tcm bulk assign
+  @Post('tcm/assign-with-subjects')
+  async bulkAssignTeacherToClassSubjects(@Body() payload: {
+    teacherId: number;
+    classId: number;
+    subjectIds: number[];
+    sectionId?: number | null;
+  }) {
+    return await this.academicService.bulkAssignTeacherToClassSubjects(payload);
+  }
+
   // timetable
   @Get('timetable/get/all')
-  async getTimetables() {
-    return await this.academicService.getTimetables();
+  async getTimetables(@Query('sessionId') sessionId?: string) {
+    return await this.academicService.getTimetables(sessionId ? Number(sessionId) : undefined);
   }
-  @Post('timetable/create')
-  async createTimetable(@Body() payload: TimetableDto) {
-    return await this.academicService.createTimetable(payload);
-  }
-  @Patch('timetable/update')
-  async updateTimetable(
-    @Query() timetableId: { timetableId: string },
-    @Body() payload: Partial<TimetableDto>,
-  ) {
-    return await this.academicService.updateTimetable(
-      Number(timetableId.timetableId),
-      payload,
-    );
+  @Post('timetable/upsert')
+  async upsertTimetable(@Body() payload: ClassTimetableDto) {
+    return await this.academicService.upsertTimetable(payload);
   }
   @Delete('timetable/remove')
   async removeTimetable(@Query() timetableId: { timetableId: string }) {

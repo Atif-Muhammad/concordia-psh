@@ -52,7 +52,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
-import { format } from "date-fns"
+import { format, addDays, addMonths } from "date-fns"
 import {
   UserPlus,
   Users,
@@ -268,6 +268,7 @@ const FrontOffice = () => {
     prospectusReceipt: "",
     followUpDate: "",
     followUpSlab: "",
+    referenceBody: "",
   });
 
   const [visitorForm, setVisitorForm] = useState({
@@ -550,6 +551,7 @@ const FrontOffice = () => {
       prospectusReceipt: "",
       followUpDate: "",
       followUpSlab: "",
+      referenceBody: "",
     });
     setEditingInquiry(null);
     setInquiryDialog(false);
@@ -641,6 +643,7 @@ const FrontOffice = () => {
       prospectusReceipt: inquiry.prospectusReceipt || "",
       followUpDate: inquiry.followUpDate ? inquiry.followUpDate.split("T")[0] : "",
       followUpSlab: inquiry.followUpSlab || "",
+      referenceBody: inquiry.referenceBody || "",
     });
     setEditingInquiry(inquiry);
     setInquiryDialog(true);
@@ -1045,6 +1048,12 @@ const FrontOffice = () => {
                               <Label>Previous Institute</Label>
                               <Input value={inquiryForm.previousInstitute} onChange={(e) => setInquiryForm({ ...inquiryForm, previousInstitute: e.target.value })} />
                             </div>
+                            {inquiryForm.inquiryType === "REFERENCE" && (
+                              <div className="space-y-1">
+                                <Label>Reference Name/Body</Label>
+                                <Input value={inquiryForm.referenceBody} onChange={(e) => setInquiryForm({ ...inquiryForm, referenceBody: e.target.value })} placeholder="Enter reference name or body" />
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -1085,32 +1094,48 @@ const FrontOffice = () => {
                           </div>
                         </div>
 
-                        {/* Follow Up (edit/update mode only) */}
-                        {editingInquiry && (
-                          <div>
-                            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Follow Up</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                              <div className="space-y-1">
-                                <Label>Follow Up Date</Label>
+                        {/* Follow Up */}
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Follow Up</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label>Follow Up Date</Label>
+                              {inquiryForm.followUpSlab === "" ? null : inquiryForm.followUpSlab === "CUSTOM" ? (
                                 <Input type="date" value={inquiryForm.followUpDate} onChange={(e) => setInquiryForm({ ...inquiryForm, followUpDate: e.target.value })} />
-                              </div>
-                              <div className="space-y-1">
-                                <Label>Follow Up Slab</Label>
-                                <Select value={inquiryForm.followUpSlab} onValueChange={(v) => setInquiryForm({ ...inquiryForm, followUpSlab: v })}>
-                                  <SelectTrigger><SelectValue placeholder="Select slab" /></SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="1_DAY">1 Day</SelectItem>
-                                    <SelectItem value="3_DAYS">3 Days</SelectItem>
-                                    <SelectItem value="1_WEEK">1 Week</SelectItem>
-                                    <SelectItem value="2_WEEKS">2 Weeks</SelectItem>
-                                    <SelectItem value="1_MONTH">1 Month</SelectItem>
-                                    <SelectItem value="CUSTOM">Custom</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
+                              ) : (
+                                <Input type="date" value={inquiryForm.followUpDate} readOnly />
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Follow Up Slab</Label>
+                              <Select value={inquiryForm.followUpSlab} onValueChange={(v) => {
+                                if (v === "1_DAY") {
+                                  setInquiryForm({ ...inquiryForm, followUpSlab: v, followUpDate: format(addDays(new Date(), 1), "yyyy-MM-dd") });
+                                } else if (v === "3_DAYS") {
+                                  setInquiryForm({ ...inquiryForm, followUpSlab: v, followUpDate: format(addDays(new Date(), 3), "yyyy-MM-dd") });
+                                } else if (v === "1_WEEK") {
+                                  setInquiryForm({ ...inquiryForm, followUpSlab: v, followUpDate: format(addDays(new Date(), 7), "yyyy-MM-dd") });
+                                } else if (v === "2_WEEKS") {
+                                  setInquiryForm({ ...inquiryForm, followUpSlab: v, followUpDate: format(addDays(new Date(), 14), "yyyy-MM-dd") });
+                                } else if (v === "1_MONTH") {
+                                  setInquiryForm({ ...inquiryForm, followUpSlab: v, followUpDate: format(addMonths(new Date(), 1), "yyyy-MM-dd") });
+                                } else {
+                                  setInquiryForm({ ...inquiryForm, followUpSlab: v });
+                                }
+                              }}>
+                                <SelectTrigger><SelectValue placeholder="Select slab" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="1_DAY">1 Day</SelectItem>
+                                  <SelectItem value="3_DAYS">3 Days</SelectItem>
+                                  <SelectItem value="1_WEEK">1 Week</SelectItem>
+                                  <SelectItem value="2_WEEKS">2 Weeks</SelectItem>
+                                  <SelectItem value="1_MONTH">1 Month</SelectItem>
+                                  <SelectItem value="CUSTOM">Custom</SelectItem>
+                                </SelectContent>
+                              </Select>
                             </div>
                           </div>
-                        )}
+                        </div>
 
                         {/* Remarks */}
                         <div>
@@ -2049,6 +2074,9 @@ const FrontOffice = () => {
                     <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Session</p><p className="text-sm font-medium">{viewDetailsDialog.data.session?.name || "—"}</p></div>
                     <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Previous Institute</p><p className="text-sm font-medium">{viewDetailsDialog.data.previousInstitute || "—"}</p></div>
                     <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Inquiry Type</p><p className="text-sm font-medium">{viewDetailsDialog.data.inquiryType?.replace(/_/g, " ") || "—"}</p></div>
+                    {viewDetailsDialog.data?.inquiryType === "REFERENCE" && (
+                      <div className="col-span-2"><p className="text-[10px] text-muted-foreground uppercase font-semibold">Reference</p><p className="text-sm font-medium">{viewDetailsDialog.data.referenceBody || "—"}</p></div>
+                    )}
                   </div>
                 </div>
 

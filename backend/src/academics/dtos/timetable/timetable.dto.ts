@@ -1,22 +1,23 @@
-import { IsNotEmpty, IsOptional } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsArray } from 'class-validator';
 
-export class TimetableDto {
-  @IsOptional()
-  id?: string;
-  @IsNotEmpty({ message: 'teacher must be selected' })
-  teacherId: string;
-  @IsNotEmpty({ message: 'subject must be selected' })
-  subjectId: string;
-  @IsOptional()
-  sectionId?: string | null;
-  @IsNotEmpty({ message: 'class must be specified' })
-  classId: string;
-  @IsNotEmpty({ message: 'day must be selected' })
+export class TimetableSlotDto {
+  @IsNotEmpty()
   dayOfWeek: string;
-  @IsNotEmpty({ message: 'start time must be selected' })
+  @IsNotEmpty()
   startTime: string;
-  @IsNotEmpty({ message: 'end time must be selected' })
+  @IsNotEmpty()
   endTime: string;
-  @IsNotEmpty({ message: 'room must be selected' })
-  room: string;
+  @IsNotEmpty()
+  subjectId: number;
+}
+
+export class ClassTimetableDto {
+  @IsNotEmpty()
+  classId: number;
+  @IsOptional()
+  sectionId?: number | null;
+  @IsOptional()
+  sessionId?: number | null;
+  @IsArray()
+  slots: TimetableSlotDto[];
 }

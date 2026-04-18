@@ -455,6 +455,8 @@ export class FeeManagementService {
       if (status === 'overdue') {
         where.status = 'PENDING';
         where.dueDate = { lt: new Date() };
+      } else if (status === 'void' || status === 'superseded') {
+        where.status = 'VOID';
       } else {
         where.status = status.toUpperCase();
       }
@@ -2950,15 +2952,33 @@ export class FeeManagementService {
 
   async getFeeCollectionSummary(
     period: 'daily' | 'weekly' | 'month' | 'year' | 'overall' = 'month',
+    sessionId?: number,
   ) {
     const startDate = this.getDateRange(period);
 
-    const where: any = {
+    const sessionFilter: any = sessionId
+      ? {
+          OR: [
+            { sessionId },
+            {
+              sessionId: null,
+              student: {
+                academicRecords: {
+                  some: { sessionId, isCurrent: true },
+                },
+              },
+            },
+          ],
+        }
+      : undefined;
+
+    const buildWhere = (base: any) =>
+      sessionFilter ? { ...base, AND: [sessionFilter] } : base;
+
+    const where: any = buildWhere({
       status: 'PAID',
-      paidDate: {
-        gte: startDate,
-      },
-    };
+      paidDate: { gte: startDate },
+    });
 
     // 1. Total Revenue — PAID challans' full paidAmount + PARTIAL challans' paidAmount (no double-counting via settledAmount on VOID)
     const paidRevenueAggr = await this.prisma.feeChallan.aggregate({
@@ -2968,25 +2988,63 @@ export class FeeManagementService {
 
     // Also include PARTIAL challans that received payment in the period
     const partialRevenueAggr = await this.prisma.feeChallan.aggregate({
-      where: {
+      where: buildWhere({
         status: 'PARTIAL',
         paidDate: { gte: startDate },
-      },
+      }),
       _sum: { paidAmount: true },
     });
 
     const totalRevenue = (paidRevenueAggr._sum.paidAmount || 0) + (partialRevenueAggr._sum.paidAmount || 0);
 
+    // When filtering by session: also count settledAmount on VOID challans that belong
+    // to this session but were settled by a superseding challan from a DIFFERENT session.
+    // (If the superseding challan is in the same session, its paidAmount already covers it.)
+    let crossSessionSettled = 0;
+    if (sessionId) {
+      const voidCrossSession = await this.prisma.feeChallan.findMany({
+        where: {
+          status: 'VOID',
+          settledAmount: { gt: 0 },
+          AND: [sessionFilter],
+          supersededBy: {
+            // superseding challan must NOT belong to the same session
+            sessionId: { not: sessionId },
+          },
+        },
+        select: { settledAmount: true },
+      });
+      crossSessionSettled = voidCrossSession.reduce((sum, c) => sum + (c.settledAmount || 0), 0);
+    }
+
+    const totalRevenueFinal = totalRevenue + crossSessionSettled;
+
     // 2. Outstanding: Sum of pendingAmount from all StudentFeeInstallment records
-    // This represents installments that have been generated but not fully paid
+    const outstandingWhere: any = sessionId
+      ? {
+          OR: [
+            { sessionId },
+            {
+              sessionId: null,
+              student: {
+                academicRecords: {
+                  some: { sessionId, isCurrent: true },
+                },
+              },
+            },
+          ],
+        }
+      : {};
+
     const outstandingAggr = await this.prisma.studentFeeInstallment.aggregate({
+      where: outstandingWhere,
       _sum: { pendingAmount: true },
     });
 
     const totalOutstanding = outstandingAggr._sum.pendingAmount || 0;
 
     return {
-      totalRevenue,
+      totalRevenue: totalRevenueFinal,
       totalOutstanding,
     };
   }

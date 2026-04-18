@@ -52,6 +52,7 @@ const FeeManagement = () => {
 
   const [challanSearch, setChallanSearch] = useState("");
   const [challanFilter, setChallanFilter] = useState("all");
+  const [challanSessionFilter, setChallanSessionFilter] = useState("all");
   const [selectedInstallment, setSelectedInstallment] = useState("all");
   const [selectedMonth, setSelectedMonth] = useState("");
 
@@ -271,6 +272,18 @@ const FeeManagement = () => {
 
   const activeSessionId = academicSessions.find(s => s.isActive)?.id?.toString() || "all";
 
+  // Pre-select active session for challan filter once sessions load
+  const challanSessionInitialized = useRef(false);
+  useEffect(() => {
+    if (!challanSessionInitialized.current && academicSessions.length > 0) {
+      const active = academicSessions.find(s => s.isActive);
+      if (active) {
+        setChallanSessionFilter(active.id.toString());
+        challanSessionInitialized.current = true;
+      }
+    }
+  }, [academicSessions]);
+
   const { data: feeStructures = [] } = useQuery({
     queryKey: ['feeStructures'],
     queryFn: getFeeStructures
@@ -404,7 +417,7 @@ const FeeManagement = () => {
   const [extraMonth, setExtraMonth] = useState("");
 
   const { data: feeChallansData = { data: [], meta: {} }, isLoading: isChallansLoading } = useQuery({
-    queryKey: ['feeChallans', challanSearch, challanFilter, selectedInstallment, selectedMonth, page, limit],
+    queryKey: ['feeChallans', challanSearch, challanFilter, challanSessionFilter, selectedInstallment, selectedMonth, page, limit],
     queryFn: () => {
       let startDate = "";
       let endDate = "";
@@ -418,6 +431,7 @@ const FeeManagement = () => {
       return getFeeChallans({
         search: challanSearch,
         status: challanFilter,
+        sessionId: challanSessionFilter !== "all" ? challanSessionFilter : undefined,
         installmentNumber: selectedInstallment === 'all' ? '' : selectedInstallment,
         startDate,
         endDate,
@@ -491,8 +505,8 @@ const FeeManagement = () => {
   });
 
   const { data: feeCollectionSummary = { totalRevenue: 0, totalOutstanding: 0 } } = useQuery({
-    queryKey: ['feeCollectionSummary', reportFilter],
-    queryFn: () => getFeeCollectionSummary({ period: reportFilter })
+    queryKey: ['feeCollectionSummary', reportFilter, challanSessionFilter],
+    queryFn: () => getFeeCollectionSummary({ period: reportFilter, sessionId: challanSessionFilter !== "all" ? challanSessionFilter : undefined })
   });
 
   const { data: defaultChallanTemplate } = useQuery({
@@ -1167,7 +1181,7 @@ const FeeManagement = () => {
       '{{studentName}}': `${student.fName} ${student.lName || ''}`.trim(),
       '{{fatherName}}': student.fatherOrguardian || '',
       '{{rollNo}}': student.rollNumber,
-      '{{class}}': studentClass,
+      '{{class}}': programClassSection,
       '{{section}}': studentSection,
       '{{program}}': studentProgram,
       '{{feeHeadsRows}}': feeHeadsRowsHtml,
@@ -1579,6 +1593,23 @@ const FeeManagement = () => {
                       <SelectItem value="partial">Partial</SelectItem>
                       <SelectItem value="paid">Paid</SelectItem>
                       <SelectItem value="overdue">Overdue</SelectItem>
+                      <SelectItem value="void">Superseded</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Session</Label>
+                  <Select value={challanSessionFilter} onValueChange={(v) => { setChallanSessionFilter(v); setPage(1); }}>
+                    <SelectTrigger className="w-[150px]">
+                      <SelectValue placeholder="All Sessions" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Sessions</SelectItem>
+                      {academicSessions.map(s => (
+                        <SelectItem key={s.id} value={s.id.toString()}>
+                          {s.name}{s.isActive ? " (Active)" : ""}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1612,6 +1643,7 @@ const FeeManagement = () => {
                     onClick={() => {
                       setChallanSearch("");
                       setChallanFilter("all");
+                      setChallanSessionFilter(activeSessionId);
                       setSelectedInstallment("all");
                       setSelectedMonth("");
                     }}
@@ -2074,6 +2106,7 @@ const FeeManagement = () => {
                         <SelectItem value="partial">Partial</SelectItem>
                         <SelectItem value="paid">Paid</SelectItem>
                         <SelectItem value="overdue">Overdue</SelectItem>
+                        <SelectItem value="void">Superseded</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

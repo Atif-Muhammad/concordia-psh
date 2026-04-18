@@ -7,7 +7,7 @@ import { ClassDto } from './dtos/classes/class.dto';
 import { SectionDto } from './dtos/sections/section.dto';
 import { SubjectDto } from './dtos/subjects/subject.dto';
 import { TsmDto } from './dtos/tsms/tsm.dto';
-import { TimetableDto } from './dtos/timetable/timetable.dto';
+import { ClassTimetableDto } from './dtos/timetable/timetable.dto';
 import { TcsmDto } from './dtos/tcms/tcm.dto';
 import { ScmDto } from './dtos/scm/scm.dto';
 
@@ -293,8 +293,9 @@ export class AcademicsService {
   }
 
   // Tcm
-  async getTcsms() {
+  async getTcsms(sessionId?: number) {
     return await this.prismaService.teacherClassSectionMapping.findMany({
+      where: sessionId ? { sessionId } : {},
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -305,6 +306,7 @@ export class AcademicsService {
           teacherId: Number(payload.teacherId),
           classId: Number(payload.classId),
           sectionId: Number(payload.sectionId) || null,
+          sessionId: payload.sessionId ?? null,
         },
       });
     if (exists)
@@ -316,6 +318,7 @@ export class AcademicsService {
         teacherId: Number(payload.teacherId),
         classId: Number(payload.classId),
         sectionId: Number(payload.sectionId) || null,
+        sessionId: payload.sessionId ?? null,
       },
     });
   }
@@ -335,54 +338,64 @@ export class AcademicsService {
     });
   }
 
-  // timetable
-  async getTimetables() {
-    return await this.prismaService.timetable.findMany({});
-  }
-  async createTimetable(payload: TimetableDto) {
-    const exists = await this.prismaService.timetable.findFirst({
-      where: {
-        teacherId: Number(payload.teacherId),
-        subjectId: Number(payload.subjectId),
-        dayOfWeek: payload.dayOfWeek,
-        startTime: payload.startTime,
-        endTime: payload.endTime,
+  // timetable (ClassTimetable — one record per class/section/session, slots stored as JSON)
+  async getTimetables(sessionId?: number) {
+    const rows = await this.prismaService.classTimetable.findMany({
+      where: sessionId ? { sessionId } : {},
+      include: {
+        class: { select: { id: true, name: true, programId: true } },
+        section: { select: { id: true, name: true } },
+        session: { select: { id: true, name: true } },
       },
+      orderBy: { createdAt: 'desc' },
     });
-    if (exists)
-      throw new ConflictException(
-        'Selected teacher is already mapped to the selected class',
-      );
-    return await this.prismaService.timetable.create({
-      data: {
-        teacherId: Number(payload.teacherId),
-        subjectId: Number(payload.subjectId),
-        classId: Number(payload.classId),
-        sectionId: payload.sectionId ? Number(payload.sectionId) : null,
-        dayOfWeek: payload.dayOfWeek,
-        startTime: payload.startTime,
-        endTime: payload.endTime,
-        room: payload.room,
-      },
+
+    // For each row, resolve teacher info per slot from TCM + TSM
+    return Promise.all(rows.map(async (row) => {
+      const slots = (row.slots as any[]) || [];
+      const enrichedSlots = await Promise.all(slots.map(async (slot) => {
+        // Find teacher assigned to this class (and section if set) who teaches this subject
+        const tcms = await this.prismaService.teacherClassSectionMapping.findMany({
+          where: {
+            classId: row.classId,
+            ...(row.sectionId ? { sectionId: row.sectionId } : {}),
+          },
+          select: { teacherId: true },
+        });
+        const teacherIds = tcms.map(t => t.teacherId);
+        const tsm = await this.prismaService.teacherSubjectMapping.findFirst({
+          where: { subjectId: Number(slot.subjectId), teacherId: { in: teacherIds } },
+          include: { teacher: { select: { id: true, name: true } } },
+        });
+        return { ...slot, teacher: tsm?.teacher ?? null };
+      }));
+      return { ...row, slots: enrichedSlots };
+    }));
+  }
+
+  async upsertTimetable(payload: ClassTimetableDto) {
+    const classId = Number(payload.classId);
+    const sectionId = payload.sectionId ? Number(payload.sectionId) : null;
+    const sessionId = payload.sessionId ? Number(payload.sessionId) : null;
+
+    const existing = await this.prismaService.classTimetable.findFirst({
+      where: { classId, sectionId: sectionId ?? undefined, sessionId: sessionId ?? undefined },
+    });
+
+    if (existing) {
+      return await this.prismaService.classTimetable.update({
+        where: { id: existing.id },
+        data: { slots: payload.slots as any },
+      });
+    }
+
+    return await this.prismaService.classTimetable.create({
+      data: { classId, sectionId, sessionId, slots: payload.slots as any },
     });
   }
-  async updateTimetable(id: number, payload: Partial<TimetableDto>) {
-    return await this.prismaService.timetable.update({
-      where: { id },
-      data: {
-        teacherId: Number(payload.teacherId),
-        subjectId: Number(payload.subjectId),
-        classId: Number(payload.classId),
-        sectionId: payload.sectionId ? Number(payload.sectionId) : null,
-        dayOfWeek: payload.dayOfWeek,
-        startTime: payload.startTime,
-        endTime: payload.endTime,
-        room: payload.room,
-      },
-    });
-  }
+
   async removeTimetable(id: number) {
-    return await this.prismaService.timetable.delete({ where: { id } });
+    return await this.prismaService.classTimetable.delete({ where: { id } });
   }
 
   // ACADEMIC SESSIONS
@@ -431,8 +444,9 @@ export class AcademicsService {
   }
 
   // SCM (SubjectClassMapping)
-  async getScms() {
+  async getScms(sessionId?: number) {
     return await this.prismaService.subjectClassMapping.findMany({
+      where: sessionId ? { sessionId } : {},
       include: {
         subject: { select: { name: true } },
         class: {
@@ -445,12 +459,127 @@ export class AcademicsService {
     });
   }
 
+  // Get subjects for a class with teacher assignment info
+  // Returns SCM entries for the class, each with the teacher who teaches
+  // that subject IN this class (teacher has both TSM for subject + TCM for class)
+  async getSubjectsForClassWithAssignments(classId: number, sessionId?: number) {
+    // Get all teachers assigned to this class (scoped to session when provided)
+    const classTcms = await this.prismaService.teacherClassSectionMapping.findMany({
+      where: { classId, ...(sessionId ? { sessionId } : {}) },
+      select: { teacherId: true },
+    });
+    const classTeacherIds = classTcms.map((t) => t.teacherId);
+
+    // Get SCM entries for this class (scoped to session when provided), with teacher info scoped to class teachers
+    const scmMappings = await this.prismaService.subjectClassMapping.findMany({
+      where: { classId, ...(sessionId ? { sessionId } : {}) },
+      include: {
+        subject: {
+          select: {
+            id: true,
+            name: true,
+            teachers: {
+              where: classTeacherIds.length > 0
+                ? { teacherId: { in: classTeacherIds } }
+                : { teacherId: -1 }, // no match if no class teachers
+              select: {
+                teacherId: true,
+                teacher: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    return scmMappings;
+  }
+
+  // Search staff (teaching + non-teaching) by name
+  async searchStaff(q: string) {
+    return await this.prismaService.staff.findMany({
+      where: {
+        name: { contains: q },
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true,
+        name: true,
+        isTeaching: true,
+        isNonTeaching: true,
+        specialization: true,
+      },
+      take: 20,
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  // Bulk assign teacher to class + subjects (agreement-type relation)
+  // Does NOT create SCM — only creates TCM + TSM
+  // Enforces: one teacher per subject per class
+  async bulkAssignTeacherToClassSubjects(payload: {
+    teacherId: number;
+    classId: number;
+    subjectIds: number[];
+    sectionId?: number | null;
+    sessionId?: number | null;
+  }) {
+    const { teacherId, classId, subjectIds, sectionId, sessionId } = payload;
+
+    // Get all teachers already assigned to this class (scoped to session)
+    const classTcms = await this.prismaService.teacherClassSectionMapping.findMany({
+      where: { classId, sessionId: sessionId ?? null },
+      select: { teacherId: true },
+    });
+    const classTeacherIds = classTcms.map((t) => t.teacherId);
+
+    // Check: for each subject, is it already claimed by another teacher in this class?
+    for (const subjectId of subjectIds) {
+      const conflict = await this.prismaService.teacherSubjectMapping.findFirst({
+        where: {
+          subjectId,
+          teacherId: { in: classTeacherIds, not: teacherId },
+        },
+        select: { teacher: { select: { name: true } } },
+      });
+      if (conflict) {
+        throw new ConflictException(
+          `Subject is already assigned to another teacher in this class`,
+        );
+      }
+    }
+
+    // 1. Upsert TeacherClassSectionMapping
+    const existingTcm = await this.prismaService.teacherClassSectionMapping.findFirst({
+      where: { teacherId, classId, sectionId: sectionId ?? null, sessionId: sessionId ?? null },
+    });
+    if (!existingTcm) {
+      await this.prismaService.teacherClassSectionMapping.create({
+        data: { teacherId, classId, sectionId: sectionId ?? null, sessionId: sessionId ?? null },
+      });
+    }
+
+    // 2. Upsert TeacherSubjectMappings for each subject
+    for (const subjectId of subjectIds) {
+      const existingTsm = await this.prismaService.teacherSubjectMapping.findFirst({
+        where: { teacherId, subjectId },
+      });
+      if (!existingTsm) {
+        await this.prismaService.teacherSubjectMapping.create({
+          data: { teacherId, subjectId },
+        });
+      }
+    }
+
+    return { success: true, teacherId, classId, subjectIds };
+  }
+
   async createScm(payload: ScmDto) {
     try {
       return await this.prismaService.subjectClassMapping.create({
         data: {
           subjectId: Number(payload.subjectId),
           classId: Number(payload.classId),
+          sessionId: payload.sessionId ?? null,
           creditHours: payload.creditHours != null ? Number(payload.creditHours) : null,
           code: payload.code ?? null,
           description: payload.description ?? null,

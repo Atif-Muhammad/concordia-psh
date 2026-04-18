@@ -30,7 +30,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, SaveAll, CheckCircle, XCircle, Printer, MoreHorizontal, Eye } from "lucide-react";
+import { Loader2, SaveAll, CheckCircle, XCircle, Printer, MoreHorizontal, Eye, Info } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 
 import { useState, useEffect } from "react";
@@ -602,7 +603,17 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                   Absent
                 </TableHead>
                 <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
-                  Leave
+                  <div className="flex items-center gap-1">
+                    Leave
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-3 w-3 text-muted-foreground cursor-help shrink-0" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs max-w-[180px]">
+                        Deduction for excess leaves (casual + sick + annual combined)
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                 </TableHead>
                 <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
                   Other
@@ -718,19 +729,29 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                     />
                   </TableCell>
                   <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
-                    <Input
-                      type="number"
-                      className="h-8 w-20"
-                      value={row.leaveDeduction || 0}
-                      disabled={row.status === "PAID"}
-                      onChange={(e) =>
-                        handleInputChange(
-                          index,
-                          "leaveDeduction",
-                          e.target.value
-                        )
-                      }
-                    />
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={row.leaveDeduction || 0}
+                        disabled={row.status === "PAID"}
+                        onChange={(e) =>
+                          handleInputChange(index, "leaveDeduction", e.target.value)
+                        }
+                      />
+                      {row.leaveBreakdown && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help shrink-0" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs space-y-0.5">
+                            <div>Casual: {row.leaveBreakdown.casual} day(s)</div>
+                            <div>Sick: {row.leaveBreakdown.sick} day(s)</div>
+                            <div>Annual: {row.leaveBreakdown.annual} day(s)</div>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="bg-red-50 dark:bg-red-950/20 border-r border-red-200 dark:border-red-800">
                     <Input

@@ -1,8 +1,9 @@
 import axios from "axios";
+import { format } from "date-fns";
 import { formatLocalDate } from "../src/lib/utils";
 
-// const base_url = "http://localhost:3003/api";
-const base_url = "http://69.62.117.175:3003/api";
+const base_url = "http://localhost:3003/api";
+// const base_url = "http://69.62.117.175:3003/api";
 
 export const userWho = async () => {
   try {
@@ -1097,11 +1098,66 @@ export const deleteSubject = async (subID) => {
 };
 
 // subject-class mappings (SCM)
-export const getSubjectClassMappings = async () => {
+export const getSubjectClassMappings = async (sessionId) => {
   try {
-    const response = await axios.get(`${base_url}/academics/scm/get/all`, {
+    const url = sessionId
+      ? `${base_url}/academics/scm/get/all?sessionId=${sessionId}`
+      : `${base_url}/academics/scm/get/all`;
+    const response = await axios.get(url, {
       withCredentials: true,
     });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getSubjectsForClassWithAssignments = async (classId, sessionId) => {
+  try {
+    const url = sessionId
+      ? `${base_url}/academics/scm/subjects-for-class?classId=${classId}&sessionId=${sessionId}`
+      : `${base_url}/academics/scm/subjects-for-class?classId=${classId}`;
+    const response = await axios.get(url, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const searchAcademicsStaff = async (q) => {
+  try {
+    const response = await axios.get(
+      `${base_url}/academics/staff/search?q=${encodeURIComponent(q || "")}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const bulkAssignTeacherToClassSubjects = async (data) => {
+  try {
+    const response = await axios.post(
+      `${base_url}/academics/tcm/assign-with-subjects`,
+      data,
+      { withCredentials: true }
+    );
     return response.data;
   } catch (error) {
     const message =
@@ -1235,9 +1291,12 @@ export const deleteTeacherSubjectMapping = async (tsmID) => {
 };
 
 // teacherClassMappings
-export const getTeacherClassMappings = async () => {
+export const getTeacherClassMappings = async (sessionId) => {
   try {
-    const response = await axios.get(`${base_url}/academics/tcm/get/all`, {
+    const url = sessionId
+      ? `${base_url}/academics/tcm/get/all?sessionId=${sessionId}`
+      : `${base_url}/academics/tcm/get/all`;
+    const response = await axios.get(url, {
       withCredentials: true,
     });
     return response.data;
@@ -1306,56 +1365,29 @@ export const deleteTeacherClassMappings = async (tcmID) => {
 };
 
 // timetables
-export const getTimetables = async () => {
+export const getTimetables = async (sessionId) => {
   try {
+    const params = sessionId ? `?sessionId=${sessionId}` : "";
     const response = await axios.get(
-      `${base_url}/academics/timetable/get/all`,
+      `${base_url}/academics/timetable/get/all${params}`,
       { withCredentials: true }
     );
     return response.data;
   } catch (error) {
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.message ||
-      "Something went wrong";
-
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const createTimetable = async (data) => {
+export const upsertTimetable = async (data) => {
   try {
     const response = await axios.post(
-      `${base_url}/academics/timetable/create`,
+      `${base_url}/academics/timetable/upsert`,
       data,
       { withCredentials: true }
     );
     return response.data;
   } catch (error) {
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.message ||
-      "Something went wrong";
-
-    throw { message, status: error.response?.status || 500 };
-  }
-};
-export const updateTimetable = async (timetableId, data) => {
-  try {
-    const response = await axios.patch(
-      `${base_url}/academics/timetable/update?timetableId=${timetableId}`,
-      data,
-      { withCredentials: true }
-    );
-    return response.data;
-  } catch (error) {
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.message ||
-      "Something went wrong";
-
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }
 };
@@ -1367,12 +1399,7 @@ export const deleteTimetable = async (timetableId) => {
     );
     return response.data;
   } catch (error) {
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.message ||
-      "Something went wrong";
-
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }
 };
@@ -3603,9 +3630,11 @@ export const getClassCollectionStats = async ({ period }) => {
   }
 };
 
-export const getFeeCollectionSummary = async ({ period }) => {
+export const getFeeCollectionSummary = async ({ period, sessionId }) => {
   try {
-    const response = await axios.get(`${base_url}/fee-management/reports/collection-summary?period=${period}`, {
+    const params = new URLSearchParams({ period });
+    if (sessionId && sessionId !== 'all') params.append('sessionId', sessionId);
+    const response = await axios.get(`${base_url}/fee-management/reports/collection-summary?${params.toString()}`, {
       withCredentials: true,
     });
     return response.data;
@@ -3654,6 +3683,60 @@ export const upsertLeave = async (data) => {
       error.message ||
       'Something went wrong';
 
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteStaffLeave = async (id) => {
+  try {
+    const response = await axios.delete(`${base_url}/hr/staff-leaves/${id}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      'Something went wrong';
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getStaffLeaveBalance = async (staffId) => {
+  try {
+    const response = await axios.get(`${base_url}/hr/staff-leave-balance/${staffId}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      'Something went wrong';
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const toggleLockStaffLeave = async (id, locked) => {
+  try {
+    const response = await axios.patch(`${base_url}/hr/staff-leaves/${id}/lock`, { locked }, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || 'Something went wrong';
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateStaffLeaveStatus = async (id, status) => {
+  try {
+    const response = await axios.patch(`${base_url}/hr/staff-leaves/${id}/status`, { status }, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || 'Something went wrong';
     throw { message, status: error.response?.status || 500 };
   }
 };
@@ -4413,6 +4496,35 @@ export const markDateAsHoliday = async (date, title) => {
       error.response?.data?.error ||
       error.message ||
       "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const undoGenerateAttendance = async (date) => {
+  try {
+    const formatted = format(date, "yyyy-MM-dd");
+    const response = await axios.delete(
+      `${base_url}/hr/staff-attendance?date=${formatted}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message || error.message;
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const undoMarkHoliday = async (id) => {
+  try {
+    const response = await axios.delete(
+      `${base_url}/hr/holidays?id=${id}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message || error.message;
     throw { message, status: error.response?.status || 500 };
   }
 };

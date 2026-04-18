@@ -300,7 +300,7 @@ const DashboardLayout = ({ children }) => {
                   <Button variant="ghost" className="flex items-center gap-2 pl-2 pr-1 h-10 rounded-full hover:bg-muted">
                     <span className="hidden md:flex flex-col items-end mr-1 space-y-1 px-2">
                       <span className="text-sm text-foreground font-semibold leading-none">{currentUser?.name}</span>
-                      <span className="text-xs text-muted-foreground leading-none">{currentUser?.role}</span>
+                      <span className="text-xs text-muted-foreground leading-none">{currentUser?.designation || currentUser?.role}</span>
                     </span>
                     <Avatar className="h-8 w-8 border border-border">
                       <AvatarImage src="" alt={currentUser?.name} />
@@ -313,9 +313,9 @@ const DashboardLayout = ({ children }) => {
                 <DropdownMenuContent className="w-56" align="end" forceMount>
                   <DropdownMenuLabel className="font-normal md:hidden">
                     <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium leading-none">{currentUser?.name || "Admin"}</p>
+                      <p className="text-sm font-medium leading-none">{currentUser?.name}</p>
                       <p className="text-xs leading-none text-muted-foreground">
-                        {currentUser?.email || currentUser?.role}
+                        {currentUser?.email || currentUser?.designation || currentUser?.role}
                       </p>
                     </div>
                   </DropdownMenuLabel>

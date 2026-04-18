@@ -119,10 +119,22 @@ export class AuthController {
     if (!user) {
       throw new HttpException('User not found', HttpStatus.NOT_FOUND);
     }
+    const isStaff = (user as any).isStaff;
+    let designation: string | undefined;
+    if (isStaff) {
+      const staff = user as any;
+      if (staff.isTeaching) {
+        designation = staff.specialization ? `Teacher - ${staff.specialization}` : 'Teacher';
+      } else {
+        designation = staff.designation || 'Staff';
+      }
+    }
+
     return {
       id: user.id,
       name: user.name,
       role: (user as any).role || 'Staff',
+      designation,
       email: user.email,
       permissions: (user as any).permissions || {},
     };

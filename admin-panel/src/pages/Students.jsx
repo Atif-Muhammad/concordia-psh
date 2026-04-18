@@ -692,6 +692,7 @@ const Students = () => {
 
       // Fix 1: Exclude VOID from per-session stats
       const nonVoidChallans = session.challans.filter(c => c.status !== 'VOID');
+      const voidChallans = session.challans.filter(c => c.status === 'VOID');
       const paidChallans = nonVoidChallans.filter(c => c.status === 'PAID');
 
       // Fix 4: Derive stats from feeInstallments when available
@@ -724,18 +725,37 @@ const Students = () => {
         });
       }
 
-      const paidThisSession = nonVoidChallans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
-      // Fix 1: Exclude VOID from remainingDues
+      // Use installment table as single source of truth for paid stats (avoids double-counting
+      // between VOID settledAmount and active challan paidAmount — they represent the same money).
+      // Fallback to challan paidAmount sum if no installments available.
+      let paidThisSession, tuitionPaidThisSession, headsPlusFinesPaid;
+
+      if (matchingInsts.length > 0) {
+        // inst.paidAmount = tuition + late fee paid for that installment
+        // inst.lateFeeAccrued = late fee portion (stored by cron)
+        paidThisSession = matchingInsts.reduce((sum, i) => sum + (i.paidAmount || 0), 0);
+        const lateFeesPaid = matchingInsts.reduce((sum, i) => sum + (i.lateFeeAccrued || 0), 0);
+        tuitionPaidThisSession = Math.max(0, paidThisSession - lateFeesPaid);
+        headsPlusFinesPaid = lateFeesPaid;
+      } else {
+        // Fallback: use active challan paidAmount only (no double-counting with VOID)
+        paidThisSession = nonVoidChallans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
+        const lateFeesPaid = nonVoidChallans.reduce((sum, c) => sum + (c.lateFeeFine || 0), 0);
+        tuitionPaidThisSession = Math.max(0, paidThisSession - lateFeesPaid);
+        headsPlusFinesPaid = lateFeesPaid;
+      }
+      // Remaining dues: only from active non-PAID challans
       const remainingDues = nonVoidChallans
         .filter(c => c.status !== 'PAID')
         .reduce((sum, c) => {
-          const netPayable = (c.amount - (c.discount || 0) + (c.fineAmount || 0));
+          const netPayable = (c.amount || 0) - (c.discount || 0) + (c.fineAmount || 0) + (c.lateFeeFine || 0);
           return sum + Math.max(0, netPayable - (c.paidAmount || 0));
         }, 0);
 
-      // Fix 3: sessionLabel from snapshot
+      // Fix 3: sessionLabel from snapshot — include section if available
+      const sectionName = session.challans[0]?.studentSection?.name || '';
       const sessionLabel = session.class && session.program
-        ? `${session.class.name} - ${session.program.name}`
+        ? [session.program.name, session.class.name, sectionName].filter(Boolean).join(' / ')
         : 'Unclassified';
 
       return {
@@ -744,6 +764,8 @@ const Students = () => {
         stats: {
           sessionFee,
           paidThisSession,
+          tuitionPaidThisSession,
+          headsPlusFinesPaid,
           remainingDues,
           paidInstallments,
           totalInstallments,
@@ -1457,6 +1479,14 @@ const Students = () => {
                                   <CardContent className="pt-6">
                                     <p className="text-sm text-muted-foreground">Paid</p>
                                     <p className="text-xl font-bold text-green-600">PKR {feesData.selectedSessionData.stats.paidThisSession.toLocaleString()}</p>
+                                    <p className="text-[10px] text-muted-foreground mt-1">
+                                      Tuition: PKR {feesData.selectedSessionData.stats.tuitionPaidThisSession.toLocaleString()}
+                                    </p>
+                                    {feesData.selectedSessionData.stats.headsPlusFinesPaid > 0 && (
+                                      <p className="text-[10px] text-muted-foreground">
+                                        Heads/Fine: PKR {feesData.selectedSessionData.stats.headsPlusFinesPaid.toLocaleString()}
+                                      </p>
+                                    )}
                                   </CardContent>
                                 </Card>
                                 <Card>
@@ -1477,14 +1507,6 @@ const Students = () => {
                                    <CardContent className="pt-6">
                                      <p className="text-sm text-muted-foreground">Pending Installments</p>
                                      <p className="text-xl font-bold text-orange-600">{feesData.selectedSessionData.stats.pendingInstallments}</p>
-                                   </CardContent>
-                                 </Card>
-                                 <Card>
-                                   <CardContent className="pt-6">
-                                     <p className="text-sm text-muted-foreground">Late Fee Due</p>
-                                     <p className="text-xl font-bold text-destructive">
-                                       PKR {feesData.selectedSessionData.stats.currentLateFee?.toLocaleString() || 0}
-                                     </p>
                                    </CardContent>
                                  </Card>
                               </div>

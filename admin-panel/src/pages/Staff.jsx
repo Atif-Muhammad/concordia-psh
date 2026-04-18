@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import DashboardLayout from "@/components/DashboardLayout";
+import AttendanceConfirmationDialog from "@/components/AttendanceConfirmationDialog";
 import {
     getAllStaff,
     createStaffAPI,
@@ -37,8 +38,11 @@ import {
     markStaffAttendance,
     generateStaffAttendance,
     markDateAsHoliday,
+    undoGenerateAttendance,
+    undoMarkHoliday,
 } from "../../config/apis";
 import { format } from "date-fns";
+import { isActionDisabled as checkIsActionDisabled } from "@/lib/dateUtils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -244,6 +248,7 @@ export default function Staff() {
     const [activeTab, setActiveTab] = useState("directory");
     const [attendanceDate, setAttendanceDate] = useState(new Date());
     const [attendanceRoleFilter, setAttendanceRoleFilter] = useState("all");
+    const [confirmDialog, setConfirmDialog] = useState(null); // { type: 'generate' | 'holiday', date: Date, holidayId?: number } | null
 
     const photoInputRef = useRef(null);
 
@@ -265,15 +270,30 @@ export default function Staff() {
         }
     });
 
+    const undoGenerateMutation = useMutation({
+        mutationFn: (date) => undoGenerateAttendance(format(date, 'yyyy-MM-dd')),
+        onSuccess: () => {
+            setConfirmDialog(null);
+            refetchAttendance();
+        },
+        onError: (error) => {
+            toast({ title: "Error", description: error.message, variant: "destructive" });
+        },
+    });
+
+    const undoHolidayMutation = useMutation({
+        mutationFn: (id) => undoMarkHoliday(id),
+        onSuccess: () => {
+            setConfirmDialog(null);
+            refetchAttendance();
+        },
+        onError: (error) => {
+            toast({ title: "Error", description: error.message, variant: "destructive" });
+        },
+    });
+
     // Attendance handlers
-    const isHolidayDisabled = useMemo(() => {
-        if (!attendanceDate) return true;
-        const d = new Date(attendanceDate);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (d > today) return true;
-        return false;
-    }, [attendanceDate]);
+    const isActionDisabled = useMemo(() => checkIsActionDisabled(attendanceDate), [attendanceDate]);
 
     const handleGenerateStaffAttendance = async () => {
         if (!attendanceDate) {
@@ -284,6 +304,7 @@ export default function Staff() {
             const response = await generateStaffAttendance(format(attendanceDate, "yyyy-MM-dd"));
             toast({ title: response.message || "Attendance generated successfully" });
             refetchAttendance();
+            setConfirmDialog({ type: 'generate', date: attendanceDate });
         } catch (error) {
             toast({ title: error.message || "Failed to generate attendance", variant: "destructive" });
         }
@@ -295,8 +316,9 @@ export default function Staff() {
             return;
         }
         try {
-            await markDateAsHoliday(format(attendanceDate, "yyyy-MM-dd"), "Holiday");
+            const response = await markDateAsHoliday(format(attendanceDate, "yyyy-MM-dd"), "Holiday");
             toast({ title: "Date marked as holiday successfully" });
+            setConfirmDialog({ type: 'holiday', date: attendanceDate, holidayId: response.id });
         } catch (error) {
             toast({ title: error.message || "Failed to mark date as holiday", variant: "destructive" });
         }
@@ -880,10 +902,10 @@ export default function Staff() {
                                             <SelectItem value="non-teaching">Non-Teaching</SelectItem>
                                         </SelectContent>
                                     </Select>
-                                    <Button onClick={handleGenerateStaffAttendance} disabled={!attendanceDate} variant="outline">
+                                    <Button onClick={handleGenerateStaffAttendance} disabled={isActionDisabled} variant="outline">
                                         Generate Attendance
                                     </Button>
-                                    <Button onClick={handleMarkHoliday} disabled={isHolidayDisabled} variant="outline">
+                                    <Button onClick={handleMarkHoliday} disabled={isActionDisabled} variant="outline">
                                         Mark as Holiday
                                     </Button>
                                 </div>
@@ -988,8 +1010,23 @@ export default function Staff() {
                                 </div>
                             </CardContent>
                         </Card>
+                        <AttendanceConfirmationDialog
+                            open={confirmDialog !== null}
+                            actionType={confirmDialog?.type}
+                            date={confirmDialog?.date}
+                            holidayId={confirmDialog?.holidayId}
+                            onUndo={() => {
+                                if (confirmDialog?.type === 'generate') {
+                                    undoGenerateMutation.mutate(confirmDialog.date);
+                                } else if (confirmDialog?.type === 'holiday') {
+                                    undoHolidayMutation.mutate(confirmDialog.holidayId);
+                                }
+                            }}
+                            onClose={() => setConfirmDialog(null)}
+                            isUndoing={undoGenerateMutation.isPending || undoHolidayMutation.isPending}
+                        />
                     </TabsContent>
-                </Tabs>
+                    </Tabs>
 
                 {/* Add/Edit Dialog */}
                 <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

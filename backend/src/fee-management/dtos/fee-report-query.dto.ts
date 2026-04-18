@@ -20,4 +20,8 @@ export class FeeReportQueryDto {
   @IsString()
   @IsOptional()
   endDate?: string;
+
+  @IsString()
+  @IsOptional()
+  sessionId?: string;
 }

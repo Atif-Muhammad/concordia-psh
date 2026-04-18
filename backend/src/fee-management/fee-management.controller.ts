@@ -87,7 +87,7 @@ export class FeeManagementController {
 
   @Get('reports/collection-summary')
   async getFeeCollectionSummary(@Query() query: FeeReportQueryDto) {
-    return await this.feeService.getFeeCollectionSummary(query.period as any);
+    return await this.feeService.getFeeCollectionSummary(query.period as any, query.sessionId ? Number(query.sessionId) : undefined);
   }
 
   // Fee Challans

@@ -375,7 +375,6 @@ export class HrService {
         headOf: true,
         classSectionMappings: { include: { class: true } },
         subjects: { include: { subject: true } },
-        timetables: true,
         assignments: true,
       },
     });
@@ -407,13 +406,6 @@ export class HrService {
       throw new ForbiddenException(
         `Cannot delete staff "${staff.name}". They teach subject(s): ${subjectNames}. Unassign from subjects first.`,
       );
-    }
-
-    // Cleanup: Delete timetable entries
-    if (staff.timetables.length > 0) {
-      await this.prismService.timetable.deleteMany({
-        where: { teacherId: id },
-      });
     }
 
     // Cleanup: Delete assignments
@@ -691,6 +683,10 @@ export class HrService {
           },
         },
         department: true,
+        leaves: {
+          where: { month, status: 'APPROVED' },
+          select: { leaveType: true, days: true },
+        },
         attendance: {
           where: {
             date: {
@@ -739,7 +735,7 @@ export class HrService {
 
       const absentDeduction =
         payroll?.absentDeduction ?? calculatedAbsentDeduction;
-      const leaveDeduction = calculatedLeaveDeduction; // Always use calculated value for leaves
+      const leaveDeduction = payroll?.leaveDeduction ?? 0; // Stored when leave approved
       const otherDeduction = payroll?.otherDeduction || 0;
       const incomeTax = payroll?.incomeTax || 0;
       const eobi = payroll?.eobi || 0;
@@ -821,6 +817,11 @@ export class HrService {
         excessLeaves,
         advanceSalaryTotal,
         hasAdvanceSalary: advanceSalaryTotal > 0,
+        leaveBreakdown: {
+          casual: (staff as any).leaves?.filter((l: any) => l.leaveType === 'CASUAL').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
+          sick:   (staff as any).leaves?.filter((l: any) => l.leaveType === 'SICK').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
+          annual: (staff as any).leaves?.filter((l: any) => l.leaveType === 'ANNUAL').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
+        },
         paymentDate: payroll?.paymentDate
           ? new Date(payroll.paymentDate).toLocaleDateString()
           : 'N/A',
@@ -979,8 +980,27 @@ export class HrService {
   }
 
   async deleteStaffLeave(id: number) {
+    const existing = await this.prismService.staffLeave.findUnique({
+      where: { id },
+      select: { id: true, locked: true, staffId: true, employeeId: true, teacherId: true, month: true, leaveType: true, status: true } as any,
+    });
+    const existingAny = existing as any;
+    if (existingAny?.locked) throw new Error('This leave record is locked and cannot be deleted.');
     try {
       await this.prismService.staffLeave.delete({ where: { id } });
+      // Recalculate payroll deduction after deletion (only if leave was APPROVED)
+      if (existingAny?.status === 'APPROVED') {
+        const resolvedStaffId = existingAny.staffId || existingAny.employeeId || existingAny.teacherId;
+        if (resolvedStaffId) {
+          // Pass a synthetic leave object — days=0 since it's deleted; aggregate will recount remaining
+          await this.applyLeaveDeductionToPayroll({
+            staffId: resolvedStaffId,
+            month: existingAny.month,
+            leaveType: existingAny.leaveType || 'CASUAL',
+            days: 0,
+          });
+        }
+      }
       return { message: 'StaffLeave deleted successfully' };
     } catch (error: any) {
       if (
@@ -990,6 +1010,193 @@ export class HrService {
         throw new NotFoundException(`StaffLeave with ID ${id} not found`);
       }
       throw error;
+    }
+  }
+
+  async getStaffLeaveBalance(staffId: number) {
+    const staff = await this.prismService.staff.findUnique({
+      where: { id: staffId },
+      include: { leaveSettings: true },
+    });
+    if (!staff) throw new NotFoundException(`Staff ${staffId} not found`);
+
+    const settings = staff.leaveSettings;
+    const year = new Date().getFullYear();
+
+    // Count approved/pending leaves taken this year grouped by type
+    const taken = await this.prismService.staffLeave.groupBy({
+      by: ['leaveType'],
+      where: {
+        staffId,
+        month: { startsWith: `${year}-` },
+        status: { in: ['APPROVED', 'PENDING'] },
+      },
+      _sum: { days: true },
+    });
+
+    const takenMap: Record<string, number> = {};
+    for (const t of taken) {
+      takenMap[t.leaveType] = t._sum.days || 0;
+    }
+
+    return {
+      SICK:   { taken: takenMap['SICK']   || 0, allowed: settings?.sickAllowed   || 0 },
+      ANNUAL: { taken: takenMap['ANNUAL'] || 0, allowed: settings?.annualAllowed || 0 },
+      CASUAL: { taken: takenMap['CASUAL'] || 0, allowed: settings?.casualAllowed || 0 },
+    };
+  }
+
+  async toggleLockStaffLeave(id: number, locked: boolean) {
+    return await (this.prismService.staffLeave as any).update({
+      where: { id },
+      data: { locked },
+    });
+  }
+
+  async updateStaffLeaveStatus(id: number, status: string) {
+    const existing = await this.prismService.staffLeave.findUnique({
+      where: { id },
+      select: { id: true, locked: true } as any,
+    });
+    if ((existing as any)?.locked) throw new Error('This leave record is locked and cannot be edited.');
+    const leave = await this.prismService.staffLeave.update({
+      where: { id },
+      data: { status: status as any },
+    });
+    if (leave.status === 'APPROVED' || leave.status === 'REJECTED') {
+      await this.markStaffLeaveAttendance(leave);
+    }
+    // When approved, calculate and store leave deduction in payroll
+    // Resolve staffId — fall back to employeeId/teacherId for legacy records
+    const resolvedStaffId = leave.staffId || (leave as any).employeeId || (leave as any).teacherId;
+    if (leave.status === 'APPROVED' && resolvedStaffId) {
+      await this.applyLeaveDeductionToPayroll({ ...leave, staffId: resolvedStaffId });
+    }
+    return leave;
+  }
+
+  private async applyLeaveDeductionToPayroll(leave: any) {
+    const staffId = leave.staffId;
+    const month = leave.month;
+    const leaveType: string = leave.leaveType || 'CASUAL';
+    const days: number = leave.days || 0;
+
+    // Fetch staff leave settings
+    const settings = await this.prismService.staffLeaveSettings.findUnique({
+      where: { staffId },
+    });
+    if (!settings) return; // No settings configured — no deduction
+
+    // Determine allowed days and deduction rate for this leave type
+    let allowed = 0;
+    let ratePerDay = 0;
+    if (leaveType === 'SICK') {
+      allowed = settings.sickAllowed;
+      ratePerDay = settings.sickDeduction;
+    } else if (leaveType === 'ANNUAL') {
+      allowed = settings.annualAllowed;
+      ratePerDay = settings.annualDeduction;
+    } else if (leaveType === 'CASUAL') {
+      allowed = settings.casualAllowed;
+      ratePerDay = settings.casualDeduction;
+    } else {
+      return; // MATERNITY, PATERNITY, UNPAID, OTHER — no deduction logic
+    }
+
+    // Count total approved leaves of this type for this staff in this month
+    const totalApproved = await this.prismService.staffLeave.aggregate({
+      where: { staffId, month, leaveType: leaveType as any, status: 'APPROVED' },
+      _sum: { days: true },
+    });
+    const totalDays = totalApproved._sum.days || 0;
+
+    // Excess days = total approved days - allowed (floor at 0)
+    const excessDays = Math.max(0, totalDays - allowed);
+    const deductionAmount = excessDays * ratePerDay;
+
+    // Upsert payroll record for this month — update the relevant deduction field
+    const payroll = await this.prismService.payroll.findFirst({
+      where: { staffId, month },
+    });
+
+    const staff = await this.prismService.staff.findUnique({
+      where: { id: staffId },
+      select: { basicPay: true },
+    });
+    const basicSalary = Number(staff?.basicPay) || 0;
+
+    if (payroll) {
+      // All leave types (casual, sick, annual) go into leaveDeduction
+      // Recalculate total leaveDeduction across ALL types for this month
+      const allLeaveTypes = ['CASUAL', 'SICK', 'ANNUAL'] as const;
+      let totalLeaveDeduction = 0;
+      for (const type of allLeaveTypes) {
+        let typeAllowed = 0;
+        let typeRate = 0;
+        if (type === 'SICK') { typeAllowed = settings.sickAllowed; typeRate = settings.sickDeduction; }
+        else if (type === 'ANNUAL') { typeAllowed = settings.annualAllowed; typeRate = settings.annualDeduction; }
+        else { typeAllowed = settings.casualAllowed; typeRate = settings.casualDeduction; }
+        const typeApproved = await this.prismService.staffLeave.aggregate({
+          where: { staffId, month, leaveType: type as any, status: 'APPROVED' },
+          _sum: { days: true },
+        });
+        const typeDays = typeApproved._sum.days || 0;
+        totalLeaveDeduction += Math.max(0, typeDays - typeAllowed) * typeRate;
+      }
+
+      const updateData: any = { leaveDeduction: totalLeaveDeduction };
+      const updated = { ...payroll, ...updateData };
+      const totalDeductions =
+        (updated.securityDeduction || 0) +
+        (updated.advanceDeduction || 0) +
+        (updated.absentDeduction || 0) +
+        totalLeaveDeduction +
+        (updated.otherDeduction || 0) +
+        (updated.incomeTax || 0) +
+        (updated.eobi || 0) +
+        (updated.lateArrivalDeduction || 0);
+      const totalAllowances =
+        (updated.extraAllowance || 0) +
+        (updated.travelAllowance || 0) +
+        (updated.houseRentAllowance || 0) +
+        (updated.medicalAllowance || 0) +
+        (updated.insuranceAllowance || 0) +
+        (updated.otherAllowance || 0);
+      updateData.totalDeductions = totalDeductions;
+      updateData.totalAllowances = totalAllowances;
+      updateData.netSalary = basicSalary - totalDeductions + totalAllowances;
+      await this.prismService.payroll.update({
+        where: { id: payroll.id },
+        data: updateData,
+      });
+    } else {
+      // Compute total leave deduction across all types
+      const allLeaveTypes = ['CASUAL', 'SICK', 'ANNUAL'] as const;
+      let totalLeaveDeduction = 0;
+      for (const type of allLeaveTypes) {
+        let typeAllowed = 0;
+        let typeRate = 0;
+        if (type === 'SICK') { typeAllowed = settings.sickAllowed; typeRate = settings.sickDeduction; }
+        else if (type === 'ANNUAL') { typeAllowed = settings.annualAllowed; typeRate = settings.annualDeduction; }
+        else { typeAllowed = settings.casualAllowed; typeRate = settings.casualDeduction; }
+        const typeApproved = await this.prismService.staffLeave.aggregate({
+          where: { staffId, month, leaveType: type as any, status: 'APPROVED' },
+          _sum: { days: true },
+        });
+        const typeDays = typeApproved._sum.days || 0;
+        totalLeaveDeduction += Math.max(0, typeDays - typeAllowed) * typeRate;
+      }
+      await this.prismService.payroll.create({
+        data: {
+          staffId,
+          month,
+          basicSalary,
+          leaveDeduction: totalLeaveDeduction,
+          totalDeductions: totalLeaveDeduction,
+          totalAllowances: 0,
+          netSalary: basicSalary - totalLeaveDeduction,
+        },
+      });
     }
   }
 
@@ -1065,12 +1272,23 @@ export class HrService {
           days: leave.days || 0,
           reason: leave.reason || '',
           status: leave.status || 'PENDING',
+          leaveType: leave.leaveType || 'CASUAL',
+          locked: (leave as any).locked || false,
         }));
       })
       .flat();
   }
 
   async upsertLeave(dto: any) {
+    // Block edits on locked leaves
+    if (dto.leaveId) {
+      const existing = await this.prismService.staffLeave.findUnique({
+        where: { id: dto.leaveId },
+        select: { id: true, locked: true } as any,
+      });
+      if ((existing as any)?.locked) throw new Error('This leave record is locked and cannot be edited.');
+    }
+
     const data = {
       month: dto.month,
       startDate: new Date(dto.startDate),
@@ -1078,6 +1296,7 @@ export class HrService {
       days: dto.days || 0,
       reason: dto.reason || '',
       status: dto.status || 'PENDING',
+      leaveType: dto.leaveType || 'CASUAL',
     };
 
     let leave;
@@ -1100,6 +1319,15 @@ export class HrService {
     // Mark attendance if leave is approved or rejected for current/past dates
     if (leave.status === 'APPROVED' || leave.status === 'REJECTED') {
       await this.markStaffLeaveAttendance(leave);
+    }
+
+    // Recalculate payroll deduction on edit if leave is APPROVED
+    // (covers day-count changes, type changes, or status changes via upsert)
+    if (dto.leaveId && leave.status === 'APPROVED') {
+      const resolvedStaffId = leave.staffId || dto.staffId || dto.employeeId || dto.teacherId;
+      if (resolvedStaffId) {
+        await this.applyLeaveDeductionToPayroll({ ...leave, staffId: resolvedStaffId });
+      }
     }
 
     return leave;
@@ -1291,6 +1519,20 @@ export class HrService {
     return await this.prismService.holiday.delete({
       where: { id },
     });
+  }
+
+  async deleteAutoGeneratedAttendance(date: Date) {
+    const formattedDate = date.toISOString().split('T')[0];
+    const targetDate = new Date(formattedDate);
+    const result = await this.prismService.staffAttendance.deleteMany({
+      where: {
+        date: targetDate,
+        autoGenerated: true,
+      },
+    });
+    return {
+      message: `Deleted ${result.count} auto-generated attendance records for ${formattedDate}`,
+    };
   }
 
   // Advance Salary Management

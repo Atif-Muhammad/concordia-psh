@@ -20,8 +20,9 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet } from "../../config/apis";
-import { Loader2 } from "lucide-react";
+import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff } from "../../config/apis";
+import { Loader2, ChevronsUpDown } from "lucide-react";
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { calculateDuration } from "../lib/dateUtils";
 
 const HRPayroll = () => {
@@ -47,6 +48,8 @@ const HRPayroll = () => {
   const [viewEmployee, setViewEmployee] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
   const [advanceRoleFilter, setAdvanceRoleFilter] = useState("all");
+  const [advanceStaffSearch, setAdvanceStaffSearch] = useState("");
+  const [advanceComboOpen, setAdvanceComboOpen] = useState(false);
 
   const handleIDCardPreview = async (employee) => {
     try {
@@ -86,6 +89,36 @@ const HRPayroll = () => {
   const [payrollMonth, setPayrollMonth] = useState(new Date().toISOString().slice(0, 7));
   const [payrollType, setPayrollType] = useState("employee");
   const [payrollData, setPayrollData] = useState([]);
+
+  // All staff for the stats card
+  const { data: allStaffData = [] } = useQuery({
+    queryKey: ["allStaffStats"],
+    queryFn: () => getAllStaff({ status: "ACTIVE" }),
+  });
+
+  const staffStats = (() => {
+    const total = allStaffData.length;
+    const teaching = allStaffData.filter(s => s.isTeaching && !s.isNonTeaching).length;
+    const nonTeaching = allStaffData.filter(s => !s.isTeaching && s.isNonTeaching).length;
+    const dual = allStaffData.filter(s => s.isTeaching && s.isNonTeaching).length;
+    return { total, teaching, nonTeaching, dual };
+  })();
+
+  // Payroll summary for the stats card
+  const { data: payrollSummaryData = [] } = useQuery({
+    queryKey: ["payrollSummary", payrollMonth],
+    queryFn: () => getPayrollSheet(payrollMonth, "all"),
+  });
+
+  const payrollSummary = (() => {
+    const total = payrollSummaryData.reduce((s, p) => s + (p.netSalary || 0), 0);
+    const paid = payrollSummaryData.filter(p => p.status === "PAID").reduce((s, p) => s + (p.netSalary || 0), 0);
+    const unpaid = total - paid;
+    const totalDeductions = payrollSummaryData.reduce((s, p) => s + (p.totalDeductions || 0), 0);
+    const totalAllowances = payrollSummaryData.reduce((s, p) => s + (p.totalAllowances || 0), 0);
+    const totalBasic = payrollSummaryData.reduce((s, p) => s + (p.basicSalary || 0), 0);
+    return { total, paid, unpaid, totalDeductions, totalAllowances, totalBasic };
+  })();
 
   const queryClient = useQueryClient();
 
@@ -582,11 +615,16 @@ const HRPayroll = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total Employees</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Staff</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{employees.filter(e => e.status === "ACTIVE").length}</div>
+              <div className="text-2xl font-bold">{staffStats.total}</div>
+              <div className="text-xs text-muted-foreground mt-0.5 space-x-2">
+                {staffStats.teaching > 0 && <span>{staffStats.teaching} teaching</span>}
+                {staffStats.nonTeaching > 0 && <span>{staffStats.nonTeaching} non-teaching</span>}
+                {staffStats.dual > 0 && <span>{staffStats.dual} dual</span>}
+              </div>
             </CardContent>
           </Card>
           <Card>
@@ -604,18 +642,55 @@ const HRPayroll = () => {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">PKR {employees.reduce((sum, e) => sum + (e.status === "ACTIVE" ? Number(e.basicPay) : 0), 0)}</div>
+              <div className="flex items-start gap-1.5">
+                <div>
+                  <div className="text-2xl font-bold">PKR {Math.round(payrollSummary.total).toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{format(new Date(payrollMonth + "-01"), "MMMM yyyy")}</div>
+                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="mt-1 cursor-help text-muted-foreground hover:text-foreground transition-colors">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs min-w-[200px] space-y-1.5 p-3">
+                    <div className="font-semibold text-foreground mb-1 border-b pb-1">Payroll Breakdown</div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Basic</span>
+                      <span>PKR {Math.round(payrollSummary.totalBasic).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-green-400">+ Allowances</span>
+                      <span>PKR {Math.round(payrollSummary.totalAllowances).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-red-400">− Deductions</span>
+                      <span>PKR {Math.round(payrollSummary.totalDeductions).toLocaleString()}</span>
+                    </div>
+                    <div className="border-t pt-1 mt-1 space-y-1">
+                      <div className="flex justify-between gap-4">
+                        <span className="text-green-400">Paid</span>
+                        <span className="font-medium">PKR {Math.round(payrollSummary.paid).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-amber-400">Unpaid</span>
+                        <span className="font-medium">PKR {Math.round(payrollSummary.unpaid).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             </CardContent>
           </Card>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 h-auto gap-1">
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 lg:grid-cols-4 h-auto gap-1">
             <TabsTrigger value="leaves">Leaves</TabsTrigger>
             <TabsTrigger value="payroll">Payroll</TabsTrigger>
             <TabsTrigger value="advance">Advance Salary</TabsTrigger>
             <TabsTrigger value="departments">Departments</TabsTrigger>
-            <TabsTrigger value="holidays">Holidays</TabsTrigger>
+            {/* <TabsTrigger value="holidays">Holidays</TabsTrigger> */}
           </TabsList>
 
           <TabsContent value="leaves" className="space-y-4">
@@ -636,12 +711,6 @@ const HRPayroll = () => {
               <CardHeader>
                 <div className="flex justify-between items-center">
                   <CardTitle>Payroll Management</CardTitle>
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setSettingsOpen(true)}>
-                      <Settings className="mr-2 h-4 w-4" />
-                      Settings
-                    </Button>
-                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -976,6 +1045,8 @@ const HRPayroll = () => {
         setAdvanceOpen(val);
         if (!val) {
           setEditingAdvance(null);
+          setAdvanceStaffSearch("");
+          setAdvanceComboOpen(false);
           setAdvanceFormData({
             staffId: "",
             month: new Date().toISOString().slice(0, 7),
@@ -992,29 +1063,59 @@ const HRPayroll = () => {
           <div className="space-y-4 pt-4">
             <div>
               <Label className="mb-2 block">Select Staff Member *</Label>
-              <Select
-                value={advanceFormData.staffId}
-                onValueChange={value => setAdvanceFormData({
-                  ...advanceFormData,
-                  staffId: value
-                })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select staff member" />
-                </SelectTrigger>
-                <SelectContent>
-                  {[
-                    ...(employees || []).map(e => ({ ...e, isTeaching: false })),
-                    ...(teachers || []).map(t => ({ ...t, isTeaching: true }))
-                  ]
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map(staff => (
-                      <SelectItem key={staff.id} value={staff.id.toString()}>
-                        {staff.name} - {staff.isTeaching ? (staff.specialization || "Teacher") : (staff.designation || "Staff")}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+              <Popover open={advanceComboOpen} onOpenChange={setAdvanceComboOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <span className={advanceFormData.staffId ? "" : "text-muted-foreground"}>
+                      {advanceFormData.staffId
+                        ? (() => {
+                            const allStaff = [
+                              ...(employees || []).map(e => ({ id: e.id, name: e.name, isTeaching: false, specialization: null, designation: e.designation })),
+                              ...(teachers || []).map(t => ({ id: t.id, name: t.name, isTeaching: true, specialization: t.specialization, designation: null }))
+                            ];
+                            const found = allStaff.find(s => s.id.toString() === advanceFormData.staffId);
+                            return found ? `${found.name} — ${found.isTeaching ? (found.specialization || "Teacher") : (found.designation || "Staff")}` : "Select staff member";
+                          })()
+                        : "Select staff member"}
+                    </span>
+                    <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Search staff..."
+                      value={advanceStaffSearch}
+                      onValueChange={setAdvanceStaffSearch}
+                    />
+                    <CommandEmpty>No staff found</CommandEmpty>
+                    <CommandList>
+                      {[
+                        ...(employees || []).map(e => ({ id: e.id, name: e.name, isTeaching: false, specialization: null, designation: e.designation })),
+                        ...(teachers || []).map(t => ({ id: t.id, name: t.name, isTeaching: true, specialization: t.specialization, designation: null }))
+                      ]
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .filter(s => s.name.toLowerCase().includes(advanceStaffSearch.toLowerCase()))
+                        .map(staff => (
+                          <CommandItem
+                            key={staff.id}
+                            value={staff.id.toString()}
+                            onSelect={() => {
+                              setAdvanceFormData({ ...advanceFormData, staffId: staff.id.toString() });
+                              setAdvanceStaffSearch("");
+                              setAdvanceComboOpen(false);
+                            }}
+                          >
+                            {staff.name} — {staff.isTeaching ? (staff.specialization || "Teacher") : (staff.designation || "Staff")}
+                          </CommandItem>
+                        ))}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div>
               <Label className="mb-2 block">Month *</Label>

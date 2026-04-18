@@ -100,7 +100,7 @@ model Class {
   programId Int
   program   Program @relation("ProgramClasses", fields: [programId], references: [id])
 
-  timetable Timetable[] @relation("ClassTimetable")
+  timetable ClassTimetable[] @relation("ClassTimetable")
 
   sections               Section[]                    @relation("ClassSections")
   subjectMappings        SubjectClassMapping[]         @relation("ClassSubjectMappings")
@@ -132,7 +132,7 @@ model Section {
   class   Class @relation("ClassSections", fields: [classId], references: [id])
 
   students        Student[]                    @relation("SectionStudents")
-  timetables      Timetable[]                  @relation("SectionTimetables")
+  timetables      ClassTimetable[]             @relation("SectionTimetables")
   assignments     Assignment[]                 @relation("SectionAssignments")
   teacherMappings TeacherClassSectionMapping[] @relation("SectionTeacherMappings")
   attendance      Attendance[]
@@ -153,11 +153,14 @@ model AcademicSession {
   endDate   DateTime
   isActive  Boolean  @default(false)
   
-  exams           Exam[]                  @relation("SessionExams")
-  challans        FeeChallan[]            @relation("SessionChallans")
-  installments    StudentFeeInstallment[] @relation("SessionInstallments")
+  exams           Exam[]                       @relation("SessionExams")
+  challans        FeeChallan[]                 @relation("SessionChallans")
+  installments    StudentFeeInstallment[]      @relation("SessionInstallments")
   academicRecords StudentAcademicRecord[]
-  inquiries       Inquiry[]               @relation("InquirySession")
+  inquiries       Inquiry[]                    @relation("InquirySession")
+  subjectMappings SubjectClassMapping[]        @relation("SessionSubjectMappings")
+  teacherMappings TeacherClassSectionMapping[] @relation("SessionTeacherMappings")
+  timetables      ClassTimetable[]             @relation("SessionTimetables")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -216,7 +219,6 @@ model Staff {
 
   subjects             TeacherSubjectMapping[]      @relation("TeacherSubjectMappings")
   classSectionMappings TeacherClassSectionMapping[] @relation("TeacherClassSectionMappings")
-  timetables           Timetable[]                  @relation("TeacherTimetables")
   assignments          Assignment[]                 @relation("TeacherAssignments")
   classAttendance      Attendance[]
   attendance           StaffAttendance[]
@@ -266,7 +268,6 @@ model Subject {
   id   Int    @id @default(autoincrement())
   name String @db.VarChar(100)
 
-  timetables    Timetable[]             @relation("SubjectTimetables")
   teachers      TeacherSubjectMapping[] @relation("SubjectTeacherMappings")
   assignments   Assignment[]            @relation("SubjectAssignments")
   attendance    Attendance[]
@@ -283,17 +284,19 @@ model SubjectClassMapping {
   id          Int     @id @default(autoincrement())
   subjectId   Int
   classId     Int
+  sessionId   Int?
   creditHours Int?
   code        String? @db.VarChar(20)
   description String? @db.VarChar(255)
 
-  subject Subject @relation("SubjectMappings", fields: [subjectId], references: [id], onDelete: Cascade)
-  class   Class   @relation("ClassSubjectMappings", fields: [classId], references: [id], onDelete: Cascade)
+  subject Subject         @relation("SubjectMappings", fields: [subjectId], references: [id], onDelete: Cascade)
+  class   Class           @relation("ClassSubjectMappings", fields: [classId], references: [id], onDelete: Cascade)
+  session AcademicSession? @relation("SessionSubjectMappings", fields: [sessionId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([subjectId, classId])
+  @@unique([subjectId, classId, sessionId])
   @@map("subjectclassmapping")
 }
 
@@ -441,38 +444,37 @@ model TeacherClassSectionMapping {
   classId   Int
   sectionId Int? // NULL = “all sections of the class”
 
-  teacher   Staff  @relation("TeacherClassSectionMappings", fields: [teacherId], references: [id])
-  class     Class    @relation("ClassTeacherSectionMappings", fields: [classId], references: [id])
-  section   Section? @relation("SectionTeacherMappings", fields: [sectionId], references: [id])
+  sessionId Int?
+
+  teacher   Staff            @relation("TeacherClassSectionMappings", fields: [teacherId], references: [id])
+  class     Class            @relation("ClassTeacherSectionMappings", fields: [classId], references: [id])
+  section   Section?         @relation("SectionTeacherMappings", fields: [sectionId], references: [id])
+  session   AcademicSession? @relation("SessionTeacherMappings", fields: [sessionId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([teacherId, classId, sectionId])
+  @@unique([teacherId, classId, sectionId, sessionId], map: "tcsm_teacherId_classId_sectionId_sessionId_key")
   @@index([classId, sectionId])
   @@map("teacherclasssectionmapping")
 }
 
-model Timetable {
+model ClassTimetable {
   id        Int     @id @default(autoincrement())
-  teacherId Int
-  subjectId Int
-  sectionId Int?
   classId   Int
-  dayOfWeek String  @db.VarChar(10)
-  startTime String  @db.VarChar(5)
-  endTime   String  @db.VarChar(5)
-  room      String? @db.VarChar(50)
+  sectionId Int?
+  sessionId Int?
+  // JSON array of slots: [{ dayOfWeek, startTime, endTime, subjectId }]
+  slots     Json    @default("[]")
 
-  teacher Staff  @relation("TeacherTimetables", fields: [teacherId], references: [id])
-  subject Subject  @relation("SubjectTimetables", fields: [subjectId], references: [id])
-  section Section? @relation("SectionTimetables", fields: [sectionId], references: [id])
-  class   Class    @relation("ClassTimetable", fields: [classId], references: [id])
+  class   Class    @relation("ClassTimetable", fields: [classId], references: [id], onDelete: Cascade)
+  section Section? @relation("SectionTimetables", fields: [sectionId], references: [id], onDelete: SetNull)
+  session AcademicSession? @relation("SessionTimetables", fields: [sessionId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([sectionId, classId, dayOfWeek, startTime])
-  @@map("timetable")
+  @@unique([classId, sectionId, sessionId])
+  @@map("classtimetable")
 }
 
 model Assignment {
@@ -642,6 +644,7 @@ model Inquiry{
   prospectusReceipt  String?       @db.VarChar(100)
   followUpDate       DateTime?
   followUpSlab       String?       @db.VarChar(100)
+  referenceBody      String?       @db.VarChar(255)
   
   program Program? @relation(fields: [programInterest], references: [id])
   session AcademicSession? @relation("InquirySession", fields: [sessionId], references: [id])
@@ -1216,7 +1219,8 @@ model Payroll {
   securityDeduction Float @default(0)
   advanceDeduction  Float @default(0)
   absentDeduction   Float @default(0)
-  leaveDeduction    Float @default(0)
+  leaveDeduction    Float @default(0)  // casual + annual leave deduction
+  sickLeaveDeduction Float @default(0) // sick leave deduction
   incomeTax         Float @default(0)
   eobi              Float @default(0)
   lateArrivalDeduction Float @default(0)
@@ -1285,6 +1289,7 @@ model StaffLeave {
   reason          String    @db.Text
   
   status          StaffLeaveStatus @default(PENDING)
+  locked          Boolean          @default(false)
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
