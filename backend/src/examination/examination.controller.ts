@@ -34,8 +34,8 @@ export class ExaminationController {
 
   @UseGuards(JwtAccGuard)
   @Get()
-  findAll(@Req() req: any) {
-    return this.examinationService.findAll(req.user);
+  findAll(@Req() req: any, @Query('sessionId') sessionId?: string) {
+    return this.examinationService.findAll(req.user, sessionId ? +sessionId : undefined);
   }
 
   @UseGuards(JwtAccGuard)
@@ -70,14 +70,16 @@ export class ExaminationController {
   @UseGuards(JwtAccGuard)
   @Get('marks')
   findAllMarks(
+    @Req() req: any,
     @Query('examId') examId: string,
     @Query('sectionId') sectionId: string,
-    @Req() req: any,
+    @Query('sessionId') sessionId?: string,
   ) {
     return this.examinationService.findAllMarks(
       examId ? +examId : undefined,
       sectionId ? +sectionId : undefined,
       req.user,
+      sessionId ? +sessionId : undefined,
     );
   }
 
@@ -104,8 +106,8 @@ export class ExaminationController {
 
   @UseGuards(JwtAccGuard)
   @Get('result/all')
-  findAllResults(@Req() req: any) {
-    return this.examinationService.findAllResults(req.user);
+  findAllResults(@Req() req: any, @Query('sessionId') sessionId?: string) {
+    return this.examinationService.findAllResults(req.user, sessionId ? +sessionId : undefined);
   }
 
   @Post('result/generate')

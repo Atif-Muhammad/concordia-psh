@@ -1,4 +1,4 @@
-import { IsString, IsDateString, IsOptional } from 'class-validator';
+import { IsString, IsDateString, IsOptional, IsNumber, MaxLength, Min } from 'class-validator';
 
 export class UpdateRegistrationDto {
   @IsOptional()
@@ -31,4 +31,23 @@ export class UpdateRegistrationDto {
   @IsOptional()
   @IsString()
   externalGuardianNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(15)
+  guardianCnic?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(15)
+  studentCnic?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  decidedFeePerMonth?: number;
 }

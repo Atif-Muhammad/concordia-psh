@@ -570,20 +570,36 @@ export class FeeManagementService {
           select: {
             id: true, status: true, amount: true, fineAmount: true,
             lateFeeFine: true, dueDate: true, paidAmount: true, discount: true,
-            settledAmount: true,
+            settledAmount: true, selectedHeads: true,
             installmentNumber: true, month: true, session: true, challanNumber: true,
             previousChallans: {
               select: {
                 id: true, status: true, amount: true, fineAmount: true,
                 lateFeeFine: true, dueDate: true, paidAmount: true, discount: true,
-                settledAmount: true,
+                settledAmount: true, selectedHeads: true,
                 installmentNumber: true, month: true, session: true, challanNumber: true,
                 previousChallans: {
                   select: {
                     id: true, status: true, amount: true, fineAmount: true,
                     lateFeeFine: true, dueDate: true, paidAmount: true, discount: true,
-                    settledAmount: true,
+                    settledAmount: true, selectedHeads: true,
                     installmentNumber: true, month: true, session: true, challanNumber: true,
+                    previousChallans: {
+                      select: {
+                        id: true, status: true, amount: true, fineAmount: true,
+                        lateFeeFine: true, dueDate: true, paidAmount: true, discount: true,
+                        settledAmount: true, selectedHeads: true,
+                        installmentNumber: true, month: true, session: true, challanNumber: true,
+                        previousChallans: {
+                          select: {
+                            id: true, status: true, amount: true, fineAmount: true,
+                            lateFeeFine: true, dueDate: true, paidAmount: true, discount: true,
+                            settledAmount: true, selectedHeads: true,
+                            installmentNumber: true, month: true, session: true, challanNumber: true,
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -1226,14 +1242,38 @@ export class FeeManagementService {
         // A leaf is a challan that has no non-VOID successors in the arrears chain
         const leafChallans = studentMonthlyChallans.filter(c => c.nextChallans.length === 0);
         prevChallanLinks = leafChallans.map(c => ({ id: c.id }));
-        
+
+        // FALLBACK: When all previous challans are VOID (no active leaves), find the VOID chain tip.
+        // The "tip" is the most recent VOID challan that hasn't been superseded by any other challan yet.
+        // This handles the case where ALL previous challans are VOID (entire chain superseded).
+        if (prevChallanLinks.length === 0) {
+          const voidTipChallan = await this.prisma.feeChallan.findFirst({
+            where: {
+              studentId: student.id,
+              status: 'VOID',
+              challanType: { in: ['INSTALLMENT', 'MIXED', 'ARREARS_ONLY'] },
+              supersededById: null, // not yet superseded — this is the tip of the VOID chain
+            },
+            orderBy: { dueDate: 'desc' },
+          });
+          if (voidTipChallan) {
+            prevChallanLinks = [{ id: voidTipChallan.id }];
+          }
+        }
+
         // Sum the current total debt from these leaves for the snapshot
-        for (const leaf of leafChallans) {
+        for (const link of prevChallanLinks) {
+          const leaf = await this.prisma.feeChallan.findUnique({
+            where: { id: link.id },
+            select: { id: true, status: true, amount: true, fineAmount: true, selectedHeads: true, lateFeeFine: true, dueDate: true, paidAmount: true, discount: true }
+          });
+          if (!leaf) continue;
           // For all non-PAID leaves, compute dynamic late fee from dueDate
           const leafDynamicLateFee = (leaf.status !== 'PAID' && leaf.dueDate && genGlobalLateFee > 0)
             ? this.calculateLateFee(leaf.dueDate, genGlobalLateFee)
             : (leaf.lateFeeFine || 0);
-          const leafRem = Math.max(0, (leaf.amount || 0) + (leaf.fineAmount || 0) + leafDynamicLateFee - (leaf.paidAmount || 0) - (leaf.discount || 0));
+          const leafHeadsTotal = this.getSelectedHeadsTotal(leaf);
+          const leafRem = Math.max(0, (leaf.amount || 0) + leafHeadsTotal + leafDynamicLateFee - (leaf.paidAmount || 0) - (leaf.discount || 0));
           calculatedArrearsTotal += leafRem + (await this.getRecursiveArrearsIterative([leaf.id], this.prisma, genGlobalLateFee));
         }
 
@@ -1726,19 +1766,19 @@ export class FeeManagementService {
 
       const data: any = { ...payload };
 
-      // Handle selectedHeads update for VOID challans - recalculate amount and track delta
+      // Handle selectedHeads update for VOID challans - recalculate fineAmount and track delta
       if (challan.status === 'VOID' && payload.selectedHeads) {
-        const heads = Array.isArray(payload.selectedHeads) ? payload.selectedHeads : JSON.parse(payload.selectedHeads);
-        const newAmount = heads.reduce((sum, h) => sum + (h.amount || 0), 0);
-        const deltaAmount = newAmount - (challan.amount || 0);
-        
-        // Update the challan's amount fields
-        data.amount = newAmount;
-        data.totalAmount = newAmount + (challan.fineAmount || 0) + (challan.lateFeeFine || 0);
+        const heads = Array.isArray(payload.selectedHeads) ? payload.selectedHeads : JSON.parse(payload.selectedHeads as any);
+        // selectedHeads are additional fee heads — sum them into fineAmount, NOT into amount (tuition)
+        const newHeadsTotal = heads
+          .filter((h: any) => h?.isSelected !== false && h?.type === 'additional')
+          .reduce((sum: number, h: any) => sum + (h.amount || 0), 0);
+
+        // Update fineAmount to reflect new heads total; amount (tuition) is preserved
+        data.fineAmount = newHeadsTotal;
+        data.totalAmount = (challan.amount || 0) + newHeadsTotal + (challan.lateFeeFine || 0);
         data.remainingAmount = Math.max(0, data.totalAmount - (challan.paidAmount || 0) - (challan.discount || 0));
-        
-        // Store delta for propagation (will be used later in step 9)
-        (data as any)._deltaAmount = deltaAmount;
+        // _deltaAmount is NOT set here — deltaFine in step 9 will capture the heads change correctly
       }
 
       // lateFeeFine stamping strategy:
@@ -1888,14 +1928,15 @@ export class FeeManagementService {
             where: { id: challanId },
             select: {
               supersedes: {
-                select: { id: true, amount: true, fineAmount: true, lateFeeFine: true, discount: true, settledAmount: true }
+                select: { id: true, amount: true, fineAmount: true, selectedHeads: true, lateFeeFine: true, discount: true, settledAmount: true }
               }
             }
           });
           if (!ch) return 0;
           let total = 0;
           for (const pred of (ch.supersedes || [])) {
-            const due = (pred.amount || 0) + (pred.fineAmount || 0) + (pred.lateFeeFine || 0) - (pred.discount || 0);
+            const predHeads = this.getSelectedHeadsTotal(pred);
+            const due = (pred.amount || 0) + predHeads + (pred.lateFeeFine || 0) - (pred.discount || 0);
             const settled = pred.settledAmount || 0;
             total += Math.max(0, due - settled);
             total += await collectVoidDue(pred.id);
@@ -2305,8 +2346,10 @@ export class FeeManagementService {
         // Clean up temporary delta field
         delete (data as any)._deltaAmount;
 
-        if (deltaTuition !== 0 || deltaFine !== 0 || deltaLateFee !== 0 || deltaPaid !== 0) {
-          await this.propagateAmountChanges(challan.id, deltaTuition, deltaFine, deltaLateFee, deltaPaid, prisma);
+        if (deltaTuition !== 0 || deltaLateFee !== 0 || deltaPaid !== 0) {
+          // Only propagate tuition, lateFee, and paid changes — fine/heads changes are reflected
+          // dynamically via getRecursiveArrearsIterative and don't need stored field propagation
+          await this.propagateAmountChanges(challan.id, deltaTuition, 0, deltaLateFee, deltaPaid, prisma);
         }
       }
 
@@ -3274,6 +3317,18 @@ export class FeeManagementService {
     }
   }
 
+  private getSelectedHeadsTotal(challan: any): number {
+    try {
+      const raw = typeof challan?.selectedHeads === 'string'
+        ? JSON.parse(challan.selectedHeads)
+        : (challan?.selectedHeads || []);
+      if (!Array.isArray(raw)) return 0;
+      return raw
+        .filter((h: any) => typeof h === 'object' && h !== null && h.isSelected !== false && h.type === 'additional')
+        .reduce((sum: number, h: any) => sum + (h.amount || 0), 0);
+    } catch { return 0; }
+  }
+
   private injectLateFeeRecursive(challans: any[], _globalLateFee: number): any[] {
     // lateFeeFine is now stamped at generation/update time and kept in sync by the cron job.
     // No dynamic recalculation needed — just pass through stored values.
@@ -3324,14 +3379,14 @@ export class FeeManagementService {
         include: { 
           previousChallans: { 
             select: { 
-              id: true, status: true, amount: true, fineAmount: true, lateFeeFine: true, 
+              id: true, status: true, amount: true, fineAmount: true, selectedHeads: true, lateFeeFine: true, 
               dueDate: true, paidAmount: true, discount: true, settledAmount: true
             } 
           },
           // Also traverse VOID chain (supersedes relation)
           supersedes: {
             select: {
-              id: true, status: true, amount: true, fineAmount: true, lateFeeFine: true,
+              id: true, status: true, amount: true, fineAmount: true, selectedHeads: true, lateFeeFine: true,
               dueDate: true, paidAmount: true, discount: true, settledAmount: true
             }
           }
@@ -3360,9 +3415,12 @@ export class FeeManagementService {
           // PAID ancestors: their entire chain is settled — stop recursion here
           if (prev.status === 'PAID') continue;
 
+          // Use selectedHeads JSON for additional heads total (fineAmount is 0 for installment challans)
+          const prevHeadsTotal = this.getSelectedHeadsTotal(prev);
+
           if (prev.status === 'VOID') {
             // VOID challans: add full totalDue as arrears (paidAmount on superseding challan covers the settled portion)
-            const totalDue = (prev.amount || 0) + (prev.fineAmount || 0) + (prev.lateFeeFine || 0) - (prev.discount || 0);
+            const totalDue = (prev.amount || 0) + prevHeadsTotal + (prev.lateFeeFine || 0) - (prev.discount || 0);
             total += totalDue;
             nextLevelIds.push(prev.id);
             continue;
@@ -3371,10 +3429,10 @@ export class FeeManagementService {
           // Use stored lateFeeFine (stamped at generation, cron-maintained) — no dynamic recalculation
           const effectiveLateFee = prev.lateFeeFine || 0;
 
-          // Current balance of this ancestor (Tuition + Heads(fineAmount) + LateFee - Paid - Discount)
+          // Current balance of this ancestor (Tuition + Heads + LateFee - Paid - Discount)
           const rem = Math.max(0, 
             (prev.amount || 0) + 
-            (prev.fineAmount || 0) + 
+            prevHeadsTotal + 
             effectiveLateFee - 
             (prev.paidAmount || 0) - 
             (prev.discount || 0)

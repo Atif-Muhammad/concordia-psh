@@ -54,6 +54,7 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tansta
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState, useMemo } from "react";
+import { useLocation } from "react-router-dom";
 import {
   getStudents,
   createStudent,
@@ -79,7 +80,11 @@ import {
   getAcademicSessions,
   getHostelRegistrationByStudent,
   getHostelRoomByStudent,
+  getHostelFeePayments,
+  getHostelRegistrations,
+  getHostelChallansByRegistration,
 } from "../../config/apis";
+import { computeOutstandingBalance } from "@/lib/hostelUtils";
 import StudentForm from "@/components/students/StudentForm";
 import {
   UserPlus,
@@ -195,6 +200,29 @@ const Students = () => {
   const [showFeeConfig, setShowFeeConfig] = useState(true);
   const [pageSize, setPageSize] = useState(20);
   const searchTimeoutRef = useRef(null);
+  const location = useLocation();
+
+  // Auto-open student profile when navigated from another page (e.g. Hostel) with openStudentId state
+  useEffect(() => {
+    if (location.state?.openStudentId) {
+      const targetId = location.state.openStudentId;
+      // Find the student in already-loaded data first
+      const found = studentsData.find(s => s.id === targetId);
+      if (found) {
+        setViewStudent(found);
+        setViewOpen(true);
+      } else {
+        // Student may not be in current page — fetch directly
+        import("../../config/apis").then(({ getStudentById }) => {
+          getStudentById(targetId).then(student => {
+            if (student) { setViewStudent(student); setViewOpen(true); }
+          }).catch(() => {});
+        });
+      }
+      // Clear the state so re-renders don't re-open
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state?.openStudentId]);
 
 
   // ──────────────────────────────────────────────────────────────
@@ -444,10 +472,38 @@ const Students = () => {
     enabled: !!viewStudent?.id,
   });
 
+  // Fetch all hostel registrations once — used to show indicator dots in the student table
+  const { data: allHostelRegistrations = [] } = useQuery({
+    queryKey: ["hostelRegistrations"],
+    queryFn: getHostelRegistrations,
+    staleTime: 5 * 60 * 1000, // 5 min — hostel data doesn't change often
+  });
+
+  // Set of student IDs who are active hostel residents — O(1) lookup per row
+  const hostelStudentIds = useMemo(() => {
+    return new Set(
+      allHostelRegistrations
+        .filter(r => r.studentId && r.status === "active")
+        .map(r => r.studentId)
+    );
+  }, [allHostelRegistrations]);
+
   const { data: studentHostelRoom, isLoading: hostelRoomLoading } = useQuery({
     queryKey: ["studentHostelRoom", viewStudent?.id],
     queryFn: () => getHostelRoomByStudent(viewStudent.id),
     enabled: !!viewStudent?.id,
+  });
+
+  const { data: hostelFeePayments = [], isLoading: hostelFeePaymentsLoading } = useQuery({
+    queryKey: ["hostelFeePayments", studentHostelReg?.id],
+    queryFn: () => getHostelFeePayments(studentHostelReg.id),
+    enabled: !!studentHostelReg?.id,
+  });
+
+  const { data: studentHostelChallans = [] } = useQuery({
+    queryKey: ["studentHostelChallans", studentHostelReg?.id],
+    queryFn: () => getHostelChallansByRegistration(studentHostelReg.id),
+    enabled: !!studentHostelReg?.id,
   });
 
 
@@ -1088,8 +1144,24 @@ const Students = () => {
                             <AvatarFallback>{student.fName}</AvatarFallback>
                           </Avatar>
                         </TableCell>
-                        <TableCell className="font-medium">{student.rollNumber}</TableCell>
-                        <TableCell>{student.fName} {student.lName}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-1.5">
+                            {student.rollNumber}
+                            {hostelStudentIds.has(student.id) && (
+                              <span title="Hostel Resident" className="inline-block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            {student.fName} {student.lName}
+                            {hostelStudentIds.has(student.id) && (
+                              <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded px-1 py-0.5 leading-none">
+                                Hostel
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           {student.createdAt ? format(new Date(student.createdAt), "dd MMM yyyy") : "-"}
                         </TableCell>
@@ -2153,6 +2225,9 @@ const Students = () => {
                     </div>
                   ) : (
                     <div className="space-y-4">
+                      {studentHostelReg.status === "active" && (
+                        <Badge className="text-sm px-3 py-1">Hostel Resident</Badge>
+                      )}
                       <Card>
                         <CardHeader>
                           <CardTitle className="text-lg flex items-center gap-2">
@@ -2165,6 +2240,8 @@ const Students = () => {
                           <div><span className="font-semibold">Status:</span> <Badge variant={studentHostelReg.status === "active" ? "default" : "secondary"}>{studentHostelReg.status}</Badge></div>
                           <div><span className="font-semibold">Registration Date:</span> {studentHostelReg.registrationDate ? new Date(studentHostelReg.registrationDate).toLocaleDateString() : "-"}</div>
                           <div><span className="font-semibold">Registration ID:</span> <span className="text-xs text-muted-foreground font-mono">{studentHostelReg.id}</span></div>
+                          <div><span className="font-semibold">Room Number:</span> {studentHostelRoom?.room?.roomNumber ?? "-"}</div>
+                          <div><span className="font-semibold">Decided Fee/Month:</span> {studentHostelReg.decidedFeePerMonth != null ? `PKR ${studentHostelReg.decidedFeePerMonth}` : "-"}</div>
                         </CardContent>
                       </Card>
                       {studentHostelRoom && (
@@ -2184,6 +2261,49 @@ const Students = () => {
                           </CardContent>
                         </Card>
                       )}
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            <Receipt className="w-5 h-5 text-primary" />
+                            Fee Challans
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {studentHostelChallans.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No fee challans generated yet.</p>
+                          ) : (
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Challan No</TableHead>
+                                  <TableHead>Month</TableHead>
+                                  <TableHead>Total</TableHead>
+                                  <TableHead>Paid</TableHead>
+                                  <TableHead>Status</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {studentHostelChallans.map((c) => {
+                                  const total = (c.hostelFee||0) + (c.fineAmount||0) + (c.lateFeeFine||0) + (c.arrearsAmount||0) - (c.discount||0);
+                                  return (
+                                    <TableRow key={c.id} className={c.status === 'VOID' ? 'opacity-50' : ''}>
+                                      <TableCell className="font-medium text-xs">{c.challanNumber}</TableCell>
+                                      <TableCell>{c.month}</TableCell>
+                                      <TableCell>PKR {total.toLocaleString()}</TableCell>
+                                      <TableCell className="text-green-600">PKR {(c.paidAmount||0).toLocaleString()}</TableCell>
+                                      <TableCell>
+                                        <Badge variant={c.status === 'PAID' ? 'default' : c.status === 'VOID' ? 'outline' : c.status === 'PARTIAL' ? 'warning' : 'secondary'}>
+                                          {c.status === 'VOID' ? 'Superseded' : c.status}
+                                        </Badge>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          )}
+                        </CardContent>
+                      </Card>
                     </div>
                   )}
                 </TabsContent>

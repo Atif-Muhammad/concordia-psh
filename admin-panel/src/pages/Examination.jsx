@@ -73,14 +73,16 @@ import {
   getResults,
   getStudents,
   bulkCreateMarks,
-  getSubjects, // ← Add this in your apis.js
+  getSubjects,
+  getSubjectClassMappings,
   generateResults,
   getPositions,
   generatePositions,
   delPosition,
   getStudentResult,
   getDefaultReportCardTemplate,
-  getTeacherClasses
+  getTeacherClasses,
+  getAcademicSessions
 } from "../../config/apis";
 
 const Examination = () => {
@@ -104,6 +106,7 @@ const Examination = () => {
     program: "",
     classId: "",
     session: "",
+    sessionId: "",
     startDate: "",
     endDate: "",
     type: "",
@@ -118,6 +121,9 @@ const Examination = () => {
   const [marksFilterClass, setMarksFilterClass] = useState("");
   const [marksFilterExam, setMarksFilterExam] = useState("");
   const [marksFilterSection, setMarksFilterSection] = useState("");
+  const [examSessionFilter, setExamSessionFilter] = useState("");
+  const [marksSessionFilter, setMarksSessionFilter] = useState("");
+  const [resultsSessionFilter, setResultsSessionFilter] = useState("");
   const [positionsFilterProgram, setPositionsFilterProgram] = useState("");
   const [positionsFilterExam, setPositionsFilterExam] = useState("");
   const [positionsFilterClass, setPositionsFilterClass] = useState("");
@@ -152,8 +158,23 @@ const Examination = () => {
     setResultFilterSection("");
   }, [resultFilterClass]);
 
+  // Session filter cascade resets
+  useEffect(() => {
+    setMarksFilterProgram("");
+    setMarksFilterClass("");
+    setMarksFilterSection("");
+    setMarksFilterExam("");
+  }, [marksSessionFilter]);
+
+  useEffect(() => {
+    setResultFilterProgram("");
+    setResultFilterClass("");
+  }, [resultsSessionFilter]);
+
   // Bulk Marks Entry States
   const [bulkMarksDialog, setBulkMarksDialog] = useState(false);
+  const [bulkMarksEditMode, setBulkMarksEditMode] = useState(false); // true when opened from table row edit
+  const [viewMarksDetail, setViewMarksDetail] = useState(null); // { examId, student, marks[] }
   const [bulkExamId, setBulkExamId] = useState("");
   const [bulkSectionId, setBulkSectionId] = useState("");
   const [bulkMarksData, setBulkMarksData] = useState({}); // { studentId: { subjectId: obtainedMarks } }
@@ -245,6 +266,19 @@ const Examination = () => {
     queryKey: ["subjects"],
     queryFn: getSubjects,
   });
+
+  // SCM mappings for the class selected in the exam form (session-aware)
+  const { data: examFormScmMappings = [] } = useQuery({
+    queryKey: ["scmMappings", "examForm", examForm.classId, examForm.sessionId],
+    queryFn: () => getSubjectClassMappings(examForm.sessionId ? Number(examForm.sessionId) : undefined),
+    enabled: !!examForm.classId,
+  });
+  // Subjects for the exam form date sheet — derived from SCM mappings for the selected class
+  const examFormClassSubjects = examForm.classId
+    ? examFormScmMappings
+        .filter(m => m.classId === Number(examForm.classId))
+        .map(m => ({ id: m.subjectId, name: m.subject?.name || `Subject #${m.subjectId}`, ...m.subject }))
+    : [];
   const { data: marks = [] } = useQuery({
     queryKey: ["marks", marksFilterExam, marksFilterSection],
     queryFn: () =>
@@ -314,6 +348,32 @@ const Examination = () => {
     enabled: !!(positionsFilterExam && positionsFilterExam !== "*")
   });
 
+  const { data: sessions = [], isLoading: isLoadingSessions, isError: isSessionsError } = useQuery({
+    queryKey: ["academicSessions"],
+    queryFn: getAcademicSessions,
+  });
+
+  useEffect(() => {
+    if (isSessionsError) {
+      toast({ title: "Failed to load academic sessions", variant: "destructive" });
+    }
+  }, [isSessionsError]);
+
+  // Derived session-filtered exam lists
+  const sessionFilteredExams = examSessionFilter
+    ? exams.filter(e => e.session === sessions.find(s => s.id.toString() === examSessionFilter)?.name)
+    : exams;
+
+  const marksSessionName = sessions.find(s => s.id.toString() === marksSessionFilter)?.name;
+  const marksSessionFilteredExams = marksSessionFilter
+    ? exams.filter(e => e.session === marksSessionName)
+    : exams;
+
+  const resultsSessionName = sessions.find(s => s.id.toString() === resultsSessionFilter)?.name;
+  const resultsSessionFilteredExams = resultsSessionFilter
+    ? exams.filter(e => e.session === resultsSessionName)
+    : exams;
+
   const getFullName = (student) => {
     console.log("::::", student);
     return `${student.fName} ${student.lName || ""}`.trim();
@@ -354,7 +414,7 @@ const Examination = () => {
       toast({ title: "Exam created successfully" });
       queryClient.invalidateQueries({ queryKey: ["exams"] });
       setExamForm({
-        examName: "", program: "", classId: "", session: "",
+        examName: "", program: "", classId: "", session: "", sessionId: "",
         startDate: "", endDate: "", type: "", description: "",
       });
       setExamDialog(false);
@@ -539,6 +599,7 @@ const Examination = () => {
       programId: Number(examForm.program),
       classId: Number(examForm.classId),
       session: examForm.session,
+      sessionId: examForm.sessionId ? Number(examForm.sessionId) : undefined,
       // Pass the full ISO string as collected from new Date(datetime-local value).toISOString() or similar
       // Actually datetime-local value is "YYYY-MM-DDTHH:mm" which is ISO-compatible for constructor
       startDate: new Date(examForm.startDate).toISOString(),
@@ -651,11 +712,15 @@ const Examination = () => {
 
   const openEditExam = (exam) => {
     setEditingExam(exam);
+    const sessionId = exam.sessionId
+      ? exam.sessionId.toString()
+      : (sessions.find(s => s.name === exam.session)?.id?.toString() || "");
     setExamForm({
       examName: exam.examName,
       program: exam.programId?.toString() || "",
       classId: exam.classId?.toString() || "",
       session: exam.session,
+      sessionId,
       startDate: exam.startDate ? new Date(exam.startDate).toISOString().split("T")[0] : "",
       endDate: exam.endDate ? new Date(exam.endDate).toISOString().split("T")[0] : "",
       type: exam.type || "",
@@ -1100,12 +1165,32 @@ const Examination = () => {
 
                       <div className="space-y-2">
                         <Label>Session</Label>
-                        <Input
-                          value={examForm.session}
-                          onChange={(e) =>
-                            setExamForm({ ...examForm, session: e.target.value })
-                          }
-                        />
+                        <Select
+                          value={examForm.sessionId}
+                          onValueChange={(value) => {
+                            const selected = sessions.find(s => s.id.toString() === value);
+                            setExamForm({ ...examForm, sessionId: value, session: selected?.name || "" });
+                          }}
+                          disabled={isLoadingSessions}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder={isLoadingSessions ? "Loading..." : "Select session"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sessions.length === 0 ? (
+                              <SelectItem value="__none__" disabled>No sessions available</SelectItem>
+                            ) : (
+                              sessions.map((s) => (
+                                <SelectItem key={s.id} value={s.id.toString()}>
+                                  <span className="flex items-center gap-2">
+                                    {s.name}
+                                    {s.isActive && <span className="text-[10px] font-semibold text-green-600 bg-green-50 border border-green-200 rounded px-1">Active</span>}
+                                  </span>
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
                       </div>
 
                       <div className="space-y-2">
@@ -1180,7 +1265,7 @@ const Examination = () => {
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {subjects.filter(s => s.classId === Number(examForm.classId)).map((subject) => {
+                                {examFormClassSubjects.map((subject) => {
                                   // Find existing schedule entry for this subject
                                   const scheduleEntry = examForm.schedule?.find(s => s.subjectId === subject.id) || {};
 
@@ -1275,7 +1360,7 @@ const Examination = () => {
                                     </TableRow>
                                   );
                                 })}
-                                {subjects.filter(s => s.classId === Number(examForm.classId)).length === 0 && (
+                                {examFormClassSubjects.length === 0 && (
                                   <TableRow>
                                     <TableCell colSpan={4} className="text-center text-muted-foreground">No subjects found for this class.</TableCell>
                                   </TableRow>
@@ -1455,7 +1540,30 @@ const Examination = () => {
               <CardContent>
                 <div className="space-y-4">
                   {/* Filters */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="space-y-2">
+                      <Label>Session_Filter</Label>
+                      <Select
+                        value={examSessionFilter || "__all__"}
+                        onValueChange={(v) => setExamSessionFilter(v === "__all__" ? "" : v)}
+                        disabled={isLoadingSessions}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={isLoadingSessions ? "Loading..." : "All Sessions"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Sessions</SelectItem>
+                          {sessions.map((s) => (
+                            <SelectItem key={s.id} value={s.id.toString()}>
+                              <span className="flex items-center gap-2">
+                                {s.name}
+                                {s.isActive && <span className="text-[10px] font-semibold text-green-600 bg-green-50 border border-green-200 rounded px-1">Active</span>}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="space-y-2">
                       <Label>Search Exam</Label>
                       <Input
@@ -1497,7 +1605,7 @@ const Examination = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {exams?.filter(exam => {
+                        {sessionFilteredExams?.filter(exam => {
                           const matchesSearch = exam.examName.toLowerCase().includes(examSearch.toLowerCase());
                           const matchesDate = examDateFilter
                             ? new Date(exam.startDate).toDateString() === new Date(examDateFilter).toDateString()
@@ -1569,7 +1677,7 @@ const Examination = () => {
                             </TableCell>
                           </TableRow>
                         ))}
-                        {exams?.length === 0 && (
+                        {sessionFilteredExams?.length === 0 && (
                           <TableRow>
                             <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                               No exams found. Create one to get started.
@@ -1594,6 +1702,25 @@ const Examination = () => {
                   </CardTitle>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="flex-1">
+                    <Label>Session_Filter</Label>
+                    <Select value={marksSessionFilter || "__all__"} onValueChange={(v) => setMarksSessionFilter(v === "__all__" ? "" : v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Sessions" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">All Sessions</SelectItem>
+                        {sessions.map((s) => (
+                          <SelectItem key={s.id} value={s.id.toString()}>
+                            <span className="flex items-center gap-2">
+                              {s.name}
+                              {s.isActive && <span className="text-[10px] font-semibold text-green-600 bg-green-50 border border-green-200 rounded px-1">Active</span>}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="flex-1">
                     <Label>Filter by Program</Label>
                     <Select
@@ -1675,7 +1802,7 @@ const Examination = () => {
                       <SelectContent>
                         <SelectItem value="*">All Exams</SelectItem>
                         {(() => {
-                          return exams
+                          return marksSessionFilteredExams
                             ?.filter(exam => exam.classId === Number(marksFilterClass))
                             .map((exam) => (
                               <SelectItem key={exam.id} value={exam.id.toString()}>
@@ -1696,6 +1823,7 @@ const Examination = () => {
                       setBulkSectionId(marksFilterSection !== "*" ? marksFilterSection : "");
                       setBulkMarksData({});
                       setBulkAbsentees({});
+                      setBulkMarksEditMode(false);
                       setBulkMarksDialog(true);
                     }}
                   >
@@ -1713,6 +1841,7 @@ const Examination = () => {
                         <p className="text-sm text-muted-foreground">Select exam and class/section to enter marks for all students at once.</p>
                       </DialogHeader>
                       <div className="flex-1 overflow-hidden flex flex-col">
+                        {!bulkMarksEditMode && (
                         <div className="p-6 bg-muted/30 border-y grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label>Select Exam</Label>
@@ -1725,13 +1854,19 @@ const Examination = () => {
                             }}>
                               <SelectTrigger><SelectValue placeholder="Select examination" /></SelectTrigger>
                               <SelectContent>
-                                {exams?.map((exam) => (
+                                {marksSessionFilteredExams?.map((exam) => (
                                   <SelectItem key={exam.id} value={exam.id.toString()}>
                                     {exam.examName} - {exam.session} ({exam.program?.name}{exam.program?.department?.name ? ` — ${exam.program.department.name}` : ""} - {exam.class?.name})
                                   </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Session</Label>
+                            <span className="flex h-9 w-full items-center rounded-md border border-input bg-muted/50 px-3 py-1 text-sm text-muted-foreground">
+                              {exams.find(e => e.id.toString() === bulkExamId)?.session || "—"}
+                            </span>
                           </div>
                           <div className="space-y-2">
                             <Label>Select Section</Label>
@@ -1771,6 +1906,15 @@ const Examination = () => {
                             </Select>
                           </div>
                         </div>
+                        )}
+
+                        {bulkMarksEditMode && (
+                          <div className="px-6 py-3 bg-muted/30 border-b flex items-center gap-3 text-sm">
+                            <span className="font-medium">{exams.find(e => e.id.toString() === bulkExamId)?.examName}</span>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="text-muted-foreground">{exams.find(e => e.id.toString() === bulkExamId)?.session}</span>
+                          </div>
+                        )}
 
                         <div className="flex-1 overflow-auto p-0 flex flex-col">
                           {isLoadingStudents || isLoadingExistingMarks ? (
@@ -1964,51 +2108,172 @@ const Examination = () => {
               </CardHeader>
 
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Exam</TableHead>
-                      <TableHead>Student</TableHead>
-                      <TableHead>Subject</TableHead>
-                      <TableHead>Total</TableHead>
-                      <TableHead>Obtained</TableHead>
-                      <TableHead>%</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {marks.length > 0 ? marks?.map((mark) => {
+                {marks.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">No marks to show. Select filters above and use Bulk Marks Entry.</div>
+                ) : (() => {
+                  // Group marks by exam + student
+                  const grouped = marks.reduce((acc, mark) => {
+                    const key = `${mark.examId}-${mark.studentId}`;
+                    if (!acc[key]) {
+                      acc[key] = { examId: mark.examId, student: mark.student, marks: [] };
+                    }
+                    acc[key].marks.push(mark);
+                    return acc;
+                  }, {});
 
-                      const exam = exams.find(e => e.id === mark.examId);
-                      const percentage = mark.totalMarks > 0 ? ((mark.obtainedMarks / mark.totalMarks) * 100).toFixed(1) : 0;
-
-                      return (
-                        <TableRow key={mark.id}>
-                          <TableCell>{exam?.examName || "N/A"}</TableCell>
-                          <TableCell>{mark?.student ? `${getFullName(mark.student)} (${mark.student.rollNumber})` : "Unknown"}</TableCell>
-                          <TableCell>{mark.subject}</TableCell>
-                          <TableCell>{mark.totalMarks}</TableCell>
-                          <TableCell>{mark.isAbsent ? "Absent" : mark.obtainedMarks}</TableCell>
-                          <TableCell>{percentage}%</TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button variant="destructive" size="sm" onClick={() => { setDeleteTarget({ type: "marks", id: mark.id }); setDeleteDialog(true); }}>
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Delete Marks</TooltipContent>
-                              </Tooltip>
-                            </div>
-                          </TableCell>
+                  return (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Exam</TableHead>
+                          <TableHead>Student</TableHead>
+                          <TableHead>Subjects</TableHead>
+                          <TableHead>Total</TableHead>
+                          <TableHead>Obtained</TableHead>
+                          <TableHead>%</TableHead>
+                          <TableHead>Actions</TableHead>
                         </TableRow>
-                      );
-                    }) : (<TableRow><TableCell colSpan={7} className="text-center">No marks to show</TableCell></TableRow>)}
-                  </TableBody>
-                </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {Object.values(grouped).map((group) => {
+                          const exam = exams.find(e => e.id === group.examId);
+                          const totalMarks = group.marks.reduce((s, m) => s + (m.totalMarks || 0), 0);
+                          const obtainedMarks = group.marks.reduce((s, m) => s + (m.isAbsent ? 0 : (m.obtainedMarks || 0)), 0);
+                          const percentage = totalMarks > 0 ? ((obtainedMarks / totalMarks) * 100).toFixed(1) : "0.0";
+                          const subjectSummary = group.marks.map(m => m.isAbsent ? `${m.subject}(Abs)` : m.subject).join(", ");
+                          const key = `${group.examId}-${group.student?.id}`;
+
+                          return (
+                            <TableRow key={key}>
+                              <TableCell className="font-medium">{exam?.examName || "N/A"}</TableCell>
+                              <TableCell>{group.student ? `${getFullName(group.student)} (${group.student.rollNumber})` : "Unknown"}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate" title={subjectSummary}>{subjectSummary}</TableCell>
+                              <TableCell>{totalMarks}</TableCell>
+                              <TableCell>{obtainedMarks}</TableCell>
+                              <TableCell>{percentage}%</TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setViewMarksDetail({ examId: group.examId, student: group.student, marks: group.marks })}
+                                      >
+                                        <Eye className="w-4 h-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>View Details</TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                          setBulkExamId(group.examId.toString());
+                                          setBulkSectionId(group.student?.sectionId?.toString() || "*");
+                                          setBulkMarksData({});
+                                          setBulkAbsentees({});
+                                          setBulkMarksEditMode(true);
+                                          setBulkMarksDialog(true);
+                                        }}
+                                      >
+                                        <Edit className="w-4 h-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Edit Marks</TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        onClick={() => {
+                                          // Delete all marks for this student+exam
+                                          group.marks.forEach(m => deleteMarksMutation.mutate(m.id));
+                                        }}
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Delete All Marks</TooltipContent>
+                                  </Tooltip>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  );
+                })()}
               </CardContent>
             </Card>
+
+            {/* View Marks Detail Dialog */}
+            <Dialog open={!!viewMarksDetail} onOpenChange={(open) => { if (!open) setViewMarksDetail(null); }}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Eye className="w-5 h-5 text-primary" />
+                    Marks Detail
+                  </DialogTitle>
+                </DialogHeader>
+                {viewMarksDetail && (() => {
+                  const exam = exams.find(e => e.id === viewMarksDetail.examId);
+                  const student = viewMarksDetail.student;
+                  const totalMarks = viewMarksDetail.marks.reduce((s, m) => s + (m.totalMarks || 0), 0);
+                  const obtainedMarks = viewMarksDetail.marks.reduce((s, m) => s + (m.isAbsent ? 0 : (m.obtainedMarks || 0)), 0);
+                  const percentage = totalMarks > 0 ? ((obtainedMarks / totalMarks) * 100).toFixed(2) : "0.00";
+                  return (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-3 text-sm bg-muted/30 rounded-lg p-4">
+                        <div><span className="text-muted-foreground">Exam:</span> <span className="font-medium">{exam?.examName}</span></div>
+                        <div><span className="text-muted-foreground">Session:</span> <span className="font-medium">{exam?.session}</span></div>
+                        <div><span className="text-muted-foreground">Student:</span> <span className="font-medium">{student ? getFullName(student) : "—"}</span></div>
+                        <div><span className="text-muted-foreground">Roll No:</span> <span className="font-medium font-mono">{student?.rollNumber}</span></div>
+                      </div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Subject</TableHead>
+                            <TableHead className="text-right">Total</TableHead>
+                            <TableHead className="text-right">Obtained</TableHead>
+                            <TableHead className="text-right">%</TableHead>
+                            <TableHead className="text-center">Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {viewMarksDetail.marks.map((m) => {
+                            const pct = m.totalMarks > 0 ? ((m.obtainedMarks / m.totalMarks) * 100).toFixed(1) : "0.0";
+                            return (
+                              <TableRow key={m.id}>
+                                <TableCell className="font-medium">{m.subject}</TableCell>
+                                <TableCell className="text-right">{m.totalMarks}</TableCell>
+                                <TableCell className="text-right">{m.isAbsent ? "—" : m.obtainedMarks}</TableCell>
+                                <TableCell className="text-right">{m.isAbsent ? "—" : `${pct}%`}</TableCell>
+                                <TableCell className="text-center">
+                                  {m.isAbsent
+                                    ? <Badge variant="destructive" className="text-xs">Absent</Badge>
+                                    : <Badge variant="secondary" className="text-xs">Present</Badge>
+                                  }
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                      <div className="flex justify-between items-center text-sm font-medium bg-muted/30 rounded-lg px-4 py-3">
+                        <span>Total: {obtainedMarks} / {totalMarks}</span>
+                        <span>Overall: {percentage}%</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </DialogContent>
+            </Dialog>
+
           </TabsContent>
           <TabsContent value="results">
             {/* Nested Tabs for Results */}
@@ -2109,6 +2374,25 @@ const Examination = () => {
                     </div>
                     <div className="flex gap-4 mt-4">
                       <div className="flex-1">
+                        <Label>Session Filter</Label>
+                        <Select value={resultsSessionFilter || "__all__"} onValueChange={(v) => setResultsSessionFilter(v === "__all__" ? "" : v)}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All Sessions" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__all__">All Sessions</SelectItem>
+                            {sessions.map((s) => (
+                              <SelectItem key={s.id} value={s.id.toString()}>
+                                <span className="flex items-center gap-2">
+                                  {s.name}
+                                  {s.isActive && <span className="text-[10px] font-semibold text-green-600 bg-green-50 border border-green-200 rounded px-1">Active</span>}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex-1">
                         <Label>Filter by Program</Label>
                         <Select
                           value={resultFilterProgram}
@@ -2201,7 +2485,7 @@ const Examination = () => {
                       </div>
                     ) : (
                       <>
-                        {exams?.map((exam) => {
+                        {resultsSessionFilteredExams?.map((exam) => {
                           let examResults = results.filter((r) => r.examId === exam.id);
 
                           // Filter by program

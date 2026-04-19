@@ -57,7 +57,7 @@ const Complaints = () => {
 
   const selectedComplaint = complaints?.find(c => c.id === selectedComplaintId);
 
-  const { mutate: addRemark, isLoading: isAddingRemark } = useMutation({
+  const { mutate: addRemark, isPending: isAddingRemark } = useMutation({
     mutationFn: ({ id, remark }) => addComplaintRemark(id, { remark }),
     onSuccess: () => {
       toast({ title: "Remark added successfully" });
@@ -72,7 +72,7 @@ const Complaints = () => {
     },
   });
 
-  const { mutate: updateStatus, isLoading: isUpdatingStatus } = useMutation({
+  const { mutate: updateStatus, isPending: isUpdatingStatus } = useMutation({
     mutationFn: ({ id, status }) => updateComplaintApi(id, { status }),
     onSuccess: () => {
       toast({ title: "Status updated successfully" });

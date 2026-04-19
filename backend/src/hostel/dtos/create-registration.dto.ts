@@ -3,6 +3,9 @@ import {
   IsString,
   IsDateString,
   IsOptional,
+  IsNumber,
+  MaxLength,
+  Min,
 } from 'class-validator';
 
 export class CreateRegistrationDto {
@@ -36,4 +39,23 @@ export class CreateRegistrationDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(15)
+  guardianCnic?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(15)
+  studentCnic?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  decidedFeePerMonth?: number;
 }

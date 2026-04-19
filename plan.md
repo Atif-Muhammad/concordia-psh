@@ -1,0 +1,1 @@
+when you alter the Schema.Prisma, dont directly create the schema file by yourself. instead rely on migration.

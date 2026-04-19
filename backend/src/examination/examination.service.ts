@@ -54,8 +54,9 @@ export class ExaminationService {
     });
   }
 
-  async findAll(requestingUser?: any) {
+  async findAll(requestingUser?: any, sessionId?: number) {
     const where: any = {};
+    if (sessionId) where.sessionId = sessionId;
     if (requestingUser?.role === 'Teacher') {
       const mappings = await this.prisma.teacherClassSectionMapping.findMany({
         where: { teacherId: Number(requestingUser.id) },
@@ -247,9 +248,10 @@ export class ExaminationService {
     return results;
   }
 
-  async findAllMarks(examId?: number, sectionId?: number, requestingUser?: any) {
+  async findAllMarks(examId?: number, sectionId?: number, requestingUser?: any, sessionId?: number) {
     const where: any = {};
     if (examId) where.examId = examId;
+    if (sessionId) where.exam = { ...(where.exam ?? {}), sessionId };
 
     if (requestingUser?.role === 'Teacher') {
       const mappings = await this.prisma.teacherClassSectionMapping.findMany({
@@ -269,7 +271,7 @@ export class ExaminationService {
           return []; // Not allowed
         }
       } else {
-        where.exam = { classId: { in: classIds } };
+        where.exam = { ...(where.exam ?? {}), classId: { in: classIds } };
       }
 
       if (sectionId) {
@@ -344,15 +346,16 @@ export class ExaminationService {
       },
     });
   }
-  async findAllResults(requestingUser?: any) {
+  async findAllResults(requestingUser?: any, sessionId?: number) {
     const where: any = {};
+    if (sessionId) where.exam = { sessionId };
     if (requestingUser?.role === 'Teacher') {
       const mappings = await this.prisma.teacherClassSectionMapping.findMany({
         where: { teacherId: Number(requestingUser.id) },
         select: { classId: true },
       });
       const classIds = mappings.map((m) => m.classId);
-      where.exam = { classId: { in: classIds } };
+      where.exam = { ...(where.exam ?? {}), classId: { in: classIds } };
     }
 
     return this.prisma.result.findMany({

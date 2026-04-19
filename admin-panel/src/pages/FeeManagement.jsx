@@ -23,8 +23,11 @@ import {
   getInstallmentPlans, generateChallansFromPlan,
   getInstituteSettings, updateInstituteSettings,
   getAcademicSessions,
-  deleteFeeChallan
+  deleteFeeChallan,
+  getHostelRegistrationByStudent,
+  getHostelFeePayments
 } from "../../config/apis";
+import { computeOutstandingBalance } from "@/lib/hostelUtils";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -195,6 +198,19 @@ const FeeManagement = () => {
     return diffDays * finePerDay;
   };
 
+  // Sum of additional fee heads from selectedHeads JSON (NOT fineAmount)
+  const getSelectedHeadsTotal = (challan) => {
+    try {
+      const raw = typeof challan?.selectedHeads === 'string'
+        ? JSON.parse(challan.selectedHeads)
+        : (challan?.selectedHeads || []);
+      if (!Array.isArray(raw)) return 0;
+      return raw
+        .filter(h => typeof h === 'object' && h !== null && h.isSelected !== false && h.type === 'additional')
+        .reduce((sum, h) => sum + (h.amount || 0), 0);
+    } catch { return 0; }
+  };
+
   const getRecursiveArrears = (challan) => {
     if (!challan || !challan.previousChallans || !Array.isArray(challan.previousChallans) || challan.installmentNumber === 0) return 0;
     
@@ -203,9 +219,12 @@ const FeeManagement = () => {
     // VOID ancestors: real unpaid debt superseded into this chain — include them.
     return challan.previousChallans.reduce((total, prev) => {
       if (prev.status === 'PAID') return total; // settled — stop here
+      // Use getSelectedHeadsTotal for additional heads (fineAmount is 0 for installment challans;
+      // actual heads are stored in selectedHeads JSON). Also recurse into prev's own chain.
+      const prevHeads = getSelectedHeadsTotal(prev);
       const rem = Math.max(0, 
         (prev.amount || 0) + 
-        (prev.fineAmount || 0) + 
+        prevHeads + 
         (prev.lateFeeFine || 0) - 
         (prev.paidAmount || 0) - 
         (prev.discount || 0)
@@ -237,19 +256,6 @@ const FeeManagement = () => {
   // Combined arrears: chain-linked (previousChallans) + superseded (supersedes)
   const getTotalArrears = (challan) => {
     return getRecursiveArrears(challan) + getSupersededArrears(challan);
-  };
-
-  // Sum of additional fee heads from selectedHeads JSON (NOT fineAmount)
-  const getSelectedHeadsTotal = (challan) => {
-    try {
-      const raw = typeof challan?.selectedHeads === 'string'
-        ? JSON.parse(challan.selectedHeads)
-        : (challan?.selectedHeads || []);
-      if (!Array.isArray(raw)) return 0;
-      return raw
-        .filter(h => typeof h === 'object' && h !== null && h.isSelected !== false && h.type === 'additional')
-        .reduce((sum, h) => sum + (h.amount || 0), 0);
-    } catch { return 0; }
   };
 
   // Total due for a challan: tuition + heads + late fee + arrears
@@ -334,14 +340,22 @@ const FeeManagement = () => {
         setBulkStudents(filtered);
 
         // Only auto-select students that have a matching installment for the selected month
-        const [, sm] = generateForm.month.split('-').map(Number);
+        const [selY, sm] = generateForm.month.split('-').map(Number);
         const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
         const mName = (monthNames[sm - 1] || '').toLowerCase();
         const selectedSessionName = generateForm.sessionId && generateForm.sessionId !== 'all'
           ? (academicSessions.find(s => s.id.toString() === generateForm.sessionId)?.name || '')
           : '';
+
+        const getClassRankElig = (cls) => !cls ? 0 : (Number(cls.year || 0) * 100) + Number(cls.semester || 0);
+        const getChronoRankElig = (inst) => {
+          if (!inst?.dueDate) return 0;
+          return (getClassRankElig(inst.class) * 1e14) + new Date(inst.dueDate).getTime();
+        };
+
         const eligible = filtered.filter(s => {
-          return (s.feeInstallments || []).some(inst => {
+          // Must have a matching installment for the selected month
+          const hasMatchingInst = (s.feeInstallments || []).some(inst => {
             const nameMatch = (inst.month || '').trim().toLowerCase() === mName;
             if (generateForm.sessionId && generateForm.sessionId !== 'all') {
               const byId = inst.sessionId?.toString() === generateForm.sessionId;
@@ -350,6 +364,40 @@ const FeeManagement = () => {
             }
             return nameMatch;
           });
+          if (!hasMatchingInst) return false;
+
+          // Exclude students with missing previous installments (same logic as hasMissing in the table)
+          const currentInst = (s.feeInstallments || []).find(inst => {
+            const nameMatch = (inst.month || '').trim().toLowerCase() === mName;
+            if (generateForm.sessionId && generateForm.sessionId !== 'all') {
+              const byId = inst.sessionId?.toString() === generateForm.sessionId;
+              const byName = selectedSessionName && (inst.session || '') === selectedSessionName;
+              return nameMatch && (byId || byName);
+            }
+            return nameMatch;
+          });
+          if (!currentInst) return false;
+
+          const targetRank = getChronoRankElig(currentInst);
+          const targetClassRank = getClassRankElig(currentInst.class);
+          const targetInstNum = currentInst.installmentNumber || 0;
+
+          const prevInsts = (s.feeInstallments || []).filter(inst => {
+            if (!inst.dueDate) return false;
+            const iClassRank = getClassRankElig(inst.class);
+            if (inst.classId === currentInst.classId) return inst.installmentNumber < targetInstNum;
+            return iClassRank < targetClassRank;
+          });
+
+          const hasMissingPrev = prevInsts.some(inst => {
+            const isBilled = (inst.paidAmount || 0) > 0 ||
+              (inst.pendingAmount || 0) > 0 ||
+              ['PAID', 'PARTIAL', 'ISSUED', 'UNPAID', 'SUCCESS', 'CREATED'].includes(inst.status) ||
+              ((inst.remainingAmount || 0) === 0 && inst.amount > 0);
+            return !isBilled;
+          });
+
+          return !hasMissingPrev;
         });
         setSelectedBulkStudents(eligible.map(s => s.id));
 
@@ -512,6 +560,19 @@ const FeeManagement = () => {
   const { data: defaultChallanTemplate } = useQuery({
     queryKey: ['defaultChallanTemplate'],
     queryFn: getDefaultFeeChallanTemplate
+  });
+
+  // Hostel registration and fee payments for selected student (Student History tab)
+  const { data: hostelReg } = useQuery({
+    queryKey: ['hostelRegistration', 'byStudent', selectedStudent?.id],
+    queryFn: () => getHostelRegistrationByStudent(selectedStudent?.id),
+    enabled: !!selectedStudent?.id
+  });
+
+  const { data: hostelFeePayments = [] } = useQuery({
+    queryKey: ['hostelFeePayments', hostelReg?.id],
+    queryFn: () => getHostelFeePayments(hostelReg?.id),
+    enabled: !!hostelReg?.id
   });
 
   // Derived state for summary cards (using fetched summary instead of local calc)
@@ -1090,8 +1151,16 @@ const FeeManagement = () => {
     }
 
     // Recursively compute total owed for a challan including its own arrears chain
+    const getHeadsTotal = (c) => {
+      try {
+        const raw = typeof c?.selectedHeads === 'string' ? JSON.parse(c.selectedHeads) : (c?.selectedHeads || []);
+        if (!Array.isArray(raw)) return 0;
+        return raw.filter(h => typeof h === 'object' && h !== null && h.isSelected !== false && h.type === 'additional')
+          .reduce((sum, h) => sum + (h.amount || 0), 0);
+      } catch { return 0; }
+    };
     const computeTotalOwed = (c) => {
-      const own = (c.amount || 0) + (c.fineAmount || 0) + (c.lateFeeFine || 0) - (c.discount || 0);
+      const own = (c.amount || 0) + getHeadsTotal(c) + (c.lateFeeFine || 0) - (c.discount || 0);
       const chainArrears = (c.previousChallans || []).reduce((sum, prev) => {
         const prevOwed = computeTotalOwed(prev);
         return sum + Math.max(0, prevOwed - (prev.paidAmount || 0));
@@ -1106,7 +1175,7 @@ const FeeManagement = () => {
         .filter(prev => prev.status !== 'PAID')
         .flatMap(prev => {
           const ownAmount = Math.max(0,
-            (prev.amount || 0) + (prev.fineAmount || 0) + (prev.lateFeeFine || 0) - (prev.discount || 0)
+            (prev.amount || 0) + getHeadsTotal(prev) + (prev.lateFeeFine || 0) - (prev.discount || 0)
           );
           const label = `${indent}${prev.session || ''} - Installment ${prev.installmentNumber || ''} (${prev.month || ''}) - Balance`;
           const row = `<tr><td>${label}</td><td>${ownAmount.toLocaleString()}</td></tr>`;
@@ -1120,15 +1189,24 @@ const FeeManagement = () => {
 
     const arrearsDetailRows = buildArrearRows(challan.previousChallans || []).join('');
 
-    // Build payment history — past installments of same student + same session only
-    // (installmentNumber < current challan's installmentNumber)
-    const sessionChallans = (feeChallans || [])
-      .filter(c =>
-        c.studentId === challan.studentId &&
-        c.session === challan.session &&
-        c.installmentNumber > 0 &&
-        c.installmentNumber < (challan.installmentNumber || 0)
-      )
+    // Build payment history from the challan's previousChallans chain (recursively flattened).
+    // This avoids relying on the paginated feeChallans list which may not contain all past challans
+    // (e.g. VOID/Superseded ones like September that are on a different page).
+    const flattenPreviousChallans = (c) => {
+      const result = [];
+      const walk = (node) => {
+        if (!node || !Array.isArray(node.previousChallans)) return;
+        for (const prev of node.previousChallans) {
+          walk(prev);
+          result.push(prev);
+        }
+      };
+      walk(c);
+      return result;
+    };
+
+    const sessionChallans = flattenPreviousChallans(challan)
+      .filter(c => c.installmentNumber > 0)
       .sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0));
 
     const paymentHistoryMonths = sessionChallans.map(h =>
@@ -1185,7 +1263,12 @@ const FeeManagement = () => {
       '{{section}}': studentSection,
       '{{program}}': studentProgram,
       '{{feeHeadsRows}}': feeHeadsRowsHtml,
-      '{{Tuition Fee}}': tuitionOnly.toLocaleString(), // Show full tuition amount, not balance
+      '{{Tuition Fee}}': (() => {
+        // If fee heads are shown as separate rows, only show tuition here to avoid double-counting.
+        // Otherwise, show the full challan amount (tuition + heads + late fee).
+        const hasHeadRows = feeHeadsRowsHtml.trim().length > 0;
+        return hasHeadRows ? tuitionOnly.toLocaleString() : (tuitionOnly + headsTotal + lateFee).toLocaleString();
+      })(),
       '{{arrears}}': (originalArrears - arrearsPaid).toLocaleString(),
       '{{arrearsRows}}': arrearsDetailRows,
       '{{discount}}': scholarship.toLocaleString(),
@@ -2383,6 +2466,29 @@ const FeeManagement = () => {
                 </PopoverContent>
               </Popover>
             </div>
+
+            {selectedStudent && hostelReg?.status === 'active' && (
+              <div className="flex flex-wrap items-center gap-3 p-3 border rounded-lg bg-muted/30">
+                <Badge className="bg-blue-600 hover:bg-blue-700 text-white">Hostel Resident</Badge>
+                <span className="text-sm text-muted-foreground">
+                  Monthly Fee: <span className="font-medium text-foreground">PKR {(hostelReg.decidedFeePerMonth || 0).toLocaleString()}</span>
+                </span>
+                {hostelReg.decidedFeePerMonth > 0 && (() => {
+                  const balance = computeOutstandingBalance(hostelReg, hostelFeePayments);
+                  return (
+                    <span className="text-sm">
+                      Outstanding Balance:{' '}
+                      {balance === null
+                        ? <span className="text-muted-foreground">No Fee Set</span>
+                        : balance <= 0
+                          ? <span className="text-green-600 font-medium">Paid</span>
+                          : <span className="text-red-600 font-medium">PKR {Math.round(balance).toLocaleString()}</span>
+                      }
+                    </span>
+                  );
+                })()}
+              </div>
+            )}
 
             {selectedStudent && (
               <div className="flex flex-wrap gap-3 items-end mb-2">

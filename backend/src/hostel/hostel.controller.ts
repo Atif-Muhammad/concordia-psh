@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
 } from '@nestjs/common';
 import { HostelService } from './hostel.service';
 import { CreateRegistrationDto } from './dtos/create-registration.dto';
@@ -17,6 +18,9 @@ import { CreateExpenseDto } from './dtos/create-expense.dto';
 import { UpdateExpenseDto } from './dtos/update-expense.dto';
 import { CreateInventoryDto } from './dtos/create-inventory.dto';
 import { UpdateInventoryDto } from './dtos/update-inventory.dto';
+import { CreateFeePaymentDto } from './dtos/create-fee-payment.dto';
+import { CreateHostelChallanDto } from './dtos/create-hostel-challan.dto';
+import { UpdateHostelChallanDto } from './dtos/update-hostel-challan.dto';
 
 @Controller('hostel')
 export class HostelController {
@@ -57,6 +61,27 @@ export class HostelController {
   @Delete('registrations/:id')
   deleteRegistration(@Param('id') id: string) {
     return this.hostelService.deleteRegistration(id);
+  }
+
+  @Post('registrations/:id/payments')
+  createFeePayment(
+    @Param('id') id: string,
+    @Body() dto: CreateFeePaymentDto,
+  ) {
+    return this.hostelService.createFeePayment(id, dto);
+  }
+
+  @Get('registrations/:id/payments')
+  getFeePayments(@Param('id') id: string) {
+    return this.hostelService.getFeePayments(id);
+  }
+
+  @Delete('registrations/:id/payments/:paymentId')
+  deleteFeePayment(
+    @Param('id') id: string,
+    @Param('paymentId') paymentId: string,
+  ) {
+    return this.hostelService.deleteFeePayment(id, +paymentId);
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -193,4 +218,34 @@ export class HostelController {
   deleteExternalChallan(@Param('id') id: string) {
     return this.hostelService.deleteExternalChallan(Number(id));
   }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // HOSTEL CHALLAN ENDPOINTS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  @Post('challans')
+  createHostelChallan(@Body() dto: CreateHostelChallanDto) {
+    return this.hostelService.createHostelChallan(dto);
+  }
+
+  @Get('challans/by-registration/:registrationId')
+  getHostelChallans(@Param('registrationId') registrationId: string) {
+    return this.hostelService.getHostelChallans(registrationId);
+  }
+
+  @Patch('challans/:id')
+  updateHostelChallan(@Param('id') id: string, @Body() dto: UpdateHostelChallanDto) {
+    return this.hostelService.updateHostelChallan(Number(id), dto);
+  }
+
+  @Delete('challans/:id')
+  deleteHostelChallan(@Param('id') id: string) {
+    return this.hostelService.deleteHostelChallan(Number(id));
+  }
+
+  @Get('registrations/search')
+  searchRegistrations(@Query('q') q: string) {
+    return this.hostelService.searchRegistrations(q || '');
+  }
 }
+

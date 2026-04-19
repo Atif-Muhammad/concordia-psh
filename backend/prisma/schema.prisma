@@ -882,13 +882,17 @@ model ReportCardTemplate {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 model HostelRegistration {
-  id                     String   @id @default(uuid())
+  id                     String   @id
   studentId              Int?
   student                Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
   externalName           String?  @db.VarChar(100)
   externalInstitute      String?  @db.VarChar(100)
   externalGuardianName   String?  @db.VarChar(100)
   externalGuardianNumber String?  @db.VarChar(20)
+  guardianCnic           String?  @db.VarChar(15)
+  studentCnic            String?  @db.VarChar(15)
+  address                String?  @db.Text
+  decidedFeePerMonth     Float    @default(0)
   hostelName             String   @db.VarChar(100)
   registrationDate       DateTime
   status                 String   @db.VarChar(20) // "active" | "inactive"
@@ -896,6 +900,8 @@ model HostelRegistration {
   updatedAt              DateTime @updatedAt
 
   externalChallans       HostelExternalChallan[]
+  feePayments            HostelFeePayment[]
+  hostelChallans         HostelChallan[]
 
   @@index([studentId])
   @@map("hostelregistration")
@@ -922,6 +928,52 @@ model HostelExternalChallan {
 
   @@index([registrationId])
   @@map("hostelexternalchallan")
+}
+
+model HostelFeePayment {
+  id             Int      @id @default(autoincrement())
+  registrationId String
+  registration   HostelRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  month          String   @db.VarChar(50)
+  paidDate       DateTime @db.Date
+  amount         Float
+  createdAt      DateTime @default(now())
+
+  @@index([registrationId])
+  @@map("hostelfee_payment")
+}
+
+// Hostel fee challan — one per month per registration, supports supersede/arrears
+model HostelChallan {
+  id               Int      @id @default(autoincrement())
+  challanNumber    String   @unique @db.VarChar(50)
+  registrationId   String
+  registration     HostelRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  month            String   @db.VarChar(50)
+  dueDate          DateTime @db.Date
+  hostelFee        Float    @default(0)
+  fineAmount       Float    @default(0)
+  lateFeeFine      Float    @default(0)
+  arrearsAmount    Float    @default(0)
+  discount         Float    @default(0)
+  paidAmount       Float    @default(0)
+  status           String   @default("PENDING") @db.VarChar(20)
+  paidDate         DateTime? @db.Date
+  remarks          String?  @db.Text
+  settledAmount    Float    @default(0)
+  supersededById   Int?
+  supersededBy     HostelChallan?  @relation("HostelChallanSupersede", fields: [supersededById], references: [id])
+  supersedes       HostelChallan[] @relation("HostelChallanSupersede")
+  previousChallanId Int?
+  previousChallan  HostelChallan?  @relation("hostelchallan_previousChallanIdTohostelchallan", fields: [previousChallanId], references: [id])
+  nextChallans     HostelChallan[] @relation("hostelchallan_previousChallanIdTohostelchallan")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([registrationId])
+  @@index([supersededById])
+  @@index([previousChallanId])
+  @@map("hostelchallan")
 }
 
 model Room {
@@ -1397,6 +1449,7 @@ model InstituteSettings {
   logo          String?  @db.VarChar(500)
   challanPrefix String?  @db.VarChar(20) @default("")
   lateFeeFine   Float?   @default(0)
+  hostelLateFee Float?   @default(0)
   
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

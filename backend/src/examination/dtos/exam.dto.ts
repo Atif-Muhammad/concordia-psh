@@ -16,6 +16,8 @@ export class CreateExamDto {
   @IsNotEmpty({ message: 'exam end date must be provided' })
   endDate: string;
   @IsOptional()
+  sessionId?: number;
+  @IsOptional()
   description?: string;
   @IsOptional()
   schedule?: {

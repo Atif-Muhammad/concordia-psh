@@ -2,8 +2,8 @@ import axios from "axios";
 import { format } from "date-fns";
 import { formatLocalDate } from "../src/lib/utils";
 
-const base_url = "http://localhost:3003/api";
-// const base_url = "http://69.62.117.175:3003/api";
+// const base_url = "http://localhost:3003/api";
+const base_url = "http://69.62.117.175:3003/api";
 
 export const userWho = async () => {
   try {
@@ -2666,7 +2666,7 @@ export const getContacts = async () => {
 export const createExam = async (payload) => {
   try {
     const { data } = await axios.post(
-      `${base_url}/exams/create`,
+      `${base_url}/exams`,
       payload,
       {
         withCredentials: true,
@@ -2684,8 +2684,8 @@ export const createExam = async (payload) => {
 };
 export const updateExam = async (id, payload) => {
   try {
-    const { data } = await axios.put(
-      `${base_url}/exams/update?id=${id}`,
+    const { data } = await axios.patch(
+      `${base_url}/exams/${id}`,
       payload,
       {
         withCredentials: true,
@@ -2704,7 +2704,7 @@ export const updateExam = async (id, payload) => {
 export const delExam = async (id) => {
   try {
     const { data } = await axios.delete(
-      `${base_url}/exams/delete?id=${id}`,
+      `${base_url}/exams/${id}`,
       {
         withCredentials: true,
       }
@@ -2719,10 +2719,12 @@ export const delExam = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getExams = async () => {
+export const getExams = async (sessionId) => {
   try {
+    const params = new URLSearchParams();
+    if (sessionId) params.append('sessionId', sessionId);
     const { data } = await axios.get(
-      `${base_url}/exams/all`,
+      `${base_url}/exams${params.toString() ? '?' + params.toString() : ''}`,
       {
         withCredentials: true,
       }
@@ -2743,7 +2745,7 @@ export const getExams = async () => {
 export const createMarks = async (payload) => {
   try {
     const { data } = await axios.post(
-      `${base_url}/exams/marks/create`,
+      `${base_url}/exams/marks`,
       payload,
       {
         withCredentials: true,
@@ -2762,7 +2764,7 @@ export const createMarks = async (payload) => {
 export const bulkCreateMarks = async (payload) => {
   try {
     const { data } = await axios.post(
-      `${base_url}/exams/marks/bulk-create`,
+      `${base_url}/exams/marks/bulk`,
       payload,
       {
         withCredentials: true,
@@ -2780,8 +2782,8 @@ export const bulkCreateMarks = async (payload) => {
 };
 export const updateMarks = async (id, payload) => {
   try {
-    const { data } = await axios.put(
-      `${base_url}/exams/marks/update?id=${id}`,
+    const { data } = await axios.patch(
+      `${base_url}/exams/marks/${id}`,
       payload,
       {
         withCredentials: true,
@@ -2815,15 +2817,16 @@ export const delMarks = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getMarks = async (examId, sectionId) => {
+export const getMarks = async (examId, sectionId, sessionId) => {
   try {
     const params = new URLSearchParams();
     if (examId) params.append('examId', examId);
     if (sectionId) params.append('sectionId', sectionId);
+    if (sessionId) params.append('sessionId', sessionId);
 
     const url = params.toString()
-      ? `${base_url}/exams/marks/all?${params.toString()}`
-      : `${base_url}/exams/marks/all`;
+      ? `${base_url}/exams/marks?${params.toString()}`
+      : `${base_url}/exams/marks`;
 
     const { data } = await axios.get(
       url,
@@ -2864,7 +2867,7 @@ export const createResult = async (payload) => {
 };
 export const updateResult = async (id, payload) => {
   try {
-    const { data } = await axios.put(
+    const { data } = await axios.patch(
       `${base_url}/exams/result/update?id=${id}`,
       payload,
       {
@@ -2899,10 +2902,12 @@ export const delResult = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const getResults = async () => {
+export const getResults = async (sessionId) => {
+  const params = new URLSearchParams();
+  if (sessionId) params.append('sessionId', sessionId);
   try {
     const { data } = await axios.get(
-      `${base_url}/exams/result/all`,
+      `${base_url}/exams/result/all${params.toString() ? '?' + params.toString() : ''}`,
       {
         withCredentials: true,
       }
@@ -4586,6 +4591,90 @@ export const updateExternalChallan = async (id, challanData) => {
 export const deleteExternalChallan = async (id) => {
   try {
     const { data } = await axios.delete(`${base_url}/hostel/external-challans/${id}`, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getHostelFeePayments = async (registrationId) => {
+  try {
+    const { data } = await axios.get(`${base_url}/hostel/registrations/${registrationId}/payments`, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const createHostelFeePayment = async (registrationId, paymentData) => {
+  try {
+    const { data } = await axios.post(`${base_url}/hostel/registrations/${registrationId}/payments`, paymentData, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteHostelFeePayment = async (registrationId, paymentId) => {
+  try {
+    const { data } = await axios.delete(`${base_url}/hostel/registrations/${registrationId}/payments/${paymentId}`, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HOSTEL CHALLANS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export const searchHostelRegistrations = async (q) => {
+  try {
+    const { data } = await axios.get(`${base_url}/hostel/registrations/search`, { params: { q }, withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const createHostelChallan = async (dto) => {
+  try {
+    const { data } = await axios.post(`${base_url}/hostel/challans`, dto, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getHostelChallansByRegistration = async (registrationId) => {
+  try {
+    const { data } = await axios.get(`${base_url}/hostel/challans/by-registration/${registrationId}`, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateHostelChallan = async (id, dto) => {
+  try {
+    const { data } = await axios.patch(`${base_url}/hostel/challans/${id}`, dto, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteHostelChallan = async (id) => {
+  try {
+    const { data } = await axios.delete(`${base_url}/hostel/challans/${id}`, { withCredentials: true });
     return data;
   } catch (error) {
     const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
