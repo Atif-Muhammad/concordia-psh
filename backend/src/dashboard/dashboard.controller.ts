@@ -8,7 +8,7 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('stats')
-  getDashboardStats(@Query() filters: { month?: string; year?: string }) {
+  getDashboardStats(@Query() filters: { month?: string; year?: string; sessionId?: string }) {
     return this.dashboardService.getDashboardStats(filters);
   }
 }

@@ -44,9 +44,9 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#F57200] via-[#2a2a2a] to-[#1e1e1e] bg-[length:200%_200%] animate-gradient flex items-center justify-center p-4">
+    <div className="min-h-screen via-[#2a2a2a] bg-[length:200%_200%] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <div className="bg-card rounded-2xl shadow-strong p-8 space-y-6">
+        <div className="bg-card rounded-md shadow-sm p-8 space-y-6">
           {/* Logo & Title */}
           <div className="text-center space-y-2">
             <div className="inline-flex items-center justify-center w-1/2 mb-4">

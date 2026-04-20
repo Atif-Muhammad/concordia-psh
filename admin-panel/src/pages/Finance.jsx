@@ -362,7 +362,7 @@ const Finance = () => {
     }
   };
 
-  // Auto-calculate when closing type changes or dialog opens
+  // Au when closing type changes or dialog opens
   React.useEffect(() => {
     if (closingOpen) {
       getClosingAmounts();
@@ -602,9 +602,9 @@ const Finance = () => {
 
   return <DashboardLayout>
     <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
+            <h1 className="text-xl font-semibold flex items-center gap-2">
               <TrendingUp className="w-8 h-8 text-primary" />
               Finance Management
             </h1>
@@ -628,7 +628,7 @@ const Finance = () => {
         </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Total Income</CardTitle>
@@ -670,7 +670,7 @@ const Finance = () => {
         </TabsList>
 
         <TabsContent value="dashboard" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card>
               <CardHeader>
                 <CardTitle>Monthly Income vs Expense</CardTitle>
@@ -816,11 +816,11 @@ const Finance = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Category</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Description</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -838,13 +838,13 @@ const Finance = () => {
                       </TableRow>
                     ) : (
                       incomeData.map(item => <TableRow key={item.id}>
-                        <TableCell>{new Date(item.date).toLocaleDateString()}</TableCell>
-                        <TableCell>
+                        <TableCell className="py-2 px-3 text-sm">{new Date(item.date).toLocaleDateString()}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           <Badge variant="default">{item.category}</Badge>
                         </TableCell>
-                        <TableCell>{item.description}</TableCell>
-                        <TableCell className="font-bold text-success">PKR {Number(item.amount).toLocaleString()}</TableCell>
-                        <TableCell>
+                        <TableCell className="py-2 px-3 text-sm">{item.description}</TableCell>
+                        <TableCell className="text-sm px-3 py-2 font-bold text-success">PKR {Number(item.amount).toLocaleString()}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
@@ -924,11 +924,11 @@ const Finance = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Category</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Description</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -946,13 +946,13 @@ const Finance = () => {
                     </TableRow>
                   ) : (
                     expenseData.map(item => <TableRow key={item.id}>
-                      <TableCell>{new Date(item.date).toLocaleDateString()}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{new Date(item.date).toLocaleDateString()}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <Badge variant="destructive">{item.category}</Badge>
                       </TableCell>
-                      <TableCell>{item.description}</TableCell>
-                      <TableCell className="font-bold text-destructive">PKR {Number(item.amount).toLocaleString()}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{item.description}</TableCell>
+                      <TableCell className="text-sm px-3 py-2 font-bold text-destructive">PKR {Number(item.amount).toLocaleString()}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -1023,7 +1023,7 @@ const Finance = () => {
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="border rounded-lg p-4">
                   <h3 className="font-semibold text-lg mb-4">Income Summary</h3>
                   <div className="space-y-2">
@@ -1102,13 +1102,13 @@ const Finance = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Income</TableHead>
-                    <TableHead>Expense</TableHead>
-                    <TableHead>Balance</TableHead>
-                    <TableHead>Remarks</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Type</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Income</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Expense</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Balance</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Remarks</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1126,17 +1126,17 @@ const Finance = () => {
                     </TableRow>
                   ) : (
                     closingData.map(closing => <TableRow key={closing.id}>
-                      <TableCell>{new Date(closing.date).toLocaleDateString()}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{new Date(closing.date).toLocaleDateString()}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <Badge>{closing.type}</Badge>
                       </TableCell>
-                      <TableCell className="text-success">PKR {Number(closing.totalIncome).toLocaleString()}</TableCell>
-                      <TableCell className="text-destructive">PKR {Number(closing.totalExpense).toLocaleString()}</TableCell>
-                      <TableCell className={Number(closing.netBalance) >= 0 ? "text-success font-bold" : "text-destructive font-bold"}>
+                      <TableCell className="text-sm px-3 py-2 text-success">PKR {Number(closing.totalIncome).toLocaleString()}</TableCell>
+                      <TableCell className="text-sm px-3 py-2 text-destructive">PKR {Number(closing.totalExpense).toLocaleString()}</TableCell>
+                      <TableCell className={Number(closing.netBalance) >= 0 ? "py-2 px-3 text-sm text-success font-bold" : "py-2 px-3 text-sm text-destructive font-bold"}>
                         PKR {Number(closing.netBalance).toLocaleString()}
                       </TableCell>
-                      <TableCell>{closing.remarks}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{closing.remarks}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <div className="flex gap-2">
                           <Tooltip>
                             <TooltipTrigger asChild>

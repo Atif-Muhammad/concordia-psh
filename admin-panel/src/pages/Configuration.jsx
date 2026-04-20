@@ -1287,9 +1287,9 @@ const Configuration = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
+            <h1 className="text-xl font-semibold flex items-center gap-2">
               <Settings className="w-8 h-8 text-primary" />
               System Configuration
             </h1>
@@ -1300,7 +1300,7 @@ const Configuration = () => {
         </div>
 
         <Tabs defaultValue="institute" className="space-y-6">
-          <TabsList className="mb-8">
+          <TabsList className="mb-4">
             <TabsTrigger value="institute">Institute</TabsTrigger>
             {/* <TabsTrigger value="branches">Branches</TabsTrigger> */}
             {/* <TabsTrigger value="roles">Roles</TabsTrigger> */}
@@ -1495,19 +1495,19 @@ const Configuration = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Branch Name</TableHead>
-                        <TableHead>City</TableHead>
-                        <TableHead>Address</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Branch Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">City</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Address</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {branches.map((branch) => (
                         <TableRow key={branch.id}>
-                          <TableCell>{branch.name}</TableCell>
-                          <TableCell>{branch.city}</TableCell>
-                          <TableCell>{branch.address}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{branch.name}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{branch.city}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{branch.address}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="flex gap-2">
                               <Button
                                 variant="outline"
@@ -1614,17 +1614,17 @@ const Configuration = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      {/* <TableHead>Role</TableHead> */}
-          {/* <TableHead>Permissions</TableHead>
-                      <TableHead>Actions</TableHead>
+                      {/* <TableHead className="py-2 px-3 text-sm">Role</TableHead> */}
+          {/* <TableHead className="py-2 px-3 text-sm">Permissions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {roles.map((role) => (
                       <TableRow key={role.id}>
-                        <TableCell>{role.role}</TableCell>
-                        <TableCell>{role.permissions.join(", ")}</TableCell>
-                        <TableCell>
+                        <TableCell className="py-2 px-3 text-sm">{role.role}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">{role.permissions.join(", ")}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           <div className="flex gap-2">
                             <Button
                               variant="outline"
@@ -1715,11 +1715,11 @@ const Configuration = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Access Rights</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Name</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Email</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Role</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Access Rights</TableHead>
+                      <TableHead className="text-right px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1739,14 +1739,14 @@ const Configuration = () => {
                       admins.map((admin) => {
                         return (
                           <TableRow key={admin.id}>
-                            <TableCell>{admin.name}</TableCell>
-                            <TableCell>{admin.email}</TableCell>
-                            <TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{admin.name}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{admin.email}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
                               <Badge variant={admin.role === "SUPER_ADMIN" ? "default" : "secondary"}>
                                 {admin.role}
                               </Badge>
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
                               {admin.role === "SUPER_ADMIN" ? (
                                 <div className="flex items-center gap-2 text-green-600 bg-green-50/50 px-3 py-1.5 rounded-full w-fit border border-green-100">
                                   <Shield className="h-3.5 w-3.5" />
@@ -1777,7 +1777,7 @@ const Configuration = () => {
                                         <h4 className="font-bold text-sm text-foreground">Module Access</h4>
                                         <p className="text-[10px] text-muted-foreground">Toggle module permissions for this admin</p>
                                       </div>
-                                      <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px]">
+                                      <Badge variant="outline" className="bg-primary/5 text-primary border-border text-[10px]">
                                         {admin.accessRights.length} Active
                                       </Badge>
                                     </div>
@@ -1792,7 +1792,7 @@ const Configuration = () => {
                                             className={cn(
                                               "group flex items-center justify-between px-3 py-2.5 text-[11px] rounded-lg cursor-pointer transition-all border duration-200",
                                               hasAccess
-                                                ? "bg-primary/5 text-primary border-primary/20 hover:bg-primary/10"
+                                                ? "bg-primary/5 text-primary border-border hover:bg-primary/10"
                                                 : "bg-background text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground"
                                             )}
                                           >
@@ -1818,7 +1818,7 @@ const Configuration = () => {
                                 </Popover>
                               )}
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
                               <div className="flex gap-2 justify-end">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1999,23 +1999,23 @@ const Configuration = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Template Name</TableHead>
-                        <TableHead>Default</TableHead>
-                        <TableHead>Created Date</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Template Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Default</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Created Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {challanTemplates.map((template) => (
                         <TableRow key={template.id}>
-                          <TableCell>{template.name}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{template.name}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {template.isDefault ? <Badge>Default</Badge> : "-"}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {new Date(template.createdAt).toLocaleDateString()}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="flex gap-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -2212,23 +2212,23 @@ const Configuration = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Template Name</TableHead>
-                        <TableHead>Default</TableHead>
-                        <TableHead>Created Date</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Template Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Default</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Created Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {teacherIdCardTemplates && teacherIdCardTemplates.map((template) => (
                         <TableRow key={template.id}>
-                          <TableCell>{template.name}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{template.name}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {template.isDefault ? <Badge>Default</Badge> : "-"}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {new Date(template.createdAt).toLocaleDateString()}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="flex gap-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -2434,23 +2434,23 @@ const Configuration = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Template Name</TableHead>
-                        <TableHead>Default</TableHead>
-                        <TableHead>Created Date</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Template Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Default</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Created Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {studentIdCardTemplates && studentIdCardTemplates.map((template) => (
                         <TableRow key={template.id}>
-                          <TableCell>{template.name}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{template.name}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {template.isDefault ? <Badge>Default</Badge> : "-"}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {new Date(template.createdAt).toLocaleDateString()}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="flex gap-2">
                               <Button
                                 variant="outline"
@@ -2642,23 +2642,23 @@ const Configuration = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Template Name</TableHead>
-                        <TableHead>Default</TableHead>
-                        <TableHead>Created Date</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Template Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Default</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Created Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {marksheetTemplates.map((template) => (
                         <TableRow key={template.id}>
-                          <TableCell>{template.name}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{template.name}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {template.isDefault ? <Badge>Default</Badge> : "-"}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {new Date(template.createdAt).toLocaleDateString()}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="flex gap-2">
                               <Button
                                 variant="outline"
@@ -2870,25 +2870,25 @@ const Configuration = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Template Name</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Default</TableHead>
-                        <TableHead>Created Date</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Template Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Type</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Default</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Created Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {payrollTemplates.map((template) => (
                         <TableRow key={template.id}>
-                          <TableCell>{template.name}</TableCell>
-                          <TableCell>{template.type.replace('_', ' ')}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{template.name}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{template.type.replace('_', ' ')}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {template.isDefault ? <Badge>Default</Badge> : "-"}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {new Date(template.createdAt).toLocaleDateString()}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="flex gap-2">
                               <Button
                                 variant="outline"

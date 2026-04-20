@@ -316,7 +316,7 @@ const Teachers = () => {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="bg-gradient-primary rounded-2xl p-6 text-primary-foreground shadow-medium flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className=" rounded-md p-6 text-primary-foreground shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="text-center sm:text-left">
             <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">
               {activeScreen === "management" ? "Teacher Management" : "Teacher Attendance"}
@@ -825,10 +825,10 @@ const Teachers = () => {
                 </TabsList>
 
                 <TabsContent value="info" className="space-y-6 pt-4">
-                  <div className="flex items-start gap-6">
+                  <div className="flex items-start gap-4">
                     <Avatar className="h-24 w-24 border-4 border-background">
                       <AvatarImage className="object-cover" src={viewTeacher.photo_url} alt={viewTeacher.name} />
-                      <AvatarFallback className="text-3xl font-bold bg-primary/10 text-primary uppercase">
+                      <AvatarFallback className="text-xl font-semibold bg-primary/10 text-primary uppercase">
                         {viewTeacher.name.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
@@ -847,7 +847,7 @@ const Teachers = () => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <h4 className="font-semibold text-sm text-muted-foreground">Contact</h4>
                       <p>{viewTeacher.phone || "-"}</p>

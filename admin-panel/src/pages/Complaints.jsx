@@ -109,9 +109,9 @@ const Complaints = () => {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="space-y-6 animate-in fade-in slide-in- duration-500">
         <div className="flex flex-col gap-1">
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+          <h1 className="text-xl font-semibold tracking-tight bg-clip-text text-transparent">
             My Assigned Complaints
           </h1>
           <p className="text-muted-foreground">
@@ -163,7 +163,7 @@ const Complaints = () => {
           </Button>
         </div>
 
-        <Card className="border-none shadow-xl bg-card/50 backdrop-blur-sm">
+        <Card className="shadow-sm bg-card/50">
           <CardHeader className="pb-3 px-6">
             <CardTitle className="text-xl font-semibold flex items-center gap-2">
               <AlertCircle className="w-5 h-5 text-primary" />
@@ -180,7 +180,7 @@ const Complaints = () => {
                 <p className="text-muted-foreground animate-pulse font-medium">Fetching your assignments...</p>
               </div>
             ) : complaints?.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center gap-4 bg-slate-50/50 dark:bg-slate-900/20 rounded-2xl border-2 border-dashed border-muted">
+              <div className="flex flex-col items-center justify-center py-20 text-center gap-4 bg-slate-50/50 dark:bg-slate-900/20 rounded-md border-2 border-dashed border-muted">
                 <CheckCircle2 className="w-12 h-12 text-muted-foreground/40" />
                 <div>
                   <p className="text-lg font-semibold text-foreground">All caught up!</p>
@@ -192,29 +192,29 @@ const Complaints = () => {
                 <Table>
                   <TableHeader className="bg-muted/50">
                     <TableRow>
-                      <TableHead className="font-bold py-4">Subject</TableHead>
-                      <TableHead className="font-bold py-4">Complainant</TableHead>
-                      <TableHead className="font-bold py-4">Type</TableHead>
-                      <TableHead className="font-bold py-4">Status</TableHead>
-                      <TableHead className="font-bold py-4">Date</TableHead>
-                      <TableHead className="font-bold py-4 text-right px-6">Actions</TableHead>
+                      <TableHead className="font-bold py-2 px-3 text-sm">Subject</TableHead>
+                      <TableHead className="font-bold py-2 px-3 text-sm">Complainant</TableHead>
+                      <TableHead className="font-bold py-2 px-3 text-sm">Type</TableHead>
+                      <TableHead className="font-bold py-2 px-3 text-sm">Status</TableHead>
+                      <TableHead className="font-bold py-2 px-3 text-sm">Date</TableHead>
+                      <TableHead className="font-bold py-2 text-right px-6 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {complaints?.map((complaint) => (
                       <TableRow key={complaint.id} className="hover:bg-muted/30 transition-colors group">
-                        <TableCell className="font-medium">{complaint.subject}</TableCell>
-                        <TableCell>{complaint.complainantName}</TableCell>
-                        <TableCell>
+                        <TableCell className="font-medium py-2 px-3 text-sm">{complaint.subject}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">{complaint.complainantName}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           <Badge variant="outline" className="font-normal capitalize shadow-xs">
                             {complaint.type}
                           </Badge>
                         </TableCell>
-                        <TableCell>{getStatusBadge(complaint.status)}</TableCell>
-                        <TableCell className="text-muted-foreground text-sm">
+                        <TableCell className="py-2 px-3 text-sm">{getStatusBadge(complaint.status)}</TableCell>
+                        <TableCell className="text-muted-foreground py-2 px-3 text-sm">
                           {format(new Date(complaint.createdAt), "MMM dd, yyyy")}
                         </TableCell>
-                        <TableCell className="text-right px-6">
+                        <TableCell className="text-right py-2 px-3 text-sm">
                           <div className="flex justify-end gap-2">
                             <Button
                               variant="secondary"
@@ -258,7 +258,7 @@ const Complaints = () => {
 
         {/* Remarks Dialog */}
         <Dialog open={remarkDialogOpen} onOpenChange={setRemarkDialogOpen}>
-          <DialogContent className="max-w-2xl bg-card border-none shadow-2xl rounded-2xl overflow-hidden p-0">
+          <DialogContent className="max-w-2xl bg-card border-none shadow-2xl rounded-md overflow-hidden p-0">
             <DialogHeader className="p-6 bg-primary/5 border-b border-border">
               <DialogTitle className="flex items-center gap-2 text-xl">
                 <MessageSquare className="w-5 h-5 text-primary" />
@@ -275,7 +275,7 @@ const Complaints = () => {
                     [...selectedComplaint.remarks].sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).map((remark, idx) => (
                       <div
                         key={remark.id || idx}
-                        className="flex flex-col gap-1.5 animate-in slide-in-from-left-2 duration-300"
+                        className="flex flex-col gap-1.5 animate-in slide-in- duration-300"
                       >
                         <div className="flex items-center gap-2 text-sm">
                           <span className="font-bold text-primary">{remark.author?.name || "System User"}</span>
@@ -284,7 +284,7 @@ const Complaints = () => {
                             {format(new Date(remark.createdAt), "MMM dd, HH:mm")}
                           </span>
                         </div>
-                        <div className="bg-muted/50 rounded-2xl p-4 text-sm leading-relaxed border border-border shadow-xs text-foreground/90">
+                        <div className="bg-muted/50 rounded-md p-4 text-sm leading-relaxed border border-border shadow-xs text-foreground/90">
                           {remark.remark}
                         </div>
                       </div>
@@ -306,7 +306,7 @@ const Complaints = () => {
                   <Button
                     onClick={handleAddRemark}
                     disabled={isAddingRemark || !remarkText.trim()}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-6 shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-6 shadow-lg shadow-primary/20 transition-all active:scale-95"
                   >
                     {isAddingRemark ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
                     Add Remark

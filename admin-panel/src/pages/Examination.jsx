@@ -1012,7 +1012,7 @@ const Examination = () => {
           /{{studentPhotoOrPlaceholder}}/g,
           student.photo_url
             ? `< img src = "${student.photo_url}" alt = "Student Photo" style = "width: 100%; height: 100%; object-fit: cover;" /> `
-            : `< div class="student-photo-placeholder" style = "font-size: 10px; color: #666;" > No Photo</div > `
+            : `< div class="student-pho" style = "font-size: 10px; color: #666;" > No Photo</div > `
         )
         .replace(/{{studentPhoto}}/g, student.photo_url || '')
 
@@ -1052,9 +1052,9 @@ const Examination = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
+            <h1 className="text-xl font-semibold flex items-center gap-2">
               <FileText className="w-8 h-8 text-primary" />
               Examination Management
             </h1>
@@ -1106,7 +1106,7 @@ const Examination = () => {
                         {editingExam ? "Edit Exam" : "Create New Exam"}
                       </DialogTitle>
                     </DialogHeader>
-                    <div className="grid grid-cols-4 gap-6 p-2">
+                    <div className="grid grid-cols-4 gap-4 p-2">
                       <div className="space-y-2">
                         <Label>Exam Name</Label>
                         <Input
@@ -1256,12 +1256,12 @@ const Examination = () => {
                             <Table>
                               <TableHeader>
                                 <TableRow>
-                                  <TableHead className="w-[50px]">Include</TableHead>
-                                  <TableHead>Subject</TableHead>
-                                  <TableHead>Date</TableHead>
-                                  <TableHead>Start Time</TableHead>
-                                  <TableHead>End Time</TableHead>
-                                  <TableHead className="w-[100px]">Total Marks</TableHead>
+                                  <TableHead className="text-sm px-3 py-2 w-[50px]">Include</TableHead>
+                                  <TableHead className="py-2 px-3 text-sm">Subject</TableHead>
+                                  <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                                  <TableHead className="py-2 px-3 text-sm">Start Time</TableHead>
+                                  <TableHead className="py-2 px-3 text-sm">End Time</TableHead>
+                                  <TableHead className="text-sm px-3 py-2 w-[100px]">Total Marks</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -1271,7 +1271,7 @@ const Examination = () => {
 
                                   return (
                                     <TableRow key={subject.id}>
-                                      <TableCell>
+                                      <TableCell className="py-2 px-3 text-sm">
                                         <Checkbox
                                           checked={scheduleEntry.included || false}
                                           onCheckedChange={(checked) => {
@@ -1286,8 +1286,8 @@ const Examination = () => {
                                           }}
                                         />
                                       </TableCell>
-                                      <TableCell className="font-medium">{subject.name}</TableCell>
-                                      <TableCell>
+                                      <TableCell className="text-sm px-3 py-2 font-medium">{subject.name}</TableCell>
+                                      <TableCell className="py-2 px-3 text-sm">
                                         <Input
                                           type="date"
                                           value={scheduleEntry.date || ""}
@@ -1306,7 +1306,7 @@ const Examination = () => {
                                           }}
                                         />
                                       </TableCell>
-                                      <TableCell>
+                                      <TableCell className="py-2 px-3 text-sm">
                                         <Input
                                           type="time"
                                           value={scheduleEntry.startTime || ""}
@@ -1323,7 +1323,7 @@ const Examination = () => {
                                           }}
                                         />
                                       </TableCell>
-                                      <TableCell>
+                                      <TableCell className="py-2 px-3 text-sm">
                                         <Input
                                           type="time"
                                           value={scheduleEntry.endTime || ""}
@@ -1340,7 +1340,7 @@ const Examination = () => {
                                           }}
                                         />
                                       </TableCell>
-                                      <TableCell>
+                                      <TableCell className="py-2 px-3 text-sm">
                                         <Input
                                           type="number"
                                           value={scheduleEntry.totalMarks || ""}
@@ -1393,7 +1393,7 @@ const Examination = () => {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="flex items-center gap-2 text-primary border-primary/20 hover:bg-primary/5"
+                          className="flex items-center gap-2 text-primary border-border hover:bg-primary/5"
                           onClick={() => handlePrintDateSheet(viewingExam)}
                         >
                           <Printer className="w-4 h-4" />
@@ -1409,7 +1409,7 @@ const Examination = () => {
                           {/* Header Info */}
                           <div className="space-y-4">
                             <div>
-                              <Badge variant="outline" className="mb-2 text-primary border-primary/20 bg-primary/5">
+                              <Badge variant="outline" className="mb-2 text-primary border-border bg-primary/5">
                                 {viewingExam.type}
                               </Badge>
                               <h3 className="text-2xl font-bold text-primary">{viewingExam.examName}</h3>
@@ -1476,11 +1476,11 @@ const Examination = () => {
                             <Table>
                               <TableHeader className="bg-muted/50">
                                 <TableRow>
-                                  <TableHead className="font-bold">Subject</TableHead>
-                                  <TableHead className="font-bold">Exam Date</TableHead>
-                                  <TableHead className="font-bold">Start Time</TableHead>
-                                  <TableHead className="font-bold">End Time</TableHead>
-                                  <TableHead className="font-bold">Total Marks</TableHead>
+                                  <TableHead className="text-sm px-3 py-2 font-bold">Subject</TableHead>
+                                  <TableHead className="text-sm px-3 py-2 font-bold">Exam Date</TableHead>
+                                  <TableHead className="text-sm px-3 py-2 font-bold">Start Time</TableHead>
+                                  <TableHead className="text-sm px-3 py-2 font-bold">End Time</TableHead>
+                                  <TableHead className="text-sm px-3 py-2 font-bold">Total Marks</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -1489,10 +1489,10 @@ const Examination = () => {
                                     const subject = subjects.find(sub => sub.id === s.subjectId);
                                     return (
                                       <TableRow key={index} className="hover:bg-muted/30 transition-colors">
-                                        <TableCell className="font-semibold text-primary">
+                                        <TableCell className="text-sm px-3 py-2 font-semibold text-primary">
                                           {subject?.name || "Unknown"}
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">
                                           <div className="flex flex-col">
                                             <span className="font-medium">
                                               {s.date ? new Date(s.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : "N/A"}
@@ -1500,17 +1500,17 @@ const Examination = () => {
                                             {s.date && <span className="text-xs text-muted-foreground">{new Date(s.date).getFullYear()}</span>}
                                           </div>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">
                                           <Badge variant="outline" className="font-normal bg-green-50/50 text-green-700 border-green-200">
                                             {s.startTime}
                                           </Badge>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">
                                           <Badge variant="outline" className="font-normal bg-red-50/50 text-red-700 border-red-200">
                                             {s.endTime}
                                           </Badge>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">
                                           <Badge variant="secondary" className="font-normal">
                                             {s.totalMarks || 100}
                                           </Badge>
@@ -1594,14 +1594,14 @@ const Examination = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Exam Name</TableHead>
-                          <TableHead>Program</TableHead>
-                          <TableHead>Class</TableHead>
-                          <TableHead>Session</TableHead>
-                          <TableHead>Type</TableHead>
-                          <TableHead>Start Date</TableHead>
-                          <TableHead>End Date</TableHead>
-                          <TableHead>Actions</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Exam Name</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Program</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Class</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Session</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Type</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Start Date</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">End Date</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1619,14 +1619,14 @@ const Examination = () => {
                           return matchesSearch && matchesDate && matchesTime;
                         }).map((exam) => (
                           <TableRow key={exam.id}>
-                            <TableCell className="font-medium">{exam.examName}</TableCell>
-                            <TableCell>{exam.program.name} {exam.program.department?.name ? `— ${exam.program.department.name}` : ""}</TableCell>
-                            <TableCell>{exam.class?.name || "N/A"}</TableCell>
-                            <TableCell>{exam.session}</TableCell>
-                            <TableCell>{exam.type}</TableCell>
-                            <TableCell className="whitespace-nowrap">{new Date(exam.startDate).toLocaleDateString()}</TableCell>
-                            <TableCell className="whitespace-nowrap">{new Date(exam.endDate).toLocaleDateString()}</TableCell>
-                            <TableCell>
+                            <TableCell className="text-sm px-3 py-2 font-medium">{exam.examName}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{exam.program.name} {exam.program.department?.name ? `— ${exam.program.department.name}` : ""}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{exam.class?.name || "N/A"}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{exam.session}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{exam.type}</TableCell>
+                            <TableCell className="text-sm px-3 py-2 whitespace-nowrap">{new Date(exam.startDate).toLocaleDateString()}</TableCell>
+                            <TableCell className="text-sm px-3 py-2 whitespace-nowrap">{new Date(exam.endDate).toLocaleDateString()}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
                               <div className="flex gap-2">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1950,7 +1950,7 @@ const Examination = () => {
                               <Table className="border-collapse">
                                 <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                                   <TableRow className="hover:bg-transparent">
-                                    <TableHead className="w-[200px] border-r">Student Name (Roll No)</TableHead>
+                                    <TableHead className="text-sm px-3 py-2 w-[200px] border-r">Student Name (Roll No)</TableHead>
                                     {examSubjects.map((s) => (
                                       <TableHead key={s.id} className="text-center min-w-[120px] border-r bg-muted/5">
                                         <div className="font-bold text-orange-700">{s.name}</div>
@@ -1962,7 +1962,7 @@ const Examination = () => {
                                 <TableBody>
                                   {sectionStudents.map((student) => (
                                     <TableRow key={student.id} className="hover:bg-orange-50/30 transition-colors">
-                                      <TableCell className="font-medium border-r sticky left-0 bg-white z-[5]">
+                                      <TableCell className="text-sm px-3 py-2 font-medium border-r sticky left-0 bg-white z-[5]">
                                         <div className="text-sm">{getFullName(student)}</div>
                                         <div className="text-[10px] text-muted-foreground font-mono">{student.rollNumber}</div>
                                       </TableCell>
@@ -2125,13 +2125,13 @@ const Examination = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Exam</TableHead>
-                          <TableHead>Student</TableHead>
-                          <TableHead>Subjects</TableHead>
-                          <TableHead>Total</TableHead>
-                          <TableHead>Obtained</TableHead>
-                          <TableHead>%</TableHead>
-                          <TableHead>Actions</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Exam</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Student</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Subjects</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Total</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Obtained</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">%</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -2145,13 +2145,13 @@ const Examination = () => {
 
                           return (
                             <TableRow key={key}>
-                              <TableCell className="font-medium">{exam?.examName || "N/A"}</TableCell>
-                              <TableCell>{group.student ? `${getFullName(group.student)} (${group.student.rollNumber})` : "Unknown"}</TableCell>
-                              <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate" title={subjectSummary}>{subjectSummary}</TableCell>
-                              <TableCell>{totalMarks}</TableCell>
-                              <TableCell>{obtainedMarks}</TableCell>
-                              <TableCell>{percentage}%</TableCell>
-                              <TableCell>
+                              <TableCell className="text-sm px-3 py-2 font-medium">{exam?.examName || "N/A"}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">{group.student ? `${getFullName(group.student)} (${group.student.rollNumber})` : "Unknown"}</TableCell>
+                              <TableCell className="px-3 py-2 text-sm text-muted-foreground max-w-[200px] truncate" title={subjectSummary}>{subjectSummary}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">{totalMarks}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">{obtainedMarks}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">{percentage}%</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">
                                 <div className="flex gap-2">
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -2237,11 +2237,11 @@ const Examination = () => {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Subject</TableHead>
-                            <TableHead className="text-right">Total</TableHead>
-                            <TableHead className="text-right">Obtained</TableHead>
-                            <TableHead className="text-right">%</TableHead>
-                            <TableHead className="text-center">Status</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Subject</TableHead>
+                            <TableHead className="text-sm px-3 py-2 text-right">Total</TableHead>
+                            <TableHead className="text-sm px-3 py-2 text-right">Obtained</TableHead>
+                            <TableHead className="text-sm px-3 py-2 text-right">%</TableHead>
+                            <TableHead className="text-sm px-3 py-2 text-center">Status</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2249,11 +2249,11 @@ const Examination = () => {
                             const pct = m.totalMarks > 0 ? ((m.obtainedMarks / m.totalMarks) * 100).toFixed(1) : "0.0";
                             return (
                               <TableRow key={m.id}>
-                                <TableCell className="font-medium">{m.subject}</TableCell>
-                                <TableCell className="text-right">{m.totalMarks}</TableCell>
-                                <TableCell className="text-right">{m.isAbsent ? "—" : m.obtainedMarks}</TableCell>
-                                <TableCell className="text-right">{m.isAbsent ? "—" : `${pct}%`}</TableCell>
-                                <TableCell className="text-center">
+                                <TableCell className="text-sm px-3 py-2 font-medium">{m.subject}</TableCell>
+                                <TableCell className="text-sm px-3 py-2 text-right">{m.totalMarks}</TableCell>
+                                <TableCell className="text-sm px-3 py-2 text-right">{m.isAbsent ? "—" : m.obtainedMarks}</TableCell>
+                                <TableCell className="text-sm px-3 py-2 text-right">{m.isAbsent ? "—" : `${pct}%`}</TableCell>
+                                <TableCell className="text-sm px-3 py-2 text-center">
                                   {m.isAbsent
                                     ? <Badge variant="destructive" className="text-xs">Absent</Badge>
                                     : <Badge variant="secondary" className="text-xs">Present</Badge>
@@ -2543,15 +2543,15 @@ const Examination = () => {
                                 <Table>
                                   <TableHeader>
                                     <TableRow>
-                                      <TableHead>Position</TableHead>
-                                      <TableHead>Student</TableHead>
-                                      <TableHead>Reg. No</TableHead>
-                                      <TableHead>Class</TableHead>
-                                      <TableHead>Total Marks</TableHead>
-                                      <TableHead>Obtained</TableHead>
-                                      <TableHead>Percentage</TableHead>
-                                      <TableHead>Grade</TableHead>
-                                      <TableHead>GPA</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Position</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Student</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Reg. No</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Class</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Total Marks</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Obtained</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Percentage</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Grade</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">GPA</TableHead>
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
@@ -2561,21 +2561,21 @@ const Examination = () => {
                                         const student = result.student;
                                         return (
                                           <TableRow key={result.id}>
-                                            <TableCell className="font-bold">
+                                            <TableCell className="text-sm px-3 py-2 font-bold">
                                               {idx + 1}
                                             </TableCell>
-                                            <TableCell>{student ? getFullName(student) : 'N/A'}</TableCell>
-                                            <TableCell>{student?.rollNumber}</TableCell>
-                                            <TableCell>{student?.class?.name}</TableCell>
-                                            <TableCell>{result.totalMarks}</TableCell>
-                                            <TableCell>
+                                            <TableCell className="py-2 px-3 text-sm">{student ? getFullName(student) : 'N/A'}</TableCell>
+                                            <TableCell className="py-2 px-3 text-sm">{student?.rollNumber}</TableCell>
+                                            <TableCell className="py-2 px-3 text-sm">{student?.class?.name}</TableCell>
+                                            <TableCell className="py-2 px-3 text-sm">{result.totalMarks}</TableCell>
+                                            <TableCell className="py-2 px-3 text-sm">
                                               {result.obtainedMarks}
                                             </TableCell>
-                                            <TableCell>
+                                            <TableCell className="py-2 px-3 text-sm">
                                               {result.percentage.toFixed(2)}%
                                             </TableCell>
-                                            <TableCell>{result.grade}</TableCell>
-                                            <TableCell>
+                                            <TableCell className="py-2 px-3 text-sm">{result.grade}</TableCell>
+                                            <TableCell className="py-2 px-3 text-sm">
                                               {result.gpa.toFixed(2)}
                                             </TableCell>
                                           </TableRow>
@@ -2740,14 +2740,14 @@ const Examination = () => {
                                   <Table>
                                     <TableHeader>
                                       <TableRow>
-                                        <TableHead className="w-16">Position</TableHead>
-                                        <TableHead>Student Name</TableHead>
-                                        <TableHead>Roll No</TableHead>
-                                        <TableHead className="text-right">Total</TableHead>
-                                        <TableHead className="text-right">Obtained</TableHead>
-                                        <TableHead className="text-right">%</TableHead>
-                                        <TableHead>Grade</TableHead>
-                                        <TableHead className="text-right">GPA</TableHead>
+                                        <TableHead className="text-sm px-3 py-2 w-16">Position</TableHead>
+                                        <TableHead className="py-2 px-3 text-sm">Student Name</TableHead>
+                                        <TableHead className="py-2 px-3 text-sm">Roll No</TableHead>
+                                        <TableHead className="text-sm px-3 py-2 text-right">Total</TableHead>
+                                        <TableHead className="text-sm px-3 py-2 text-right">Obtained</TableHead>
+                                        <TableHead className="text-sm px-3 py-2 text-right">%</TableHead>
+                                        <TableHead className="py-2 px-3 text-sm">Grade</TableHead>
+                                        <TableHead className="text-sm px-3 py-2 text-right">GPA</TableHead>
                                       </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -2755,16 +2755,16 @@ const Examination = () => {
                                         const student = students.find(s => s.id === pos.studentId);
                                         return (
                                           <TableRow key={pos.id}>
-                                            <TableCell className="font-bold">
+                                            <TableCell className="text-sm px-3 py-2 font-bold">
                                               {pos.position === 1 ? "🥇" : pos.position === 2 ? "🥈" : pos.position === 3 ? "🥉" : pos.position}
                                             </TableCell>
-                                            <TableCell>{student ? getFullName(student) : 'N/A'}</TableCell>
-                                            <TableCell>{student?.rollNumber}</TableCell>
-                                            <TableCell className="text-right">{pos.totalMarks}</TableCell>
-                                            <TableCell className="text-right">{pos.obtainedMarks}</TableCell>
-                                            <TableCell className="text-right">{pos.percentage.toFixed(2)}%</TableCell>
-                                            <TableCell>{pos.grade}</TableCell>
-                                            <TableCell className="text-right">{pos.gpa.toFixed(2)}</TableCell>
+                                            <TableCell className="py-2 px-3 text-sm">{student ? getFullName(student) : 'N/A'}</TableCell>
+                                            <TableCell className="py-2 px-3 text-sm">{student?.rollNumber}</TableCell>
+                                            <TableCell className="text-sm px-3 py-2 text-right">{pos.totalMarks}</TableCell>
+                                            <TableCell className="text-sm px-3 py-2 text-right">{pos.obtainedMarks}</TableCell>
+                                            <TableCell className="text-sm px-3 py-2 text-right">{pos.percentage.toFixed(2)}%</TableCell>
+                                            <TableCell className="py-2 px-3 text-sm">{pos.grade}</TableCell>
+                                            <TableCell className="text-sm px-3 py-2 text-right">{pos.gpa.toFixed(2)}</TableCell>
                                           </TableRow>
                                         );
                                       })}

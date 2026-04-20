@@ -125,30 +125,30 @@ const DashboardLayout = ({ children }) => {
       <aside
         className={cn(
           "hidden lg:fixed lg:inset-y-0 lg:flex lg:flex-col bg-sidebar transition-all duration-300 ease-in-out",
-          sidebarCollapsed ? "lg:w-16" : "lg:w-64"
+          sidebarCollapsed ? "lg:w-14" : "lg:w-56"
         )}
       >
         <div className="flex flex-col flex-grow pt-5 overflow-y-auto scrollbar-thin">
           {/* Logo */}
           <div
             className={cn(
-              "flex items-center gap-3 px-6 pb-6 transition-all duration-300",
-              sidebarCollapsed && "px-3 justify-center"
+              "flex items-center gap-2 px-4 pb-4 transition-all duration-300",
+              sidebarCollapsed && "px-2 justify-center"
             )}
           >
-            <div className="w-12 h-12 bg-sidebar-primary rounded-xl flex items-center justify-center shrink-0 overflow-hidden">
+            <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
               <img
                 src={settings?.logo || logo}
                 alt="Logo"
-                className="w-full h-full object-contain p-1"
+                className="w-full h-full object-contain p-0.5"
               />
             </div>
             {!sidebarCollapsed && (
-              <div className="animate-fade-in">
-                <h2 className="font-bold text-sidebar-foreground text-base line-clamp-1">
+              <div className="animate-fade-in min-w-0">
+                <h2 className="font-semibold text-sidebar-foreground text-sm line-clamp-1">
                   {settings?.instituteName}
                 </h2>
-                <p className="text-xs text-sidebar-foreground/70">
+                <p className="text-[10px] text-sidebar-foreground/70">
                   {settings?.phone || "Administration"}
                 </p>
               </div>
@@ -156,7 +156,7 @@ const DashboardLayout = ({ children }) => {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-3 space-y-1">
+          <nav className="flex-1 px-2 space-y-0.5">
             {menuItems.map((item) => {
               const Icon = item.icon;
               const isActive = location.pathname === item.path;
@@ -170,7 +170,7 @@ const DashboardLayout = ({ children }) => {
                   to={item.path}
                   onClick={(e) => e.stopPropagation()}
                   className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                    "flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors",
                     isActive
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
                       : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
@@ -178,7 +178,7 @@ const DashboardLayout = ({ children }) => {
                   )}
                   title={sidebarCollapsed ? item.label : undefined}
                 >
-                  <Icon className="w-5 h-5 shrink-0" />
+                  <Icon className="w-4 h-4 shrink-0" />
                   {!sidebarCollapsed && <span className="animate-fade-in">{item.label}</span>}
                 </Link>
               );
@@ -186,14 +186,14 @@ const DashboardLayout = ({ children }) => {
           </nav>
 
           {/* Collapse */}
-          <div className="px-3 pb-4">
+          <div className="px-2 pb-3">
             <Button
               variant="ghost"
               size="sm"
               onClick={toggleSidebar}
               className={cn(
-                "w-full justify-center hover:bg-sidebar-accent text-white bg-amber-700",
-                sidebarCollapsed && "px-2"
+                "w-full justify-center hover:bg-sidebar-accent text-white bg-amber-700 h-7 text-xs",
+                sidebarCollapsed && "px-1"
               )}
             >
               {sidebarCollapsed ? (
@@ -213,7 +213,7 @@ const DashboardLayout = ({ children }) => {
       {sidebarOpen && (
         <>
           <div
-            className="lg:hidden fixed inset-0 bg-foreground/20 backdrop-blur-sm z-40"
+            className="lg:hidden fixed inset-0 bg-foreground/20 z-40"
             onClick={() => setSidebarOpen(false)}
           />
           <aside className="lg:hidden fixed inset-y-0 left-0 w-64 bg-sidebar z-50">
@@ -251,7 +251,7 @@ const DashboardLayout = ({ children }) => {
                       to={item.path}
                       onClick={() => setSidebarOpen(false)}
                       className={cn(
-                        "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                        "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                         isActive
                           ? "bg-sidebar-accent text-sidebar-accent-foreground"
                           : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
@@ -272,40 +272,37 @@ const DashboardLayout = ({ children }) => {
       <div
         className={cn(
           "flex flex-col min-h-screen transition-all duration-300",
-          sidebarCollapsed ? "lg:pl-16" : "lg:pl-64"
+          sidebarCollapsed ? "lg:pl-14" : "lg:pl-56"
         )}
       >
-        <header className="bg-card border-b border-border sticky top-0 z-30 shadow-soft">
-          <div className="flex items-center justify-between px-4 py-4">
-            <div className="flex items-center gap-4">
+        <header className="bg-card border-b border-border sticky top-0 z-30">
+          <div className="flex items-center justify-between px-3 py-2">
+            <div className="flex items-center gap-3">
               <Button
                 variant="ghost"
                 size="icon"
-                className="lg:hidden"
+                className="lg:hidden h-7 w-7"
                 onClick={() => setSidebarOpen(true)}
               >
-                <Menu className="w-5 h-5" />
+                <Menu className="w-4 h-4" />
               </Button>
-              <h1 className="text-xl font-semibold text-foreground">
+              <h1 className="text-sm font-semibold text-foreground">
                 {settings?.instituteName}
               </h1>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <ThemeToggle />
-              {/* <Button variant="ghost" size="icon">
-                <Bell className="w-5 h-5" />
-              </Button> */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="flex items-center gap-2 pl-2 pr-1 h-10 rounded-full hover:bg-muted">
-                    <span className="hidden md:flex flex-col items-end mr-1 space-y-1 px-2">
-                      <span className="text-sm text-foreground font-semibold leading-none">{currentUser?.name}</span>
-                      <span className="text-xs text-muted-foreground leading-none">{currentUser?.designation || currentUser?.role}</span>
+                  <Button variant="ghost" className="flex items-center gap-1.5 pl-1.5 pr-1 h-8 rounded-full hover:bg-muted">
+                    <span className="hidden md:flex flex-col items-end mr-1 px-1">
+                      <span className="text-xs text-foreground font-semibold leading-none">{currentUser?.name}</span>
+                      <span className="text-[10px] text-muted-foreground leading-none mt-0.5">{currentUser?.designation || currentUser?.role}</span>
                     </span>
-                    <Avatar className="h-8 w-8 border border-border">
+                    <Avatar className="h-7 w-7 border border-border">
                       <AvatarImage src="" alt={currentUser?.name} />
-                      <AvatarFallback className="bg-primary/10 text-primary">
-                        {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : <User className="h-4 w-4" />}
+                      <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                        {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : <User className="h-3 w-3" />}
                       </AvatarFallback>
                     </Avatar>
                   </Button>
@@ -330,7 +327,7 @@ const DashboardLayout = ({ children }) => {
           </div>
         </header>
 
-        <main className="flex-1 p-4 lg:p-6 w-full overflow-x-hidden">{children}</main>
+        <main className="flex-1 p-3 lg:p-4 w-full overflow-x-hidden">{children}</main>
       </div>
     </div>
   );

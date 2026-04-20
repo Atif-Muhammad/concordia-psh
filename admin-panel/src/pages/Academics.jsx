@@ -880,9 +880,9 @@ const Academics = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
+            <h1 className="text-xl font-semibold flex items-center gap-2">
               <BookOpen className="w-8 h-8 text-primary" />
               Academics Management
             </h1>
@@ -970,27 +970,27 @@ const Academics = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Session Name</TableHead>
-                      <TableHead>Start Date</TableHead>
-                      <TableHead>End Date</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Session Name</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Start Date</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">End Date</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                      <TableHead className="text-right px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {academicSessions.map((s) => (
                       <TableRow key={s.id}>
-                        <TableCell className="font-medium">{s.name}</TableCell>
-                        <TableCell>{s.startDate ? new Date(s.startDate).toLocaleDateString() : 'N/A'}</TableCell>
-                        <TableCell>{s.endDate ? new Date(s.endDate).toLocaleDateString() : 'N/A'}</TableCell>
-                        <TableCell>
+                        <TableCell className="font-medium py-2 px-3 text-sm">{s.name}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">{s.startDate ? new Date(s.startDate).toLocaleDateString() : 'N/A'}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">{s.endDate ? new Date(s.endDate).toLocaleDateString() : 'N/A'}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           {s.isActive ? (
                             <Badge className="bg-green-500">Active</Badge>
                           ) : (
                             <Badge variant="secondary">Inactive</Badge>
                           )}
                         </TableCell>
-                        <TableCell className="text-right space-x-2">
+                        <TableCell className="text-right space-x-2 py-2 px-3 text-sm">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button variant="outline" size="sm" onClick={() => openEdit("session", s)}>
@@ -1310,7 +1310,7 @@ const Academics = () => {
                     };
 
                     return (
-                      <div key={tt.id} className="mb-8">
+                      <div key={tt.id} className="mb-4">
                         <div className="flex items-center justify-between mb-3">
                           <span className="font-semibold text-base">{label}</span>
                           <div className="flex gap-2">
@@ -1357,7 +1357,7 @@ const Academics = () => {
                                       const teach = slot.teacher;
                                       return (
                                         <td key={startTime} className="px-2 py-1.5 align-top">
-                                          <div className="rounded-md bg-primary/5 border border-primary/10 px-2 py-1.5 text-xs space-y-0.5">
+                                          <div className="rounded-md bg-primary/5 border border-border px-2 py-1.5 text-xs space-y-0.5">
                                             <div className="font-medium leading-tight">{subj?.name || "—"}</div>
                                             {teach && <div className="text-muted-foreground leading-tight">{teach.name}</div>}
                                           </div>
@@ -1586,12 +1586,12 @@ const Academics = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Level</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Name</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Department</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Level</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Duration</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Description</TableHead>
+                      <TableHead className="text-right px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1599,18 +1599,18 @@ const Academics = () => {
                       const dept = departments.find((d) => d.id === p.departmentId);
                       return (
                         <TableRow key={p.id}>
-                          <TableCell className="font-medium">{p.name}</TableCell>
-                          <TableCell>{dept?.name ?? "—"}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 font-medium px-3 text-sm">{p.name}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{dept?.name ?? "—"}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {p.level === "INTERMEDIATE" && "Intermediate"}
                             {p.level === "UNDERGRADUATE" && "BS"}
                             {p.level === "DIPLOMA" && "Diploma"}
                             {p.level === "COACHING" && "Coaching"}
                             {p.level === "SHORT_COURSE" && "Short Course"}
                           </TableCell>
-                          <TableCell>{p.duration}</TableCell>
-                          <TableCell>{p.description || "—"}</TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="py-2 px-3 text-sm">{p.duration}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{p.description || "—"}</TableCell>
+                          <TableCell className="py-2 text-right px-3 text-sm">
                             <div className="flex justify-end gap-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1858,10 +1858,10 @@ const Academics = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Name</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Program</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Type</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1876,14 +1876,14 @@ const Academics = () => {
                         const prog = programs.find((p) => p.id === c.programId);
                         return (
                           <TableRow key={c.id}>
-                            <TableCell>{c.name}</TableCell>
-                            <TableCell>{prog?.name}</TableCell>
-                            <TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{c.name}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{prog?.name}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
                               {c.isSemester ? "Semester" : prog?.level === "INTERMEDIATE" || prog?.level === "DIPLOMA"
                                 ? "Year"
                                 : "Single"}
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
                               <div className="flex gap-2">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -2109,11 +2109,11 @@ const Academics = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Class</TableHead>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Capacity</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Name</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Class</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Program</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Capacity</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2131,11 +2131,11 @@ const Academics = () => {
                         const prog = programs.find((p) => p.id === cls?.programId);
                         return (
                           <TableRow key={s.id}>
-                            <TableCell>{s.name}</TableCell>
-                            <TableCell>{cls?.name}</TableCell>
-                            <TableCell>{prog?.name}</TableCell>
-                            <TableCell>{s.capacity || "-"}</TableCell>
-                            <TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{s.name}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{cls?.name}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{prog?.name}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{s.capacity || "-"}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
                               <div className="flex gap-2">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -2217,8 +2217,8 @@ const Academics = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Name</TableHead>
+                      <TableHead className="text-right px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2230,8 +2230,8 @@ const Academics = () => {
                       .map((s) => {
                         return (
                           <TableRow key={s.id}>
-                            <TableCell className="font-medium">{s.name}</TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="py-2 font-medium px-3 text-sm">{s.name}</TableCell>
+                            <TableCell className="py-2 text-right px-3 text-sm">
                               <div className="flex justify-end gap-2">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -2524,10 +2524,10 @@ const Academics = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Class</TableHead>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Subjects</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Class</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Program</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Subjects</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2549,10 +2549,10 @@ const Academics = () => {
                       const prog = programs.find((p) => p.id === cls?.programId);
                       return (
                         <TableRow key={classId}>
-                          <TableCell className="font-medium">{cls?.name || "—"}</TableCell>
-                          <TableCell>{prog?.name || "—"}</TableCell>
-                          <TableCell>{mappings.length} subject(s)</TableCell>
-                          <TableCell>
+                          <TableCell className="font-medium py-2 px-3 text-sm">{cls?.name || "—"}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{prog?.name || "—"}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{mappings.length} subject(s)</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="flex gap-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -2904,12 +2904,12 @@ const Academics = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Teacher</TableHead>
-                      <TableHead>Class</TableHead>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Section</TableHead>
-                      <TableHead>Session</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Teacher</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Class</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Program</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Section</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Session</TableHead>
+                      <TableHead className="text-right px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2926,22 +2926,22 @@ const Academics = () => {
                       const session = academicSessions.find(s => s.id === m.sessionId);
                       return (
                         <TableRow key={m.id}>
-                          <TableCell className="font-medium">{teacher?.name || "—"}</TableCell>
-                          <TableCell>{cls?.name || "—"}</TableCell>
-                          <TableCell>{prog?.name || "—"}</TableCell>
-                          <TableCell>
+                          <TableCell className="font-medium py-2 px-3 text-sm">{teacher?.name || "—"}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{cls?.name || "—"}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{prog?.name || "—"}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {m.sectionId
                               ? sections.find(s => s.id === m.sectionId)?.name || "—"
                               : <span className="text-muted-foreground text-xs">All sections</span>
                             }
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {session
                               ? <span className="flex items-center gap-1">{session.name}{session.isActive && <Badge className="bg-green-500 text-white text-xs py-0 px-1 h-4">Active</Badge>}</span>
                               : <span className="text-muted-foreground text-xs">""</span>
                             }
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="text-right py-2 px-3 text-sm">
                             <div className="flex justify-end gap-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -3059,17 +3059,17 @@ const Academics = () => {
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Subject</TableHead>
-                              <TableHead>Code</TableHead>
-                              <TableHead>Credit Hrs</TableHead>
+                              <TableHead className="py-2 px-3 text-sm">Subject</TableHead>
+                              <TableHead className="py-2 px-3 text-sm">Code</TableHead>
+                              <TableHead className="py-2 px-3 text-sm">Credit Hrs</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {tcmViewSubjects.map((scm) => (
                               <TableRow key={scm.id}>
-                                <TableCell>{scm.subject?.name || "—"}</TableCell>
-                                <TableCell>{scm.code || "—"}</TableCell>
-                                <TableCell>{scm.creditHours ?? "—"}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">{scm.subject?.name || "—"}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">{scm.code || "—"}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">{scm.creditHours ?? "—"}</TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
@@ -3109,17 +3109,17 @@ const Academics = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Subject</TableHead>
-                          <TableHead>Code</TableHead>
-                          <TableHead>Credit Hrs</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Subject</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Code</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Credit Hrs</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {scmViewItem.mappings.map((m) => (
                           <TableRow key={m.id}>
-                            <TableCell>{m.subject?.name || "—"}</TableCell>
-                            <TableCell>{m.code || "—"}</TableCell>
-                            <TableCell>{m.creditHours ?? "—"}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{m.subject?.name || "—"}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{m.code || "—"}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{m.creditHours ?? "—"}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>

@@ -194,7 +194,7 @@ export const StudentResultsTab = ({
                             value={studentResultStudent}
                             onValueChange={(v) => {
                                 setStudentResultStudent(v);
-                                // If student selected via search, we might want to auto-set program/class context if API returned it, 
+                                // If student selected via search, we might want to au program/class context if API returned it, 
                                 // but for now let's just select the student.
                             }}
                             disabled={displayStudents.length === 0}

@@ -241,7 +241,7 @@ const FrontOffice = () => {
           }
           setStudentFormData(prev => ({ ...prev, rollNumber: `${calculatedPrefix}${nextSuffix}` }));
         } catch (error) {
-          console.error("Error auto-generating roll number:", error);
+          console.error("Error au roll number:", error);
           setStudentFormData(prev => ({ ...prev, rollNumber: calculatedPrefix }));
         }
       };
@@ -908,9 +908,9 @@ const FrontOffice = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
+            <h1 className="text-xl font-semibold flex items-center gap-2">
               <MessageSquare className="w-8 h-8 text-primary" />
               Front Office Management
             </h1>
@@ -1183,13 +1183,13 @@ const FrontOffice = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Student Name</TableHead>
-                        <TableHead>Father Name</TableHead>
-                        <TableHead>Contact</TableHead>
-                        <TableHead>Program</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Student Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Father Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Contact</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Program</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1200,17 +1200,17 @@ const FrontOffice = () => {
                               key={inquiry.id}
                               ref={index === inquiries.length - 1 ? lastInquiryElementRef : null}
                             >
-                              <TableCell>{inquiry.createdAt.split("T")[0]}</TableCell>
-                              <TableCell className="font-medium">{inquiry.studentName}</TableCell>
-                              <TableCell>{inquiry.fatherName}</TableCell>
-                              <TableCell>{inquiry.contactNumber}</TableCell>
-                              <TableCell>{inquiry.program?.name}</TableCell>
-                              <TableCell>
+                              <TableCell className="py-2 px-3 text-sm">{inquiry.createdAt.split("T")[0]}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm font-medium">{inquiry.studentName}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">{inquiry.fatherName}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">{inquiry.contactNumber}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">{inquiry.program?.name}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">
                                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(inquiry.status)}`}>
                                   {inquiry.status || "NEW"}
                                 </span>
                               </TableCell>
-                              <TableCell>
+                              <TableCell className="py-2 px-3 text-sm">
                                 <div className="flex gap-2">
                                   {(inquiry.status === "NEW" || inquiry.status === "REJECTED" || !inquiry.status) && (
                                     <>
@@ -1291,7 +1291,7 @@ const FrontOffice = () => {
                           ))}
                           {isFetchingNextPage && (
                             <TableRow>
-                              <TableCell colSpan={7} className="text-center py-4 text-muted-foreground animate-pulse">
+                              <TableCell colSpan={7} className="py-2 px-3 text-sm text-center text-muted-foreground animate-pulse">
                                 Loading more inquiries...
                               </TableCell>
                             </TableRow>
@@ -1299,7 +1299,7 @@ const FrontOffice = () => {
                         </>
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={7} className="py-2 px-3 text-sm text-center text-muted-foreground">
                             No inquiries found.
                           </TableCell>
                         </TableRow>
@@ -1483,35 +1483,35 @@ const FrontOffice = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Visitor Name</TableHead>
-                        <TableHead>Phone</TableHead>
-                        <TableHead>Purpose</TableHead>
-                        <TableHead>In Time</TableHead>
-                        <TableHead>Out Time</TableHead>
-                        <TableHead>Persons</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Visitor Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Phone</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Purpose</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">In Time</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Out Time</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Persons</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {visitors.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-muted-foreground">
+                          <TableCell colSpan={7} className="py-2 px-3 text-sm text-center text-muted-foreground">
                             No visitors recorded yet.
                           </TableCell>
                         </TableRow>
                       ) : (
                         visitors.map((visitor) => (
                           <TableRow key={visitor.id}>
-                            <TableCell>{visitor.date.split("T")[0]}</TableCell>
-                            <TableCell className="font-medium truncate max-w-[130px] overflow-hidden whitespace-nowrap">{visitor.visitorName}</TableCell>
-                            <TableCell>{visitor.phone}</TableCell>
-                            <TableCell className="font-medium truncate max-w-[130px] overflow-hidden whitespace-nowrap">{visitor.purpose || "-"}</TableCell>
-                            <TableCell>{formatTime(visitor.inTime)}</TableCell>
-                            <TableCell>{formatTime(visitor.outTime)}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{visitor.date.split("T")[0]}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm font-medium truncate max-w-[130px] overflow-hidden whitespace-nowrap">{visitor.visitorName}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{visitor.phone}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm font-medium truncate max-w-[130px] overflow-hidden whitespace-nowrap">{visitor.purpose || "-"}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{formatTime(visitor.inTime)}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{formatTime(visitor.outTime)}</TableCell>
 
-                            <TableCell>{visitor.persons}</TableCell>
-                            <TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{visitor.persons}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
                               <div className="flex gap-2">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1748,22 +1748,22 @@ const FrontOffice = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Subject</TableHead>
-                      <TableHead>Assigned To</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Type</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Name</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Subject</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Assigned To</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {complaints?.map(complaint => <TableRow key={complaint.id}>
-                      <TableCell>{complaint.createdAt.split("T")[0]}</TableCell>
-                      <TableCell>{complaint.type}</TableCell>
-                      <TableCell className="font-medium">{complaint.complainantName}</TableCell>
-                      <TableCell className="font-medium italic">{complaint.subject}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{complaint.createdAt.split("T")[0]}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{complaint.type}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm font-medium">{complaint.complainantName}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm font-medium italic">{complaint.subject}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <div className="flex flex-wrap gap-1 max-w-[200px]">
                           {complaint.assignedTo?.length > 0 ? (
                             complaint.assignedTo.map((emp) => (
@@ -1776,7 +1776,7 @@ const FrontOffice = () => {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <Select
                           value={complaint.status}
                           onValueChange={(v) =>
@@ -1798,7 +1798,7 @@ const FrontOffice = () => {
                         </Select>
                       </TableCell>
 
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <div className="flex gap-2">
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -1950,26 +1950,26 @@ const FrontOffice = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Phone</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead className="no-print">Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Category</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Phone</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Email</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Description</TableHead>
+                        <TableHead className="py-2 px-3 text-sm no-print">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredContacts?.map(contact => <TableRow key={contact.id}>
-                        <TableCell className="font-medium">{contact.name}</TableCell>
-                        <TableCell>
+                        <TableCell className="py-2 px-3 text-sm font-medium">{contact.name}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           <span className="px-2 py-1 rounded-full text-xs bg-primary/10 text-primary">
                             {contact.category}
                           </span>
                         </TableCell>
-                        <TableCell>{contact.phone ? contact.phone : "-"}</TableCell>
-                        <TableCell>{contact.email ? contact.email : "-"}</TableCell>
-                        <TableCell>{contact.details ? contact.details : "-"}</TableCell>
-                        <TableCell className="no-print">
+                        <TableCell className="py-2 px-3 text-sm">{contact.phone ? contact.phone : "-"}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">{contact.email ? contact.email : "-"}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">{contact.details ? contact.details : "-"}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm no-print">
                           <div className="flex gap-2">
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -2215,7 +2215,7 @@ const FrontOffice = () => {
             </DialogHeader>
 
             {selectedInquiryForAccept && (
-              <div className="bg-muted/50 p-4 rounded-lg mb-6 border border-primary/20">
+              <div className="bg-muted/50 p-4 rounded-lg mb-6 border border-border">
                 <div className="flex items-center gap-2 mb-2 text-primary font-semibold">
                   <Users className="w-5 h-5" />
                   <h3>Inquiry Details</h3>

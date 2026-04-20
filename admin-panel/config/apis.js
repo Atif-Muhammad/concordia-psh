@@ -4143,8 +4143,11 @@ export const deleteFinanceClosing = async (id) => {
 
 export const getDashboardStats = async (filters) => {
   try {
-    const params = new URLSearchParams(filters).toString();
-    const response = await axios.get(`${base_url}/dashboard/stats?${params}`, {
+    const params = new URLSearchParams();
+    if (filters?.sessionId) params.append('sessionId', filters.sessionId);
+    if (filters?.year) params.append('year', filters.year);
+    if (filters?.month) params.append('month', filters.month);
+    const response = await axios.get(`${base_url}/dashboard/stats?${params.toString()}`, {
       withCredentials: true,
     });
     return response.data;

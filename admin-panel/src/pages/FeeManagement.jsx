@@ -339,7 +339,7 @@ const FeeManagement = () => {
         const filtered = studentList;
         setBulkStudents(filtered);
 
-        // Only auto-select students that have a matching installment for the selected month
+        // Only au students that have a matching installment for the selected month
         const [selY, sm] = generateForm.month.split('-').map(Number);
         const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
         const mName = (monthNames[sm - 1] || '').toLowerCase();
@@ -401,7 +401,7 @@ const FeeManagement = () => {
         });
         setSelectedBulkStudents(eligible.map(s => s.id));
 
-        // Auto-load due date from the first available installment matching the month
+        // Au due date from the first available installment matching the month
         if (filtered.length > 0 && generateForm.month) {
           const [selYear, selMonth] = generateForm.month.split('-').map(Number);
           const mName = new Date(selYear, selMonth - 1, 1).toLocaleString('default', { month: 'long' });
@@ -1600,9 +1600,9 @@ const FeeManagement = () => {
 
   return <DashboardLayout>
     <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
+            <h1 className="text-xl font-semibold flex items-center gap-2">
               <Receipt className="w-8 h-8 text-primary" />
               Fee Management
             </h1>
@@ -1613,10 +1613,9 @@ const FeeManagement = () => {
         </div>
 
       <Tabs defaultValue="challans" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-7 h-auto gap-1">
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 h-auto gap-1">
           <TabsTrigger value="challans"><Receipt className="w-4 h-4 mr-2" />Challans</TabsTrigger>
           <TabsTrigger value="extra-challans"><Plus className="w-4 h-4 mr-2" />Extra Challans</TabsTrigger>
-          <TabsTrigger value="student-history"><Eye className="w-4 h-4 mr-2" />Student History</TabsTrigger>
           <TabsTrigger value="feeheads"><Layers className="w-4 h-4 mr-2" />Fee Heads</TabsTrigger>
           <TabsTrigger value="structures"><TrendingUp className="w-4 h-4 mr-2" />Fee Structures</TabsTrigger>
           <TabsTrigger value="reports"><DollarSign className="w-4 h-4 mr-2" />Reports</TabsTrigger>
@@ -1624,12 +1623,24 @@ const FeeManagement = () => {
         </TabsList>
 
         <TabsContent value="challans" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="shadow-soft">
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground">Total Received</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm text-muted-foreground">Total Received</p>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-muted text-muted-foreground text-[10px] font-bold cursor-help">i</span>
+                        </TooltipTrigger>
+                        <TooltipContent className="text-xs space-y-1 p-3">
+                          <p className="font-semibold mb-1">Breakdown</p>
+                          <p>Regular Fee: PKR {formatAmount(feeCollectionSummary.regularRevenue || 0)}</p>
+                          <p>Extra Challans: PKR {formatAmount(feeCollectionSummary.extraRevenue || 0)}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                     <p className="text-2xl font-bold text-success">PKR {formatAmount(totalReceived)}</p>
                   </div>
                   <DollarSign className="w-8 h-8 text-success" />
@@ -1761,29 +1772,29 @@ const FeeManagement = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Challan No</TableHead>
-                      <TableHead>Student</TableHead>
-                      <TableHead>Installment</TableHead>
-                      <TableHead>Base Payable</TableHead>
-                      <TableHead>Extra/Heads</TableHead>
-                      <TableHead>Fine (Late Fee)</TableHead>
-                      <TableHead>Total</TableHead>
-                      <TableHead>Paid Amount</TableHead>
-                      <TableHead>Due Date</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Challan No</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Student</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Installment</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Base Payable</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Extra/Heads</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Fine (Late Fee)</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Total</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Paid Amount</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Due Date</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {feeChallans
                       .map(challan => {
                         return <TableRow key={challan.id}>
-                          <TableCell className="font-medium">{challan.challanNumber}</TableCell>
-                          <TableCell>
+                          <TableCell className="text-sm px-3 py-2 font-medium">{challan.challanNumber}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div>{challan.student?.fName} {challan.student?.lName}</div>
                             <div className="text-xs text-muted-foreground">{challan.student?.rollNumber}</div>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="flex flex-col gap-1">
                               <div className="font-bold text-slate-800">
                                 {challan.month || (challan.installmentNumber === 0 ? "Extra" : `Inst #${challan.installmentNumber}`)}
@@ -1804,8 +1815,8 @@ const FeeManagement = () => {
                               )}
                             </div>
                           </TableCell>
-                          <TableCell className="font-medium">PKR {formatAmount(challan.amount)}</TableCell>
-                          <TableCell className="font-medium text-orange-600">
+                          <TableCell className="text-sm px-3 py-2 font-medium">PKR {formatAmount(challan.amount)}</TableCell>
+                          <TableCell className="text-sm px-3 py-2 font-medium text-orange-600">
                              PKR {formatAmount(getSelectedHeadsTotal(challan))}
                              {getTotalArrears(challan) > 0 && (
                                <div className="text-[10px] text-muted-foreground font-normal">
@@ -1813,7 +1824,7 @@ const FeeManagement = () => {
                                </div>
                              )}
                           </TableCell>
-                          <TableCell className="font-medium text-red-600">
+                          <TableCell className="text-sm px-3 py-2 font-medium text-red-600">
                             PKR {formatAmount(challan.lateFeeFine)}
                             {challan.status === "VOID" && (challan.lateFeeFine || 0) > 0 && (
                               <Tooltip>
@@ -1829,14 +1840,14 @@ const FeeManagement = () => {
                               </Tooltip>
                             )}
                           </TableCell>
-                          <TableCell className="font-bold">
+                          <TableCell className="text-sm px-3 py-2 font-bold">
                             PKR {formatAmount(getChallanTotal(challan))}
                           </TableCell>
-                          <TableCell className="text-success font-medium">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
-                          <TableCell>
+                          <TableCell className="text-sm px-3 py-2 text-success font-medium">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div>{new Date(challan.dueDate).toLocaleDateString()}</div>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="flex flex-col gap-1">
                               <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "warning" : challan.status === "VOID" ? "outline" : "secondary"}>
                                 {challan.status === "VOID" ? "Superseded" : challan.status}
@@ -1882,7 +1893,7 @@ const FeeManagement = () => {
                               )}
                             </div>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="flex gap-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1915,7 +1926,7 @@ const FeeManagement = () => {
                                   }
                                 }
 
-                                // Auto-identify all potential past unpaid installments (for reference or if snapshot is missing)
+                                // Au all potential past unpaid installments (for reference or if snapshot is missing)
                                 let autoSelectedArrears = [];
                                 let autoArrearsTotal = 0;
 
@@ -2217,16 +2228,16 @@ const FeeManagement = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Challan No</TableHead>
-                        <TableHead>Student</TableHead>
-                        <TableHead>Base Amount</TableHead>
-                        <TableHead>Extra/Heads</TableHead>
-                        <TableHead>Fine (Late Fee)</TableHead>
-                        <TableHead>Total</TableHead>
-                        <TableHead>Paid Amount</TableHead>
-                        <TableHead>Due Date</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Challan No</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Student</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Base Amount</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Extra/Heads</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Fine (Late Fee)</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Total</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Paid Amount</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Due Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                        <TableHead className="text-sm px-3 py-2 text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -2234,25 +2245,25 @@ const FeeManagement = () => {
                         <TableRow><TableCell colSpan={10} className="text-center py-8">Loading extra challans...</TableCell></TableRow>
                       ) : extraChallans.map(challan => (
                         <TableRow key={challan.id}>
-                          <TableCell className="font-medium">{challan.challanNumber}</TableCell>
-                          <TableCell>
+                          <TableCell className="text-sm px-3 py-2 font-medium">{challan.challanNumber}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="font-medium">{challan.student?.fName} {challan.student?.lName}</div>
                             <div className="text-xs text-muted-foreground">{challan.student?.rollNumber}</div>
                           </TableCell>
-                          <TableCell>PKR {formatAmount(challan.amount)}</TableCell>
-                          <TableCell className="font-medium text-orange-600">PKR {formatAmount(getSelectedHeadsTotal(challan))}</TableCell>
-                          <TableCell className="font-medium text-red-600">PKR {formatAmount(challan.lateFeeFine)}</TableCell>
-                          <TableCell className="font-bold">
+                          <TableCell className="py-2 px-3 text-sm">PKR {formatAmount(challan.amount)}</TableCell>
+                          <TableCell className="text-sm px-3 py-2 font-medium text-orange-600">PKR {formatAmount(getSelectedHeadsTotal(challan))}</TableCell>
+                          <TableCell className="text-sm px-3 py-2 font-medium text-red-600">PKR {formatAmount(challan.lateFeeFine)}</TableCell>
+                          <TableCell className="text-sm px-3 py-2 font-bold">
                             PKR {formatAmount(getChallanTotal(challan))}
                           </TableCell>
-                          <TableCell className="text-success font-medium">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
-                          <TableCell>{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
-                          <TableCell>
+                          <TableCell className="text-sm px-3 py-2 text-success font-medium">PKR {formatAmount(challan.paidAmount || 0)}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "PARTIAL" ? "warning" : challan.status === "VOID" ? "outline" : "secondary"}>
                               {challan.status === "VOID" ? "Superseded" : challan.status}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="text-sm px-3 py-2 text-right">
                             <div className="flex justify-end gap-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -2420,262 +2431,6 @@ const FeeManagement = () => {
           </div>
         </TabsContent>
 
-        <TabsContent value="student-history">
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <Label>Search Student:</Label>
-              <Popover open={studentSearchOpen} onOpenChange={setStudentSearchOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" role="combobox" aria-expanded={studentSearchOpen} className="w-[300px] justify-between">
-                    {selectedStudent ? `${selectedStudent.rollNumber} (${selectedStudent.fName} ${selectedStudent.lName})` : "Select Student..."}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[300px] p-0">
-                  <Command shouldFilter={false}>
-                    <CommandInput placeholder="Search student..." onValueChange={v => handleStudentSearch(v, setStudentSearchResults)} />
-                    <CommandList>
-                      <CommandEmpty>No student found.</CommandEmpty>
-                      <CommandGroup>
-                        {studentSearchResults.map(student => (
-                          <CommandItem
-                            key={student.id}
-                            value={student.id.toString()}
-                            onSelect={async () => {
-                              setSelectedStudent(student);
-                              setStudentSearchOpen(false);
-                              setHistorySessionFilter("all");
-                              setHistoryStatusFilter("all");
-                              setHistoryChallanTypeFilter("all");
-                              try {
-                                const history = await getStudentFeeHistory(student.id);
-                                setStudentFeeHistory(history);
-                              } catch (err) {
-                                console.error(err);
-                                toast({ title: "Failed to fetch history", variant: "destructive" });
-                              }
-                            }}
-                          >
-                            <Check className={cn("mr-2 h-4 w-4", selectedStudent?.id === student.id ? "opacity-100" : "opacity-0")} />
-                            {student.rollNumber} ({student.fName} {student.lName})
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            {selectedStudent && hostelReg?.status === 'active' && (
-              <div className="flex flex-wrap items-center gap-3 p-3 border rounded-lg bg-muted/30">
-                <Badge className="bg-blue-600 hover:bg-blue-700 text-white">Hostel Resident</Badge>
-                <span className="text-sm text-muted-foreground">
-                  Monthly Fee: <span className="font-medium text-foreground">PKR {(hostelReg.decidedFeePerMonth || 0).toLocaleString()}</span>
-                </span>
-                {hostelReg.decidedFeePerMonth > 0 && (() => {
-                  const balance = computeOutstandingBalance(hostelReg, hostelFeePayments);
-                  return (
-                    <span className="text-sm">
-                      Outstanding Balance:{' '}
-                      {balance === null
-                        ? <span className="text-muted-foreground">No Fee Set</span>
-                        : balance <= 0
-                          ? <span className="text-green-600 font-medium">Paid</span>
-                          : <span className="text-red-600 font-medium">PKR {Math.round(balance).toLocaleString()}</span>
-                      }
-                    </span>
-                  );
-                })()}
-              </div>
-            )}
-
-            {selectedStudent && (
-              <div className="flex flex-wrap gap-3 items-end mb-2">
-                <div className="min-w-[160px]">
-                  <Label className="text-xs">Session</Label>
-                  <Select value={historySessionFilter} onValueChange={setHistorySessionFilter}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="All Sessions" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Sessions</SelectItem>
-                      {academicSessions.map(s => (
-                        <SelectItem key={s.id} value={s.id.toString()}>
-                          {s.name} {s.isActive ? "(Current)" : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="min-w-[140px]">
-                  <Label className="text-xs">Status</Label>
-                  <Select value={historyStatusFilter} onValueChange={setHistoryStatusFilter}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="All Statuses" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Statuses</SelectItem>
-                      <SelectItem value="PENDING">Pending</SelectItem>
-                      <SelectItem value="PARTIAL">Partial</SelectItem>
-                      <SelectItem value="PAID">Paid</SelectItem>
-                      <SelectItem value="OVERDUE">Overdue</SelectItem>
-                      <SelectItem value="VOID">Superseded</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="min-w-[160px]">
-                  <Label className="text-xs">Challan Type</Label>
-                  <Select value={historyChallanTypeFilter} onValueChange={setHistoryChallanTypeFilter}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="All Types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Types</SelectItem>
-                      <SelectItem value="tuition">Tuition Fee Challan</SelectItem>
-                      <SelectItem value="extra">Extra Challan</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {(historySessionFilter !== "all" || historyStatusFilter !== "all" || historyChallanTypeFilter !== "all") && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => { setHistorySessionFilter("all"); setHistoryStatusFilter("all"); setHistoryChallanTypeFilter("all"); }}
-                    className="text-muted-foreground"
-                  >
-                    Reset
-                  </Button>
-                )}
-              </div>
-            )}
-
-            {selectedStudent && (
-              <div className="border rounded-lg">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Challan No</TableHead>
-                      <TableHead>Installment</TableHead>
-                      <TableHead>Base Amount</TableHead>
-                      <TableHead>Extra/Heads</TableHead>
-                      <TableHead>Fine (Late Fee)</TableHead>
-                      <TableHead>Total</TableHead>
-                      <TableHead>Due Date</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Paid Date</TableHead>
-                      <TableHead>Paid Amount</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {studentFeeHistory.filter(challan => {
-                      if (historyStatusFilter !== "all" && challan.status !== historyStatusFilter) return false;
-                      if (historySessionFilter !== "all") {
-                        const sessionName = academicSessions.find(s => s.id.toString() === historySessionFilter)?.name;
-                        if (sessionName && challan.session !== sessionName) return false;
-                      }
-                      if (historyChallanTypeFilter === "tuition" && challan.challanType === "FEE_HEADS_ONLY") return false;
-                      if (historyChallanTypeFilter === "extra" && challan.challanType !== "FEE_HEADS_ONLY") return false;
-                      return true;
-                    }).map(challan => (
-                      <TableRow key={challan.id}>
-                        <TableCell>{challan.challanNumber}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-0.5">
-                            <span className="font-bold text-sm">
-                              {challan.month || `Inst #${challan.installmentNumber}`}
-                            </span>
-                            {challan.session && (
-                              <span className="text-[10px] text-muted-foreground">
-                                {challan.session}
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>PKR {formatAmount(challan.amount)}</TableCell>
-                        <TableCell className="font-medium text-orange-600">PKR {formatAmount(getSelectedHeadsTotal(challan))}</TableCell>
-                        <TableCell className="font-medium text-red-600">PKR {formatAmount(challan.lateFeeFine)}</TableCell>
-                        <TableCell className="font-bold">
-                          PKR {formatAmount(getChallanTotal(challan))}
-                        </TableCell>
-                        <TableCell>{new Date(challan.dueDate).toLocaleDateString()}</TableCell>
-                        <TableCell>
-                          <Badge variant={challan.status === "PAID" ? "default" : challan.status === "OVERDUE" ? "destructive" : challan.status === "VOID" ? "outline" : "secondary"}>
-                            {challan.status === "VOID" ? "Superseded" : challan.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{challan.paidDate ? new Date(challan.paidDate).toLocaleDateString() : '-'}</TableCell>
-                        <TableCell>{challan.paidAmount ? `PKR ${formatAmount(challan.paidAmount)}` : '-'}</TableCell>
-                        <TableCell className="text-right flex justify-end gap-1">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button variant="ghost" size="sm" onClick={() => {
-                                setSelectedChallanDetails(challan);
-                                setDetailsDialogOpen(true);
-                              }}>
-                                <Eye className="w-4 h-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>View Details</TooltipContent>
-                          </Tooltip>
-                              {challan.paymentHistory && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button variant="ghost" size="sm" onClick={() => {
-                                      setSelectedChallanForHistory(challan);
-                                      setHistoryDialogOpen(true);
-                                    }}>
-                                      <History className="w-4 h-4" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Payment History</TooltipContent>
-                                </Tooltip>
-                              )}
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button 
-                                    variant="ghost" 
-                                    size="sm" 
-                                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                    onClick={() => {
-                                      setItemToDelete({ 
-                                        type: "challan", 
-                                        id: challan.id, 
-                                        status: challan.status,
-                                        number: challan.challanNumber 
-                                      });
-                                      setDeleteDialogOpen(true);
-                                    }}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Delete Challan</TooltipContent>
-                              </Tooltip>
-                            </TableCell>
-                      </TableRow>
-                    ))}
-                    {studentFeeHistory.length === 0 && <TableRow><TableCell colSpan={11} className="text-center">No history found</TableCell></TableRow>}
-                    {studentFeeHistory.length > 0 && studentFeeHistory.filter(challan => {
-                      if (historyStatusFilter !== "all" && challan.status !== historyStatusFilter) return false;
-                      if (historySessionFilter !== "all") {
-                        const sessionName = academicSessions.find(s => s.id.toString() === historySessionFilter)?.name;
-                        if (sessionName && challan.session !== sessionName) return false;
-                      }
-                      if (historyChallanTypeFilter === "tuition" && challan.challanType === "FEE_HEADS_ONLY") return false;
-                      if (historyChallanTypeFilter === "extra" && challan.challanType !== "FEE_HEADS_ONLY") return false;
-                      return true;
-                    }).length === 0 && (
-                      <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground">No records match the selected filters</TableCell></TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </div>
-        </TabsContent>
-
         <TabsContent value="feeheads" className="space-y-6">
           <Card className="shadow-soft">
             <CardHeader>
@@ -2694,22 +2449,22 @@ const FeeManagement = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Name</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Description</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Type</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {feeHeads.map(head => <TableRow key={head.id}>
-                      <TableCell className="font-medium">{head.name}</TableCell>
-                      <TableCell>{head.description}</TableCell>
-                      <TableCell>PKR {(head.amount || 0).toLocaleString()}</TableCell>
-                      <TableCell>
+                      <TableCell className="text-sm px-3 py-2 font-medium">{head.name}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{head.description}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">PKR {(head.amount || 0).toLocaleString()}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <Badge>Charge</Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <div className="flex gap-2">
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -2780,16 +2535,16 @@ const FeeManagement = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Class</TableHead>
-                      <TableHead>Total Amount</TableHead>
-                      <TableHead>Installments</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Program</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Class</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Total Amount</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Installments</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {feeStructures.map(structure => <TableRow key={structure.id}>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <Badge variant="outline" className="font-normal">
                           {structure.program?.name}
                           {(() => {
@@ -2798,10 +2553,10 @@ const FeeManagement = () => {
                           })()}
                         </Badge>
                       </TableCell>
-                      <TableCell>{structure.class?.name}</TableCell>
-                      <TableCell className="font-semibold">PKR {structure.totalAmount.toLocaleString()}</TableCell>
-                      <TableCell>{structure.installments}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{structure.class?.name}</TableCell>
+                      <TableCell className="text-sm px-3 py-2 font-semibold">PKR {structure.totalAmount.toLocaleString()}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{structure.installments}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <div className="flex gap-2">
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -2853,7 +2608,7 @@ const FeeManagement = () => {
         </TabsContent>
 
         <TabsContent value="reports">
-          <div className="grid gap-6">
+          <div className="grid gap-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -2886,7 +2641,7 @@ const FeeManagement = () => {
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Card className="col-span-1">
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -3297,7 +3052,7 @@ const FeeManagement = () => {
           resetChallanForm();
         }
       }}>
-         <DialogContent className="max-w-full h-[100vh] overflow-y-auto p-0 border-none shadow-2xl">
+         <DialogContent className="min-w-[80dvw] h-[100dvh] overflow-y-auto p-0 border-none shadow-2xl">
           <DialogHeader className="bg-white border-b p-4">
             <div className="flex justify-between items-center">
               <DialogTitle className="text-lg font-bold text-slate-800">Pay Students Fee</DialogTitle>
@@ -3316,23 +3071,23 @@ const FeeManagement = () => {
                 </div>
               )}
               {/* Payment Table */}
-              <div className="border border-slate-300 rounded overflow-hidden">
-                <table className="w-full border-collapse">
+              <div className="border border-slate-300 rounded overflow-x-auto">
+                <table className="w-full border-collapse ">
                   <thead>
                     <tr className="bg-slate-800 text-white text-[10px] font-bold text-center">
-                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Roll No</th>
-                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Student / Father</th>
-                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Class</th>
-                      <th className="border-r border-slate-600 p-1.5 w-[55px]">Month</th>
-                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Tuition Fee</th>
-                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Arrears</th>
-                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Extra/Heads</th>
-                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Fine (Late Fee)</th>
-                      <th className="border-r border-slate-600 p-1.5 w-[70px]">Discount</th>
-                      <th className="border-r border-slate-600 p-1.5 w-[80px]">Total</th>
-                      <th className="border-r border-slate-600 p-1.5 w-[65px]">Paid</th>
-                      <th className="border-r border-slate-600 p-1.5 w-[80px]">Receiving</th>
-                      <th className="p-1.5 w-[80px]">Remaining</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[80px]">Roll No</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[100px]">Student / Father</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[70px]">Class</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[70px]">Month</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Tuition Fee</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Arrears</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Extra/Heads</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Fine (Late Fee)</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Discount</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Total</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[80px]">Paid</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[100px]">Receiving</th>
+                      <th className="p-1.5 min-w-[90px]">Remaining</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3863,7 +3618,7 @@ const FeeManagement = () => {
 
               {parseInt(challanForm.installmentNumber) > 0 && parseFloat(challanForm.arrearsAmount) > 0 && (
                 <div className="col-span-2 space-y-1 pt-1 border-t">
-                  <div className="flex justify-between items-center bg-red-50 p-2 rounded-md border border-red-100 italic transition-all animate-in fade-in slide-in-from-top-1">
+                  <div className="flex justify-between items-center bg-red-50 p-2 rounded-md border border-red-100 italic transition-all animate-in fade-in slide-in-">
                     <Label className="text-[10px] font-black text-red-700 uppercase flex items-center gap-2">
                        <History className="w-3.5 h-3.5" /> ARREARS INCLUDED (INST #: {[...new Set(challanForm.arrearsSelections.map(s => s.installmentNumber || 'S'))].join(', ')})
                     </Label>
@@ -4285,7 +4040,7 @@ const FeeManagement = () => {
               )}
 
               {/* itemized Financial Breakdown */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <Card className="lg:col-span-2 shadow-sm border-slate-200">
                   <CardHeader className="bg-slate-50/50 border-b py-3">
                     <CardTitle className="text-sm font-bold flex items-center gap-2">
@@ -4297,21 +4052,21 @@ const FeeManagement = () => {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-slate-50/30">
-                          <TableHead className="text-[10px] uppercase font-bold py-2">Description</TableHead>
-                          <TableHead className="text-[10px] uppercase font-bold py-2 text-right">Amount (PKR)</TableHead>
+                          <TableHead className="text-sm px-3 text-[10px] uppercase font-bold py-2">Description</TableHead>
+                          <TableHead className="text-sm px-3 text-[10px] uppercase font-bold py-2 text-right">Amount (PKR)</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {/* Tuition Component — hidden for fee-head-only extra challans */}
                         {selectedChallanDetails.challanType !== 'FEE_HEADS_ONLY' && (
                         <TableRow>
-                          <TableCell className="py-2">
+                          <TableCell className="text-sm px-3 py-2">
                             <span className="font-semibold text-slate-700">Tuition Fee</span>
                             <p className="text-[10px] text-muted-foreground italic">
                               {selectedChallanDetails.installmentNumber > 0 ? `Installment #${selectedChallanDetails.installmentNumber}` : 'Standard Charge'}
                             </p>
                           </TableCell>
-                          <TableCell className="text-right font-bold py-2">
+                          <TableCell className="text-sm px-3 text-right font-bold py-2">
                              {formatAmount((selectedChallanDetails.amount || 0))}
                           </TableCell>
                         </TableRow>
@@ -4320,14 +4075,14 @@ const FeeManagement = () => {
                         {/* Arrears Component */}
                         {getRecursiveArrears(selectedChallanDetails) > 0 && (
                           <TableRow className="text-amber-700 bg-amber-50/20">
-                            <TableCell className="py-2">
+                            <TableCell className="text-sm px-3 py-2">
                               <div className="flex items-center gap-1.5 font-semibold">
                                 <History className="w-3 h-3" />
                                 Previous Arrears
                               </div>
                               <p className="text-[10px] opacity-70">Accumulated from previous sessions/unpaid bills</p>
                             </TableCell>
-                            <TableCell className="text-right font-bold py-2">
+                            <TableCell className="text-sm px-3 text-right font-bold py-2">
                               {formatAmount(getRecursiveArrears(selectedChallanDetails))}
                             </TableCell>
                           </TableRow>
@@ -4357,8 +4112,8 @@ const FeeManagement = () => {
                                }
                                return (
                                  <TableRow key={idx}>
-                                   <TableCell className="py-2 text-slate-600">{name}</TableCell>
-                                   <TableCell className="text-right font-medium py-2">{formatAmount(amount)}</TableCell>
+                                   <TableCell className="text-sm px-3 py-2 text-slate-600">{name}</TableCell>
+                                   <TableCell className="text-sm px-3 text-right font-medium py-2">{formatAmount(amount)}</TableCell>
                                  </TableRow>
                                );
                              });
@@ -4368,7 +4123,7 @@ const FeeManagement = () => {
                         {/* Fines & Late Fees */}
                         {selectedChallanDetails.lateFeeFine > 0 && (
                           <TableRow className="text-destructive bg-destructive/5 font-medium">
-                            <TableCell className="py-2">
+                            <TableCell className="text-sm px-3 py-2">
                               {selectedChallanDetails.status === "VOID"
                                 ? <span className="flex items-center gap-1.5">
                                     Late Fee Fine (Preserved)
@@ -4384,24 +4139,24 @@ const FeeManagement = () => {
                                 : "Late Fee Fine (Calculated Overdue)"
                               }
                             </TableCell>
-                            <TableCell className="text-right font-bold py-2">{formatAmount(selectedChallanDetails.lateFeeFine)}</TableCell>
+                            <TableCell className="text-sm px-3 text-right font-bold py-2">{formatAmount(selectedChallanDetails.lateFeeFine)}</TableCell>
                           </TableRow>
                         )}
 
                         {/* Discounts */}
                         {(selectedChallanDetails.discount || 0) > 0 && (
                           <TableRow className="text-green-600 bg-green-50/30">
-                            <TableCell className="py-2 italic">Applied Scholarship / Discount</TableCell>
-                            <TableCell className="text-right font-bold py-2">- {formatAmount(selectedChallanDetails.discount)}</TableCell>
+                            <TableCell className="text-sm px-3 py-2 italic">Applied Scholarship / Discount</TableCell>
+                            <TableCell className="text-sm px-3 text-right font-bold py-2">- {formatAmount(selectedChallanDetails.discount)}</TableCell>
                           </TableRow>
                         )}
 
                         {/* Final Net Total Row */}
-                        <TableRow className="bg-primary/5 border-t-2 border-primary/20">
-                          <TableCell className="py-3">
+                        <TableRow className="bg-primary/5 border-t-2 border-border">
+                          <TableCell className="text-sm px-3 py-2 py-3">
                             <span className="text-base font-black text-primary uppercase tracking-tight">Net Payable Amount</span>
                           </TableCell>
-                          <TableCell className="text-right py-3">
+                          <TableCell className="text-sm px-3 py-2 text-right py-3">
                             <span className="text-xl font-black text-primary">
                               PKR {formatAmount(
                                 (selectedChallanDetails.amount || 0) + 
@@ -4420,7 +4175,7 @@ const FeeManagement = () => {
 
                 {/* Collection Summary Sidebar */}
                 <div className="space-y-6">
-                  <Card className="shadow-sm border-success/20 bg-success/5">
+                  <Card className="shadow-sm border-border bg-success/5">
                     <CardHeader className="pb-2">
                        <CardTitle className="text-xs font-bold uppercase tracking-wider text-success flex items-center gap-2">
                          <CheckCircle2 className="w-4 h-4" />
@@ -4500,7 +4255,7 @@ const FeeManagement = () => {
                 if (!Array.isArray(history) || history.length === 0) return null;
 
                 return (
-                  <Card className="shadow-soft border-primary/10 overflow-hidden">
+                  <Card className="shadow-soft border-border overflow-hidden">
                     <CardHeader className="pb-2 bg-primary/5">
                       <CardTitle className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-2">
                         <History className="w-3.5 h-3.5" />
@@ -4511,21 +4266,21 @@ const FeeManagement = () => {
                       <Table>
                         <TableHeader className="bg-muted/30">
                           <TableRow className="h-8">
-                            <TableHead className="text-[10px] uppercase h-8">Date</TableHead>
-                            <TableHead className="text-[10px] uppercase h-8">Amount</TableHead>
-                            <TableHead className="text-[10px] uppercase h-8">Discount</TableHead>
-                            <TableHead className="text-[10px] uppercase h-8">Method</TableHead>
-                            <TableHead className="text-[10px] uppercase h-8">Remarks</TableHead>
+                            <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Date</TableHead>
+                            <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Amount</TableHead>
+                            <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Discount</TableHead>
+                            <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Method</TableHead>
+                            <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Remarks</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {history.map((entry, idx) => (
                             <TableRow key={idx} className="h-9 hover:bg-muted/20">
-                              <TableCell className="text-xs py-1">{new Date(entry.date).toLocaleDateString()}</TableCell>
-                              <TableCell className="text-xs font-bold text-success py-1">PKR {Math.round(entry.amount).toLocaleString()}</TableCell>
-                              <TableCell className="text-xs font-bold text-orange-600 py-1">PKR {Math.round(entry.discount || 0).toLocaleString()}</TableCell>
-                              <TableCell className="text-xs py-1">{entry.method || 'Cash'}</TableCell>
-                              <TableCell className="text-[10px] italic py-1 text-muted-foreground">{entry.remarks || '-'}</TableCell>
+                              <TableCell className="text-sm px-3 py-2 text-xs py-1">{new Date(entry.date).toLocaleDateString()}</TableCell>
+                              <TableCell className="text-sm px-3 py-2 text-xs font-bold text-success py-1">PKR {Math.round(entry.amount).toLocaleString()}</TableCell>
+                              <TableCell className="text-sm px-3 py-2 text-xs font-bold text-orange-600 py-1">PKR {Math.round(entry.discount || 0).toLocaleString()}</TableCell>
+                              <TableCell className="text-sm px-3 py-2 text-xs py-1">{entry.method || 'Cash'}</TableCell>
+                              <TableCell className="text-sm px-3 py-2 text-[10px] italic py-1 text-muted-foreground">{entry.remarks || '-'}</TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -4787,12 +4542,12 @@ const FeeManagement = () => {
                           <Table>
                             <TableHeader className="bg-muted/50 h-8 sticky top-0 z-10">
                               <TableRow className="hover:bg-transparent border-b">
-                                <TableHead className="w-[40px] p-0 text-center"></TableHead>
-                                <TableHead className="text-[10px] uppercase font-bold p-2">Student</TableHead>
-                                <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Inst. Amt</TableHead>
-                                <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Late Fee</TableHead>
-                                <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Arrears</TableHead>
-                                <TableHead className="text-[10px] uppercase font-bold p-2 text-right">Total Due</TableHead>
+                                <TableHead className="text-sm px-3 py-2 w-[40px] p-0 text-center"></TableHead>
+                                <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2">Student</TableHead>
+                                <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Inst. Amt</TableHead>
+                                <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Late Fee</TableHead>
+                                <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Arrears</TableHead>
+                                <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Total Due</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -5001,7 +4756,7 @@ const FeeManagement = () => {
                                       isSelected && "bg-orange-50/10", 
                                       generationErrors[student.id] ? "bg-red-50/10" : ""
                                     )}>
-                                      <TableCell className="p-0 text-center">
+                                      <TableCell className="text-sm px-3 py-2 p-0 text-center">
                                         <input
                                           type="checkbox"
                                           className="h-3.5 w-3.5 accent-orange-600 cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
@@ -5016,7 +4771,7 @@ const FeeManagement = () => {
                                           }}
                                         />
                                       </TableCell>
-                                      <TableCell className="p-2">
+                                      <TableCell className="text-sm px-3 py-2 p-2">
                                           <div className="flex flex-col">
                                             <div className="flex items-center gap-1.5">
                                               <span className={cn("text-xs font-bold", (generationErrors[student.id] || hasMissing) && "text-red-600")}>
@@ -5041,13 +4796,13 @@ const FeeManagement = () => {
                                             )}
                                         </div>
                                       </TableCell>
-                                      <TableCell className="text-xs p-2 text-right font-medium whitespace-nowrap">
+                                      <TableCell className="text-sm px-3 py-2 text-xs p-2 text-right font-medium whitespace-nowrap">
                                         Rs. {(currentInst ? (currentInst.amount + (recurringHeadsAmt || 0)) : 0).toLocaleString()}
                                       </TableCell>
-                                      <TableCell className="text-xs p-2 text-right font-medium whitespace-nowrap text-orange-600">
+                                      <TableCell className="text-sm px-3 py-2 text-xs p-2 text-right font-medium whitespace-nowrap text-orange-600">
                                         Rs. {(installmentLateFee || 0).toLocaleString()}
                                       </TableCell>
-                                      <TableCell className="text-xs p-2 text-right text-red-600 font-medium whitespace-nowrap">
+                                      <TableCell className="text-sm px-3 py-2 text-xs p-2 text-right text-red-600 font-medium whitespace-nowrap">
                                         <div>Rs. {arrearsAmount.toLocaleString()}</div>
                                         {brk.lateFees > 0 && (
                                           <div className="text-[10px] text-red-400 font-normal">
@@ -5080,7 +4835,7 @@ const FeeManagement = () => {
                                           </Tooltip>
                                         )}
                                       </TableCell>
-                                      <TableCell className="text-xs p-2 text-right font-black text-orange-700 whitespace-nowrap">
+                                      <TableCell className="text-sm px-3 py-2 text-xs p-2 text-right font-black text-orange-700 whitespace-nowrap">
                                         Rs. {(unpaidInstAmt + (recurringHeadsAmt || 0) + (installmentLateFee || 0) + arrearsAmount).toLocaleString()}
                                       </TableCell>
                                     </TableRow>
@@ -5142,7 +4897,7 @@ const FeeManagement = () => {
                     <Button 
                       size="sm" 
                       variant="outline" 
-                      className="h-7 text-[10px] gap-1 bg-success/10 hover:bg-success/20 text-success border-success/30"
+                      className="h-7 text-[10px] gap-1 bg-success/10 hover:bg-success/20 text-success border-border"
                       onClick={() => {
                         const printableChallans = generateResults
                           .filter(r => (r.status === 'CREATED' || (r.status === 'SKIPPED' && r.challan)) && r.challan)
@@ -5253,11 +5008,11 @@ const FeeManagement = () => {
               <Table>
                 <TableHeader className="bg-slate-50">
                   <TableRow>
-                    <TableHead className="w-[120px]">Date</TableHead>
-                    <TableHead>Received</TableHead>
-                    <TableHead>Discount</TableHead>
-                    <TableHead>Method</TableHead>
-                    <TableHead>Remarks</TableHead>
+                    <TableHead className="text-sm px-3 py-2 w-[120px]">Date</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Received</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Discount</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Method</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Remarks</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -5271,11 +5026,11 @@ const FeeManagement = () => {
                     
                     return history.map((entry, idx) => (
                       <TableRow key={idx}>
-                        <TableCell className="text-xs">{new Date(entry.date).toLocaleDateString()}</TableCell>
-                        <TableCell className="font-bold text-success">PKR {formatAmount(entry.amount)}</TableCell>
-                        <TableCell className="font-bold text-orange-600">PKR {formatAmount(entry.discount || 0)}</TableCell>
-                        <TableCell className="text-xs">{entry.method || 'Cash'}</TableCell>
-                        <TableCell className="text-xs italic">{entry.remarks || '-'}</TableCell>
+                        <TableCell className="text-sm px-3 py-2 text-xs">{new Date(entry.date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-sm px-3 py-2 font-bold text-success">PKR {formatAmount(entry.amount)}</TableCell>
+                        <TableCell className="text-sm px-3 py-2 font-bold text-orange-600">PKR {formatAmount(entry.discount || 0)}</TableCell>
+                        <TableCell className="text-sm px-3 py-2 text-xs">{entry.method || 'Cash'}</TableCell>
+                        <TableCell className="text-sm px-3 py-2 text-xs italic">{entry.remarks || '-'}</TableCell>
                       </TableRow>
                     ));
                   })()}

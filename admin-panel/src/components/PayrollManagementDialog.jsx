@@ -554,7 +554,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
           <Table>
             <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
               <TableRow>
-                <TableHead className="w-[50px]">
+                <TableHead className="py-2 px-3 text-sm w-[50px]">
                   <Checkbox
                     checked={
                       selectedRows.size === localData.length &&
@@ -563,46 +563,46 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                     onCheckedChange={handleSelectAll}
                   />
                 </TableHead>
-                <TableHead className="min-w-[200px]">
+                <TableHead className="py-2 px-3 text-sm min-w-[200px]">
                   Staff Details
                 </TableHead>
-                <TableHead className="min-w-[100px]">Basic Pay</TableHead>
+                <TableHead className="py-2 px-3 text-sm min-w-[100px]">Basic Pay</TableHead>
 
                 <TableHead
-                  className="text-center border-l-2 border-red-400 bg-red-100 dark:bg-red-950/40 dark:border-red-700"
+                  className="py-2 px-3 text-sm text-center border-l-2 border-red-400 bg-red-100 dark:bg-red-950/40 dark:border-red-700"
                   colSpan={9}
                 >
                   Deductions (PKR)
                 </TableHead>
 
                 <TableHead
-                  className="text-center border-l-2 border-green-400 bg-green-100 dark:bg-green-950/40 dark:border-green-700"
+                  className="py-2 px-3 text-sm text-center border-l-2 border-green-400 bg-green-100 dark:bg-green-950/40 dark:border-green-700"
                   colSpan={7}
                 >
                   Allowances (PKR)
                 </TableHead>
 
-                <TableHead className="min-w-[100px] border-l font-bold">
+                <TableHead className="py-2 px-3 text-sm min-w-[100px] border-l font-bold">
                   Net Salary
                 </TableHead>
-                <TableHead className="min-w-[100px]">Status</TableHead>
-                <TableHead className="min-w-[50px]"></TableHead>
+                <TableHead className="py-2 px-3 text-sm min-w-[100px]">Status</TableHead>
+                <TableHead className="py-2 px-3 text-sm min-w-[50px]"></TableHead>
               </TableRow>
               <TableRow>
                 <TableHead></TableHead>
                 <TableHead></TableHead>
                 <TableHead></TableHead>
 
-                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                <TableHead className="py-2 px-3 text-sm bg-red-100 dark:bg-red-950/40 border-r border-red-200 dark:border-red-800">
                   Security
                 </TableHead>
-                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                <TableHead className="py-2 px-3 text-sm bg-red-100 dark:bg-red-950/40 border-r border-red-200 dark:border-red-800">
                   Advance
                 </TableHead>
-                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                <TableHead className="py-2 px-3 text-sm bg-red-100 dark:bg-red-950/40 border-r border-red-200 dark:border-red-800">
                   Absent
                 </TableHead>
-                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                <TableHead className="py-2 px-3 text-sm bg-red-100 dark:bg-red-950/40 border-r border-red-200 dark:border-red-800">
                   <div className="flex items-center gap-1">
                     Leave
                     <Tooltip>
@@ -615,41 +615,41 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                     </Tooltip>
                   </div>
                 </TableHead>
-                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                <TableHead className="py-2 px-3 text-sm bg-red-100 dark:bg-red-950/40 border-r border-red-200 dark:border-red-800">
                   Other
                 </TableHead>
-                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                <TableHead className="py-2 px-3 text-sm bg-red-100 dark:bg-red-950/40 border-r border-red-200 dark:border-red-800">
                   Tax
                 </TableHead>
-                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                <TableHead className="py-2 px-3 text-sm bg-red-100 dark:bg-red-950/40 border-r border-red-200 dark:border-red-800">
                   EOBI
                 </TableHead>
-                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs border-r border-red-200 dark:border-red-800">
+                <TableHead className="py-2 px-3 text-sm bg-red-100 dark:bg-red-950/40 border-r border-red-200 dark:border-red-800">
                   Late
                 </TableHead>
-                <TableHead className="bg-red-100 dark:bg-red-950/40 text-xs font-bold border-r-2 border-red-400 dark:border-red-700">
+                <TableHead className="py-2 px-3 text-sm bg-red-100 dark:bg-red-950/40 font-bold border-r-2 border-red-400 dark:border-red-700">
                   Total
                 </TableHead>
 
-                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                <TableHead className="py-2 px-3 text-sm bg-green-100 dark:bg-green-950/40 border-r border-green-200 dark:border-green-800">
                   Extra
                 </TableHead>
-                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                <TableHead className="py-2 px-3 text-sm bg-green-100 dark:bg-green-950/40 border-r border-green-200 dark:border-green-800">
                   Travel
                 </TableHead>
-                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                <TableHead className="py-2 px-3 text-sm bg-green-100 dark:bg-green-950/40 border-r border-green-200 dark:border-green-800">
                   Other
                 </TableHead>
-                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                <TableHead className="py-2 px-3 text-sm bg-green-100 dark:bg-green-950/40 border-r border-green-200 dark:border-green-800">
                   House Rent
                 </TableHead>
-                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                <TableHead className="py-2 px-3 text-sm bg-green-100 dark:bg-green-950/40 border-r border-green-200 dark:border-green-800">
                   Medical
                 </TableHead>
-                <TableHead className="bg-green-100 dark:bg-green-950/40 text-xs border-r border-green-200 dark:border-green-800">
+                <TableHead className="py-2 px-3 text-sm bg-green-100 dark:bg-green-950/40 border-r border-green-200 dark:border-green-800">
                   Insurance
                 </TableHead>
-                <TableHead className="bg-green-100 dark:bg-green-950/30 text-xs font-bold border-r-2 border-green-400 dark:border-green-700">
+                <TableHead className="py-2 px-3 text-sm bg-green-100 dark:bg-green-950/30 font-bold border-r-2 border-green-400 dark:border-green-700">
                   Total
                 </TableHead>
 
@@ -661,7 +661,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
             <TableBody>
               {localData.map((row, index) => (
                 <TableRow key={row.id}>
-                  <TableCell>
+                  <TableCell className="py-2 px-3 text-sm">
                     <Checkbox
                       checked={selectedRows.has(index)}
                       onCheckedChange={(checked) =>
@@ -669,7 +669,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                       }
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="py-2 px-3 text-sm">
                     <div className="font-medium">{row.name}</div>
                     <div className="text-xs text-muted-foreground">
                       {row.designation}
@@ -678,7 +678,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                       {row.department}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="py-2 px-3 text-sm">
                     {Number(row.basicSalary).toLocaleString()}
                   </TableCell>
 
@@ -813,7 +813,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                       }
                     />
                   </TableCell>
-                  <TableCell className="bg-red-100 dark:bg-red-950/30 font-medium text-red-700 dark:text-red-400 border-r-2 border-red-400 dark:border-red-700">
+                  <TableCell className="py-2 px-3 text-sm bg-red-100 dark:bg-red-950/30 font-medium text-red-700 dark:text-red-400 border-r-2 border-red-400 dark:border-red-700">
                     {Number(row.totalDeductions).toLocaleString()}
                   </TableCell>
 
@@ -908,14 +908,14 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                       }
                     />
                   </TableCell>
-                  <TableCell className="bg-green-100 dark:bg-green-950/30 font-medium text-green-700 dark:text-green-400 border-r-2 border-green-400 dark:border-green-700">
+                  <TableCell className="py-2 px-3 text-sm bg-green-100 dark:bg-green-950/30 font-medium text-green-700 dark:text-green-400 border-r-2 border-green-400 dark:border-green-700">
                     {Number(row.totalAllowances).toLocaleString()}
                   </TableCell>
 
-                  <TableCell className="border-l font-bold">
+                  <TableCell className="py-2 px-3 text-sm border-l font-bold">
                     {Number(row.netSalary).toLocaleString()}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="py-2 px-3 text-sm">
                     <Badge
                       variant={
                         row.status === "PAID" ? "default" : "destructive"
@@ -932,7 +932,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                       {row.status}
                     </Badge>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="py-2 px-3 text-sm">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="sm" className="h-8 w-8 p-0">

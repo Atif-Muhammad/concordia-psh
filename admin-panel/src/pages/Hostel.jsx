@@ -563,7 +563,7 @@ const Hostel = () => {
       const html = await generateHostelChallanHtml(challan, reg);
       const w = window.open('', '_blank');
       if (!w) { toast({ title: "Pop-up blocked", variant: "destructive" }); return; }
-      // Add auto-print script if not already in template
+      // Add au script if not already in template
       const printHtml = html.includes('window.print') ? html : html.replace('</body>', '<script>window.onload=()=>window.print()</script></body>');
       w.document.write(printHtml);
       w.document.close();
@@ -965,9 +965,9 @@ const Hostel = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
+            <h1 className="text-xl font-semibold flex items-center gap-2">
               <Home className="w-8 h-8 text-primary" />
               Hostel Management
             </h1>
@@ -978,7 +978,7 @@ const Hostel = () => {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Total Registrations</CardTitle>
@@ -1060,13 +1060,13 @@ const Hostel = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Student Name</TableHead>
-                        <TableHead>Roll Number</TableHead>
-                        <TableHead>Program</TableHead>
-                        <TableHead>Room</TableHead>
-                        <TableHead>Registration Date</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Student Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Roll Number</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Program</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Room</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Registration Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1077,10 +1077,10 @@ const Hostel = () => {
                         const program = reg.student?.program?.name || reg.externalInstitute || "N/A";
 
                         return <TableRow key={reg.id}>
-                          <TableCell className="font-medium">{studentName}</TableCell>
-                          <TableCell>{rollNumber}</TableCell>
-                          <TableCell>{program}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm font-medium">{studentName}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{rollNumber}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{program}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {studentRoom ? (
                               <span className="text-sm">
                                 Room {studentRoom.roomNumber}
@@ -1092,13 +1092,13 @@ const Hostel = () => {
                               <span className="text-muted-foreground text-sm">Not assigned</span>
                             )}
                           </TableCell>
-                          <TableCell>{reg.registrationDate?.split("T")[0]}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{reg.registrationDate?.split("T")[0]}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <Badge variant={reg.status === "active" ? "default" : "secondary"}>
                               {reg.status}
                             </Badge>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="flex gap-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1159,7 +1159,7 @@ const Hostel = () => {
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Card>
                 <CardHeader>
                   <CardTitle>Room Occupancy (Seats)</CardTitle>
@@ -1210,26 +1210,26 @@ const Hostel = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Room Number</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Capacity</TableHead>
-                      <TableHead>Occupancy</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Room Number</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Type</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Capacity</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Occupancy</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {rooms.map(room => <TableRow key={room.id}>
-                      <TableCell className="font-medium">{room.roomNumber}</TableCell>
-                      <TableCell>{room.roomType}</TableCell>
-                      <TableCell>{room.capacity}</TableCell>
-                      <TableCell>{room.currentOccupancy} / {room.capacity}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm font-medium">{room.roomNumber}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{room.roomType}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{room.capacity}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{room.currentOccupancy} / {room.capacity}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <Badge variant={room.status === "vacant" ? "success" : room.status === "occupied" ? "destructive" : "secondary"}>
                           {room.status}
                         </Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <div className="flex gap-2">
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -1342,20 +1342,20 @@ const Hostel = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Remarks</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Title</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Remarks</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {hostelExpenses.map(expense => <TableRow key={expense.id}>
-                      <TableCell className="font-medium">{expense.expenseTitle}</TableCell>
-                      <TableCell>PKR {expense.amount.toLocaleString()}</TableCell>
-                      <TableCell>{expense.date}</TableCell>
-                      <TableCell>{expense.remarks}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm font-medium">{expense.expenseTitle}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">PKR {expense.amount.toLocaleString()}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{expense.date}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{expense.remarks}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <div className="flex gap-2">
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -1489,22 +1489,22 @@ const Hostel = () => {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Challan No</TableHead>
-                            <TableHead>Month</TableHead>
-                            <TableHead>Hostel Fee</TableHead>
-                            <TableHead>Fine</TableHead>
-                            <TableHead>Late Fee</TableHead>
-                            <TableHead>Arrears</TableHead>
-                            <TableHead>Total</TableHead>
-                            <TableHead>Paid</TableHead>
-                            <TableHead>Due Date</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Actions</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Challan No</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Month</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Hostel Fee</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Fine</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Late Fee</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Arrears</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Total</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Paid</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Due Date</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {hostelChallans.length === 0 ? (
-                            <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">No challans generated yet.</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={11} className="py-2 px-3 text-sm text-center text-muted-foreground">No challans generated yet.</TableCell></TableRow>
                           ) : hostelChallans.map(c => {
                             const effectiveLateFee = getEffectiveLateFee(c);
                             const total = (c.hostelFee||0) + (c.fineAmount||0) + effectiveLateFee + (c.arrearsAmount||0) - (c.discount||0);
@@ -1512,11 +1512,11 @@ const Hostel = () => {
                             const hasNewLateFee = effectiveLateFee > (c.lateFeeFine||0) && c.status !== 'PAID' && c.status !== 'VOID';
                             return (
                               <TableRow key={c.id} className={c.status === 'VOID' ? 'opacity-50' : ''}>
-                                <TableCell className="font-medium">{c.challanNumber}</TableCell>
-                                <TableCell>{c.month}</TableCell>
-                                <TableCell>PKR {(c.hostelFee||0).toLocaleString()}</TableCell>
-                                <TableCell>{c.fineAmount > 0 ? `PKR ${c.fineAmount.toLocaleString()}` : '—'}</TableCell>
-                                <TableCell className={effectiveLateFee > 0 ? 'text-red-600' : ''}>
+                                <TableCell className="py-2 px-3 text-sm font-medium">{c.challanNumber}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">{c.month}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">PKR {(c.hostelFee||0).toLocaleString()}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">{c.fineAmount > 0 ? `PKR ${c.fineAmount.toLocaleString()}` : '—'}</TableCell>
+                                <TableCell className={`py-2 px-3 text-sm ${effectiveLateFee > 0 ? 'text-red-600' : ''}`}>
                                   {effectiveLateFee > 0 ? (
                                     <div>
                                       PKR {effectiveLateFee.toLocaleString()}
@@ -1524,11 +1524,11 @@ const Hostel = () => {
                                     </div>
                                   ) : '—'}
                                 </TableCell>
-                                <TableCell>{c.arrearsAmount > 0 ? `PKR ${c.arrearsAmount.toLocaleString()}` : '—'}</TableCell>
-                                <TableCell className="font-bold">PKR {total.toLocaleString()}</TableCell>
-                                <TableCell className="text-green-600">PKR {(c.paidAmount||0).toLocaleString()}</TableCell>
-                                <TableCell>{c.dueDate ? new Date(c.dueDate).toLocaleDateString() : '—'}</TableCell>
-                                <TableCell>
+                                <TableCell className="py-2 px-3 text-sm">{c.arrearsAmount > 0 ? `PKR ${c.arrearsAmount.toLocaleString()}` : '—'}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm font-bold">PKR {total.toLocaleString()}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm text-green-600">PKR {(c.paidAmount||0).toLocaleString()}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">{c.dueDate ? new Date(c.dueDate).toLocaleDateString() : '—'}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">
                                   <div className="flex flex-col gap-0.5">
                                     <Badge variant={c.status === 'PAID' ? 'default' : c.status === 'VOID' ? 'outline' : c.status === 'PARTIAL' ? 'warning' : 'secondary'}>
                                       {c.status === 'VOID' ? 'Superseded' : c.status}
@@ -1546,7 +1546,7 @@ const Hostel = () => {
                                     )}
                                   </div>
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="py-2 px-3 text-sm">
                                   <div className="flex gap-1">
                                     <Tooltip>
                                       <TooltipTrigger asChild>
@@ -1639,26 +1639,26 @@ const Hostel = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Item Name</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Condition</TableHead>
-                      <TableHead>Allocated To</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Item Name</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Category</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Quantity</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Condition</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Allocated To</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {inventoryItems.map(item => <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.itemName}</TableCell>
-                      <TableCell className="capitalize">{item.category}</TableCell>
-                      <TableCell>{item.quantity}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm font-medium">{item.itemName}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm capitalize">{item.category}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{item.quantity}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <Badge variant={item.condition === "new" ? "default" : "secondary"}>
                           {item.condition}
                         </Badge>
                       </TableCell>
-                      <TableCell>{item.allocatedToRoom || "Not Allocated"}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{item.allocatedToRoom || "Not Allocated"}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <div className="flex gap-2">
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -2266,7 +2266,7 @@ const Hostel = () => {
 
           {hostelLateFee > 0 && (
             <div className="text-xs text-muted-foreground bg-muted rounded p-2 flex-shrink-0">
-              Late fee: PKR {hostelLateFee}/day — auto-applied if due date has passed
+              Late fee: PKR {hostelLateFee}/day — au if due date has passed
             </div>
           )}
 

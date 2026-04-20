@@ -83,6 +83,9 @@ import {
   getHostelFeePayments,
   getHostelRegistrations,
   getHostelChallansByRegistration,
+  getFeeHeads,
+  getDefaultFeeChallanTemplate,
+  getFeeChallans,
 } from "../../config/apis";
 import { computeOutstandingBalance } from "@/lib/hostelUtils";
 import StudentForm from "@/components/students/StudentForm";
@@ -117,6 +120,10 @@ import {
   Settings2,
   Home,
   Bed,
+  AlertCircle,
+  ArrowRight,
+  Clock,
+  Printer,
 } from "lucide-react";
 
 const EMPTY_OBJECT = {};
@@ -181,6 +188,7 @@ const Students = () => {
   // Challan Details State
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedChallanDetails, setSelectedChallanDetails] = useState(null);
+  const [challanDetailLoading, setChallanDetailLoading] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -202,7 +210,7 @@ const Students = () => {
   const searchTimeoutRef = useRef(null);
   const location = useLocation();
 
-  // Auto-open student profile when navigated from another page (e.g. Hostel) with openStudentId state
+  // Au student profile when navigated from another page (e.g. Hostel) with openStudentId state
   useEffect(() => {
     if (location.state?.openStudentId) {
       const targetId = location.state.openStudentId;
@@ -506,6 +514,16 @@ const Students = () => {
     enabled: !!studentHostelReg?.id,
   });
 
+  const { data: feeHeads = [] } = useQuery({
+    queryKey: ['feeHeads'],
+    queryFn: getFeeHeads,
+  });
+
+  const { data: defaultChallanTemplate } = useQuery({
+    queryKey: ['defaultChallanTemplate'],
+    queryFn: getDefaultFeeChallanTemplate,
+  });
+
 
   const handleStudentSearch = (v) => {
     // Clear previous timeout
@@ -641,11 +659,6 @@ const Students = () => {
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [selectedChallanForHistory, setSelectedChallanForHistory] = useState(null);
 
-  // Status History tab filters
-  const [historyFilterSession, setHistoryFilterSession] = useState("all");
-  const [historyFilterStatus, setHistoryFilterStatus] = useState("all");
-  const [historyFilterChallanType, setHistoryFilterChallanType] = useState("all");
-
   // ──────────────────────────────────────────────────────────────
   // Cascading Filter Helpers
   // ──────────────────────────────────────────────────────────────
@@ -676,6 +689,388 @@ const Students = () => {
       })
       .map((s) => ({ ...s, avgGPA: 3.5 }))
       .sort((a, b) => b.avgGPA - a.avgGPA);
+  };
+
+  // Helper functions for challan total calculation (mirrors FeeManagement.jsx logic)
+  const getSelectedHeadsTotal = (challan) => {
+    try {
+      const raw = typeof challan?.selectedHeads === 'string'
+        ? JSON.parse(challan.selectedHeads)
+        : (challan?.selectedHeads || []);
+      if (!Array.isArray(raw)) return 0;
+      return raw
+        .filter(h => typeof h === 'object' && h !== null && h.isSelected !== false && h.type === 'additional')
+        .reduce((sum, h) => sum + (h.amount || 0), 0);
+    } catch { return 0; }
+  };
+
+  const getRecursiveArrears = (challan) => {
+    if (!challan?.previousChallans?.length || challan.installmentNumber === 0) return 0;
+    return challan.previousChallans.reduce((total, prev) => {
+      if (prev.status === 'PAID') return total;
+      const prevHeads = getSelectedHeadsTotal(prev);
+      const rem = Math.max(0,
+        (prev.amount || 0) + prevHeads + (prev.lateFeeFine || 0) - (prev.paidAmount || 0) - (prev.discount || 0)
+      );
+      return total + rem + getRecursiveArrears(prev);
+    }, 0);
+  };
+
+  const getSupersededArrears = (challan) => {
+    if (!challan?.supersedes?.length) return 0;
+    const prevIds = new Set((challan.previousChallans || []).map(p => p.id));
+    return challan.supersedes.reduce((total, prev) => {
+      if (prev.status === 'VOID' && !prevIds.has(prev.id)) {
+        const due = Math.max(0, (prev.amount || 0) + (prev.fineAmount || 0) + (prev.lateFeeFine || 0) - (prev.discount || 0));
+        return total + due + getSupersededArrears(prev);
+      }
+      return total;
+    }, 0);
+  };
+
+  const getChallanTotal = (challan) =>
+    (challan.amount || 0) + getSelectedHeadsTotal(challan) + (challan.lateFeeFine || 0) +
+    getRecursiveArrears(challan) + getSupersededArrears(challan);
+
+  // 2.1 formatAmount — rounds and localizes a number
+  const formatAmount = (amount) => {
+    const num = Number(amount) || 0;
+    return Math.round(num).toLocaleString();
+  };
+
+  // 2.2 numberToWords — converts integer to English words
+  const numberToWords = (n) => {
+    if (n < 0) return "Negative";
+    if (n === 0) return "Zero";
+    const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+    const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+    const convert = (num) => {
+      if (num < 20) return ones[num];
+      if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? " " + ones[num % 10] : "");
+      if (num < 1000) return ones[Math.floor(num / 100)] + " Hundred" + (num % 100 ? " and " + convert(num % 100) : "");
+      if (num < 100000) return convert(Math.floor(num / 1000)) + " Thousand" + (num % 1000 ? " " + convert(num % 1000) : "");
+      if (num < 10000000) return convert(Math.floor(num / 100000)) + " Lakh" + (num % 100000 ? " " + convert(num % 100000) : "");
+      return convert(Math.floor(num / 10000000)) + " Crore" + (num % 10000000 ? " " + convert(num % 10000000) : "");
+    };
+    return convert(n) + " Only";
+  };
+
+  // 2.3 getTotalArrears — combined arrears: chain-linked + superseded
+  const getTotalArrears = (challan) => {
+    return getRecursiveArrears(challan) + getSupersededArrears(challan);
+  };
+
+  // 2.4 generateChallanHtml — ported from FeeManagement, using programData/classesData
+  const generateChallanHtml = (challan, manualTemplate = null) => {
+    if (!challan || !challan.student) return "";
+
+    const student = challan.student;
+    const templateContent = manualTemplate || defaultChallanTemplate?.htmlContent;
+
+    if (!templateContent) {
+      return `
+        <div style="padding:40px; text-align:center; border: 2px dashed #94a3b8; border-radius: 12px; background: #f8fafc; color: #64748b;">
+          <h3 style="margin-bottom: 8px; font-weight: 600;">No Default Template Found</h3>
+          <p>Please mark a template as "Default" in the Templates tab to enable preview and printing.</p>
+        </div>
+      `;
+    }
+
+    // Resolve Class/Program context
+    const studentClass = challan.studentClass?.name || classesData.find(c => c.id === student.classId)?.name || student.class?.name || "N/A";
+    const studentProgram = challan.studentProgram?.name || programData.find(p => p.id === student.programId)?.name || student.program?.name || "";
+    const fullClass = `${studentProgram} ${studentClass}`.trim();
+    const studentSection = challan.studentSection?.name || student.section?.name || student.sectionName || "";
+    const classSection = studentSection ? `${studentClass} / ${studentSection}` : studentClass;
+    const programClassSection = studentSection
+      ? `${studentProgram} / ${studentClass} / ${studentSection}`.replace(/^\/\s*/, '').trim()
+      : studentProgram ? `${studentProgram} / ${studentClass}` : studentClass;
+
+    const tuitionOnly = challan.amount || 0;
+    const headsTotal = challan.fineAmount || 0;
+    const lateFee = challan.lateFeeFine || 0;
+    const scholarship = parseFloat(challan.discount) || 0;
+    const originalArrears = getTotalArrears(challan);
+
+    const grossTotal = tuitionOnly + headsTotal + lateFee + originalArrears;
+    const standardTotal = grossTotal - scholarship;
+    const netPayable = Math.max(0, standardTotal - (challan.paidAmount || 0));
+    const fineTotal = headsTotal + lateFee;
+
+    let remainingPaid = challan.paidAmount || 0;
+    const arrearsPaid = Math.min(originalArrears, remainingPaid);
+    remainingPaid -= arrearsPaid;
+    const tuitionPaid = Math.min(tuitionOnly, remainingPaid);
+    remainingPaid -= tuitionPaid;
+    const finePaid = Math.min(fineTotal, remainingPaid);
+
+    const rawHeads = (challan.selectedHeads && typeof challan.selectedHeads === 'string')
+      ? JSON.parse(challan.selectedHeads)
+      : (challan.selectedHeads || []);
+
+    const headLookup = (feeHeads || []).reduce((acc, h) => {
+      acc[h.id] = h;
+      return acc;
+    }, {});
+
+    let totalOtherHeadsFromSelection = 0;
+    let headRemainingPaid = Math.max(0, (challan.paidAmount || 0) - arrearsPaid - tuitionPaid);
+
+    const distributedHeads = rawHeads.map(item => {
+      let headInfo = null;
+      if (typeof item === 'object' && item !== null) {
+        headInfo = { ...item };
+      } else {
+        const h = headLookup[Number(item)];
+        if (h && !h.isTuition && !h.isDiscount) {
+          headInfo = { id: h.id, name: h.name, amount: parseFloat(h.amount) || 0, type: 'additional', isSelected: true };
+        }
+      }
+      if (headInfo && headInfo.isSelected && headInfo.type === 'additional' && headInfo.amount > 0) {
+        const paidForThisHead = Math.min(headInfo.amount, headRemainingPaid);
+        headRemainingPaid -= paidForThisHead;
+        return { ...headInfo, paid: paidForThisHead, balance: headInfo.amount - paidForThisHead };
+      }
+      return headInfo;
+    });
+
+    let feeHeadsRowsHtml = distributedHeads.filter(h => h && h.type === 'additional' && h.amount > 0).map(h => {
+      totalOtherHeadsFromSelection += h.amount;
+      return `<tr><td>${h.name}</td><td>${(h.balance ?? h.amount ?? 0).toLocaleString()}</td></tr>`;
+    }).join('');
+
+    if (lateFee > 0) {
+      feeHeadsRowsHtml += `<tr><td>Late Fee (Overdue)</td><td>${lateFee.toLocaleString()}</td></tr>`;
+    }
+
+    const getHeadsTotal = (c) => {
+      try {
+        const raw = typeof c?.selectedHeads === 'string' ? JSON.parse(c.selectedHeads) : (c?.selectedHeads || []);
+        if (!Array.isArray(raw)) return 0;
+        return raw.filter(h => typeof h === 'object' && h !== null && h.isSelected !== false && h.type === 'additional')
+          .reduce((sum, h) => sum + (h.amount || 0), 0);
+      } catch { return 0; }
+    };
+    const computeTotalOwed = (c) => {
+      const own = (c.amount || 0) + getHeadsTotal(c) + (c.lateFeeFine || 0) - (c.discount || 0);
+      const chainArrears = (c.previousChallans || []).reduce((sum, prev) => {
+        const prevOwed = computeTotalOwed(prev);
+        return sum + Math.max(0, prevOwed - (prev.paidAmount || 0));
+      }, 0);
+      return Math.max(0, own + chainArrears);
+    };
+
+    const buildArrearRows = (prevChallans, depth = 0) => {
+      const indent = depth > 0 ? `${'&nbsp;'.repeat(depth * 4)}↳ ` : '';
+      return prevChallans
+        .filter(prev => prev.status !== 'PAID')
+        .flatMap(prev => {
+          const ownAmount = Math.max(0,
+            (prev.amount || 0) + getHeadsTotal(prev) + (prev.lateFeeFine || 0) - (prev.discount || 0)
+          );
+          const label = `${indent}${prev.session || ''} - Installment ${prev.installmentNumber || ''} (${prev.month || ''}) - Balance`;
+          const row = `<tr><td>${label}</td><td>${ownAmount.toLocaleString()}</td></tr>`;
+          const childRows = prev.previousChallans?.length
+            ? buildArrearRows(prev.previousChallans, depth + 1)
+            : [];
+          return [row, ...childRows];
+        });
+    };
+
+    const arrearsDetailRows = buildArrearRows(challan.previousChallans || []).join('');
+
+    const flattenPreviousChallans = (c) => {
+      const result = [];
+      const walk = (node) => {
+        if (!node || !Array.isArray(node.previousChallans)) return;
+        for (const prev of node.previousChallans) {
+          walk(prev);
+          result.push(prev);
+        }
+      };
+      walk(c);
+      return result;
+    };
+
+    const sessionChallans = flattenPreviousChallans(challan)
+      .filter(c => c.installmentNumber > 0)
+      .sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0));
+
+    const paymentHistoryMonths = sessionChallans.map(h =>
+      `<td>Inst.${h.installmentNumber || ''}${h.month ? ` (${h.month})` : ''}</td>`
+    ).join('');
+    const paymentHistoryTotals = sessionChallans.map(h =>
+      `<td>${computeTotalOwed(h).toLocaleString()}</td>`
+    ).join('');
+    const paymentHistoryPaid = sessionChallans.map(h =>
+      `<td>${(h.paidAmount || 0).toLocaleString()}</td>`
+    ).join('');
+
+    const formatDate = (date) => {
+      if (!date) return "N/A";
+      return new Date(date).toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    };
+
+    const replacements = {
+      '{{INSTITUTE_NAME}}': 'Concordia College Peshawar',
+      '{{INSTITUTE_ADDRESS}}': '60-C, Near NCS School, University Town Peshawar',
+      '{{INSTITUTE_PHONE}}': '091-5619915 | 0332-8581222',
+      '{{CHALLAN_TITLE}}': challan.feeStructure?.title || "Fee Challan",
+      '{{challanNumber}}': challan.challanNumber,
+      '{{rollNumber}}': student.rollNumber,
+      '{{className}}': studentClass,
+      '{{programName}}': studentProgram,
+      '{{installmentNumber}}': challan.installmentNumber > 0 ? `#${challan.installmentNumber}` : 'Additional',
+      '{{amount}}': (standardTotal - scholarship).toLocaleString(),
+      '{{fineAmount}}': (fineTotal - finePaid).toLocaleString(),
+      '{{netPayable}}': netPayable.toLocaleString(),
+      '{{instituteName}}': 'Concordia College Peshawar',
+      '{{instituteAddress}}': '60-C, Near NCS School, University Town Peshawar',
+      '{{challanNo}}': challan.challanNumber,
+      '{{issueDate}}': formatDate(challan.issueDate || challan.createdAt),
+      '{{dueDate}}': formatDate(challan.dueDate),
+      '{{month}}': challan.month || '',
+      '{{session}}': challan.session || '',
+      '{{installmentNo}}': challan.installmentNumber > 0 ? `Installment #${challan.installmentNumber}` : 'Additional',
+      '{{studentName}}': `${student.fName} ${student.lName || ''}`.trim(),
+      '{{fatherName}}': student.fatherOrguardian || '',
+      '{{rollNo}}': student.rollNumber,
+      '{{class}}': programClassSection,
+      '{{section}}': studentSection,
+      '{{program}}': studentProgram,
+      '{{feeHeadsRows}}': feeHeadsRowsHtml,
+      '{{Tuition Fee}}': (() => {
+        const hasHeadRows = feeHeadsRowsHtml.trim().length > 0;
+        return hasHeadRows ? tuitionOnly.toLocaleString() : (tuitionOnly + headsTotal + lateFee).toLocaleString();
+      })(),
+      '{{arrears}}': (originalArrears - arrearsPaid).toLocaleString(),
+      '{{arrearsRows}}': arrearsDetailRows,
+      '{{discount}}': scholarship.toLocaleString(),
+      '{{totalPayable}}': (() => {
+        if (challan.status === 'VOID' && (challan.settledAmount || 0) > 0) {
+          const totalDue = (challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.discount || 0);
+          const remaining = Math.max(0, totalDue - (challan.settledAmount || 0));
+          return remaining.toLocaleString();
+        }
+        return netPayable.toLocaleString();
+      })(),
+      '{{rupeesInWords}}': numberToWords(netPayable),
+      '{{paymentHistoryMonths}}': paymentHistoryMonths,
+      '{{paymentHistoryTotals}}': paymentHistoryTotals,
+      '{{paymentHistoryPaid}}': paymentHistoryPaid,
+      '{{paidRow}}': (challan.paidAmount > 0 || (challan.status === 'VOID' && (challan.settledAmount || 0) > 0)) ? `
+        <tr style="background-color: #d4edda;">
+          <td style="font-weight: bold;">Paid</td>
+          <td>${challan.status === 'VOID' ? (challan.settledAmount || 0).toLocaleString() : (challan.paidAmount || 0).toLocaleString()}</td>
+        </tr>
+      ` : '',
+      '{{totalPaid}}': (challan.paidAmount || 0).toLocaleString(),
+      '{{paidDate}}': challan.paidDate ? formatDate(challan.paidDate) : 'N/A',
+      '{{paymentRemarks}}': challan.paymentRemarks || challan.remarks || 'Paid cash in accounts office',
+      '{{remaining}}': Math.max(0, standardTotal - (challan.paidAmount || 0)).toLocaleString(),
+      '{{paymentDetailsRow}}': (challan.status === 'PAID' || (challan.status === 'VOID' && (challan.settledAmount || 0) > 0)) ? `
+        <tr style="background-color: #d4edda; border: 2px solid #28a745;">
+          <td colspan="2" style="padding: 8px;">
+            <div style="font-weight: bold; margin-bottom: 4px;">Payment Details:</div>
+            <div style="font-size: 9px;">
+              <strong>Total ${challan.status === 'VOID' ? 'Settled' : 'Paid'}:</strong> Rs. ${challan.status === 'VOID' ? (challan.settledAmount || 0).toLocaleString() : (challan.paidAmount || 0).toLocaleString()} 
+              <strong style="margin-left: 10px;">${challan.status === 'VOID' ? 'Settled' : 'Paid'} Date:</strong> ${(() => {
+                if (challan.status === 'VOID') {
+                  return challan.supersededBy?.paidDate ? formatDate(challan.supersededBy.paidDate) : 'N/A';
+                }
+                return challan.paidDate ? formatDate(challan.paidDate) : 'N/A';
+              })()}
+            </div>
+            <div style="font-size: 9px; margin-top: 2px;">
+              <strong>Remaining:</strong> Rs. ${(() => {
+                if (challan.status === 'VOID') {
+                  const totalDue = (challan.amount || 0) + (challan.fineAmount || 0) + (challan.lateFeeFine || 0) - (challan.discount || 0);
+                  return Math.max(0, totalDue - (challan.settledAmount || 0)).toLocaleString();
+                }
+                return Math.max(0, standardTotal - (challan.paidAmount || 0)).toLocaleString();
+              })()}
+            </div>
+            <div style="font-size: 9px; margin-top: 2px; font-style: italic;">
+              <strong>Remarks:</strong> ${challan.paymentRemarks || challan.remarks || (challan.status === 'VOID' ? 'Settled via superseding challan' : 'Paid cash in accounts office')}
+            </div>
+          </td>
+        </tr>
+      ` : '',
+      '{{CHALLAN_NO}}': challan.challanNumber,
+      '{{ISSUE_DATE}}': formatDate(new Date()),
+      '{{DUE_DATE}}': formatDate(challan.dueDate),
+      '{{VALID_DATE}}': formatDate(new Date(new Date(challan.dueDate).setDate(new Date(challan.dueDate).getDate() + 7))),
+      '{{STUDENT_NAME}}': `${student.fName} ${student.lName || ''}`.trim(),
+      '{{FATHER_NAME}}': student.fatherOrguardian || '',
+      '{{ROLL_NO}}': student.rollNumber,
+      '{{CLASS}}': studentClass,
+      '{{SECTION}}': studentSection,
+      '{{PROGRAM}}': studentProgram,
+      '{{FULL_CLASS}}': fullClass,
+      '{{TOTAL_AMOUNT}}': standardTotal.toLocaleString(),
+      '{{SCHOLARSHIP}}': scholarship.toLocaleString(),
+      '{{NET_PAYABLE}}': netPayable.toLocaleString(),
+      '{{AMOUNT_IN_WORDS}}': numberToWords(netPayable),
+      '{{FEE_HEADS_TABLE}}': feeHeadsRowsHtml,
+      '{{PAID_AMOUNT}}': (challan.paidAmount || 0).toLocaleString(),
+      '{{REMAINING_AMOUNT}}': (challan.remainingAmount || 0).toLocaleString(),
+      '{{paidAmount}}': (challan.paidAmount || 0).toLocaleString(),
+      '{{remainingAmount}}': (challan.remainingAmount || 0).toLocaleString(),
+      '{{TUITION_ORIGINAL}}': tuitionOnly.toLocaleString(),
+      '{{TUITION_PAID}}': tuitionPaid.toLocaleString(),
+      '{{TUITION_BALANCE}}': (tuitionOnly - tuitionPaid).toLocaleString(),
+      '{{ARREARS_ORIGINAL}}': originalArrears.toLocaleString(),
+      '{{ARREARS_PAID}}': arrearsPaid.toLocaleString(),
+      '{{ARREARS_BALANCE}}': (originalArrears - arrearsPaid).toLocaleString(),
+      '{{FINE_ORIGINAL}}': fineTotal.toLocaleString(),
+      '{{FINE_PAID}}': finePaid.toLocaleString(),
+      '{{FINE_BALANCE}}': (fineTotal - finePaid).toLocaleString(),
+    };
+
+    let finalHtml = templateContent;
+
+    finalHtml = finalHtml.replace(/\{\{program\}\}\s*\/\s*\{\{class\}\}\s*\/\s*\{\{section\}\}/g, programClassSection);
+    finalHtml = finalHtml.replace(/\{\{class\}\}\s*\/\s*\{\{section\}\}/g, classSection);
+
+    if (!finalHtml.includes('{{FEE_HEADS_TABLE}}') && !finalHtml.includes('{{feeHeadsRows}}')) {
+      const tuitionRowRegex = /(<tr>\s*<td[^>]*>(?:Tuition Fee|{{Tuition Fee}})<\/td>)/i;
+      if (tuitionRowRegex.test(finalHtml)) {
+        finalHtml = finalHtml.replace(tuitionRowRegex, `${feeHeadsRowsHtml}$1`);
+      }
+    }
+
+    Object.entries(replacements).forEach(([key, value]) => {
+      const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      finalHtml = finalHtml.replace(new RegExp(escapedKey, 'g'), value);
+    });
+
+    return finalHtml;
+  };
+
+  // 2.5 printChallan — accepts challan object directly, fetches template, opens print window
+  const printChallan = async (challan) => {
+    try {
+      const template = await getDefaultFeeChallanTemplate();
+      if (!template?.htmlContent) {
+        toast({ title: "Template Missing", description: "Please mark a template as 'Default' in the Templates tab.", variant: "destructive" });
+        return;
+      }
+      const finalHtml = generateChallanHtml(challan, template.htmlContent);
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
+        return;
+      }
+      printWindow.document.write(finalHtml);
+      printWindow.document.close();
+      printWindow.onload = () => { printWindow.print(); };
+    } catch (error) {
+      toast({ title: "Print error", description: "Failed to generate print view.", variant: "destructive" });
+    }
   };
 
   const processFeesData = () => {
@@ -804,7 +1199,7 @@ const Students = () => {
       const remainingDues = nonVoidChallans
         .filter(c => c.status !== 'PAID')
         .reduce((sum, c) => {
-          const netPayable = (c.amount || 0) - (c.discount || 0) + (c.fineAmount || 0) + (c.lateFeeFine || 0);
+          const netPayable = getChallanTotal(c) - (c.discount || 0);
           return sum + Math.max(0, netPayable - (c.paidAmount || 0));
         }, 0);
 
@@ -934,9 +1329,9 @@ const Students = () => {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
+            <h1 className="text-xl font-semibold flex items-center gap-2">
               <Users className="w-8 h-8 text-primary" />
               Student Management
             </h1>
@@ -1096,21 +1491,21 @@ const Students = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Photo</TableHead>
-                  <TableHead>Roll No</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Admission Date</TableHead>
-                  <TableHead>Program</TableHead>
-                  <TableHead>{selectedStatus === "ACTIVE" ? "Class" : "Last Class"}</TableHead>
-                  <TableHead>Section</TableHead>
-                  <TableHead>Status</TableHead>
-                  {selectedStatus !== "GRADUATED" && <TableHead>Actions</TableHead>}
+                  <TableHead className="py-2 px-3 text-sm">Photo</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Roll No</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Name</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Admission Date</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Program</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">{selectedStatus === "ACTIVE" ? "Class" : "Last Class"}</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Section</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                  {selectedStatus !== "GRADUATED" && <TableHead className="py-2 px-3 text-sm">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {currentStudents?.length === 0 ? (
                   <TableRow>
-                  <TableCell colSpan={selectedStatus === "ACTIVE" ? 9 : 8} className="text-center py-8">
+                  <TableCell colSpan={selectedStatus === "ACTIVE" ? 9 : 8} className="py-2 px-3 text-sm text-center py-8">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <p className="text-muted-foreground">
                           {selectedStatus === "ACTIVE"
@@ -1138,13 +1533,13 @@ const Students = () => {
 
                     return (
                       <TableRow key={student.id}>
-                        <TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           <Avatar>
                             <AvatarImage src={student.photo_url} />
                             <AvatarFallback>{student.fName}</AvatarFallback>
                           </Avatar>
                         </TableCell>
-                        <TableCell className="font-medium">
+                        <TableCell className="py-2 px-3 text-sm font-medium">
                           <div className="flex items-center gap-1.5">
                             {student.rollNumber}
                             {hostelStudentIds.has(student.id) && (
@@ -1152,7 +1547,7 @@ const Students = () => {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           <div className="flex items-center gap-1.5">
                             {student.fName} {student.lName}
                             {hostelStudentIds.has(student.id) && (
@@ -1162,15 +1557,15 @@ const Students = () => {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           {student.createdAt ? format(new Date(student.createdAt), "dd MMM yyyy") : "-"}
                         </TableCell>
-                        <TableCell><Badge variant="outline">{prog?.name || "-"}</Badge></TableCell>
-                        <TableCell>
+                        <TableCell className="py-2 px-3 text-sm"><Badge variant="outline">{prog?.name || "-"}</Badge></TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           {cls?.name || "-"}
                         </TableCell>
-                        <TableCell>{sec?.name || <span className="text-muted-foreground">N/A</span>}</TableCell>
-                        <TableCell>
+                        <TableCell className="py-2 px-3 text-sm">{sec?.name || <span className="text-muted-foreground">N/A</span>}</TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           <Badge variant={
                             student.status === "ACTIVE" ? "default" :
                               student.status === "GRADUATED" ? "secondary" :
@@ -1179,7 +1574,7 @@ const Students = () => {
                             {student.status || "ACTIVE"}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           <div className="flex gap-2">
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -1340,7 +1735,7 @@ const Students = () => {
                 </TabsList>
 
                 <TabsContent value="info" className="space-y-4">
-                  <div className="flex items-start gap-6 mb-6">
+                  <div className="flex items-start gap-4 mb-6">
                     <Avatar className="w-24 h-24">
                       <AvatarImage src={viewStudent.photo_url} />
                       <AvatarFallback>{viewStudent.fName}</AvatarFallback>
@@ -1588,13 +1983,13 @@ const Students = () => {
                                 <Table>
                                   <TableHeader>
                                     <TableRow>
-                                      <TableHead>Challan No</TableHead>
-                                      <TableHead>Payable</TableHead>
-                                      <TableHead>Paid</TableHead>
-                                      <TableHead>Status</TableHead>
-                                      <TableHead>Installments</TableHead>
-                                      <TableHead>Installment Month</TableHead>
-                                      <TableHead>Actions</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Challan No</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Payable</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Paid</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Installments</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Installment Month</TableHead>
+                                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
@@ -1606,22 +2001,22 @@ const Students = () => {
                                       });
                                       if (filtered.length === 0) return (
                                         <TableRow>
-                                          <TableCell colSpan={7} className="text-center py-4 text-muted-foreground">
+                                          <TableCell colSpan={7} className="py-2 px-3 text-sm text-center py-4 text-muted-foreground">
                                             No challans for this session
                                           </TableCell>
                                         </TableRow>
                                       );
                                       return filtered.map(fee => (
                                         <TableRow key={fee.id} className={fee.status === 'VOID' ? 'opacity-50' : ''}>
-                                          <TableCell className="font-medium">{fee.challanNumber || fee.id}</TableCell>
-                                          <TableCell>
+                                          <TableCell className="py-2 px-3 text-sm font-medium">{fee.challanNumber || fee.id}</TableCell>
+                                          <TableCell className="py-2 px-3 text-sm">
                                             {fee.status === 'VOID' ? (
                                               <span className="text-muted-foreground line-through text-xs">
-                                                PKR {(fee.amount - (fee.discount || 0) + (fee.fineAmount || 0)).toLocaleString()}
+                                                PKR {getChallanTotal(fee).toLocaleString()}
                                               </span>
                                             ) : (
                                               <>
-                                                <div>PKR {(fee.amount - (fee.discount || 0) + (fee.fineAmount || 0) + (fee.lateFeeFine || 0)).toLocaleString()}</div>
+                                                <div>PKR {getChallanTotal(fee).toLocaleString()}</div>
                                                 {fee.lateFeeFine > 0 && (
                                                   <div className="text-[10px] text-destructive font-bold">
                                                     Inc. Late Fee: PKR {fee.lateFeeFine.toLocaleString()}
@@ -1630,21 +2025,30 @@ const Students = () => {
                                               </>
                                             )}
                                           </TableCell>
-                                          <TableCell className="text-green-600">PKR {fee.paidAmount?.toLocaleString() || 0}</TableCell>
-                                          <TableCell>
+                                          <TableCell className="py-2 px-3 text-sm text-green-600">PKR {fee.paidAmount?.toLocaleString() || 0}</TableCell>
+                                          <TableCell className="py-2 px-3 text-sm">
                                             <Badge variant={fee.status === "PAID" ? "default" : fee.status === "VOID" ? "outline" : "destructive"}>
                                               {fee.status === "VOID" ? "Superseded" : fee.status}
                                             </Badge>
                                           </TableCell>
-                                          <TableCell>{fee.coveredInstallments || fee.installmentNumber || "-"}</TableCell>
-                                          <TableCell>{fee.dueDate ? format(new Date(fee.dueDate), "MMM yyyy") : "-"}</TableCell>
-                                          <TableCell>
+                                          <TableCell className="py-2 px-3 text-sm">{fee.coveredInstallments || fee.installmentNumber || "-"}</TableCell>
+                                          <TableCell className="py-2 px-3 text-sm">{fee.dueDate ? format(new Date(fee.dueDate), "MMM yyyy") : "-"}</TableCell>
+                                          <TableCell className="py-2 px-3 text-sm">
                                               <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                onClick={() => {
+                                                onClick={async () => {
                                                   setSelectedChallanDetails(fee);
                                                   setDetailsDialogOpen(true);
+                                                  // Fetch full challan with previousChallans, supersedes, etc.
+                                                  try {
+                                                    setChallanDetailLoading(true);
+                                                    const result = await getFeeChallans({ id: fee.id });
+                                                    const full = (result?.data || [])[0] || fee;
+                                                    if (full && full.id) setSelectedChallanDetails(full);
+                                                  } catch { /* keep the shallow fee object */ } finally {
+                                                    setChallanDetailLoading(false);
+                                                  }
                                                 }}
                                               >
                                                 <Eye className="h-4 w-4" />
@@ -1725,10 +2129,10 @@ const Students = () => {
                                  <Table>
                                    <TableHeader className="bg-slate-50/50">
                                      <TableRow>
-                                       <TableHead className="w-[80px] text-zinc-500 font-bold uppercase text-[10px]">Inst. #</TableHead>
-                                       <TableHead className="text-zinc-500 font-bold uppercase text-[10px]">Billing Month</TableHead>
-                                       <TableHead className="text-zinc-500 font-bold uppercase text-[10px]">Due Date</TableHead>
-                                       <TableHead className="text-right text-zinc-500 font-bold uppercase text-[10px]">Plan Amount</TableHead>
+                                       <TableHead className="py-2 px-3 text-sm w-[80px] text-zinc-500 font-bold uppercase text-[10px]">Inst. #</TableHead>
+                                       <TableHead className="py-2 px-3 text-sm text-zinc-500 font-bold uppercase text-[10px]">Billing Month</TableHead>
+                                       <TableHead className="py-2 px-3 text-sm text-zinc-500 font-bold uppercase text-[10px]">Due Date</TableHead>
+                                       <TableHead className="py-2 px-3 text-sm text-right text-zinc-500 font-bold uppercase text-[10px]">Plan Amount</TableHead>
                                      </TableRow>
                                    </TableHeader>
                                    <TableBody>
@@ -1736,12 +2140,12 @@ const Students = () => {
                                        .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
                                        .map((inst, idx) => (
                                        <TableRow key={inst.id} className="hover:bg-slate-50/30 transition-colors">
-                                         <TableCell className="font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                                         <TableCell className="font-semibold text-slate-700">{inst.month}</TableCell>
-                                         <TableCell className="text-xs text-slate-600">
+                                         <TableCell className="py-2 px-3 text-sm font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                         <TableCell className="py-2 px-3 text-sm font-semibold text-slate-700">{inst.month}</TableCell>
+                                         <TableCell className="py-2 px-3 text-sm text-xs text-slate-600">
                                            {inst.dueDate ? format(new Date(inst.dueDate), "dd MMM yyyy") : "-"}
                                          </TableCell>
-                                         <TableCell className="text-right font-bold text-slate-900">
+                                         <TableCell className="py-2 px-3 text-sm text-right font-bold text-slate-900">
                                            PKR {inst.amount.toLocaleString()}
                                          </TableCell>
                                        </TableRow>
@@ -1766,13 +2170,13 @@ const Students = () => {
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Challan No</TableHead>
-                              <TableHead>Month</TableHead>
-                              <TableHead>Heads</TableHead>
-                              <TableHead>Amount</TableHead>
-                              <TableHead>Paid</TableHead>
-                              <TableHead>Status</TableHead>
-                              <TableHead>Due Date</TableHead>
+                              <TableHead className="py-2 px-3 text-sm">Challan No</TableHead>
+                              <TableHead className="py-2 px-3 text-sm">Month</TableHead>
+                              <TableHead className="py-2 px-3 text-sm">Heads</TableHead>
+                              <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
+                              <TableHead className="py-2 px-3 text-sm">Paid</TableHead>
+                              <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                              <TableHead className="py-2 px-3 text-sm">Due Date</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -1784,17 +2188,17 @@ const Students = () => {
                               } catch {}
                               return (
                                 <TableRow key={fee.id}>
-                                  <TableCell className="font-medium">{fee.challanNumber}</TableCell>
-                                  <TableCell>{fee.month || (fee.dueDate ? format(new Date(fee.dueDate), "MMM yyyy") : '-')}</TableCell>
-                                  <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">{headsLabel}</TableCell>
-                                  <TableCell>PKR {(fee.amount + (fee.fineAmount || 0)).toLocaleString()}</TableCell>
-                                  <TableCell className="text-green-600">PKR {(fee.paidAmount || 0).toLocaleString()}</TableCell>
-                                  <TableCell>
+                                  <TableCell className="py-2 px-3 text-sm font-medium">{fee.challanNumber}</TableCell>
+                                  <TableCell className="py-2 px-3 text-sm">{fee.month || (fee.dueDate ? format(new Date(fee.dueDate), "MMM yyyy") : '-')}</TableCell>
+                                  <TableCell className="py-2 px-3 text-sm text-xs text-muted-foreground max-w-[200px] truncate">{headsLabel}</TableCell>
+                                  <TableCell className="py-2 px-3 text-sm">PKR {(fee.amount + (fee.fineAmount || 0)).toLocaleString()}</TableCell>
+                                  <TableCell className="py-2 px-3 text-sm text-green-600">PKR {(fee.paidAmount || 0).toLocaleString()}</TableCell>
+                                  <TableCell className="py-2 px-3 text-sm">
                                     <Badge variant={fee.status === 'PAID' ? 'default' : fee.status === 'VOID' ? 'outline' : 'destructive'}>
                                       {fee.status === 'VOID' ? 'Superseded' : fee.status}
                                     </Badge>
                                   </TableCell>
-                                  <TableCell>{fee.dueDate ? format(new Date(fee.dueDate), "dd MMM yyyy") : '-'}</TableCell>
+                                  <TableCell className="py-2 px-3 text-sm">{fee.dueDate ? format(new Date(fee.dueDate), "dd MMM yyyy") : '-'}</TableCell>
                                 </TableRow>
                               );
                             })}
@@ -2062,25 +2466,25 @@ const Students = () => {
                                       <Table>
                                         <TableHeader>
                                           <TableRow>
-                                            <TableHead>Exam</TableHead>
-                                            <TableHead>Obtained</TableHead>
-                                            <TableHead>Total</TableHead>
-                                            <TableHead>Percent</TableHead>
-                                            <TableHead>Grade</TableHead>
+                                            <TableHead className="py-2 px-3 text-sm">Exam</TableHead>
+                                            <TableHead className="py-2 px-3 text-sm">Obtained</TableHead>
+                                            <TableHead className="py-2 px-3 text-sm">Total</TableHead>
+                                            <TableHead className="py-2 px-3 text-sm">Percent</TableHead>
+                                            <TableHead className="py-2 px-3 text-sm">Grade</TableHead>
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
                                           {results.map(result => (
                                             <TableRow key={result.id}>
-                                              <TableCell className="font-medium">{result.exam?.examName}</TableCell>
-                                              <TableCell>{result.obtainedMarks}</TableCell>
-                                              <TableCell>{result.totalMarks}</TableCell>
-                                              <TableCell>
+                                              <TableCell className="py-2 px-3 text-sm font-medium">{result.exam?.examName}</TableCell>
+                                              <TableCell className="py-2 px-3 text-sm">{result.obtainedMarks}</TableCell>
+                                              <TableCell className="py-2 px-3 text-sm">{result.totalMarks}</TableCell>
+                                              <TableCell className="py-2 px-3 text-sm">
                                                 <Badge variant={result.percentage >= 50 ? "outline" : "destructive"}>
                                                   {result.percentage}%
                                                 </Badge>
                                               </TableCell>
-                                              <TableCell>{result.grade}</TableCell>
+                                              <TableCell className="py-2 px-3 text-sm">{result.grade}</TableCell>
                                             </TableRow>
                                           ))}
                                         </TableBody>
@@ -2096,92 +2500,24 @@ const Students = () => {
                     </div>
                   )}
                 </TabsContent>
+
                 <TabsContent value="history" className="flex-1 overflow-y-auto">
-                  {/* Filters */}
-                  <div className="flex flex-wrap gap-3 mb-4">
-                    <div className="min-w-[160px]">
-                      <Label className="text-xs">Session</Label>
-                      <Select value={historyFilterSession} onValueChange={setHistoryFilterSession}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="All Sessions" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Sessions</SelectItem>
-                          {academicSessions.map(s => (
-                            <SelectItem key={s.id} value={s.id.toString()}>
-                              {s.name} {s.isActive ? "(Current)" : ""}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="min-w-[160px]">
-                      <Label className="text-xs">Status</Label>
-                      <Select value={historyFilterStatus} onValueChange={setHistoryFilterStatus}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="All Statuses" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Statuses</SelectItem>
-                          <SelectItem value="ACTIVE">Active</SelectItem>
-                          <SelectItem value="GRADUATED">Graduated</SelectItem>
-                          <SelectItem value="EXPELLED">Expelled</SelectItem>
-                          <SelectItem value="STRUCK_OFF">Struck Off</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="min-w-[160px]">
-                      <Label className="text-xs">Challan Type</Label>
-                      <Select value={historyFilterChallanType} onValueChange={setHistoryFilterChallanType}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="All Types" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Types</SelectItem>
-                          <SelectItem value="tuition">Tuition Fee Challan</SelectItem>
-                          <SelectItem value="extra">Extra Challan</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {(historyFilterSession !== "all" || historyFilterStatus !== "all" || historyFilterChallanType !== "all") && (
-                      <div className="flex items-end">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => { setHistoryFilterSession("all"); setHistoryFilterStatus("all"); setHistoryFilterChallanType("all"); }}
-                        >
-                          <X className="w-3 h-3 mr-1" /> Clear
-                        </Button>
-                      </div>
-                    )}
-                  </div>
                   {detailsLoading ? (
                     <div className="flex items-center justify-center py-12">
                       <p className="text-muted-foreground">Loading status history...</p>
                     </div>
                   ) : (() => {
                     const allHistory = studentDetails?.statusHistory || [];
-                    const filtered = allHistory.filter(h => {
-                      if (historyFilterStatus !== "all" && h.newStatus !== historyFilterStatus) return false;
-                      if (historyFilterSession !== "all" && h.sessionId?.toString() !== historyFilterSession) return false;
-                      if (historyFilterChallanType !== "all") {
-                        if (historyFilterChallanType === "tuition" && h.challanType === "FEE_HEADS_ONLY") return false;
-                        if (historyFilterChallanType === "extra" && h.challanType !== "FEE_HEADS_ONLY") return false;
-                      }
-                      return true;
-                    });
-                    if (filtered.length === 0) return (
+                    if (allHistory.length === 0) return (
                       <div className="flex flex-col items-center justify-center py-12 text-center">
                         <p className="text-lg text-muted-foreground mb-2">No status history found</p>
-                        <p className="text-sm text-muted-foreground">
-                          {allHistory.length > 0 ? "No records match the selected filters." : "This student has no recorded status changes yet."}
-                        </p>
+                        <p className="text-sm text-muted-foreground">This student has no recorded status changes yet.</p>
                       </div>
                     );
                     return (
                       <div className="space-y-4">
-                        {filtered.map((history) => (
-                          <div key={history.id} className="relative pl-6 pb-6 border-l-2 last:border-0 border-primary/20">
+                        {allHistory.map((history) => (
+                          <div key={history.id} className="relative pl-6 pb-6 border-l-2 last:border-0 border-border">
                             <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full bg-primary" />
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-2">
@@ -2212,6 +2548,7 @@ const Students = () => {
                     );
                   })()}
                 </TabsContent>
+
                 <TabsContent value="hostel" className="space-y-4">
                   {hostelRegLoading ? (
                     <div className="flex items-center justify-center py-12">
@@ -2275,11 +2612,11 @@ const Students = () => {
                             <Table>
                               <TableHeader>
                                 <TableRow>
-                                  <TableHead>Challan No</TableHead>
-                                  <TableHead>Month</TableHead>
-                                  <TableHead>Total</TableHead>
-                                  <TableHead>Paid</TableHead>
-                                  <TableHead>Status</TableHead>
+                                  <TableHead className="py-2 px-3 text-sm">Challan No</TableHead>
+                                  <TableHead className="py-2 px-3 text-sm">Month</TableHead>
+                                  <TableHead className="py-2 px-3 text-sm">Total</TableHead>
+                                  <TableHead className="py-2 px-3 text-sm">Paid</TableHead>
+                                  <TableHead className="py-2 px-3 text-sm">Status</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -2287,11 +2624,11 @@ const Students = () => {
                                   const total = (c.hostelFee||0) + (c.fineAmount||0) + (c.lateFeeFine||0) + (c.arrearsAmount||0) - (c.discount||0);
                                   return (
                                     <TableRow key={c.id} className={c.status === 'VOID' ? 'opacity-50' : ''}>
-                                      <TableCell className="font-medium text-xs">{c.challanNumber}</TableCell>
-                                      <TableCell>{c.month}</TableCell>
-                                      <TableCell>PKR {total.toLocaleString()}</TableCell>
-                                      <TableCell className="text-green-600">PKR {(c.paidAmount||0).toLocaleString()}</TableCell>
-                                      <TableCell>
+                                      <TableCell className="py-2 px-3 text-sm font-medium text-xs">{c.challanNumber}</TableCell>
+                                      <TableCell className="py-2 px-3 text-sm">{c.month}</TableCell>
+                                      <TableCell className="py-2 px-3 text-sm">PKR {total.toLocaleString()}</TableCell>
+                                      <TableCell className="py-2 px-3 text-sm text-green-600">PKR {(c.paidAmount||0).toLocaleString()}</TableCell>
+                                      <TableCell className="py-2 px-3 text-sm">
                                         <Badge variant={c.status === 'PAID' ? 'default' : c.status === 'VOID' ? 'outline' : c.status === 'PARTIAL' ? 'warning' : 'secondary'}>
                                           {c.status === 'VOID' ? 'Superseded' : c.status}
                                         </Badge>
@@ -2396,18 +2733,18 @@ const Students = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-12">Select</TableHead>
-                    <TableHead>Roll</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Father/Guardian</TableHead>
-                    <TableHead>Class</TableHead>
-                    {isRejoinMode && <TableHead>Status</TableHead>}
+                    <TableHead className="py-2 px-3 text-sm w-12">Select</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Roll</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Name</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Father/Guardian</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Class</TableHead>
+                    {isRejoinMode && <TableHead className="py-2 px-3 text-sm">Status</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {dialogStudentsIsLoading && <TableRow><TableCell colSpan={isRejoinMode ? 6 : 5} className="text-center py-4 text-muted-foreground">Loading students...</TableCell></TableRow>}
+                  {dialogStudentsIsLoading && <TableRow><TableCell colSpan={isRejoinMode ? 6 : 5} className="py-2 px-3 text-sm text-center py-4 text-muted-foreground">Loading students...</TableCell></TableRow>}
                   {!dialogStudentsIsLoading && dialogStudentsData.length === 0 && (
-                    <TableRow><TableCell colSpan={isRejoinMode ? 6 : 5} className="text-center py-4 text-muted-foreground">
+                    <TableRow><TableCell colSpan={isRejoinMode ? 6 : 5} className="py-2 px-3 text-sm text-center py-4 text-muted-foreground">
                       {dialogFilterProgram
                         ? (isRejoinMode ? "No expelled or struck-off students found for this filter" : "No active students found for this filter")
                         : "Select a program to load students"}
@@ -2415,7 +2752,7 @@ const Students = () => {
                   )}
                   {dialogStudentsData?.map(s => (
                     <TableRow key={s.id}>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <input
                           type="checkbox"
                           checked={selectedForPromotion.includes(s.id)}
@@ -2429,12 +2766,12 @@ const Students = () => {
                           className="w-4 h-4"
                         />
                       </TableCell>
-                      <TableCell>{s.rollNumber}</TableCell>
-                      <TableCell>{s.fName} {s.lName}</TableCell>
-                      <TableCell>{s.fatherOrguardian}</TableCell>
-                      <TableCell>{programData.flatMap(p => p.classes).find(c => c.id === s.classId)?.name}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{s.rollNumber}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{s.fName} {s.lName}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{s.fatherOrguardian}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{programData.flatMap(p => p.classes).find(c => c.id === s.classId)?.name}</TableCell>
                       {isRejoinMode && (
-                        <TableCell>
+                        <TableCell className="py-2 px-3 text-sm">
                           <Badge variant={s.status === "EXPELLED" ? "destructive" : "secondary"}>
                             {s.status === "EXPELLED" ? "Expelled" : "Struck Off"}
                           </Badge>
@@ -2447,7 +2784,7 @@ const Students = () => {
 
               {/* Manual Promotion Destination Details */}
               {promotionAction === "promote_manual" && (
-                <div className="space-y-4 p-4 bg-orange-50 border border-orange-100 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="space-y-4 p-4 bg-orange-50 border border-orange-100 rounded-lg animate-in fade-in slide-in- duration-300">
                   <div className="flex items-center gap-2 mb-2">
                     <TrendingUp className="w-4 h-4 text-orange-600" />
                     <h4 className="text-sm font-semibold text-orange-900">Destination Placement</h4>
@@ -2690,30 +3027,30 @@ const Students = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Position</TableHead>
-                    <TableHead>Roll</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Father/Guardian</TableHead>
-                    <TableHead>Program</TableHead>
-                    <TableHead>Class</TableHead>
-                    <TableHead>GPA</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Position</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Roll</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Name</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Father/Guardian</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Program</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">Class</TableHead>
+                    <TableHead className="py-2 px-3 text-sm">GPA</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {getFilteredStudentsForMerit().map((s, i) => (
                     <TableRow key={s.id}>
-                      <TableCell>
+                      <TableCell className="py-2 px-3 text-sm">
                         <Badge variant={i === 0 ? "default" : "outline"}>
                           {i === 0 && <Award className="w-3 h-3 mr-1" />}
                           #{i + 1}
                         </Badge>
                       </TableCell>
-                      <TableCell>{s.rollNumber}</TableCell>
-                      <TableCell>{s.fName} {s.lName}</TableCell>
-                      <TableCell>{s.fatherOrguardian}</TableCell>
-                      <TableCell>{programData.find(p => p.id === s.programId)?.name}</TableCell>
-                      <TableCell>{programData.flatMap(p => p.classes).find(c => c.id === s.classId)?.name}</TableCell>
-                      <TableCell className="font-bold">{s.avgGPA.toFixed(2)}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{s.rollNumber}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{s.fName} {s.lName}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{s.fatherOrguardian}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{programData.find(p => p.id === s.programId)?.name}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{programData.flatMap(p => p.classes).find(c => c.id === s.classId)?.name}</TableCell>
+                      <TableCell className="py-2 px-3 text-sm font-bold">{s.avgGPA.toFixed(2)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -2814,7 +3151,7 @@ const Students = () => {
                       <p className="text-sm"><strong>Program:</strong> {promotionDialog.arrears?.programName}</p>
 
                       {promotionDialog.arrears?.unpaidChallans?.length > 0 && (
-                        <div className="mt-2 space-y-1 border-t pt-2 border-destructive/20">
+                        <div className="mt-2 space-y-1 border-t pt-2 border-border">
                           <p className="text-[10px] uppercase font-black text-destructive/60 mb-1">Unpaid Installments</p>
                           {promotionDialog.arrears.unpaidChallans.map((c, idx) => (
                             <div key={idx} className="flex justify-between text-xs">
@@ -2825,7 +3162,7 @@ const Students = () => {
                         </div>
                       )}
 
-                      <p className="text-lg font-bold text-destructive mt-3 flex justify-between items-center border-t pt-2 border-destructive/40">
+                      <p className="text-lg font-bold text-destructive mt-3 flex justify-between items-center border-t pt-2 border-border">
                         <span className="text-sm uppercase">Total Backlog</span>
                         <span>PKR {promotionDialog.arrears?.outstandingAmount?.toLocaleString()}</span>
                       </p>
@@ -2895,7 +3232,7 @@ const Students = () => {
                 <p className="font-semibold text-foreground">
                   You are about to demote {selectedForPromotion.length} student(s) to the previous class.
                 </p>
-                <div className="bg-destructive/10 border border-destructive/20 p-3 rounded-lg text-sm text-destructive">
+                <div className="bg-destructive/10 border border-border p-3 rounded-lg text-sm text-destructive">
                   <p className="font-bold mb-1">⚠️ Warning: Challan Deletion</p>
                   <p>
                     Any <strong>unpaid challans</strong> associated with their current class will be
@@ -2926,230 +3263,324 @@ const Students = () => {
 
         {/* Challan Details Dialog */}
         <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="flex justify-between items-center text-lg font-bold">
-                <div className="flex items-center gap-2">
-                  <Receipt className="w-5 h-5 text-primary" />
-                  Challan Details & Preview
-                </div>
+              <DialogTitle className="flex justify-between items-center">
+                <span>Challan Preview &amp; Details{challanDetailLoading && <span className="ml-2 text-xs font-normal text-muted-foreground animate-pulse">Loading full details…</span>}</span>
                 {selectedChallanDetails && (
-                  <Badge variant="outline" className="text-xs font-mono">
-                    #{selectedChallanDetails.challanNumber}
-                  </Badge>
+                  <Button variant="outline" size="sm" onClick={() => printChallan(selectedChallanDetails)} className="gap-2" disabled={challanDetailLoading}>
+                    <Printer className="w-4 h-4" /> Print Challan
+                  </Button>
                 )}
               </DialogTitle>
             </DialogHeader>
 
             {selectedChallanDetails && (
-              <div className="space-y-6 pt-2">
-                {/* Header Summary */}
-                <div className="bg-muted/50 p-4 rounded-xl border flex flex-col md:flex-row justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-10 w-10 border-2 border-primary/20">
-                      <AvatarFallback className="bg-primary/5 text-primary font-bold">
-                        {selectedChallanDetails.student?.fName?.[0]}{selectedChallanDetails.student?.lName?.[0]}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-bold">{selectedChallanDetails.student?.fName} {selectedChallanDetails.student?.lName}</span>
-                      <span className="text-[10px] text-muted-foreground uppercase font-black">{selectedChallanDetails.student?.rollNumber}</span>
-                    </div>
+              <div className="space-y-6">
+                {/* Header Info: Dates & Status */}
+                <div className="bg-slate-50 border rounded-xl p-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Challan Number</p>
+                    <p className="text-sm font-mono font-bold text-primary">{selectedChallanDetails.challanNumber}</p>
                   </div>
-                  <div className="flex items-center gap-6 text-right">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] text-muted-foreground uppercase font-black">Installment</span>
-                      <span className="text-xs font-bold font-mono">
-                        {selectedChallanDetails.installmentNumber === 0 ? "Extra Bill" : `#${selectedChallanDetails.installmentNumber}`}
-                      </span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-[10px] text-muted-foreground uppercase font-black">Issue Date</span>
-                      <span className="text-xs font-bold">{new Date(selectedChallanDetails.issueDate).toLocaleDateString()}</span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-[10px] text-muted-foreground uppercase font-black">Due Date</span>
-                      <span className="text-xs font-bold text-destructive">{new Date(selectedChallanDetails.dueDate).toLocaleDateString()}</span>
-                    </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Issue Date</p>
+                    <p className="text-sm font-semibold">{format(new Date(selectedChallanDetails.issueDate || selectedChallanDetails.createdAt), "dd MMM yyyy")}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Due Date</p>
+                    <p className="text-sm font-semibold text-destructive">{format(new Date(selectedChallanDetails.dueDate), "dd MMM yyyy")}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Status</p>
+                    <Badge
+                      className="uppercase text-[10px]"
+                      variant={selectedChallanDetails.status === "PAID" ? "default" : selectedChallanDetails.status === "VOID" ? "outline" : "destructive"}
+                    >
+                      {selectedChallanDetails.status === "VOID" ? "Superseded" : selectedChallanDetails.status}
+                    </Badge>
                   </div>
                 </div>
 
-                {/* Primary Info Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Billing Breakdown Card */}
-                  <Card className="shadow-sm border-primary/10 overflow-hidden">
-                    <CardHeader className="pb-2 bg-primary/5">
-                      <CardTitle className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-2">
-                        <DollarSign className="w-3.5 h-3.5" /> Billing Breakdown
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3 pt-4">
-                      {selectedChallanDetails.amount > 0 && (
-                        <div className="flex justify-between text-sm py-1 border-b border-dashed border-muted">
-                          <span className="text-muted-foreground">Base Tuition Fee</span>
-                          <span className="font-semibold text-foreground">PKR {Math.round(selectedChallanDetails.amount - (selectedChallanDetails.arrearsAmount || 0)).toLocaleString()}</span>
+                {/* VOID Challan Transparency Note */}
+                {selectedChallanDetails.status === "VOID" && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex gap-3 items-start">
+                    <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <div className="space-y-1 text-sm w-full">
+                      <p className="font-semibold text-amber-800">This challan was superseded</p>
+                      {selectedChallanDetails.supersededBy && (
+                        <div className="flex items-center gap-1.5 text-xs text-amber-700">
+                          <span className="font-medium">{selectedChallanDetails.month || `Inst #${selectedChallanDetails.installmentNumber}`} (VOID)</span>
+                          <ArrowRight className="w-3 h-3" />
+                          <span className="font-bold">#{selectedChallanDetails.supersededBy.challanNumber} ({selectedChallanDetails.supersededBy.status})</span>
                         </div>
                       )}
-
-                      {selectedChallanDetails.arrearsAmount > 0 && (
-                        <div className="flex justify-between text-sm py-1 border-b border-dashed border-muted text-red-600">
-                          <span className="flex items-center gap-1 font-medium"><History className="w-3 h-3" /> Arrears Balance</span>
-                          <span className="font-bold">PKR {Math.round(selectedChallanDetails.arrearsAmount).toLocaleString()}</span>
-                        </div>
-                      )}
-
-                      {/* Fee Heads Breakdown */}
                       {(() => {
-                        let heads = [];
-                        try {
-                          const rawHeads = selectedChallanDetails.selectedHeads;
-                          heads = typeof rawHeads === 'string' ? JSON.parse(rawHeads || '[]') : (Array.isArray(rawHeads) ? rawHeads : []);
-                        } catch (e) { console.error(e); }
-
-                        const activeHeads = heads.filter(h => typeof h === 'object' && h !== null && h.isSelected && h.amount > 0);
-                        return activeHeads.map((head, idx) => (
-                          <div key={idx} className="flex justify-between text-xs py-1 border-b border-dashed border-muted/50 last:border-0 opacity-80">
-                            <span className="text-muted-foreground">{head.name}</span>
-                            <span>PKR {Math.round(head.amount).toLocaleString()}</span>
+                        const totalDue = (selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0) - (selectedChallanDetails.discount || 0);
+                        const settled = selectedChallanDetails.settledAmount || 0;
+                        const remaining = Math.max(0, totalDue - settled);
+                        const fullySettled = settled >= totalDue - 0.01 && totalDue > 0;
+                        return (
+                          <div className="mt-1 grid grid-cols-3 gap-2 text-xs">
+                            <div className="bg-white rounded p-1.5 border border-amber-200">
+                              <p className="text-amber-600 font-semibold">Total Due</p>
+                              <p className="font-bold">PKR {formatAmount(totalDue)}</p>
+                            </div>
+                            <div className="bg-white rounded p-1.5 border border-green-200">
+                              <p className="text-green-600 font-semibold">Settled</p>
+                              <p className="font-bold text-green-700">PKR {formatAmount(settled)}</p>
+                            </div>
+                            <div className={`bg-white rounded p-1.5 border ${fullySettled ? 'border-green-200' : 'border-amber-200'}`}>
+                              <p className={`font-semibold ${fullySettled ? 'text-green-600' : 'text-amber-600'}`}>Remaining</p>
+                              <p className={`font-bold ${fullySettled ? 'text-green-700' : 'text-amber-700'}`}>
+                                {fullySettled ? '✓ Settled' : `PKR ${formatAmount(remaining)}`}
+                              </p>
+                            </div>
                           </div>
-                        ));
+                        );
                       })()}
-
-                      {selectedChallanDetails.lateFeeFine > 0 && (
-                        <div className="flex justify-between text-sm py-1 border-b border-dashed border-muted text-destructive">
-                          <span className="font-medium italic">Late Fee Penalty</span>
-                          <span className="font-bold">PKR {Math.round(selectedChallanDetails.lateFeeFine).toLocaleString()}</span>
-                        </div>
+                      {(selectedChallanDetails.lateFeeFine || 0) > 0 && (
+                        <p className="text-amber-700 text-xs">
+                          Late fee of <span className="font-bold">PKR {formatAmount(selectedChallanDetails.lateFeeFine)}</span> is locked for audit trail.
+                        </p>
                       )}
-
-                      {selectedChallanDetails.discount > 0 && (
-                        <div className="flex justify-between text-sm py-1 border-b border-dashed border-muted text-green-600">
-                          <span className="font-medium">Scholarship Discount</span>
-                          <span className="font-bold">- PKR {Math.round(selectedChallanDetails.discount).toLocaleString()}</span>
-                        </div>
+                      {selectedChallanDetails.remarks && (
+                        <p className="text-[10px] text-amber-600 italic mt-1">{selectedChallanDetails.remarks}</p>
                       )}
-
-                      <div className="flex justify-between items-center pt-3 mt-2 border-t-2 border-primary/20">
-                        <span className="text-xs font-black text-primary uppercase">Total Billable</span>
-                        <span className="text-lg font-black text-primary">
-                          PKR {Math.round(
-                            (selectedChallanDetails.amount || 0) +
-                            (selectedChallanDetails.fineAmount || 0) +
-                            (selectedChallanDetails.lateFeeFine || 0) -
-                            (selectedChallanDetails.discount || 0)
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Status & Balance Card */}
-                  <Card className={cn(
-                    "shadow-sm overflow-hidden",
-                    selectedChallanDetails.status === "PAID" ? "border-success/20" : "border-warning/20 bg-warning/5"
-                  )}>
-                    <CardHeader className={cn(
-                      "pb-2",
-                      selectedChallanDetails.status === "PAID" ? "bg-success/5" : "bg-warning/10"
-                    )}>
-                      <CardTitle className={cn(
-                        "text-xs font-bold uppercase tracking-wider flex items-center gap-2",
-                        selectedChallanDetails.status === "PAID" ? "text-success" : "text-warning-800"
-                      )}>
-                        {selectedChallanDetails.status === "PAID" ? <CheckCircle2 className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}
-                        Collection Summary
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4 pt-4">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="p-3 bg-white rounded-lg border border-success/10 shadow-inner text-center">
-                          <p className="text-[9px] font-black text-success uppercase mb-1">Total Paid</p>
-                          <p className="text-base font-black text-success">PKR {Math.round(selectedChallanDetails.paidAmount || 0).toLocaleString()}</p>
-                        </div>
-                        <div className="p-3 bg-white rounded-lg border border-warning/10 shadow-inner text-center">
-                          <p className="text-[9px] font-black text-warning-700 uppercase mb-1">Outstanding</p>
-                          <p className="text-base font-black text-warning-700">
-                            PKR {Math.round(Math.max(0, (
-                              (selectedChallanDetails.amount || 0) +
-                              (selectedChallanDetails.fineAmount || 0) +
-                              (selectedChallanDetails.lateFeeFine || 0) -
-                              (selectedChallanDetails.discount || 0)
-                            ) - (selectedChallanDetails.paidAmount || 0))).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2 border-t pt-3 mt-1">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="text-muted-foreground uppercase font-bold text-[10px]">Current Status:</span>
-                          <Badge variant={selectedChallanDetails.status === "PAID" ? "default" : (selectedChallanDetails.status === "OVERDUE" ? "destructive" : "secondary")}>
-                            {selectedChallanDetails.status}
-                          </Badge>
-                        </div>
-                        {selectedChallanDetails.paidDate && (
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="text-muted-foreground uppercase font-bold text-[10px]">Last Payment:</span>
-                            <span className="font-bold text-success">{new Date(selectedChallanDetails.paidDate).toLocaleDateString()}</span>
-                          </div>
-                        )}
-                        {selectedChallanDetails.paidBy && (
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="text-muted-foreground uppercase font-bold text-[10px]">Pay Method:</span>
-                            <span className="font-medium px-2 py-0.5 bg-muted rounded">{selectedChallanDetails.paidBy}</span>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Additional Information Section (Remarks) */}
-                {selectedChallanDetails.remarks && (
-                  <div className="bg-blue-50/50 border border-blue-100 p-3 rounded-xl flex items-start gap-3">
-                    <History className="w-4 h-4 text-blue-600 mt-0.5" />
-                    <div className="flex flex-col">
-                      <span className="text-[10px] text-blue-800 uppercase font-black">Admin Remarks</span>
-                      <p className="text-xs text-blue-700 font-medium italic">"{selectedChallanDetails.remarks}"</p>
                     </div>
                   </div>
                 )}
 
-                {/* Detailed Payment History */}
+                {/* Itemized Financial Breakdown */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <Card className="lg:col-span-2 shadow-sm border-slate-200">
+                    <CardHeader className="bg-slate-50/50 border-b py-3">
+                      <CardTitle className="text-sm font-bold flex items-center gap-2">
+                        <Receipt className="w-4 h-4 text-primary" />
+                        Itemized Bill Details
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50/30">
+                            <TableHead className="text-sm px-3 text-[10px] uppercase font-bold py-2">Description</TableHead>
+                            <TableHead className="text-sm px-3 text-[10px] uppercase font-bold py-2 text-right">Amount (PKR)</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedChallanDetails.challanType !== 'FEE_HEADS_ONLY' && (
+                            <TableRow>
+                              <TableCell className="text-sm px-3 py-2">
+                                <span className="font-semibold text-slate-700">Tuition Fee</span>
+                                <p className="text-[10px] text-muted-foreground italic">
+                                  {selectedChallanDetails.installmentNumber > 0 ? `Installment #${selectedChallanDetails.installmentNumber}` : 'Standard Charge'}
+                                </p>
+                              </TableCell>
+                              <TableCell className="text-sm px-3 text-right font-bold py-2">
+                                {formatAmount(selectedChallanDetails.amount || 0)}
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          {getRecursiveArrears(selectedChallanDetails) > 0 && (
+                            <TableRow className="text-amber-700 bg-amber-50/20">
+                              <TableCell className="text-sm px-3 py-2">
+                                <div className="flex items-center gap-1.5 font-semibold">
+                                  <History className="w-3 h-3" />
+                                  Previous Arrears
+                                </div>
+                                <p className="text-[10px] opacity-70">Accumulated from previous sessions/unpaid bills</p>
+                              </TableCell>
+                              <TableCell className="text-sm px-3 text-right font-bold py-2">
+                                {formatAmount(getRecursiveArrears(selectedChallanDetails))}
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          {(() => {
+                            try {
+                              const raw = (selectedChallanDetails.selectedHeads && typeof selectedChallanDetails.selectedHeads === 'string')
+                                ? JSON.parse(selectedChallanDetails.selectedHeads)
+                                : (selectedChallanDetails.selectedHeads || []);
+                              const activeHeads = Array.isArray(raw) ? raw.filter(h =>
+                                (typeof h === 'object' && h !== null && h.isSelected !== false && h.type === 'additional' && h.amount > 0) ||
+                                (typeof h === 'number')
+                              ) : [];
+                              return activeHeads.map((item, idx) => {
+                                let name = "Additional Head";
+                                let amount = 0;
+                                if (typeof item === 'object' && item !== null) {
+                                  name = item.name;
+                                  amount = item.amount;
+                                } else {
+                                  const head = (feeHeads || []).find(h => Number(h.id) === Number(item));
+                                  if (head) { name = head.name; amount = parseFloat(head.amount) || 0; }
+                                }
+                                return (
+                                  <TableRow key={idx}>
+                                    <TableCell className="text-sm px-3 py-2 text-slate-600">{name}</TableCell>
+                                    <TableCell className="text-sm px-3 text-right font-medium py-2">{formatAmount(amount)}</TableCell>
+                                  </TableRow>
+                                );
+                              });
+                            } catch (e) { return null; }
+                          })()}
+                          {selectedChallanDetails.lateFeeFine > 0 && (
+                            <TableRow className="text-destructive bg-destructive/5 font-medium">
+                              <TableCell className="text-sm px-3 py-2">
+                                {selectedChallanDetails.status === "VOID"
+                                  ? <span className="flex items-center gap-1.5">
+                                      Late Fee Fine (Preserved)
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <AlertCircle className="w-3 h-3 text-amber-500 cursor-help" />
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs text-xs">
+                                          This late fee is preserved on the VOID challan for audit trail. The debt (including this late fee) has been rolled into the superseding challan.
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </span>
+                                  : "Late Fee Fine (Calculated Overdue)"
+                                }
+                              </TableCell>
+                              <TableCell className="text-sm px-3 text-right font-bold py-2">{formatAmount(selectedChallanDetails.lateFeeFine)}</TableCell>
+                            </TableRow>
+                          )}
+                          {(selectedChallanDetails.discount || 0) > 0 && (
+                            <TableRow className="text-green-600 bg-green-50/30">
+                              <TableCell className="text-sm px-3 py-2 italic">Applied Scholarship / Discount</TableCell>
+                              <TableCell className="text-sm px-3 text-right font-bold py-2">- {formatAmount(selectedChallanDetails.discount)}</TableCell>
+                            </TableRow>
+                          )}
+                          <TableRow className="bg-primary/5 border-t-2 border-border">
+                            <TableCell className="text-sm px-3 py-3">
+                              <span className="text-base font-black text-primary uppercase tracking-tight">Net Payable Amount</span>
+                            </TableCell>
+                            <TableCell className="text-sm px-3 py-3 text-right">
+                              <span className="text-xl font-black text-primary">
+                                PKR {formatAmount(
+                                  (selectedChallanDetails.amount || 0) +
+                                  getSelectedHeadsTotal(selectedChallanDetails) +
+                                  (selectedChallanDetails.lateFeeFine || 0) +
+                                  getRecursiveArrears(selectedChallanDetails) -
+                                  (selectedChallanDetails.discount || 0)
+                                )}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+
+                  {/* Collection Summary Sidebar */}
+                  <div className="space-y-6">
+                    <Card className="shadow-sm border-border bg-success/5">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-xs font-bold uppercase tracking-wider text-success flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4" />
+                          Collection Summary
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {(() => {
+                          const isVoid = selectedChallanDetails.status === 'VOID';
+                          const totalDue = isVoid
+                            ? Math.max(0, (selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0) - (selectedChallanDetails.discount || 0))
+                            : Math.max(0, (selectedChallanDetails.amount || 0) + getSelectedHeadsTotal(selectedChallanDetails) + (selectedChallanDetails.lateFeeFine || 0) + getRecursiveArrears(selectedChallanDetails) - (selectedChallanDetails.discount || 0));
+                          const effectivePaid = isVoid
+                            ? (selectedChallanDetails.settledAmount || 0)
+                            : (selectedChallanDetails.paidAmount || 0);
+                          const remaining = Math.max(0, totalDue - effectivePaid);
+                          return (
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs text-muted-foreground">Total Billed</span>
+                                <span className="text-sm font-bold">PKR {formatAmount(totalDue)}</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs text-muted-foreground">{isVoid ? "Settled via Superseding" : "Amount Paid"}</span>
+                                <span className="text-sm font-bold text-success">PKR {formatAmount(effectivePaid)}</span>
+                              </div>
+                              <div className="pt-2 border-t flex justify-between items-center">
+                                <span className="text-sm font-bold text-slate-800">Remaining Balance</span>
+                                <span className={`text-base font-black ${remaining === 0 ? 'text-success' : 'text-destructive'}`}>
+                                  {remaining === 0 ? '✓ Fully Settled' : `PKR ${formatAmount(remaining)}`}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </CardContent>
+                    </Card>
+
+                    {/* Metadata & Timeline */}
+                    <Card className="shadow-sm border-slate-200">
+                      <CardHeader className="pb-2 bg-slate-50/50 border-b">
+                        <CardTitle className="text-[10px] font-bold uppercase text-slate-500">Metadata &amp; Timeline</CardTitle>
+                      </CardHeader>
+                      <CardContent className="pt-4 space-y-3">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-slate-100 rounded-lg"><User className="w-4 h-4 text-slate-600" /></div>
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">Student</p>
+                            <p className="text-xs font-bold">{selectedChallanDetails.student?.fName} {selectedChallanDetails.student?.lName}</p>
+                            <p className="text-[10px] text-muted-foreground">{selectedChallanDetails.student?.rollNumber}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-slate-100 rounded-lg"><Clock className="w-4 h-4 text-slate-600" /></div>
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">Timeline</p>
+                            <div className="text-[10px] font-medium space-y-0.5">
+                              <p>Issued: {selectedChallanDetails.issueDate || selectedChallanDetails.createdAt ? format(new Date(selectedChallanDetails.issueDate || selectedChallanDetails.createdAt), "dd MMM yyyy") : "N/A"}</p>
+                              <p>Due: <span className="text-destructive font-bold">{selectedChallanDetails.dueDate ? format(new Date(selectedChallanDetails.dueDate), "dd MMM yyyy") : "N/A"}</span></p>
+                              {selectedChallanDetails.paidDate && <p>Paid: <span className="text-success font-bold">{format(new Date(selectedChallanDetails.paidDate), "dd MMM yyyy")}</span></p>}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+
+                {/* Enhanced Payment Breakdown Section */}
                 {(() => {
-                  const history = typeof selectedChallanDetails.paymentHistory === 'string'
-                    ? JSON.parse(selectedChallanDetails.paymentHistory)
-                    : (selectedChallanDetails.paymentHistory || []);
+                  let history = [];
+                  try {
+                    history = typeof selectedChallanDetails.paymentHistory === 'string'
+                      ? JSON.parse(selectedChallanDetails.paymentHistory)
+                      : (selectedChallanDetails.paymentHistory || []);
+                  } catch (e) { history = []; }
 
                   if (!Array.isArray(history) || history.length === 0) return null;
 
                   return (
-                    <Card className="shadow-sm border-muted/20 overflow-hidden">
-                      <CardHeader className="pb-2 bg-muted/30">
-                        <CardTitle className="text-[11px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                          <History className="w-3.5 h-3.5" /> Transaction Logs (Breakdown)
+                    <Card className="shadow-soft border-border overflow-hidden">
+                      <CardHeader className="pb-2 bg-primary/5">
+                        <CardTitle className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+                          <History className="w-3.5 h-3.5" />
+                          Detailed Payment Breakdown (History)
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="p-0">
                         <Table>
-                          <TableHeader className="bg-muted/10 h-8">
-                            <TableRow className="border-b h-8">
-                              <TableHead className="text-[10px] font-bold uppercase h-8 pl-4">Date</TableHead>
-                              <TableHead className="text-[10px] font-bold uppercase h-8">Received</TableHead>
-                              <TableHead className="text-[10px] font-bold uppercase h-8">Disc.</TableHead>
-                              <TableHead className="text-[10px] font-bold uppercase h-8">Mode</TableHead>
-                              <TableHead className="text-[10px] font-bold uppercase h-8">Remarks</TableHead>
+                          <TableHeader className="bg-muted/30">
+                            <TableRow className="h-8">
+                              <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Date</TableHead>
+                              <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Amount</TableHead>
+                              <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Discount</TableHead>
+                              <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Method</TableHead>
+                              <TableHead className="text-sm px-3 py-2 text-[10px] uppercase h-8">Remarks</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {history.map((entry, idx) => (
-                              <TableRow key={idx} className="h-10 hover:bg-muted/10 border-b last:border-0 transition-colors">
-                                <TableCell className="text-xs pl-4 font-medium">{new Date(entry.date).toLocaleDateString()}</TableCell>
-                                <TableCell className="text-xs font-black text-success">PKR {Math.round(entry.amount).toLocaleString()}</TableCell>
-                                <TableCell className="text-xs font-black text-orange-600">PKR {Math.round(entry.discount || 0).toLocaleString()}</TableCell>
-                                <TableCell className="text-[10px] font-bold">
-                                  <span className="bg-muted px-2 py-0.5 rounded-full">{entry.method || 'Cash'}</span>
-                                </TableCell>
-                                <TableCell className="text-[10px] italic text-muted-foreground truncate max-w-[200px]">{entry.remarks || '-'}</TableCell>
+                              <TableRow key={idx} className="h-9 hover:bg-muted/20">
+                                <TableCell className="text-sm px-3 py-1 text-xs">{new Date(entry.date).toLocaleDateString()}</TableCell>
+                                <TableCell className="text-sm px-3 py-1 text-xs font-bold text-success">PKR {Math.round(entry.amount).toLocaleString()}</TableCell>
+                                <TableCell className="text-sm px-3 py-1 text-xs font-bold text-orange-600">PKR {Math.round(entry.discount || 0).toLocaleString()}</TableCell>
+                                <TableCell className="text-sm px-3 py-1 text-xs">{entry.method || 'Cash'}</TableCell>
+                                <TableCell className="text-sm px-3 py-1 text-[10px] italic text-muted-foreground">{entry.remarks || '-'}</TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
@@ -3158,11 +3589,27 @@ const Students = () => {
                     </Card>
                   );
                 })()}
+
+                {/* Print Preview Divider */}
+                <div className="relative py-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-dashed border-muted-foreground/30"></span>
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-background px-4 text-muted-foreground font-semibold tracking-widest">Official Print Preview</span>
+                  </div>
+                </div>
+
+                {/* HTML Preview */}
+                <div
+                  className="w-full border rounded-xl p-8 bg-white shadow-inner overflow-x-auto"
+                  dangerouslySetInnerHTML={{ __html: generateChallanHtml(selectedChallanDetails) }}
+                />
               </div>
             )}
 
-            <DialogFooter className="border-t pt-4 mt-2">
-              <Button size="sm" variant="outline" onClick={() => setDetailsDialogOpen(false)}>Close Overview</Button>
+            <DialogFooter>
+              <Button onClick={() => setDetailsDialogOpen(false)}>Close</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -3178,29 +3625,29 @@ const Students = () => {
                 <Table>
                   <TableHeader className="bg-slate-50">
                     <TableRow>
-                      <TableHead className="w-[120px]">Date</TableHead>
-                      <TableHead>Received</TableHead>
-                      <TableHead>Discount</TableHead>
-                      <TableHead>Method</TableHead>
-                      <TableHead>Remarks</TableHead>
+                      <TableHead className="py-2 px-3 text-sm w-[120px]">Date</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Received</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Discount</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Method</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Remarks</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {(() => {
-                      if (!selectedChallanForHistory?.paymentHistory) return <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No transaction history found.</TableCell></TableRow>;
+                      if (!selectedChallanForHistory?.paymentHistory) return <TableRow><TableCell colSpan={5} className="py-2 px-3 text-sm text-center py-8 text-muted-foreground">No transaction history found.</TableCell></TableRow>;
                       const history = typeof selectedChallanForHistory.paymentHistory === 'string'
                         ? JSON.parse(selectedChallanForHistory.paymentHistory)
                         : selectedChallanForHistory.paymentHistory;
 
-                      if (!Array.isArray(history) || history.length === 0) return <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No transaction history found.</TableCell></TableRow>;
+                      if (!Array.isArray(history) || history.length === 0) return <TableRow><TableCell colSpan={5} className="py-2 px-3 text-sm text-center py-8 text-muted-foreground">No transaction history found.</TableCell></TableRow>;
 
                       return history.map((entry, idx) => (
                         <TableRow key={idx}>
-                          <TableCell className="text-xs">{new Date(entry.date).toLocaleDateString()}</TableCell>
-                          <TableCell className="font-bold text-green-600">PKR {Math.round(entry.amount).toLocaleString()}</TableCell>
-                          <TableCell className="font-bold text-orange-600">PKR {Math.round(entry.discount || 0).toLocaleString()}</TableCell>
-                          <TableCell className="text-xs">{entry.method || 'Cash'}</TableCell>
-                          <TableCell className="text-xs italic">{entry.remarks || '-'}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm text-xs">{new Date(entry.date).toLocaleDateString()}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm font-bold text-green-600">PKR {Math.round(entry.amount).toLocaleString()}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm font-bold text-orange-600">PKR {Math.round(entry.discount || 0).toLocaleString()}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm text-xs">{entry.method || 'Cash'}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm text-xs italic">{entry.remarks || '-'}</TableCell>
                         </TableRow>
                       ));
                     })()}

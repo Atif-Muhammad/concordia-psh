@@ -624,7 +624,7 @@ export default function Staff() {
                 {/* Header */}
                 <div className="flex justify-between items-center">
                     <div>
-                        <h1 className="text-3xl font-bold flex items-center gap-2">
+                        <h1 className="text-xl font-semibold flex items-center gap-2">
                             <Users className="w-8 h-8 text-primary" />
                             Staff Management
                         </h1>
@@ -756,18 +756,18 @@ export default function Staff() {
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
-                                                <TableHead className="w-[250px]">Staff</TableHead>
-                                                <TableHead>Role</TableHead>
-                                                <TableHead>Contact</TableHead>
-                                                <TableHead>Department / Position</TableHead>
-                                                <TableHead>Status</TableHead>
-                                                <TableHead className="text-right">Actions</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm w-[250px]">Staff</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Role</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Contact</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Department / Position</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm text-right">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
                                             {filteredStaff.map((staff) => (
                                                 <TableRow key={staff.id}>
-                                                    <TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">
                                                         <div className="flex items-center gap-3">
                                                             <Avatar className="h-10 w-10">
                                                                 <AvatarImage src={staff.photo_url} alt={staff.name} />
@@ -781,10 +781,10 @@ export default function Staff() {
                                                             </div>
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">
                                                         <div className="flex flex-wrap gap-1">{getRoleBadges(staff)}</div>
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">
                                                         <div className="space-y-1">
                                                             {staff.email && (
                                                                 <p className="text-sm flex items-center gap-1">
@@ -800,7 +800,7 @@ export default function Staff() {
                                                             )}
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">
                                                         {staff.isTeaching && staff.department?.name && (
                                                             <p className="text-sm">{staff.department.name}</p>
                                                         )}
@@ -814,8 +814,8 @@ export default function Staff() {
                                                             <p className="text-sm text-muted-foreground">{staff.empDepartment}</p>
                                                         )}
                                                     </TableCell>
-                                                    <TableCell>{getStatusBadge(staff.status)}</TableCell>
-                                                    <TableCell className="text-right">
+                                                    <TableCell className="py-2 px-3 text-sm">{getStatusBadge(staff.status)}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Tooltip>
                                                                 <TooltipTrigger asChild>
@@ -915,11 +915,11 @@ export default function Staff() {
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
-                                                <TableHead>Nam/ID</TableHead>
-                                                <TableHead>Role</TableHead>
-                                                <TableHead>Department</TableHead>
-                                                <TableHead>Status</TableHead>
-                                                <TableHead>Notes</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Nam/ID</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Role</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Department</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Notes</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -934,7 +934,7 @@ export default function Staff() {
                                                 })
                                                 .map((record) => (
                                                     <TableRow key={record.id}>
-                                                        <TableCell>
+                                                        <TableCell className="py-2 px-3 text-sm">
                                                             <div className="flex items-center gap-2">
                                                                 <Avatar className="h-8 w-8">
                                                                     <AvatarImage src={record.staff?.photo_url} />
@@ -946,16 +946,16 @@ export default function Staff() {
                                                                 </div>
                                                             </div>
                                                         </TableCell>
-                                                        <TableCell>
+                                                        <TableCell className="py-2 px-3 text-sm">
                                                             {record.staff?.isTeaching && <Badge variant="outline" className="mr-1">Teaching</Badge>}
                                                             {record.staff?.isNonTeaching && <Badge variant="secondary">Staff</Badge>}
                                                         </TableCell>
-                                                        <TableCell>
+                                                        <TableCell className="py-2 px-3 text-sm">
                                                             {record.staff?.isTeaching
                                                                 ? record.staff?.department?.name
                                                                 : record.staff?.empDepartment}
                                                         </TableCell>
-                                                        <TableCell>
+                                                        <TableCell className="py-2 px-3 text-sm">
                                                             <Select
                                                                 value={record.status}
                                                                 onValueChange={(val) =>
@@ -979,7 +979,7 @@ export default function Staff() {
                                                                 </SelectContent>
                                                             </Select>
                                                         </TableCell>
-                                                        <TableCell>
+                                                        <TableCell className="py-2 px-3 text-sm">
                                                             <Input
                                                                 className="h-8 w-[200px]"
                                                                 placeholder="Notes..."
@@ -1000,7 +1000,7 @@ export default function Staff() {
                                                 ))}
                                             {attendanceData.length === 0 && (
                                                 <TableRow>
-                                                    <TableCell colSpan={5} className="text-center py-4">
+                                                    <TableCell colSpan={5} className="py-2 px-3 text-sm text-center">
                                                         No attendance records found for this date.
                                                     </TableCell>
                                                 </TableRow>
@@ -1647,7 +1647,7 @@ function StaffDetailView({ staffId, onBack, onEdit }) {
             {/* Profile Card */}
             <Card>
                 <CardContent className="pt-6">
-                    <div className="flex items-start gap-6">
+                    <div className="flex items-start gap-4">
                         <Avatar className="h-24 w-24">
                             <AvatarImage src={staff.photo_url} alt={staff.name} />
                             <AvatarFallback className="text-2xl">
@@ -1696,7 +1696,7 @@ function StaffDetailView({ staffId, onBack, onEdit }) {
                 </TabsList>
 
                 <TabsContent value="info" className="mt-4">
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-2 gap-4">
                         {/* Personal Info */}
                         <Card>
                             <CardHeader>
@@ -1830,7 +1830,7 @@ function StaffDetailView({ staffId, onBack, onEdit }) {
                 </TabsContent>
 
                 <TabsContent value="teaching" className="mt-4">
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-2 gap-4">
                         {/* Assigned Classes */}
                         <Card>
                             <CardHeader>
@@ -1887,29 +1887,29 @@ function StaffDetailView({ staffId, onBack, onEdit }) {
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead>Month</TableHead>
-                                            <TableHead>Basic Salary</TableHead>
-                                            <TableHead>Deductions</TableHead>
-                                            <TableHead>Allowances</TableHead>
-                                            <TableHead>Net Salary</TableHead>
-                                            <TableHead>Status</TableHead>
+                                            <TableHead className="py-2 px-3 text-sm">Month</TableHead>
+                                            <TableHead className="py-2 px-3 text-sm">Basic Salary</TableHead>
+                                            <TableHead className="py-2 px-3 text-sm">Deductions</TableHead>
+                                            <TableHead className="py-2 px-3 text-sm">Allowances</TableHead>
+                                            <TableHead className="py-2 px-3 text-sm">Net Salary</TableHead>
+                                            <TableHead className="py-2 px-3 text-sm">Status</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {payrollHistory.map((payroll) => (
                                             <TableRow key={payroll.id}>
-                                                <TableCell>{payroll.month}</TableCell>
-                                                <TableCell>PKR {payroll.basicSalary?.toLocaleString()}</TableCell>
-                                                <TableCell className="text-red-500">
+                                                <TableCell className="py-2 px-3 text-sm">{payroll.month}</TableCell>
+                                                <TableCell className="py-2 px-3 text-sm">PKR {payroll.basicSalary?.toLocaleString()}</TableCell>
+                                                <TableCell className="py-2 px-3 text-sm text-red-500">
                                                     -PKR {payroll.totalDeductions?.toLocaleString()}
                                                 </TableCell>
-                                                <TableCell className="text-green-500">
+                                                <TableCell className="py-2 px-3 text-sm text-green-500">
                                                     +PKR {payroll.totalAllowances?.toLocaleString()}
                                                 </TableCell>
-                                                <TableCell className="font-medium">
+                                                <TableCell className="py-2 px-3 text-sm font-medium">
                                                     PKR {payroll.netSalary?.toLocaleString()}
                                                 </TableCell>
-                                                <TableCell>
+                                                <TableCell className="py-2 px-3 text-sm">
                                                     <Badge className={payroll.status === "PAID" ? "bg-green-500" : "bg-yellow-500"}>
                                                         {payroll.status}
                                                     </Badge>

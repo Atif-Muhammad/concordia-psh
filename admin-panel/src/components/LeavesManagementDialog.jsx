@@ -439,51 +439,51 @@ const LeavesManagementDialog = () => {
                     <Table>
                         <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
                             <TableRow>
-                                <TableHead className="min-w-[160px]">Staff Name</TableHead>
-                                <TableHead className="min-w-[160px]">Role / Dept</TableHead>
-                                <TableHead className="min-w-[100px]">Leave Type</TableHead>
-                                <TableHead className="min-w-[200px]">Dates</TableHead>
-                                <TableHead className="min-w-[60px]">Days</TableHead>
-                                <TableHead className="min-w-[200px]">Reason</TableHead>
-                                <TableHead className="min-w-[100px]">Status</TableHead>
-                                <TableHead className="min-w-[80px]">Actions</TableHead>
+                                <TableHead className="py-2 px-3 text-sm min-w-[160px]">Staff Name</TableHead>
+                                <TableHead className="py-2 px-3 text-sm min-w-[160px]">Role / Dept</TableHead>
+                                <TableHead className="py-2 px-3 text-sm min-w-[100px]">Leave Type</TableHead>
+                                <TableHead className="py-2 px-3 text-sm min-w-[200px]">Dates</TableHead>
+                                <TableHead className="py-2 px-3 text-sm min-w-[60px]">Days</TableHead>
+                                <TableHead className="py-2 px-3 text-sm min-w-[200px]">Reason</TableHead>
+                                <TableHead className="py-2 px-3 text-sm min-w-[100px]">Status</TableHead>
+                                <TableHead className="py-2 px-3 text-sm min-w-[80px]">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {leaveData.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                                    <TableCell colSpan={7} className="py-2 px-3 text-sm text-center text-muted-foreground py-8">
                                         No leave records found
                                     </TableCell>
                                 </TableRow>
                             ) : (
                                 leaveData.map((row, index) => (
                                     <TableRow key={`${row.leaveId ?? row.id}-${index}`}>
-                                        <TableCell className="font-medium">{row.name}</TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2 px-3 text-sm font-medium">{row.name}</TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">
                                             <div>{roleLabel(row)}</div>
                                             <div className="text-xs text-muted-foreground">{row.department?.name || row.department || "—"}</div>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">
                                             <Badge variant="outline" className="text-xs">
                                                 {row.leaveType === "SICK" ? "Sick" : row.leaveType === "ANNUAL" ? "Annual" : "Casual"}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">
                                             {row.startDate?.split("T")[0] || ""}
                                             {row.endDate && row.endDate !== row.startDate
                                                 ? ` – ${row.endDate.split("T")[0]}`
                                                 : ""}
                                         </TableCell>
-                                        <TableCell>{row.days}</TableCell>
-                                        <TableCell>{row.reason || ""}</TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">{row.days}</TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">{row.reason || ""}</TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">
                                             <div className="flex flex-col gap-1">
                                                 {statusBadge(row.status)}
                                                 {row.locked && <Badge variant="outline" className="text-xs w-fit gap-1"><Lock className="h-3 w-3" />Locked</Badge>}
                                             </div>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">
                                             <div className="flex items-center gap-1">
                                             {actionLoading === row.leaveId ? (
                                                 <Loader2 className="h-4 w-4 animate-spin mx-2" />

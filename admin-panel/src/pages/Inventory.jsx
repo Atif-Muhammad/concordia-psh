@@ -394,9 +394,9 @@ const Inventory = () => {
     return (
         <DashboardLayout>
             <div className="space-y-6 max-w-full overflow-x-hidden">
-                <div className="flex justify-between items-center mb-8">
+                <div className="flex justify-between items-center mb-4">
                     <div>
-                        <h1 className="text-3xl font-bold flex items-center gap-2">
+                        <h1 className="text-xl font-semibold flex items-center gap-2">
                             <Package className="w-8 h-8 text-primary" />
                             Inventory Management
                         </h1>
@@ -640,35 +640,35 @@ const Inventory = () => {
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
-                                                    <TableHead>Item</TableHead>
-                                                    <TableHead>Category</TableHead>
-                                                    <TableHead>Qty</TableHead>
-                                                    <TableHead>Value</TableHead>
-                                                    <TableHead>Assignment</TableHead>
-                                                    <TableHead>Location</TableHead>
-                                                    <TableHead>Condition</TableHead>
-                                                    <TableHead>Actions</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Item</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Category</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Qty</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Value</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Assignment</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Location</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Condition</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
                                                 {filteredInventory?.length === 0 ? <TableRow>
-                                                    <TableCell colSpan={8} className="text-center text-muted-foreground">
+                                                    <TableCell colSpan={8} className="py-2 px-3 text-sm text-center text-muted-foreground">
                                                         No inventory items found
                                                     </TableCell>
                                                 </TableRow> : filteredInventory?.map(item => <TableRow key={item.id}>
-                                                    <TableCell className="font-medium">{item.itemName}</TableCell>
-                                                    <TableCell>{item.category}</TableCell>
-                                                    <TableCell>{item.quantity}</TableCell>
-                                                    <TableCell className="font-semibold">PKR {item.totalValue.toLocaleString()}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm font-medium">{item.itemName}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">{item.category}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">{item.quantity}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm font-semibold">PKR {item.totalValue.toLocaleString()}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">
                                                         <div className="flex flex-col gap-1">
                                                             {getAssignmentBadge(item.assignedTo)}
                                                             {item.assignedToName && <span className="text-xs text-muted-foreground">{item.assignedToName}</span>}
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell>{item.location}</TableCell>
-                                                    <TableCell>{getConditionBadge(item.condition)}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">{item.location}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">{getConditionBadge(item.condition)}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">
                                                         <div className="flex gap-1">
                                                             <Tooltip>
                                                                 <TooltipTrigger asChild>
@@ -733,30 +733,30 @@ const Inventory = () => {
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
-                                                    <TableHead>Date</TableHead>
-                                                    <TableHead>Item</TableHead>
-                                                    <TableHead>Type</TableHead>
-                                                    <TableHead>Description</TableHead>
-                                                    <TableHead>Vendor</TableHead>
-                                                    <TableHead>Amount</TableHead>
-                                                    <TableHead>Actions</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Item</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Type</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Description</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Vendor</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
+                                                    <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
                                                 {inventoryExpenses?.length === 0 ? <TableRow>
-                                                    <TableCell colSpan={7} className="text-center text-muted-foreground">
+                                                    <TableCell colSpan={7} className="py-2 px-3 text-sm text-center text-muted-foreground">
                                                         No expenses recorded
                                                     </TableCell>
                                                 </TableRow> : inventoryExpenses?.map(expense => <TableRow key={expense.id}>
-                                                    <TableCell>{new Date(expense.date).toLocaleDateString()}</TableCell>
-                                                    <TableCell className="font-medium">{expense.inventoryItem?.itemName || expense.itemName}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">{new Date(expense.date).toLocaleDateString()}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm font-medium">{expense.inventoryItem?.itemName || expense.itemName}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">
                                                         <Badge variant="outline">{expense.expenseType}</Badge>
                                                     </TableCell>
-                                                    <TableCell>{expense.description}</TableCell>
-                                                    <TableCell>{expense.vendor || "-"}</TableCell>
-                                                    <TableCell className="font-semibold">PKR {expense.amount.toLocaleString()}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">{expense.description}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">{expense.vendor || "-"}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm font-semibold">PKR {expense.amount.toLocaleString()}</TableCell>
+                                                    <TableCell className="py-2 px-3 text-sm">
                                                         <div className="flex gap-1">
                                                             <Tooltip>
                                                                 <TooltipTrigger asChild>
@@ -1036,30 +1036,30 @@ const Inventory = () => {
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
-                                                <TableHead>Date</TableHead>
-                                                <TableHead>Type</TableHead>
-                                                <TableHead>Description</TableHead>
-                                                <TableHead>Vendor</TableHead>
-                                                <TableHead>Amount</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Type</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Description</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Vendor</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
                                             {itemHistory.length === 0 ? (
                                                 <TableRow>
-                                                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                                                    <TableCell colSpan={5} className="py-2 px-3 text-sm text-center text-muted-foreground">
                                                         No maintenance records found
                                                     </TableCell>
                                                 </TableRow>
                                             ) : (
                                                 itemHistory.map((expense) => (
                                                     <TableRow key={expense.id}>
-                                                        <TableCell>{new Date(expense.date).toLocaleDateString()}</TableCell>
-                                                        <TableCell>
+                                                        <TableCell className="py-2 px-3 text-sm">{new Date(expense.date).toLocaleDateString()}</TableCell>
+                                                        <TableCell className="py-2 px-3 text-sm">
                                                             <Badge variant="outline">{expense.expenseType}</Badge>
                                                         </TableCell>
-                                                        <TableCell>{expense.description}</TableCell>
-                                                        <TableCell>{expense.vendor || "-"}</TableCell>
-                                                        <TableCell className="font-semibold">PKR {expense.amount.toLocaleString()}</TableCell>
+                                                        <TableCell className="py-2 px-3 text-sm">{expense.description}</TableCell>
+                                                        <TableCell className="py-2 px-3 text-sm">{expense.vendor || "-"}</TableCell>
+                                                        <TableCell className="py-2 px-3 text-sm font-semibold">PKR {expense.amount.toLocaleString()}</TableCell>
                                                     </TableRow>
                                                 ))
                                             )}

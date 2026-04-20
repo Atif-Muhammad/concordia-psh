@@ -599,9 +599,9 @@ const HRPayroll = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
+            <h1 className="text-xl font-semibold flex items-center gap-2">
               <Wallet className="w-8 h-8 text-primary" />
               HR & Payroll Management
             </h1>
@@ -612,7 +612,7 @@ const HRPayroll = () => {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Total Staff</CardTitle>
@@ -753,37 +753,37 @@ const HRPayroll = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Staff Name</TableHead>
-                        <TableHead>Role / Designation</TableHead>
-                        <TableHead>Month</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Remarks</TableHead>
-                        <TableHead>Adjusted</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Staff Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Role / Designation</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Month</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Remarks</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Adjusted</TableHead>
+                        <TableHead className="py-2 px-3 text-sm text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {advanceSalaries?.map(advance => (
                         <TableRow key={advance.id}>
-                          <TableCell className="font-medium">{advance.staff?.name || "N/A"}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm font-medium">{advance.staff?.name || "N/A"}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <div className="text-xs">
                               {advance.staff?.isTeaching ?
                                 (advance.staff?.specialization ? `Teacher (${advance.staff?.specialization})` : 'Teacher') :
                                 (advance.staff?.designation || "Staff")}
                             </div>
                           </TableCell>
-                          <TableCell>{advance.month}</TableCell>
-                          <TableCell className="font-semibold text-primary">PKR {Number(advance.amount || 0).toLocaleString()}</TableCell>
-                          <TableCell className="max-w-[200px] truncate">{advance.remarks || "-"}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{advance.month}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm font-semibold text-primary">PKR {Number(advance.amount || 0).toLocaleString()}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm max-w-[200px] truncate">{advance.remarks || "-"}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             {advance.adjusted ? (
                               <Badge variant="default" className="bg-green-600">Adjusted</Badge>
                             ) : (
                               <Badge variant="secondary">Pending</Badge>
                             )}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="py-2 px-3 text-sm text-right">
                             <div className="flex justify-end space-x-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -811,7 +811,7 @@ const HRPayroll = () => {
                       ))}
                       {(!advanceSalaries || advanceSalaries.length === 0) && (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground italic">
+                          <TableCell colSpan={7} className="py-2 px-3 text-sm text-center text-muted-foreground italic">
                             No advance salary records found
                           </TableCell>
                         </TableRow>
@@ -848,20 +848,20 @@ const HRPayroll = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Department Name</TableHead>
-                        <TableHead>Head of Department</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Department Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Head of Department</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Description</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {departments?.map(dept => {
                         return (
                           <TableRow key={dept.id}>
-                            <TableCell className="font-medium">{dept.name}</TableCell>
-                            <TableCell>{dept.hod?.name || "N/A"}</TableCell>
-                            <TableCell>{dept.description}</TableCell>
-                            <TableCell>
+                            <TableCell className="py-2 px-3 text-sm font-medium">{dept.name}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{dept.hod?.name || "N/A"}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{dept.description}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
                               <div className="flex gap-2">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -948,23 +948,23 @@ const HRPayroll = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Title</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Repeat Yearly</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Title</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Type</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Repeat Yearly</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Description</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {holidays?.map(holiday => (
                         <TableRow key={holiday.id}>
-                          <TableCell className="font-medium">{holiday.title}</TableCell>
-                          <TableCell>{format(new Date(holiday.date), "PPP")}</TableCell>
-                          <TableCell><Badge variant="outline">{holiday.type}</Badge></TableCell>
-                          <TableCell>{holiday.repeatYearly ? "Yes" : "No"}</TableCell>
-                          <TableCell>{holiday.description}</TableCell>
-                          <TableCell>
+                          <TableCell className="py-2 px-3 text-sm font-medium">{holiday.title}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{format(new Date(holiday.date), "PPP")}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm"><Badge variant="outline">{holiday.type}</Badge></TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{holiday.repeatYearly ? "Yes" : "No"}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">{holiday.description}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button size="sm" variant="destructive"
@@ -1396,10 +1396,10 @@ const HRPayroll = () => {
               </TabsList>
 
               <TabsContent value="info" className="space-y-6 pt-4">
-                <div className="flex items-start gap-6">
+                <div className="flex items-start gap-4">
                   <Avatar className="h-24 w-24 border-4 border-background shadow-lg">
                     <AvatarImage className="object-cover" src={viewEmployee.photo_url} alt={viewEmployee.name} />
-                    <AvatarFallback className="text-3xl font-bold bg-primary/10 text-primary uppercase">
+                    <AvatarFallback className="text-xl font-semibold bg-primary/10 text-primary uppercase">
                       {viewEmployee.name.charAt(0)}
                     </AvatarFallback>
                   </Avatar>
@@ -1422,7 +1422,7 @@ const HRPayroll = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Card className="bg-muted/30">
                     <CardHeader className="py-3">
                       <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -1449,7 +1449,7 @@ const HRPayroll = () => {
                     </CardContent>
                   </Card>
 
-                  <Card className={viewEmployee.employmentType === "CONTRACT" ? "bg-primary/5 border-primary/20" : "bg-green-50/30 border-green-100"}>
+                  <Card className={viewEmployee.employmentType === "CONTRACT" ? "bg-primary/5 border-border" : "bg-green-50/30 border-green-100"}>
                     <CardHeader className="py-3">
                       <CardTitle className={`text-sm font-semibold flex items-center gap-2 ${viewEmployee.staffType === "CONTRACT" ? "text-primary" : "text-green-700"}`}>
                         {viewEmployee.staffType === "CONTRACT" ? <CalendarIcon className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
@@ -1467,7 +1467,7 @@ const HRPayroll = () => {
                             <span className="text-muted-foreground">End Date:</span>
                             <span className="font-medium">{viewEmployee.contractEnd ? format(new Date(viewEmployee.contractEnd), "PPP") : "N/A"}</span>
                           </div>
-                          <div className="pt-2 border-t border-primary/10 flex justify-between items-center">
+                          <div className="pt-2 border-t border-border flex justify-between items-center">
                             <span className="text-sm text-muted-foreground">Contract Duration:</span>
                             <span className="text-lg font-bold text-primary">
                               {calculateDuration(viewEmployee.contractStart, viewEmployee.contractEnd)}
@@ -1518,12 +1518,12 @@ const HRPayroll = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Month</TableHead>
-                          <TableHead>Basic Salary</TableHead>
-                          <TableHead>Allowances</TableHead>
-                          <TableHead>Deductions</TableHead>
-                          <TableHead>Net Salary</TableHead>
-                          <TableHead>Status</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Month</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Basic Salary</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Allowances</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Deductions</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Net Salary</TableHead>
+                          <TableHead className="py-2 px-3 text-sm">Status</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1531,19 +1531,19 @@ const HRPayroll = () => {
                           .filter(p => p.id === viewEmployee.id)
                           .map(p => (
                             <TableRow key={p.id}>
-                              <TableCell>{format(new Date(selectedMonth), "MMMM yyyy")}</TableCell>
-                              <TableCell>{p.basicSalary.toLocaleString()}</TableCell>
-                              <TableCell className="text-green-600">+{p.totalAllowances.toLocaleString()}</TableCell>
-                              <TableCell className="text-red-600">-{p.totalDeductions.toLocaleString()}</TableCell>
-                              <TableCell className="font-bold">{p.netSalary.toLocaleString()}</TableCell>
-                              <TableCell>
+                              <TableCell className="py-2 px-3 text-sm">{format(new Date(selectedMonth), "MMMM yyyy")}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">{p.basicSalary.toLocaleString()}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm text-green-600">+{p.totalAllowances.toLocaleString()}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm text-red-600">-{p.totalDeductions.toLocaleString()}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm font-bold">{p.netSalary.toLocaleString()}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">
                                 <Badge variant={p.status === "PAID" ? "default" : "outline"}>{p.status}</Badge>
                               </TableCell>
                             </TableRow>
                           ))}
                         {employeePayrollHistory.filter(p => p.id === viewEmployee.id).length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={6} className="text-center py-4 text-muted-foreground">
+                            <TableCell colSpan={6} className="py-2 px-3 text-sm text-center text-muted-foreground">
                               No payroll record found for selected month
                             </TableCell>
                           </TableRow>

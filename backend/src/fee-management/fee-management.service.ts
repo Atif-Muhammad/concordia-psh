@@ -3040,6 +3040,26 @@ export class FeeManagementService {
 
     const totalRevenue = (paidRevenueAggr._sum.paidAmount || 0) + (partialRevenueAggr._sum.paidAmount || 0);
 
+    // Breakdown by challan type (regular installment vs extra/FEE_HEADS_ONLY)
+    const regularPaidAggr = await this.prisma.feeChallan.aggregate({
+      where: { ...where, challanType: { not: 'FEE_HEADS_ONLY' } },
+      _sum: { paidAmount: true },
+    });
+    const extraPaidAggr = await this.prisma.feeChallan.aggregate({
+      where: { ...where, challanType: 'FEE_HEADS_ONLY' },
+      _sum: { paidAmount: true },
+    });
+    const regularPartialAggr = await this.prisma.feeChallan.aggregate({
+      where: buildWhere({ status: 'PARTIAL', paidDate: { gte: startDate }, challanType: { not: 'FEE_HEADS_ONLY' } }),
+      _sum: { paidAmount: true },
+    });
+    const extraPartialAggr = await this.prisma.feeChallan.aggregate({
+      where: buildWhere({ status: 'PARTIAL', paidDate: { gte: startDate }, challanType: 'FEE_HEADS_ONLY' }),
+      _sum: { paidAmount: true },
+    });
+    const regularRevenue = (regularPaidAggr._sum.paidAmount || 0) + (regularPartialAggr._sum.paidAmount || 0);
+    const extraRevenue = (extraPaidAggr._sum.paidAmount || 0) + (extraPartialAggr._sum.paidAmount || 0);
+
     // When filtering by session: also count settledAmount on VOID challans that belong
     // to this session but were settled by a superseding challan from a DIFFERENT session.
     // (If the superseding challan is in the same session, its paidAmount already covers it.)
@@ -3088,6 +3108,8 @@ export class FeeManagementService {
 
     return {
       totalRevenue: totalRevenueFinal,
+      regularRevenue: regularRevenue + crossSessionSettled,
+      extraRevenue,
       totalOutstanding,
     };
   }

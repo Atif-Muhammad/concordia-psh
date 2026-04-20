@@ -49,15 +49,7 @@ All colors MUST be HSL.
     --input: 220 13% 91%;
     --ring: 28 100% 48%;
 
-    --radius: 0.75rem;
-    
-    --gradient-primary: linear-gradient(135deg, hsl(28 100% 48%), hsl(28 100% 58%));
-    --gradient-secondary: linear-gradient(135deg, hsl(220 13% 91%), hsl(220 13% 95%));
-    --gradient-hero: linear-gradient(135deg, hsl(28 100% 48%) 0%, hsl(28 100% 58%) 100%);
-    
-    --shadow-soft: 0 2px 8px hsl(28 100% 48% / 0.08);
-    --shadow-medium: 0 4px 16px hsl(28 100% 48% / 0.12);
-    --shadow-strong: 0 8px 32px hsl(28 100% 48% / 0.16);
+    --radius: 0.375rem;
 
     --sidebar-background: 28 100% 48%;
     --sidebar-foreground: 0 0% 100%;
@@ -111,15 +103,7 @@ All colors MUST be HSL.
     --input: 220 13% 22%;
     --ring: 28 100% 48%;
 
-    --radius: 0.75rem;
-    
-    --gradient-primary: linear-gradient(135deg, hsl(28 100% 48%), hsl(28 100% 58%));
-    --gradient-secondary: linear-gradient(135deg, hsl(220 13% 18%), hsl(220 13% 22%));
-    --gradient-hero: linear-gradient(135deg, hsl(28 100% 48%) 0%, hsl(28 100% 58%) 100%);
-    
-    --shadow-soft: 0 2px 8px hsl(0 0% 0% / 0.3);
-    --shadow-medium: 0 4px 16px hsl(0 0% 0% / 0.4);
-    --shadow-strong: 0 8px 32px hsl(0 0% 0% / 0.5);
+    --radius: 0.375rem;
 
     --sidebar-background: 28 100% 48%;
     --sidebar-foreground: 0 0% 100%;
@@ -133,6 +117,10 @@ All colors MUST be HSL.
 }
 
 @layer base {
+  html {
+    font-size: 13px; /* Scale down the entire UI — 1rem = 13px instead of 16px */
+  }
+
   * {
     @apply border-border;
   }

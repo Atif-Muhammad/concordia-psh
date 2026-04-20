@@ -473,9 +473,9 @@ const Attendance = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
+            <h1 className="text-xl font-semibold flex items-center gap-2">
               <UserCheck className="w-8 h-8 text-primary" />
               Attendance Management
             </h1>
@@ -503,7 +503,7 @@ const Attendance = () => {
 
           <TabsContent value="mark" className="space-y-6">
             {!canMarkAttendance ? (
-              <Card className="shadow-soft">
+              <Card className="shadow-sm">
                 <CardContent className="pt-12 pb-12">
                   <div className="flex flex-col items-center justify-center text-center space-y-4">
                     <Lock className="w-16 h-16 text-muted-foreground" />
@@ -518,8 +518,8 @@ const Attendance = () => {
               </Card>
             ) : (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <Card className="shadow-soft">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <Card className="shadow-sm">
                     <CardContent className="pt-6">
                       <div className="flex items-center justify-between">
                         <div>
@@ -530,7 +530,7 @@ const Attendance = () => {
                       </div>
                     </CardContent>
                   </Card>
-                  <Card className="shadow-soft">
+                  <Card className="shadow-sm">
                     <CardContent className="pt-6">
                       <div className="flex items-center justify-between">
                         <div>
@@ -541,7 +541,7 @@ const Attendance = () => {
                       </div>
                     </CardContent>
                   </Card>
-                  <Card className="shadow-soft">
+                  <Card className="shadow-sm">
                     <CardContent className="pt-6">
                       <div className="flex items-center justify-between">
                         <div>
@@ -552,7 +552,7 @@ const Attendance = () => {
                       </div>
                     </CardContent>
                   </Card>
-                  <Card className="shadow-soft">
+                  <Card className="shadow-sm">
                     <CardContent className="pt-6">
                       <div className="flex items-center justify-between">
                         <div>
@@ -565,7 +565,7 @@ const Attendance = () => {
                   </Card>
                 </div>
 
-                <Card className="shadow-soft">
+                <Card className="shadow-sm">
                   <CardHeader>
                     <CardTitle>Mark Attendance</CardTitle>
                   </CardHeader>
@@ -631,11 +631,11 @@ const Attendance = () => {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Roll No</TableHead>
-                            <TableHead>Student Name</TableHead>
-                            <TableHead>Class</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Actions</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Roll No</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Student Name</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Class</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                            <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -653,10 +653,10 @@ const Attendance = () => {
                               const currentStatus = attendanceChanges[student.id] || dbStatus;
 
                               return <TableRow key={student.id}>
-                                <TableCell className="font-medium">{student.rollNumber}</TableCell>
-                                <TableCell>{getFullName(student)}</TableCell>
-                                <TableCell>{student.class?.name} - {student.section?.name}</TableCell>
-                                <TableCell>
+                                <TableCell className="font-medium py-2 px-3 text-sm">{student.rollNumber}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">{getFullName(student)}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">{student.class?.name} - {student.section?.name}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">
                                   {currentStatus ? (
                                     <Badge variant={
                                       currentStatus === "present" ? "default" :
@@ -669,7 +669,7 @@ const Attendance = () => {
                                     <span className="text-muted-foreground">Not Marked</span>
                                   )}
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="py-2 px-3 text-sm">
                                   <div className="flex gap-2">
                                     <Button size="sm" variant={currentStatus === "present" ? "default" : "outline"} onClick={() => handleStatusChange(student.id, "present")}>
                                       <CheckCircle2 className="w-4 h-4" />
@@ -695,7 +695,7 @@ const Attendance = () => {
           </TabsContent>
 
           <TabsContent value="leave" className="space-y-6">
-            <Card className="shadow-soft">
+            <Card className="shadow-sm">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>Leave Requests</CardTitle>
@@ -710,13 +710,13 @@ const Attendance = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Student</TableHead>
-                        <TableHead>Roll No</TableHead>
-                        <TableHead>Reason</TableHead>
-                        <TableHead>From Date</TableHead>
-                        <TableHead>To Date</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Student</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Roll No</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Reason</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">From Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">To Date</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -724,17 +724,17 @@ const Attendance = () => {
                         const student = leave.requester;
                         return (
                           <TableRow key={leave.id}>
-                            <TableCell>{`${student.fName} ${student.lName}`}</TableCell>
-                            <TableCell>{student.rollNumber}</TableCell>
-                            <TableCell className="max-w-xs truncate">{leave.reason}</TableCell>
-                            <TableCell>{new Date(leave.fromDate).toLocaleDateString()}</TableCell>
-                            <TableCell>{new Date(leave.toDate).toLocaleDateString()}</TableCell>
-                            <TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{`${student.fName} ${student.lName}`}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{student.rollNumber}</TableCell>
+                            <TableCell className="max-w-xs truncate py-2 px-3 text-sm">{leave.reason}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{new Date(leave.fromDate).toLocaleDateString()}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{new Date(leave.toDate).toLocaleDateString()}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
                               <Badge variant={leave.status === "APPROVED" ? "default" : leave.status === "REJECTED" ? "destructive" : "secondary"}>
                                 {leave.status}
                               </Badge>
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
                               {leave.status === "PENDING" && (
                                 <div className="flex gap-2">
                                   <Button size="sm" variant="outline" onClick={() => handleApproveReject(leave.id, "APPROVED")}>
@@ -760,7 +760,7 @@ const Attendance = () => {
           </TabsContent>
 
           <TabsContent value="reports" className="space-y-6">
-            <Card className="shadow-soft">
+            <Card className="shadow-sm">
               <CardHeader>
                 <CardTitle>Attendance Report</CardTitle>
                 {isTeacher && !canViewAllReports && (
@@ -850,9 +850,9 @@ const Attendance = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="sticky left-0 bg-background z-10 border-r">Roll No</TableHead>
-                          <TableHead className="sticky left-20 bg-background z-10 border-r min-w-[200px]">Student Name</TableHead>
-                          <TableHead className="border-r min-w-[150px]">Subject</TableHead>
+                          <TableHead className="sticky left-0 bg-background z-10 border-r px-3 text-sm">Roll No</TableHead>
+                          <TableHead className="sticky left-20 bg-background z-10 border-r min-w-[200px] px-3 text-sm">Student Name</TableHead>
+                          <TableHead className="border-r min-w-[150px] px-3 text-sm">Subject</TableHead>
                           {reportDates.map(date => {
                             const dateObj = new Date(date);
                             return (
@@ -865,9 +865,9 @@ const Attendance = () => {
                               </TableHead>
                             );
                           })}
-                          <TableHead className="text-center bg-green-50/50 border-r">P</TableHead>
-                          <TableHead className="text-center bg-red-50/50 border-r">A</TableHead>
-                          <TableHead className="text-center bg-amber-50/50">L</TableHead>
+                          <TableHead className="text-center bg-green-50/50 border-r px-3 text-sm">P</TableHead>
+                          <TableHead className="text-center bg-red-50/50 border-r px-3 text-sm">A</TableHead>
+                          <TableHead className="text-center bg-amber-50/50 px-3 text-sm">L</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -895,7 +895,7 @@ const Attendance = () => {
                                     </TableCell>
                                   </>
                                 )}
-                                <TableCell className="border-r font-medium text-sm">{subject.subjectName}</TableCell>
+                                <TableCell className="py-2 border-r font-medium text-sm px-3">{subject.subjectName}</TableCell>
                                 {reportDates.map(date => {
                                   const status = attendanceMap[date];
                                   return (
@@ -907,9 +907,9 @@ const Attendance = () => {
                                     </TableCell>
                                   );
                                 })}
-                                <TableCell className="text-center font-semibold text-green-700 bg-green-50/50 border-r">{present}</TableCell>
-                                <TableCell className="text-center font-semibold text-red-700 bg-red-50/50 border-r">{absent}</TableCell>
-                                <TableCell className="text-center font-semibold text-amber-700 bg-amber-50/50">{leave}</TableCell>
+                                <TableCell className="py-2 text-center font-semibold text-green-700 bg-green-50/50 border-r px-3 text-sm">{present}</TableCell>
+                                <TableCell className="py-2 text-center font-semibold text-red-700 bg-red-50/50 border-r px-3 text-sm">{absent}</TableCell>
+                                <TableCell className="py-2 text-center font-semibold text-amber-700 bg-amber-50/50 px-3 text-sm">{leave}</TableCell>
                               </TableRow>
                             );
                           });

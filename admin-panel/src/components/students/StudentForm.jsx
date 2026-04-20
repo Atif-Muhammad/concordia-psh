@@ -594,7 +594,7 @@ const StudentForm = ({
         <div className="space-y-6">
             {headerExtra}
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 {/* LEFT — PHOTO */}
                 <div className="md:col-span-1 space-y-2">
                     <Label>Photo *</Label>
@@ -607,7 +607,7 @@ const StudentForm = ({
                                 <img
                                     src={imagePreview}
                                     alt="preview"
-                                    className="w-full h-full rounded-full object-cover border-2 border-primary/20"
+                                    className="w-full h-full rounded-full object-cover border-2 border-border"
                                 />
                                 <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                                     <Upload className="text-white w-8 h-8" />
@@ -616,7 +616,7 @@ const StudentForm = ({
                                     type="button"
                                     size="icon"
                                     variant="destructive"
-                                    className="absolute -top-1 -right-1 h-6 w-6 rounded-full shadow-lg"
+                                    className="absolute -top-1 -right-1 h-6 w-6 rounded-full shadow-sm"
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         setImagePreview("");
@@ -878,7 +878,7 @@ const StudentForm = ({
             </div>
 
             {/* FEE INSTALLMENT PLAN SECTION */}
-            <div className="mt-8 pt-6 border-t">
+            <div className="mt-4 pt-6 border-t">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                         <TrendingUp className="w-5 h-5 text-primary" />
@@ -889,7 +889,7 @@ const StudentForm = ({
                     </Button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 p-4 bg-muted/30 rounded-lg">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-muted/30 rounded-lg">
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
                             <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tuition Fee (Agreed)</Label>
@@ -1055,7 +1055,7 @@ const StudentForm = ({
             </div>
 
             {/* DOCUMENTS */}
-            <div className="mt-8 pt-6 border-t">
+            <div className="mt-4 pt-6 border-t">
                 <Label className="text-lg font-semibold text-primary mb-4 block">Required Documents</Label>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2">
                     {[
@@ -1072,7 +1072,7 @@ const StudentForm = ({
                             key={doc.key}
                             onClick={() => toggleDocument(doc.key)}
                             className={`cursor-pointer rounded-lg border p-3 text-sm font-medium flex items-center justify-center transition-all ${formData.documents?.[doc.key]
-                                ? "bg-primary text-white border-primary shadow-md scale-[1.02]"
+                                ? "bg-primary text-white border-primary shadow-sm"
                                 : "border-gray-300 hover:bg-gray-100 text-gray-700"
                                 }`}
                         >

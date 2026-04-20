@@ -1,51 +1,56 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FinanceService } from '../finance/finance.service';
+import { FeeManagementService } from '../fee-management/fee-management.service';
 
 @Injectable()
 export class DashboardService {
   constructor(
     private prisma: PrismaService,
     private financeService: FinanceService,
+    private feeService: FeeManagementService,
   ) {}
-  async getDashboardStats(filters?: { month?: string; year?: string }) {
+  async getDashboardStats(filters?: { month?: string; year?: string; sessionId?: string }) {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
 
-    let monthStart: Date;
-    let monthEnd: Date;
-    let isOverall = true; // Overall means current month by default if no filters
+    let monthStart: Date | null = null;
+    let monthEnd: Date | null = null;
+    let isOverall = false;
+    let sessionIdNum: number | null = null;
 
-    if (filters?.year) {
-      isOverall = false;
+    // If sessionId provided, use the session's date range AND filter challans by sessionId
+    if (filters?.sessionId && filters.sessionId !== 'all') {
+      sessionIdNum = Number(filters.sessionId);
+      const session = await this.prisma.academicSession.findUnique({
+        where: { id: sessionIdNum },
+      });
+      if (session) {
+        monthStart = new Date(session.startDate);
+        monthEnd = new Date(session.endDate);
+      } else {
+        monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+      }
+    } else if (filters?.sessionId === 'all') {
+      // All time — no date filter
+      isOverall = true;
+      monthStart = new Date(2000, 0, 1);
+      monthEnd = new Date(today.getFullYear() + 5, 11, 31, 23, 59, 59, 999);
+    } else if (filters?.year) {
       const year = parseInt(filters.year);
-
       if (filters.month) {
-        // Specific Month
-        const monthIndex = new Date(
-          Date.parse(`${filters.month} 1, ${year}`),
-        ).getMonth();
+        const monthIndex = new Date(Date.parse(`${filters.month} 1, ${year}`)).getMonth();
         monthStart = new Date(year, monthIndex, 1);
         monthEnd = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
       } else {
-        // Whole Year
         monthStart = new Date(year, 0, 1);
         monthEnd = new Date(year, 11, 31, 23, 59, 59, 999);
       }
     } else {
       // Default to current month
       monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-      monthEnd = new Date(
-        today.getFullYear(),
-        today.getMonth() + 1,
-        0,
-        23,
-        59,
-        59,
-        999,
-      );
+      monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
     }
 
     // For charts: last 12 months ending at monthEnd
@@ -112,14 +117,11 @@ export class DashboardService {
         },
       }),
 
-      // Fee Challan (for selected month)
+      // Fee Challan — filter by sessionId if available, otherwise by issueDate
       this.prisma.feeChallan.findMany({
-        where: {
-          issueDate: {
-            gte: monthStart,
-            lte: monthEnd,
-          },
-        },
+        where: sessionIdNum
+          ? { sessionId: sessionIdNum }
+          : { issueDate: { gte: monthStart, lte: monthEnd } },
         select: {
           status: true,
           amount: true,
@@ -188,40 +190,32 @@ export class DashboardService {
       // Fee History - Collected (Based on Paid Date - Cash Flow)
       this.prisma.feeChallan.findMany({
         where: {
-          paidDate: {
-            gte: chartStart,
-            lte: chartEnd,
-          },
-          paidAmount: {
-            gt: 0,
-          },
+          ...(sessionIdNum ? { sessionId: sessionIdNum } : {
+            paidDate: { gte: chartStart, lte: chartEnd },
+          }),
+          paidAmount: { gt: 0 },
+          status: { in: ['PAID', 'PARTIAL', 'VOID'] },
         },
         select: {
           paidDate: true,
           paidAmount: true,
+          issueDate: true,
         },
-        orderBy: {
-          paidDate: 'asc',
-        },
+        orderBy: { paidDate: 'asc' },
       }),
 
       // Fee History - Issued/Pending (Based on Issue Date)
       this.prisma.feeChallan.findMany({
-        where: {
-          issueDate: {
-            gte: chartStart,
-            lte: chartEnd,
-          },
-        },
+        where: sessionIdNum
+          ? { sessionId: sessionIdNum }
+          : { issueDate: { gte: chartStart, lte: chartEnd } },
         select: {
           issueDate: true,
           status: true,
           amount: true,
           paidAmount: true,
         },
-        orderBy: {
-          issueDate: 'asc',
-        },
+        orderBy: { issueDate: 'asc' },
       }),
 
       // Total Receivables (All time pending)
@@ -296,13 +290,12 @@ export class DashboardService {
 
     // 2. Collected: Sum of paidAmount for Paid/Partial Challans in period
     const collectionWhere: any = {
-      status: { in: ['PAID', 'PARTIAL'] },
+      status: { in: ['PAID', 'PARTIAL', 'VOID'] },
     };
-    if (!isOverall) {
-      collectionWhere.paidDate = {
-        gte: monthStart,
-        lte: monthEnd,
-      };
+    if (sessionIdNum) {
+      collectionWhere.sessionId = sessionIdNum;
+    } else if (!isOverall) {
+      collectionWhere.paidDate = { gte: monthStart, lte: monthEnd };
     }
 
     const collectedChallans = await this.prisma.feeChallan.findMany({
@@ -324,19 +317,18 @@ export class DashboardService {
           )
         : 0;
 
-    // Fees Stats for Dashboard
-    const totalFeeAmount = feeChallan.reduce(
-      (sum, f) => sum + Number(f.amount),
-      0,
+    // Fees Stats — use FeeManagementService.getFeeCollectionSummary for consistent "Total Received"
+    // This matches exactly what the Fee Management page shows
+    const feeCollectionSummary = await this.feeService.getFeeCollectionSummary(
+      'overall',
+      sessionIdNum ?? undefined,
     );
-    const paidFees = feeChallan.reduce(
-      (sum, f) => sum + Number(f.paidAmount),
-      0,
-    );
-    const pendingFees = totalFeeAmount - paidFees;
+    const paidFees = feeCollectionSummary.totalRevenue;
+    const pendingFees = feeCollectionSummary.totalOutstanding;
+    const totalFeeAmount = paidFees + pendingFees;
 
     const feesByStatus = {
-      paid: feeChallan.filter((f) => f.status === 'PAID').length,
+      paid: feeChallan.filter((f) => ['PAID', 'VOID'].includes(f.status)).length,
       pending: feeChallan.filter((f) => f.status === 'PENDING').length,
       overdue: feeChallan.filter((f) => f.status === 'OVERDUE').length,
       collectionRate: feeCollectionRate,
@@ -345,48 +337,58 @@ export class DashboardService {
     // Calculate monthly fee history
     const feeHistoryMap = new Map<
       string,
-      { collected: number; pending: number }
+      { collected: number; pending: number; label: string }
     >();
 
-    // Initialize chart months
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(chartEnd);
-      d.setMonth(d.getMonth() - i);
-      const monthName = d.toLocaleString('default', { month: 'short' });
-      feeHistoryMap.set(monthName, { collected: 0, pending: 0 });
+    // Initialize chart months — for session filter use issueDate range, otherwise last 12 months
+    if (sessionIdNum && monthStart && monthEnd) {
+      // Build months between session start and end
+      const cursor = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
+      const end = new Date(monthEnd.getFullYear(), monthEnd.getMonth(), 1);
+      while (cursor <= end) {
+        const monthName = cursor.toLocaleString('default', { month: 'short' });
+        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`;
+        feeHistoryMap.set(key, { collected: 0, pending: 0, label: monthName });
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+    } else {
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(chartEnd);
+        d.setMonth(d.getMonth() - i);
+        const monthName = d.toLocaleString('default', { month: 'short' });
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        feeHistoryMap.set(key, { collected: 0, pending: 0, label: monthName });
+      }
     }
 
-    // Process Collected (by Paid Date)
+    // Process Collected (by Paid Date, fallback to issueDate)
     paidHistoryData?.forEach((record) => {
-      if (!record.paidDate) return;
-      const monthName = new Date(record.paidDate).toLocaleString('default', {
-        month: 'short',
-      });
-      if (feeHistoryMap.has(monthName)) {
-        const entry: any = feeHistoryMap.get(monthName);
+      const dateRef = record.paidDate || record.issueDate;
+      if (!dateRef) return;
+      const d = new Date(dateRef);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (feeHistoryMap.has(key)) {
+        const entry: any = feeHistoryMap.get(key);
         entry.collected += Number(record.paidAmount);
       }
     });
 
     // Process Pending (by Issue Date)
     issuedHistoryData?.forEach((record) => {
-      // Ignore if status is PAID or CANCELLED
-      if (['PAID', 'CANCELLED'].includes(record.status)) return;
-
-      const monthName = new Date(record.issueDate).toLocaleString('default', {
-        month: 'short',
-      });
-      if (feeHistoryMap.has(monthName)) {
-        const entry: any = feeHistoryMap.get(monthName);
+      if (['PAID', 'VOID', 'CANCELLED'].includes(record.status)) return;
+      const d = new Date(record.issueDate);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (feeHistoryMap.has(key)) {
+        const entry: any = feeHistoryMap.get(key);
         entry.pending += Number(record.amount) - Number(record.paidAmount);
       }
     });
 
     const monthlyFeeCollection = Array.from(feeHistoryMap.entries()).map(
-      ([month, data]) => ({
-        month,
-        collected: data.collected,
-        pending: data.pending,
+      ([_key, data]: [string, any]) => ({
+        month: data.label,
+        collected: Math.round(data.collected),
+        pending: Math.round(data.pending),
       }),
     );
 
@@ -489,6 +491,8 @@ export class DashboardService {
       fees: {
         totalAmount: totalFeeAmount,
         paidAmount: paidFees,
+        regularRevenue: feeCollectionSummary.regularRevenue || 0,
+        extraRevenue: feeCollectionSummary.extraRevenue || 0,
         pendingAmount: pendingFees,
         collectionRate: feeCollectionRate,
         byStatus: feesByStatus,
