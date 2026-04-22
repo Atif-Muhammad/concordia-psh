@@ -306,7 +306,8 @@ const generateChallanHtml = (challan, manualTemplate = null) => {
   let finalHtml = templateContent;
   Object.entries(replacements).forEach(([key, value]) => {
     const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    finalHtml = finalHtml.replace(new RegExp(escapedKey, "g"), String(value));
+    const safeValue = String(value).replace(/\$/g, '$$');
+    finalHtml = finalHtml.replace(new RegExp(escapedKey, 'g'), safeValue);
   });
 
   return finalHtml;

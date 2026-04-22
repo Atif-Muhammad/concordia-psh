@@ -29,9 +29,11 @@ describe("Property 1: Button disable logic is future-date-only", () => {
 
   it("returns true for any date strictly after today (tomorrow onwards)", () => {
     // Feature: staff-attendance-undo-confirmation, Property 1: button disable logic is future-date-only
+    const tomorrow = new Date(Date.now() + 86400000);
+    const farFuture = new Date(2100, 0, 1);
     fc.assert(
       fc.property(
-        fc.date({ min: new Date(Date.now() + 86400000) }),
+        fc.date({ min: tomorrow, max: farFuture }).filter((d) => !isNaN(d.getTime())),
         (date) => isActionDisabled(date) === true
       ),
       { numRuns: 20 }

@@ -25,10 +25,10 @@ export class AttendanceController {
     @Query('attenFor') attenFor: 'teacher' | 'student',
     @Query('classId') classId?: string,
     @Query('sectionId') sectionId?: string,
+    @Query('subjectId') subjectId?: string,
   ) {
     let targetDate: Date;
     if (date) {
-      // Support both yyyy-MM-dd and dd/MM/yyyy formats
       let year: number, month: number, day: number;
       if (date.includes('-')) {
         [year, month, day] = date.split('-').map(Number);
@@ -49,6 +49,7 @@ export class AttendanceController {
         targetDate,
         Number(classId) || undefined,
         Number(sectionId) || undefined,
+        Number(subjectId) || undefined,
       );
     throw new ForbiddenException();
   }
@@ -100,7 +101,7 @@ export class AttendanceController {
       date: string;
       students: {
         studentId: string;
-        status: 'PRESENT' | 'ABSENT' | 'LEAVE' | 'HALF_DAY';
+        status: 'PRESENT' | 'ABSENT' | 'LEAVE' | 'SHORT_LEAVE' | 'HALF_DAY';
       }[];
     },
   ) {
@@ -152,6 +153,31 @@ export class AttendanceController {
   @Post('holiday')
   async createHoliday(@Body() body: { date: string; title?: string }) {
     return this.attendanceService.createHolidayForDate(body.date, body.title);
+  }
+
+  // ── Per-class/section skip endpoints ─────────────────────────────────────
+
+  @Post('skip')
+  async createSkip(
+    @Body() body: { classId: number; sectionId?: number | null; date: string; reason?: string },
+  ) {
+    return this.attendanceService.createSkip(body.classId, body.sectionId ?? null, body.date, body.reason);
+  }
+
+  @Delete('skip')
+  async deleteSkip(@Query('id') id: string) {
+    return this.attendanceService.deleteSkip(Number(id));
+  }
+
+  @Get('skip')
+  async getSkips(
+    @Query('classId') classId?: string,
+    @Query('sectionId') sectionId?: string,
+  ) {
+    return this.attendanceService.getSkips(
+      classId ? Number(classId) : undefined,
+      sectionId ? Number(sectionId) : undefined,
+    );
   }
 
   // teacher attendance and leave

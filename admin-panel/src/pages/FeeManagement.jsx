@@ -1386,7 +1386,8 @@ const FeeManagement = () => {
     Object.entries(replacements).forEach(([key, value]) => {
       // Escape for regex and replace all
       const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      finalHtml = finalHtml.replace(new RegExp(escapedKey, 'g'), value);
+      const safeValue = String(value).replace(/\$/g, '$$$$');
+      finalHtml = finalHtml.replace(new RegExp(escapedKey, 'g'), safeValue);
     });
 
     return finalHtml;

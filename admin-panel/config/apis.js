@@ -609,12 +609,11 @@ export const getTeacherClasses = async () => {
   }
 };
 
-export const fetchStudentAttendance = async (classId, sectionId, subjectId, date) => {
+export const fetchStudentAttendance = async (classId, sectionId, subjectId, date, sessionId) => {
   try {
-    const response = await axios.get(
-      `${base_url}/attendance/student/fetch?classId=${classId}&sectionId=${sectionId || ''}&subjectId=${subjectId}&date=${date}`,
-      { withCredentials: true }
-    );
+    let url = `${base_url}/attendance/student/fetch?classId=${classId}&sectionId=${sectionId || ''}&subjectId=${subjectId}&date=${date}`;
+    if (sessionId) url += `&sessionId=${sessionId}`;
+    const response = await axios.get(url, { withCredentials: true });
     return response.data;
   } catch (error) {
     const message =
@@ -1117,11 +1116,12 @@ export const getSubjectClassMappings = async (sessionId) => {
   }
 };
 
-export const getSubjectsForClassWithAssignments = async (classId, sessionId) => {
+export const getSubjectsForClassWithAssignments = async (classId, sessionId, sectionId) => {
   try {
-    const url = sessionId
+    let url = sessionId
       ? `${base_url}/academics/scm/subjects-for-class?classId=${classId}&sessionId=${sessionId}`
       : `${base_url}/academics/scm/subjects-for-class?classId=${classId}`;
+    if (sectionId && sectionId !== "*") url += `&sectionId=${sectionId}`;
     const response = await axios.get(url, { withCredentials: true });
     return response.data;
   } catch (error) {
@@ -1981,11 +1981,12 @@ export const delEmp = async (empId) => {
 };
 
 // Attendance Report
-export const getAttendanceReport = async (start, end, classId, sectionId) => {
+export const getAttendanceReport = async (start, end, classId, sectionId, sessionId) => {
   try {
     const params = new URLSearchParams({ start, end });
     if (classId) params.append('classId', classId);
     if (sectionId) params.append('sectionId', sectionId);
+    if (sessionId) params.append('sessionId', sessionId);
 
     const response = await axios.get(
       `${base_url}/attendance/report?${params.toString()}`,
@@ -4450,12 +4451,13 @@ export const deleteStudentIDCardTemplate = async (id) => {
 
 
 // attendance generation & holiday
-export const generateStudentAttendance = async (classId, sectionId, subjectId, date) => {
+export const generateStudentAttendance = async (classId, sectionId, subjectId, date, sessionId) => {
   try {
     const params = new URLSearchParams({ attenFor: "student", date });
     if (classId) params.append("classId", classId);
     if (sectionId) params.append("sectionId", sectionId);
     if (subjectId) params.append("subjectId", subjectId);
+    if (sessionId) params.append("sessionId", sessionId);
     const response = await axios.post(
       `${base_url}/attendance/generate?${params.toString()}`,
       {},
@@ -4533,6 +4535,40 @@ export const undoMarkHoliday = async (id) => {
   } catch (error) {
     const message =
       error.response?.data?.message || error.message;
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// Per-class/section attendance skip
+export const createAttendanceSkip = async (classId, sectionId, date, reason) => {
+  try {
+    const response = await axios.post(`${base_url}/attendance/skip`, { classId, sectionId: sectionId || null, date, reason }, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message;
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteAttendanceSkip = async (id) => {
+  try {
+    const response = await axios.delete(`${base_url}/attendance/skip?id=${id}`, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message;
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getAttendanceSkips = async (classId, sectionId) => {
+  try {
+    const params = new URLSearchParams();
+    if (classId) params.append('classId', classId);
+    if (sectionId) params.append('sectionId', sectionId);
+    const response = await axios.get(`${base_url}/attendance/skip?${params.toString()}`, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message;
     throw { message, status: error.response?.status || 500 };
   }
 };

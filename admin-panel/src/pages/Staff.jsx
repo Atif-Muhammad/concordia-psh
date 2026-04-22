@@ -40,6 +40,7 @@ import {
     markDateAsHoliday,
     undoGenerateAttendance,
     undoMarkHoliday,
+    getHolidays,
 } from "../../config/apis";
 import { format } from "date-fns";
 import { isActionDisabled as checkIsActionDisabled } from "@/lib/dateUtils";
@@ -302,7 +303,6 @@ export default function Staff() {
         }
         try {
             const response = await generateStaffAttendance(format(attendanceDate, "yyyy-MM-dd"));
-            toast({ title: response.message || "Attendance generated successfully" });
             refetchAttendance();
             setConfirmDialog({ type: 'generate', date: attendanceDate });
         } catch (error) {
@@ -316,9 +316,11 @@ export default function Staff() {
             return;
         }
         try {
-            const response = await markDateAsHoliday(format(attendanceDate, "yyyy-MM-dd"), "Holiday");
-            toast({ title: "Date marked as holiday successfully" });
-            setConfirmDialog({ type: 'holiday', date: attendanceDate, holidayId: response.id });
+            const dateStr = format(attendanceDate, "yyyy-MM-dd");
+            await markDateAsHoliday(dateStr, "Holiday");
+            const holidays = await getHolidays();
+            const created = holidays.find(h => h.date?.startsWith(dateStr));
+            setConfirmDialog({ type: 'holiday', date: attendanceDate, holidayId: created?.id ?? null });
         } catch (error) {
             toast({ title: error.message || "Failed to mark date as holiday", variant: "destructive" });
         }

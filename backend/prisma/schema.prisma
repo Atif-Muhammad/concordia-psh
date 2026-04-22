@@ -107,7 +107,8 @@ model Class {
   teacherSectionMappings TeacherClassSectionMapping[] @relation("ClassTeacherSectionMappings")
   students               Student[]                    @relation("ClassStudents")
   attendance             Attendance[]
-  exams Exam[]
+  attendanceSkips        AttendanceSkip[]
+  exams                  Exam[]
   positions Position[]
   feeStructures FeeStructure[]
   challanSnapshots FeeChallan[] @relation("ChallanStudentClass")
@@ -136,6 +137,7 @@ model Section {
   assignments     Assignment[]                 @relation("SectionAssignments")
   teacherMappings TeacherClassSectionMapping[] @relation("SectionTeacherMappings")
   attendance      Attendance[]
+  attendanceSkips AttendanceSkip[]
   challanSnapshots FeeChallan[] @relation("ChallanStudentSection")
   academicRecords   StudentAcademicRecord[]
 
@@ -161,6 +163,7 @@ model AcademicSession {
   subjectMappings SubjectClassMapping[]        @relation("SessionSubjectMappings")
   teacherMappings TeacherClassSectionMapping[] @relation("SessionTeacherMappings")
   timetables      ClassTimetable[]             @relation("SessionTimetables")
+  attendance      Attendance[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -505,6 +508,7 @@ model Attendance {
   sectionId     Int?
   subjectId     Int
   teacherId     Int?
+  sessionId     Int?
   date          DateTime         @db.Date
   status        AttendanceStatus @default(PRESENT)
   markedAt      DateTime         @default(now())
@@ -515,7 +519,8 @@ model Attendance {
   class   Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
   section Section? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   subject Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  teacher Staff? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  teacher Staff?   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  session AcademicSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
   // --- Enforce uniqueness: one attendance per student per subject per day per class/section ---
   @@unique([studentId, classId, sectionId, subjectId, date])
@@ -529,8 +534,25 @@ enum AttendanceStatus {
   PRESENT
   ABSENT
   LEAVE
+  SHORT_LEAVE
   HALF_DAY
   HOLIDAY
+}
+
+model AttendanceSkip {
+  id        Int      @id @default(autoincrement())
+  classId   Int
+  sectionId Int?
+  date      DateTime @db.Date
+  reason    String?
+  createdAt DateTime @default(now())
+
+  class   Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  section Section? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, sectionId, date])
+  @@index([classId, date])
+  @@map("attendanceskip")
 }
 
 model Leave {

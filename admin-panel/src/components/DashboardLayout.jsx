@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { logout, userWho, refreshTokens, getInstituteSettings } from "../../config/apis";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
-import logo from "../assets/logo.png"
+import logo from "../assets/logo-full.png"
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -136,14 +136,14 @@ const DashboardLayout = ({ children }) => {
               sidebarCollapsed && "px-2 justify-center"
             )}
           >
-            <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
+            <div className="w-full h-15 flex items-center justify-start shrink-0 overflow-hidden">
               <img
                 src={settings?.logo || logo}
                 alt="Logo"
-                className="w-full h-full object-contain p-0.5"
+                className="h-full object-contain p-0.5"
               />
             </div>
-            {!sidebarCollapsed && (
+            {/* {!sidebarCollapsed && (
               <div className="animate-fade-in min-w-0">
                 <h2 className="font-semibold text-sidebar-foreground text-sm line-clamp-1">
                   {settings?.instituteName}
@@ -152,7 +152,7 @@ const DashboardLayout = ({ children }) => {
                   {settings?.phone || "Administration"}
                 </p>
               </div>
-            )}
+            )} */}
           </div>
 
           {/* Navigation */}

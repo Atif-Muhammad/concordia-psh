@@ -714,20 +714,70 @@ export class AttendanceService {
     });
   }
 
-  async generateAttendanceForDate(date: Date, classId?: number, sectionId?: number) {
+  // ── AttendanceSkip (per-class/section date skip) ──────────────────────────
+
+  async createSkip(classId: number, sectionId: number | null, date: string, reason?: string) {
+    const parts = date.split('-').map(Number);
+    const [year, month, day] = parts;
+    const targetDate = new Date(Date.UTC(year, month - 1, day));
+
+    const existing = await this.prismaService.attendanceSkip.findFirst({
+      where: { classId, sectionId: sectionId ?? null, date: targetDate },
+    });
+    if (existing) {
+      throw new ConflictException(`A skip already exists for this class/section on ${date}.`);
+    }
+
+    return this.prismaService.attendanceSkip.create({
+      data: { classId, sectionId: sectionId ?? null, date: targetDate, reason: reason ?? 'Holiday' },
+    });
+  }
+
+  async deleteSkip(id: number) {
+    return this.prismaService.attendanceSkip.delete({ where: { id } });
+  }
+
+  async getSkips(classId?: number, sectionId?: number | null) {
+    return this.prismaService.attendanceSkip.findMany({
+      where: {
+        ...(classId ? { classId } : {}),
+        ...(sectionId !== undefined ? { sectionId: sectionId ?? null } : {}),
+      },
+      orderBy: { date: 'desc' },
+    });
+  }
+
+  async isSkippedForClass(date: Date, classId: number, sectionId?: number | null): Promise<boolean> {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const skip = await this.prismaService.attendanceSkip.findFirst({
+      where: {
+        classId,
+        date: d,
+        OR: [
+          { sectionId: null },
+          ...(sectionId != null ? [{ sectionId }] : []),
+        ],
+      },
+    });
+    return !!skip;
+  }
+
+  async generateAttendanceForDate(date: Date, classId?: number, sectionId?: number, subjectId?: number) {
     // Normalize to UTC midnight
     const targetDate = new Date(
       Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()),
     );
 
-    // Check for Holiday
-    // Check for Non-Working Day (Weekend/Holiday)
+    // Check for global Holiday / future date
     const dateCheck = await this.isNonWorkingDay(targetDate);
     if (dateCheck.isBlocked) {
       return {
         message: `⛔ ${dateCheck.reason} detected. No attendance generated.`,
       };
     }
+
+    // Note: per-class/section skips are informational only — they do NOT block
+    // generate attendance since skips are class-wide but attendance is per-subject.
 
     // Fetch ALL leaves for students for this date (not just APPROVED)
     const leaves = await this.prismaService.leave.findMany({
@@ -747,6 +797,8 @@ export class AttendanceService {
       select: {
         id: true,
         subjectMappings: {
+          // Filter to only the requested subject if provided
+          where: subjectId ? { subjectId } : undefined,
           select: {
             subjectId: true,
             subject: {
@@ -757,7 +809,7 @@ export class AttendanceService {
           },
         },
         students: {
-          where: { passedOut: false, sectionId: null }, // direct class students
+          where: { passedOut: false, sectionId: null },
           select: { id: true },
         },
         sections: {

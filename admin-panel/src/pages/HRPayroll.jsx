@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { UserPlus, Edit, Trash2, DollarSign, Calendar as CalendarIcon, CheckCircle2, XCircle, TrendingUp, Users, IdCard, Settings, UserCheck, Clock, Eye, Wallet } from "lucide-react";
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
@@ -20,7 +20,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff } from "../../config/apis";
+import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff, getProgramNames, getAttendanceSkips, deleteAttendanceSkip } from "../../config/apis";
 import { Loader2, ChevronsUpDown } from "lucide-react";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { calculateDuration } from "../lib/dateUtils";
@@ -194,44 +194,115 @@ const HRPayroll = () => {
   // Holiday Management
   const [holidayFilter, setHolidayFilter] = useState({
     year: new Date().getFullYear(),
-    month: "*"
+    month: new Date().getMonth() + 1,
   });
   const [holidayOpen, setHolidayOpen] = useState(false);
+  const [undoHolidayDialog, setUndoHolidayDialog] = useState(null); // { id, date, title }
+  const [lastRemovedHoliday, setLastRemovedHoliday] = useState(null); // for undo
   const [holidayFormData, setHolidayFormData] = useState({
     title: "",
-    date: {
-      from: new Date(),
-      to: new Date()
-    },
+    date: { from: new Date(), to: new Date() },
     type: "National",
     repeatYearly: false,
     description: ""
   });
 
   // Holiday Queries
-  const { data: holidays = [] } = useQuery({
-    queryKey: ["holidays", holidayFilter],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (holidayFilter.year) params.append("year", holidayFilter.year);
-      if (holidayFilter.month) params.append("month", holidayFilter.month);
-      const res = await api.get(`/hr/holidays?${params.toString()}`);
-      return res.data;
-    },
+  const { data: holidays = [], refetch: refetchHolidays } = useQuery({
+    queryKey: ["holidays"],
+    queryFn: getHolidays,
   });
+
+  // Calendar class/section filter
+  const [calendarClassId, setCalendarClassId] = useState("all");
+  const [calendarSectionId, setCalendarSectionId] = useState("all");
+
+  const { data: programs = [] } = useQuery({
+    queryKey: ["programs"],
+    queryFn: getProgramNames,
+  });
+
+  const allCalendarClasses = useMemo(() =>
+    programs.flatMap(p => (p.classes || []).map(c => ({ ...c, programName: p.name }))),
+    [programs]
+  );
+
+  const calendarSections = useMemo(() => {
+    if (!calendarClassId || calendarClassId === "all") return [];
+    const cls = allCalendarClasses.find(c => String(c.id) === calendarClassId);
+    return cls?.sections || [];
+  }, [calendarClassId, allCalendarClasses]);
+
+  // Reset section when class changes
+  const handleCalendarClassChange = (val) => {
+    setCalendarClassId(val);
+    setCalendarSectionId("all");
+  };
+
+  const { data: classSkips = [] } = useQuery({
+    queryKey: ["attendanceSkips", calendarClassId, calendarSectionId],
+    queryFn: () => {
+      const sid = calendarSectionId !== "all" ? calendarSectionId : undefined;
+      return getAttendanceSkips(calendarClassId, sid);
+    },
+    enabled: !!calendarClassId && calendarClassId !== "all",
+  });
+
+  // Holidays filtered for the calendar view (global + per-class skips)
+  const calendarHolidays = useMemo(() => {
+    const toLocalDateStr = (d) => {
+      if (!d) return "";
+      const dt = new Date(d);
+      return new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    };
+    const globalEntries = holidays
+      .filter(h => {
+        const ds = toLocalDateStr(h.date);
+        const [y, m] = ds.split('-').map(Number);
+        return y === holidayFilter.year && m === holidayFilter.month;
+      })
+      .map(h => ({ ...h, _type: 'global' }));
+
+    const skipEntries = classSkips
+      .filter(s => {
+        const ds = toLocalDateStr(s.date);
+        const [y, m] = ds.split('-').map(Number);
+        return y === holidayFilter.year && m === holidayFilter.month;
+      })
+      .map(s => ({ ...s, title: s.reason || 'Class Holiday', _type: 'skip' }));
+
+    // Merge: class skips override global for same date
+    const merged = new Map();
+    globalEntries.forEach(e => merged.set(toLocalDateStr(e.date), e));
+    skipEntries.forEach(e => merged.set(toLocalDateStr(e.date), e));
+    return Array.from(merged.values());
+  }, [holidays, classSkips, holidayFilter]);
+
+  // Build calendar grid for the selected month
+  const calendarGrid = useMemo(() => {
+    const year = holidayFilter.year;
+    const month = holidayFilter.month;
+    const firstDay = new Date(year, month - 1, 1).getDay(); // 0=Sun
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const toLocalDay = (dateStr) => {
+      const d = new Date(dateStr);
+      return new Date(d.getTime() - d.getTimezoneOffset() * 60000).getDate();
+    };
+    const holidayDates = new Set(calendarHolidays.map(h => toLocalDay(h.date)));
+    const holidayMap = {};
+    calendarHolidays.forEach(h => { holidayMap[toLocalDay(h.date)] = h; });
+    return { firstDay, daysInMonth, holidayDates, holidayMap };
+  }, [calendarHolidays, holidayFilter]);
 
   const createHolidayMutation = useMutation({
     mutationFn: createHoliday,
     onSuccess: () => {
-      queryClient.invalidateQueries(["holidays"]);
+      queryClient.invalidateQueries({ queryKey: ["holidays"] });
       toast({ title: "Holiday created successfully" });
       setHolidayOpen(false);
       setHolidayFormData({
         title: "",
-        date: {
-          from: new Date(),
-          to: new Date()
-        },
+        date: { from: new Date(), to: new Date() },
         type: "National",
         repeatYearly: false,
         description: ""
@@ -242,12 +313,31 @@ const HRPayroll = () => {
 
   const deleteHolidayMutation = useMutation({
     mutationFn: deleteHoliday,
-    onSuccess: () => {
-      queryClient.invalidateQueries(["holidays"]);
-      toast({ title: "Holiday deleted successfully" });
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["holidays"] });
+      toast({ title: "Holiday removed successfully" });
     },
     onError: (err) => toast({ title: err.message, variant: "destructive" })
   });
+
+  const deleteSkipMutation = useMutation({
+    mutationFn: deleteAttendanceSkip,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["attendanceSkips"] });
+      toast({ title: "Class holiday removed successfully" });
+    },
+    onError: (err) => toast({ title: err.message, variant: "destructive" })
+  });
+
+  const handleRemoveHoliday = (holiday) => {
+    setLastRemovedHoliday(holiday);
+    if (holiday._type === 'skip') {
+      deleteSkipMutation.mutate(holiday.id);
+    } else {
+      deleteHolidayMutation.mutate(holiday.id);
+    }
+    setUndoHolidayDialog(null);
+  };
 
   const handleCreateHoliday = (e) => {
     e.preventDefault();
@@ -685,12 +775,12 @@ const HRPayroll = () => {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 lg:grid-cols-4 h-auto gap-1">
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 lg:grid-cols-5 h-auto gap-1">
             <TabsTrigger value="leaves">Leaves</TabsTrigger>
             <TabsTrigger value="payroll">Payroll</TabsTrigger>
             <TabsTrigger value="advance">Advance Salary</TabsTrigger>
             <TabsTrigger value="departments">Departments</TabsTrigger>
-            {/* <TabsTrigger value="holidays">Holidays</TabsTrigger> */}
+            <TabsTrigger value="holidays">Holidays</TabsTrigger>
           </TabsList>
 
           <TabsContent value="leaves" className="space-y-4">
@@ -905,80 +995,92 @@ const HRPayroll = () => {
           <TabsContent value="holidays" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="flex justify-between items-center">
+                <div className="flex flex-wrap justify-between items-center gap-3">
                   <CardTitle>Holiday Calendar</CardTitle>
-                  <Button onClick={() => setHolidayOpen(true)}>
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    Add Holiday
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex gap-4 mb-4">
-                  <div className="w-32">
-                    <Label>Year</Label>
-                    <Input
-                      type="number"
-                      value={holidayFilter.year}
-                      onChange={(e) => setHolidayFilter({ ...holidayFilter, year: e.target.value })}
-                      placeholder="Year"
-                    />
-                  </div>
-                  <div className="w-48">
-                    <Label>Month</Label>
-                    <Select
-                      value={holidayFilter.month.toString()}
-                      onValueChange={(val) => setHolidayFilter({ ...holidayFilter, month: val })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Months" />
-                      </SelectTrigger>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Select value={String(holidayFilter.month)} onValueChange={v => setHolidayFilter(f => ({ ...f, month: Number(v) }))}>
+                      <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="*">All Months</SelectItem>
-                        {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                          <SelectItem key={m} value={m.toString()}>
-                            {format(new Date(0, m - 1), "MMMM")}
-                          </SelectItem>
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                          <SelectItem key={m} value={String(m)}>{format(new Date(2000, m - 1), "MMMM")}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    <Input type="number" className="w-24" value={holidayFilter.year} onChange={e => setHolidayFilter(f => ({ ...f, year: Number(e.target.value) }))} />
+                    <Select value={calendarClassId} onValueChange={handleCalendarClassChange}>
+                      <SelectTrigger className="w-44"><SelectValue placeholder="All Classes" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Classes</SelectItem>
+                        {allCalendarClasses.map(c => (
+                          <SelectItem key={c.id} value={String(c.id)}>{c.programName} - {c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {calendarSections.length > 0 && (
+                      <Select value={calendarSectionId} onValueChange={setCalendarSectionId}>
+                        <SelectTrigger className="w-36"><SelectValue placeholder="All Sections" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Sections</SelectItem>
+                          {calendarSections.map(s => (
+                            <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="py-2 px-3 text-sm">Title</TableHead>
-                        <TableHead className="py-2 px-3 text-sm">Date</TableHead>
-                        <TableHead className="py-2 px-3 text-sm">Type</TableHead>
-                        <TableHead className="py-2 px-3 text-sm">Repeat Yearly</TableHead>
-                        <TableHead className="py-2 px-3 text-sm">Description</TableHead>
-                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {holidays?.map(holiday => (
-                        <TableRow key={holiday.id}>
-                          <TableCell className="py-2 px-3 text-sm font-medium">{holiday.title}</TableCell>
-                          <TableCell className="py-2 px-3 text-sm">{format(new Date(holiday.date), "PPP")}</TableCell>
-                          <TableCell className="py-2 px-3 text-sm"><Badge variant="outline">{holiday.type}</Badge></TableCell>
-                          <TableCell className="py-2 px-3 text-sm">{holiday.repeatYearly ? "Yes" : "No"}</TableCell>
-                          <TableCell className="py-2 px-3 text-sm">{holiday.description}</TableCell>
-                          <TableCell className="py-2 px-3 text-sm">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button size="sm" variant="destructive"
-                                  onClick={() => deleteHolidayMutation.mutate(holiday.id)}>
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Delete</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+              </CardHeader>
+              <CardContent>
+                {/* Calendar grid */}
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => (
+                    <div key={d} className="text-center text-xs font-semibold text-muted-foreground py-1">{d}</div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {/* Empty cells before first day */}
+                  {Array.from({ length: calendarGrid.firstDay }).map((_, i) => (
+                    <div key={`empty-${i}`} />
+                  ))}
+                  {/* Day cells */}
+                  {Array.from({ length: calendarGrid.daysInMonth }, (_, i) => i + 1).map(day => {
+                    const isHoliday = calendarGrid.holidayDates.has(day);
+                    const holiday = calendarGrid.holidayMap[day];
+                    const isSkip = isHoliday && holiday?._type === 'skip';
+                    return (
+                      <div
+                        key={day}
+                        onClick={() => isHoliday && setUndoHolidayDialog(holiday)}
+                        className={`relative rounded-lg border text-center py-2 px-1 text-sm transition-colors select-none
+                          ${isSkip
+                            ? "bg-orange-100 border-orange-300 text-orange-700 cursor-pointer hover:bg-orange-200 font-semibold"
+                            : isHoliday
+                            ? "bg-red-100 border-red-300 text-red-700 cursor-pointer hover:bg-red-200 font-semibold"
+                            : "border-muted text-foreground"
+                          }`}
+                        title={isHoliday ? `${holiday.title} — click to remove` : undefined}
+                      >
+                        <span>{day}</span>
+                        {isHoliday && (
+                          <span className={`block text-[9px] leading-tight truncate mt-0.5 ${isSkip ? "text-orange-600" : "text-red-600"}`}>{holiday.title}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Legend */}
+                <div className="flex items-center gap-4 mt-4 text-xs text-muted-foreground flex-wrap">
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block w-3 h-3 rounded bg-red-200 border border-red-300" />
+                    Global holiday
+                  </span>
+                  {calendarClassId && calendarClassId !== "all" && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block w-3 h-3 rounded bg-orange-200 border border-orange-300" />
+                      Class holiday
+                    </span>
+                  )}
+                  <span className="text-muted-foreground/60">Click a highlighted day to remove</span>
                 </div>
               </CardContent>
             </Card>
@@ -1665,6 +1767,43 @@ const HRPayroll = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Holiday remove confirmation + undo */}
+      {undoHolidayDialog && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-popover border rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <p className="text-sm font-medium">Remove holiday <span className="font-bold">"{undoHolidayDialog.title}"</span> on {format(new Date(undoHolidayDialog.date), "PPP")}?</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setUndoHolidayDialog(null)}>Cancel</Button>
+              <Button variant="destructive" onClick={() => handleRemoveHoliday(undoHolidayDialog)} disabled={deleteHolidayMutation.isPending || deleteSkipMutation.isPending}>
+                Remove
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Undo pill after holiday removal */}
+      {lastRemovedHoliday && (
+        <div className="fixed bottom-6 left-0 right-0 flex justify-center pointer-events-none z-50 px-4">
+          <div className="pointer-events-auto flex items-center gap-3 bg-popover border shadow-lg rounded-2xl px-4 py-3 text-sm max-w-full">
+            <span className="text-foreground font-medium truncate">Holiday "{lastRemovedHoliday.title}" removed</span>
+            <Button size="sm" variant="secondary" className="h-7 px-3 text-xs shrink-0" onClick={async () => {
+              try {
+                await createHoliday({ title: lastRemovedHoliday.title, date: lastRemovedHoliday.date, type: lastRemovedHoliday.type || "National", repeatYearly: lastRemovedHoliday.repeatYearly || false });
+                queryClient.invalidateQueries({ queryKey: ["holidays"] });
+                setLastRemovedHoliday(null);
+              } catch (e) {
+                toast({ title: "Failed to restore holiday", variant: "destructive" });
+              }
+            }}>Undo</Button>
+            <button onClick={() => setLastRemovedHoliday(null)} className="text-muted-foreground hover:text-foreground shrink-0">
+              <XCircle className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
     </DashboardLayout >
   );
 };
