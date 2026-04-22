@@ -15,7 +15,7 @@ const Dashboard = () => {
   const [selectedSessionId, setSelectedSessionId] = React.useState(null);
 
   // Fetch academic sessions
-  const { data: sessions = [] } = useQuery({
+  const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
     queryKey: ["academicSessions"],
     queryFn: getAcademicSessions,
     onSuccess: (data) => {
@@ -44,7 +44,7 @@ const Dashboard = () => {
     refetchInterval: 60000,
   });
 
-  if (isLoading || !selectedSessionId) {
+  if (sessionsLoading || (sessions.length > 0 && !selectedSessionId)) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-96">
@@ -57,7 +57,7 @@ const Dashboard = () => {
     );
   }
 
-  if (isError || !dashboardData) {
+  if (isError || (selectedSessionId && !dashboardData)) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-96">
@@ -70,7 +70,15 @@ const Dashboard = () => {
     );
   }
 
-  const { students, fees, attendance, inventory, hostel, staff, exams, finance, charts } = dashboardData;
+  const { students, fees, attendance, inventory, hostel, staff, exams, finance, charts } = dashboardData ?? {
+    students: { total: 0, active: 0, byProgram: { intermediate: 0, diploma: 0, bs: 0, shortCourse: 0, coaching: 0 }, byStatus: { active: 0, expelled: 0, passedOut: 0 } },
+    fees: { paidAmount: 0, regularRevenue: 0, extraRevenue: 0, byStatus: { paid: 0, pending: 0, overdue: 0 } },
+    attendance: { today: { rate: 0, present: 0 }, byStatus: { present: 0, absent: 0, leave: 0 } },
+    inventory: {}, hostel: {}, exams: {},
+    staff: { total: 0, teaching: 0 },
+    finance: { netBalance: 0, monthlyIncome: 0, monthlyExpense: 0, totalReceivable: 0 },
+    charts: { monthlyFeeCollection: [], weeklyAttendance: [] },
+  };
 
   const sessionLabel = selectedSessionId === 'all' ? 'All Time' : (selectedSession?.name || "—");
 

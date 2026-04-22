@@ -48,7 +48,7 @@ const DialogContent = React.forwardRef(({ className, children, ...props }, ref) 
         className={cn(
           // Full-height right panel
           "fixed top-0 right-0 z-50",
-          "h-dvh min-h-screen w-full sm:w-[680px]",
+          "h-dvh min-h-screen w-full sm:w-[80dvw]",
           "bg-background border-l border-border",
           "flex flex-col overflow-y-auto",
           // Slide from right

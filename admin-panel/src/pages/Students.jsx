@@ -1684,7 +1684,7 @@ const Students = () => {
         </Card>
         {/* Add/Edit Dialog */}
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-[95vw] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingStudent ? "Edit" : "Add"} Student</DialogTitle>
               <DialogDescription>
@@ -1719,7 +1719,7 @@ const Students = () => {
 
         {/* View / Profile Dialog */}
         <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-          <DialogContent className="max-w-6xl h-[90vh] overflow-y-auto flex flex-col">
+          <DialogContent className="w-[90vw] h-[90vh] overflow-y-auto flex flex-col">
             <DialogHeader>
               <DialogTitle>Student Profile</DialogTitle>
               <DialogDescription>Complete student information and statistics</DialogDescription>

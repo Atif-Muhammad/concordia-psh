@@ -58,16 +58,25 @@ export class AcademicsService {
     });
   }
   async createProgram(payload: Partial<ProgramDto>) {
-    return await this.prismaService.program.create({
-      data: {
-        name: payload.name!,
-        description: payload.description,
-        level: this.levelMap[payload.level!],
-        duration: payload.duration!,
-        rollPrefix: payload.rollPrefix,
-        departmentId: Number(payload.departmentId),
-      },
-    });
+    try {
+      return await this.prismaService.program.create({
+        data: {
+          name: payload.name!,
+          description: payload.description,
+          level: this.levelMap[payload.level!],
+          duration: payload.duration!,
+          rollPrefix: payload.rollPrefix,
+          departmentId: Number(payload.departmentId),
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ConflictException(
+          `A program named '${payload.name}' already exists in this department`,
+        );
+      }
+      throw err;
+    }
   }
   async updateProgram(id: number, payload: Partial<ProgramDto>) {
     return await this.prismaService.program.update({

@@ -1,2 +1,0 @@
--- AlterTable
-ALTER TABLE `feechallan` MODIFY `status` ENUM('PENDING', 'PAID', 'OVERDUE', 'PARTIAL', 'VOID') NOT NULL DEFAULT 'PENDING';
