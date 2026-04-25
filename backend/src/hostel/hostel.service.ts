@@ -603,6 +603,21 @@ export class HostelService {
       throw new NotFoundException(`Registration ${dto.registrationId} not found`);
     }
 
+    // Validate: challan month must not be before the registration month
+    // dto.month is like "March 2026" — parse it to a Date for comparison
+    const challanMonthDate = new Date(dto.month);
+    if (!isNaN(challanMonthDate.getTime())) {
+      const regDate = new Date(registration.registrationDate);
+      // Normalize both to first of month
+      const challanYM = new Date(challanMonthDate.getFullYear(), challanMonthDate.getMonth(), 1);
+      const regYM = new Date(regDate.getFullYear(), regDate.getMonth(), 1);
+      if (challanYM < regYM) {
+        throw new BadRequestException(
+          `Cannot generate challan for ${dto.month}: student was registered in ${regDate.toLocaleString('default', { month: 'long', year: 'numeric' })}. Challans can only be generated from the registration month onwards.`,
+        );
+      }
+    }
+
     // Get hostel late fee rate from settings
     const settings = await this.prisma.instituteSettings.findFirst();
     const lateFeeRate = settings?.hostelLateFee ?? 0;

@@ -2292,7 +2292,22 @@ const Hostel = () => {
               </div>
               <button
                 className="text-xs text-primary hover:underline whitespace-nowrap"
-                onClick={() => setBulkGenSelected(bulkGenResults.map(r => r.id))}
+                onClick={() => setBulkGenSelected(bulkGenResults.length > 0
+                  ? bulkGenResults.filter(r => {
+                      if (!generateChallanForm.monthValue || !r.registrationDate) return true;
+                      const [y, m] = generateChallanForm.monthValue.split('-').map(Number);
+                      const challanYM = new Date(y, m - 1, 1);
+                      const regDate = new Date(r.registrationDate);
+                      return challanYM >= new Date(regDate.getFullYear(), regDate.getMonth(), 1);
+                    }).map(r => r.id)
+                  : hostelRegistrations.filter(r => {
+                      if (!generateChallanForm.monthValue || !r.registrationDate) return true;
+                      const [y, m] = generateChallanForm.monthValue.split('-').map(Number);
+                      const challanYM = new Date(y, m - 1, 1);
+                      const regDate = new Date(r.registrationDate);
+                      return challanYM >= new Date(regDate.getFullYear(), regDate.getMonth(), 1);
+                    }).map(r => r.id)
+                )}
               >Select all</button>
               <button
                 className="text-xs text-muted-foreground hover:underline whitespace-nowrap"
@@ -2320,12 +2335,27 @@ const Hostel = () => {
                      `Challan Issued · ${selectedMonthLabel}`}
                   </span>
                 ) : null;
+
+                // Check if selected month is before registration month
+                const isBeforeRegistration = (() => {
+                  if (!generateChallanForm.monthValue || !reg.registrationDate) return false;
+                  const [y, m] = generateChallanForm.monthValue.split('-').map(Number);
+                  const challanYM = new Date(y, m - 1, 1);
+                  const regDate = new Date(reg.registrationDate);
+                  const regYM = new Date(regDate.getFullYear(), regDate.getMonth(), 1);
+                  return challanYM < regYM;
+                })();
+                const regMonthLabel = reg.registrationDate
+                  ? new Date(reg.registrationDate).toLocaleString('default', { month: 'long', year: 'numeric' })
+                  : '';
+
                 return (
-                  <label key={reg.id} className="flex items-center gap-3 px-3 py-2 hover:bg-accent cursor-pointer border-b last:border-b-0">
+                  <label key={reg.id} className={`flex items-center gap-3 px-3 py-2 border-b last:border-b-0 ${isBeforeRegistration ? 'opacity-50 cursor-not-allowed bg-muted/30' : 'hover:bg-accent cursor-pointer'}`}>
                     <input
                       type="checkbox"
-                      checked={checked}
-                      onChange={e => setBulkGenSelected(prev =>
+                      checked={checked && !isBeforeRegistration}
+                      disabled={isBeforeRegistration}
+                      onChange={e => !isBeforeRegistration && setBulkGenSelected(prev =>
                         e.target.checked ? [...prev, reg.id] : prev.filter(id => id !== reg.id)
                       )}
                       className="h-4 w-4"
@@ -2335,6 +2365,11 @@ const Hostel = () => {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-muted-foreground">{sub} · {reg.student ? 'Internal' : 'External'} · PKR {Number(reg.decidedFeePerMonth||0).toLocaleString()}/mo</span>
                         {challanStatusBadge}
+                        {isBeforeRegistration && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded leading-none bg-red-100 text-red-700">
+                            Registered {regMonthLabel}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </label>

@@ -125,7 +125,7 @@ const DashboardLayout = ({ children }) => {
       <aside
         className={cn(
           "hidden lg:fixed lg:inset-y-0 lg:flex lg:flex-col bg-sidebar transition-all duration-300 ease-in-out",
-          sidebarCollapsed ? "lg:w-14" : "lg:w-56"
+          sidebarCollapsed ? "lg:w-14" : "lg:w-52"
         )}
       >
         <div className="flex flex-col flex-grow pt-5 overflow-y-auto scrollbar-thin">
@@ -170,7 +170,7 @@ const DashboardLayout = ({ children }) => {
                   to={item.path}
                   onClick={(e) => e.stopPropagation()}
                   className={cn(
-                    "flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors",
+                    "flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors",
                     isActive
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
                       : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
@@ -272,7 +272,7 @@ const DashboardLayout = ({ children }) => {
       <div
         className={cn(
           "flex flex-col min-h-screen transition-all duration-300",
-          sidebarCollapsed ? "lg:pl-14" : "lg:pl-56"
+          sidebarCollapsed ? "lg:pl-14" : "lg:pl-52"
         )}
       >
         <header className="bg-card border-b border-border sticky top-0 z-30">

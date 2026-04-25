@@ -20,13 +20,16 @@ export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
   @Post('generate')
+  @UseGuards(JwtAccGuard)
   async generateAttendance(
+    @Req() req: any,
     @Query('date') date: string,
     @Query('attenFor') attenFor: 'teacher' | 'student',
     @Query('classId') classId?: string,
     @Query('sectionId') sectionId?: string,
     @Query('subjectId') subjectId?: string,
   ) {
+    const generatedById = req?.user?.id ? Number(req.user.id) : undefined;
     let targetDate: Date;
     if (date) {
       let year: number, month: number, day: number;
@@ -43,13 +46,14 @@ export class AttendanceController {
       );
     }
     if (attenFor === 'teacher')
-      return await this.attendanceService.generateAttendanceStaff(targetDate);
+      return await this.attendanceService.generateAttendanceStaff(targetDate, generatedById);
     if (attenFor === 'student')
       return await this.attendanceService.generateAttendanceForDate(
         targetDate,
         Number(classId) || undefined,
         Number(sectionId) || undefined,
         Number(subjectId) || undefined,
+        generatedById,
       );
     throw new ForbiddenException();
   }

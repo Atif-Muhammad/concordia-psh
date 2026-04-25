@@ -22,6 +22,7 @@ import {
     ChevronLeft as ChevronLeftIcon,
     IdCard,
     Shield,
+    LockKeyhole,
 } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -41,9 +42,10 @@ import {
     undoGenerateAttendance,
     undoMarkHoliday,
     getHolidays,
+    deleteStaffAttendanceByDate,
+    getDefaultStaffIDCardTemplate,
 } from "../../config/apis";
 import { format } from "date-fns";
-import { isActionDisabled as checkIsActionDisabled } from "@/lib/dateUtils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +58,7 @@ import {
     DialogHeader,
     DialogTitle,
     DialogDescription,
+    DialogFooter,
 } from "@/components/ui/dialog";
 import {
     Select,
@@ -245,20 +248,54 @@ export default function Staff() {
     const [errors, setErrors] = useState({});
     const [completedSteps, setCompletedSteps] = useState(new Set());
 
+    // ID Card preview state
+    const [idCardPreview, setIdCardPreview] = useState(null); // { html: string, staffName: string } | null
+
     // Attendance State
     const [activeTab, setActiveTab] = useState("directory");
     const [attendanceDate, setAttendanceDate] = useState(new Date());
     const [attendanceRoleFilter, setAttendanceRoleFilter] = useState("all");
     const [confirmDialog, setConfirmDialog] = useState(null); // { type: 'generate' | 'holiday', date: Date, holidayId?: number } | null
+    // Pending action when user confirms override (e.g. generate on holiday, or mark holiday when attendance exists)
+    const [pendingAction, setPendingAction] = useState(null); // 'generate' | 'holiday' | null
+    const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
 
     const photoInputRef = useRef(null);
 
+    // Use formatted date string as query key to avoid stale cache from Date object reference changes
+    // Guard against null/undefined from Calendar onSelect
+    const attendanceDateStr = attendanceDate ? format(attendanceDate, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd");
+
     // Queries
     const { data: attendanceData = [], isFetching: attendanceLoading, refetch: refetchAttendance } = useQuery({
-        queryKey: ["staffAttendance", attendanceDate],
-        queryFn: () => getStaffAttendance(format(attendanceDate, "yyyy-MM-dd")),
+        queryKey: ["staffAttendance", attendanceDateStr],
+        queryFn: () => getStaffAttendance(attendanceDateStr),
         enabled: activeTab === "attendance",
     });
+
+    // Check if today is a global holiday
+    const { data: holidays = [] } = useQuery({
+        queryKey: ["holidays"],
+        queryFn: getHolidays,
+        enabled: activeTab === "attendance",
+    });
+
+    const isDateHoliday = useMemo(() => {
+        return holidays.some(h => {
+            const d = new Date(h.date);
+            const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+            return local === attendanceDateStr;
+        });
+    }, [holidays, attendanceDateStr]);
+
+    const isAttendanceGenerated = attendanceData.length > 0;
+
+    // Future date check — disable both buttons for future dates
+    const isFutureDate = useMemo(() => {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const sel = new Date(attendanceDateStr); sel.setHours(0, 0, 0, 0);
+        return sel > today;
+    }, [attendanceDateStr]);
 
     const markAttendanceMutation = useMutation({
         mutationFn: markStaffAttendance,
@@ -287,6 +324,7 @@ export default function Staff() {
         onSuccess: () => {
             setConfirmDialog(null);
             refetchAttendance();
+            queryClient.invalidateQueries({ queryKey: ["holidays"] });
         },
         onError: (error) => {
             toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -294,17 +332,33 @@ export default function Staff() {
     });
 
     // Attendance handlers
-    const isActionDisabled = useMemo(() => checkIsActionDisabled(attendanceDate), [attendanceDate]);
-
     const handleGenerateStaffAttendance = async () => {
         if (!attendanceDate) {
             toast({ title: "Please select a date", variant: "destructive" });
             return;
         }
+        // If it's a holiday, ask for confirmation first
+        if (isDateHoliday) {
+            setPendingAction('generate');
+            setOverrideDialogOpen(true);
+            return;
+        }
+        await _doGenerateAttendance();
+    };
+
+    const _doGenerateAttendance = async () => {
         try {
-            const response = await generateStaffAttendance(format(attendanceDate, "yyyy-MM-dd"));
+            const result = await generateStaffAttendance(attendanceDateStr);
             refetchAttendance();
-            setConfirmDialog({ type: 'generate', date: attendanceDate });
+            // Only show undo box if records were actually created (not "already exists" or "0 records")
+            const msg = result?.message || "";
+            const created = msg.match(/Generated (\d+) attendance/);
+            const count = created ? parseInt(created[1]) : 0;
+            if (count > 0) {
+                setConfirmDialog({ type: 'generate', date: attendanceDate });
+            } else {
+                toast({ title: msg || "No new records generated" });
+            }
         } catch (error) {
             toast({ title: error.message || "Failed to generate attendance", variant: "destructive" });
         }
@@ -315,15 +369,40 @@ export default function Staff() {
             toast({ title: "Please select a date", variant: "destructive" });
             return;
         }
+        // If attendance already generated, ask for confirmation first
+        if (isAttendanceGenerated) {
+            setPendingAction('holiday');
+            setOverrideDialogOpen(true);
+            return;
+        }
+        await _doMarkHoliday();
+    };
+
+    const _doMarkHoliday = async () => {
         try {
-            const dateStr = format(attendanceDate, "yyyy-MM-dd");
-            await markDateAsHoliday(dateStr, "Holiday");
-            const holidays = await getHolidays();
-            const created = holidays.find(h => h.date?.startsWith(dateStr));
-            setConfirmDialog({ type: 'holiday', date: attendanceDate, holidayId: created?.id ?? null });
+            // Delete attendance records for this date + selected role first
+            await deleteStaffAttendanceByDate(attendanceDateStr, attendanceRoleFilter);
+            // Then mark as holiday
+            const result = await markDateAsHoliday(attendanceDateStr, "Holiday");
+            const freshHolidays = await getHolidays();
+            const created = freshHolidays.find(h => h.date?.startsWith(attendanceDateStr));
+            if (created) {
+                setConfirmDialog({ type: 'holiday', date: attendanceDate, holidayId: created.id });
+            } else {
+                toast({ title: "Holiday marked successfully" });
+            }
+            refetchAttendance();
+            queryClient.invalidateQueries({ queryKey: ["holidays"] });
         } catch (error) {
             toast({ title: error.message || "Failed to mark date as holiday", variant: "destructive" });
         }
+    };
+
+    const handleOverrideConfirm = async () => {
+        setOverrideDialogOpen(false);
+        if (pendingAction === 'generate') await _doGenerateAttendance();
+        else if (pendingAction === 'holiday') await _doMarkHoliday();
+        setPendingAction(null);
     };
     const { data: staffList = [], isLoading: staffLoading } = useQuery({
         queryKey: ["staff", roleFilter, statusFilter, searchTerm],
@@ -604,6 +683,34 @@ export default function Staff() {
         );
     };
 
+    const handleViewIdCard = async (staff) => {
+        try {
+            const template = await getDefaultStaffIDCardTemplate();
+            if (!template?.htmlContent) {
+                toast({ title: "No default ID card template found", description: "Please set a default template in Configuration > Templates", variant: "destructive" });
+                return;
+            }
+            const isTeacher = staff.isTeaching && !staff.isNonTeaching;
+            const html = template.htmlContent
+                .replace(/\{\{name\}\}/g, staff.name || "")
+                .replace(/\{\{designation\}\}/g, staff.isTeaching ? (staff.specialization || "Teacher") : (staff.designation || "Staff"))
+                .replace(/\{\{employeeId\}\}/g, String(staff.id))
+                .replace(/\{\{fatherName\}\}/g, staff.fatherName || "")
+                .replace(/\{\{phone\}\}/g, staff.phone || "")
+                .replace(/\{\{cnic\}\}/g, staff.cnic || "")
+                .replace(/\{\{email\}\}/g, staff.email || "")
+                .replace(/\{\{address\}\}/g, staff.address || "")
+                .replace(/\{\{employeePhoto\}\}/g, staff.photo_url || "")
+                .replace(/\{\{issueDate\}\}/g, new Date().toLocaleDateString())
+                .replace(/\{\{EmpOrTeacher\}\}/g, isTeacher ? "TEACHER" : "EMPLOYEE")
+                .replace(/\{\{dob\}\}/g, "")
+                .replace(/\{\{bloodGroup\}\}/g, "");
+            setIdCardPreview({ html, staffName: staff.name });
+        } catch (err) {
+            toast({ title: "Failed to load ID card template", description: err.message, variant: "destructive" });
+        }
+    };
+
     // If viewing a staff member, show the detail view
     if (viewingStaff) {
         return (
@@ -824,6 +931,18 @@ export default function Staff() {
                                                                     <Button
                                                                         variant="ghost"
                                                                         size="icon"
+                                                                        onClick={() => handleViewIdCard(staff)}
+                                                                    >
+                                                                        <IdCard className="w-4 h-4" />
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>ID Card</TooltipContent>
+                                                            </Tooltip>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
                                                                         onClick={() => setViewingStaff(staff)}
                                                                     >
                                                                         <Eye className="w-4 h-4" />
@@ -889,7 +1008,7 @@ export default function Staff() {
                                             <Calendar
                                                 mode="single"
                                                 selected={attendanceDate}
-                                                onSelect={setAttendanceDate}
+                                                onSelect={(d) => d && setAttendanceDate(d)}
                                                 initialFocus
                                             />
                                         </PopoverContent>
@@ -904,24 +1023,36 @@ export default function Staff() {
                                             <SelectItem value="non-teaching">Non-Teaching</SelectItem>
                                         </SelectContent>
                                     </Select>
-                                    <Button onClick={handleGenerateStaffAttendance} disabled={isActionDisabled} variant="outline">
+                                    <Button onClick={handleGenerateStaffAttendance} disabled={isFutureDate || isAttendanceGenerated} variant="outline" title={isAttendanceGenerated ? "Attendance already generated for this date" : isFutureDate ? "Cannot generate for future dates" : undefined}>
                                         Generate Attendance
+                                        {isAttendanceGenerated && <span className="ml-1.5 text-[10px] bg-green-100 text-green-700 px-1 rounded">Done</span>}
                                     </Button>
-                                    <Button onClick={handleMarkHoliday} disabled={isActionDisabled} variant="outline">
+                                    <Button onClick={handleMarkHoliday} disabled={isFutureDate || isDateHoliday} variant="outline" title={isDateHoliday ? "Already marked as holiday" : isFutureDate ? "Cannot mark future dates" : undefined}>
                                         Mark as Holiday
+                                        {isDateHoliday && <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1 rounded">🎌</span>}
                                     </Button>
                                 </div>
                             </CardHeader>
                             <CardContent>
+                                {attendanceData.some(r => {
+                                    const ts = r.generatedAt || r.markedAt;
+                                    return ts && (Date.now() - new Date(ts).getTime()) > 24 * 60 * 60 * 1000;
+                                }) && (
+                                    <div className="mb-3 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+                                        <LockKeyhole className="w-4 h-4 shrink-0" />
+                                        <span>Some records are locked — attendance can only be modified within 24 hours of generation.</span>
+                                    </div>
+                                )}
                                 <div className="rounded-md border">
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
-                                                <TableHead className="py-2 px-3 text-sm">Nam/ID</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Name/ID</TableHead>
                                                 <TableHead className="py-2 px-3 text-sm">Role</TableHead>
                                                 <TableHead className="py-2 px-3 text-sm">Department</TableHead>
                                                 <TableHead className="py-2 px-3 text-sm">Status</TableHead>
                                                 <TableHead className="py-2 px-3 text-sm">Notes</TableHead>
+                                                <TableHead className="py-2 px-3 text-sm">Generated By</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -934,8 +1065,18 @@ export default function Staff() {
                                                     if (attendanceRoleFilter === "non-teaching") return isNonTeaching;
                                                     return true;
                                                 })
-                                                .map((record) => (
-                                                    <TableRow key={record.id}>
+                                                .map((record) => {
+                                                    const lockTimestamp = record.generatedAt || record.markedAt;
+                                                    const isLocked = lockTimestamp
+                                                        ? (Date.now() - new Date(lockTimestamp).getTime()) > 24 * 60 * 60 * 1000
+                                                        : false;
+                                                    const auditLines = [];
+                                                    if (record.generatedAt) auditLines.push(`Generated: ${new Date(record.generatedAt).toLocaleString()}`);
+                                                    if (record.markedAt && !record.autoGenerated) auditLines.push(`Last marked: ${new Date(record.markedAt).toLocaleString()}`);
+                                                    const auditTitle = auditLines.join('\n');
+
+                                                    return (
+                                                    <TableRow key={record.id} className={isLocked ? "opacity-80" : ""}>
                                                         <TableCell className="py-2 px-3 text-sm">
                                                             <div className="flex items-center gap-2">
                                                                 <Avatar className="h-8 w-8">
@@ -958,36 +1099,57 @@ export default function Staff() {
                                                                 : record.staff?.empDepartment}
                                                         </TableCell>
                                                         <TableCell className="py-2 px-3 text-sm">
-                                                            <Select
-                                                                value={record.status}
-                                                                onValueChange={(val) =>
-                                                                    markAttendanceMutation.mutate({
-                                                                        staffId: record.staff?.id,
-                                                                        date: format(attendanceDate, "yyyy-MM-dd"),
-                                                                        status: val,
-                                                                        notes: record.notes
-                                                                    })
-                                                                }
-                                                            >
-                                                                <SelectTrigger className="w-[130px]">
-                                                                    <SelectValue />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value="PRESENT">Present</SelectItem>
-                                                                    <SelectItem value="ABSENT">Absent</SelectItem>
-                                                                    <SelectItem value="LEAVE">Leave</SelectItem>
-                                                                    <SelectItem value="LATE">Late</SelectItem>
-                                                                    <SelectItem value="HALF_DAY">Half Day</SelectItem>
-                                                                </SelectContent>
-                                                            </Select>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <Select
+                                                                    value={record.status}
+                                                                    disabled={isLocked}
+                                                                    onValueChange={(val) =>
+                                                                        markAttendanceMutation.mutate({
+                                                                            staffId: record.staff?.id,
+                                                                            date: format(attendanceDate, "yyyy-MM-dd"),
+                                                                            status: val,
+                                                                            notes: record.notes
+                                                                        })
+                                                                    }
+                                                                >
+                                                                    <SelectTrigger className="w-[130px]">
+                                                                        <SelectValue />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="PRESENT">Present</SelectItem>
+                                                                        <SelectItem value="ABSENT">Absent</SelectItem>
+                                                                        <SelectItem value="LEAVE">Leave</SelectItem>
+                                                                        <SelectItem value="SHORT_LEAVE">Short Leave</SelectItem>
+                                                                        <SelectItem value="HALF_DAY">Half Day</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                                {isLocked ? (
+                                                                    <Tooltip>
+                                                                        <TooltipTrigger asChild>
+                                                                            <span className="text-amber-500 cursor-help"><LockKeyhole className="w-3.5 h-3.5" /></span>
+                                                                        </TooltipTrigger>
+                                                                        <TooltipContent className="text-xs max-w-[240px] whitespace-pre-line">
+                                                                            Locked — attendance can only be modified within 24 hours of generation.{auditTitle ? `\n${auditTitle}` : ""}
+                                                                        </TooltipContent>
+                                                                    </Tooltip>
+                                                                ) : auditTitle ? (
+                                                                    <Tooltip>
+                                                                        <TooltipTrigger asChild>
+                                                                            <span className="text-muted-foreground/50 cursor-help"><CalendarIcon className="w-3 h-3" /></span>
+                                                                        </TooltipTrigger>
+                                                                        <TooltipContent className="text-xs max-w-[200px] whitespace-pre-line">{auditTitle}</TooltipContent>
+                                                                    </Tooltip>
+                                                                ) : null}
+                                                            </div>
                                                         </TableCell>
                                                         <TableCell className="py-2 px-3 text-sm">
                                                             <Input
                                                                 className="h-8 w-[200px]"
                                                                 placeholder="Notes..."
+                                                                disabled={isLocked}
                                                                 defaultValue={record.notes}
                                                                 onBlur={(e) => {
-                                                                    if (e.target.value !== record.notes) {
+                                                                    if (!isLocked && e.target.value !== record.notes) {
                                                                         markAttendanceMutation.mutate({
                                                                             staffId: record.staff?.id,
                                                                             date: format(attendanceDate, "yyyy-MM-dd"),
@@ -998,11 +1160,37 @@ export default function Staff() {
                                                                 }}
                                                             />
                                                         </TableCell>
+                                                        <TableCell className="py-2 px-3 text-sm">
+                                                            {record.autoGenerated ? (
+                                                                <div className="text-xs space-y-0.5">
+                                                                    <div className="text-muted-foreground">Auto-generated</div>
+                                                                    {record.generatedAt && (
+                                                                        <div className="text-[10px] text-muted-foreground">{new Date(record.generatedAt).toLocaleString()}</div>
+                                                                    )}
+                                                                    {(record.generatedByName || record.admin?.name) && (
+                                                                        <div className="text-[10px] font-medium text-primary">
+                                                                            by {record.generatedByName || record.admin?.name}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="text-xs space-y-0.5">
+                                                                    <div className="text-muted-foreground">Manual</div>
+                                                                    {record.markedAt && (
+                                                                        <div className="text-[10px] text-muted-foreground">{new Date(record.markedAt).toLocaleString()}</div>
+                                                                    )}
+                                                                    {record.admin?.name && (
+                                                                        <div className="text-[10px] font-medium text-primary">by {record.admin.name}</div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </TableCell>
                                                     </TableRow>
-                                                ))}
+                                                    );
+                                                })}
                                             {attendanceData.length === 0 && (
                                                 <TableRow>
-                                                    <TableCell colSpan={5} className="py-2 px-3 text-sm text-center">
+                                                    <TableCell colSpan={6} className="py-2 px-3 text-sm text-center">
                                                         No attendance records found for this date.
                                                     </TableCell>
                                                 </TableRow>
@@ -1027,8 +1215,50 @@ export default function Staff() {
                             onClose={() => setConfirmDialog(null)}
                             isUndoing={undoGenerateMutation.isPending || undoHolidayMutation.isPending}
                         />
+
+                        {/* Override confirmation dialog */}
+                        <Dialog open={overrideDialogOpen} onOpenChange={setOverrideDialogOpen}>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>
+                                        {pendingAction === 'generate' ? "Generate on Holiday?" : "Mark Holiday with Existing Attendance?"}
+                                    </DialogTitle>
+                                    <DialogDescription>
+                                        {pendingAction === 'generate'
+                                            ? `${format(attendanceDate, "PPP")} is marked as a holiday. Do you still want to generate attendance?`
+                                            : `Attendance has already been generated for ${format(attendanceDate, "PPP")}. Marking as holiday will delete existing attendance records for the selected role. Continue?`
+                                        }
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <DialogFooter>
+                                    <Button variant="outline" onClick={() => { setOverrideDialogOpen(false); setPendingAction(null); }}>Cancel</Button>
+                                    <Button onClick={handleOverrideConfirm}>Confirm</Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
                     </TabsContent>
                     </Tabs>
+
+                {/* ID Card Preview Dialog */}
+                <Dialog open={!!idCardPreview} onOpenChange={() => setIdCardPreview(null)}>
+                    <DialogContent className="max-w-fit max-h-[90vh] overflow-auto">
+                        <DialogHeader>
+                            <DialogTitle>ID Card — {idCardPreview?.staffName}</DialogTitle>
+                        </DialogHeader>
+                        <div dangerouslySetInnerHTML={{ __html: idCardPreview?.html || "" }} />
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIdCardPreview(null)}>Close</Button>
+                            <Button onClick={() => {
+                                const win = window.open("", "_blank");
+                                win.document.write(`<html><head><title>ID Card</title></head><body style="margin:0;padding:20px;">${idCardPreview?.html}</body></html>`);
+                                win.document.close();
+                                win.focus();
+                                win.print();
+                                win.close();
+                            }}>Print</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
 
                 {/* Add/Edit Dialog */}
                 <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

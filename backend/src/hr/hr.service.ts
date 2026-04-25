@@ -426,18 +426,12 @@ export class HrService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Check if a date is a non-working day (weekend or holiday)
-   * Copied from AttendanceService to verify dates in HR module
+   * Check if a date is a future date (only future dates are blocked for attendance).
+   * Weekends and holidays are allowed — the frontend handles override confirmation.
    */
   async isNonWorkingDay(
     date: Date,
   ): Promise<{ isBlocked: boolean; reason?: string }> {
-    const dayOfWeek = date.getUTCDay();
-
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      return { isBlocked: true, reason: 'Weekend' };
-    }
-
     const dateOnly = new Date(date);
     dateOnly.setUTCHours(0, 0, 0, 0);
 
@@ -453,22 +447,6 @@ export class HrService {
       };
     }
 
-    const holidays = await this.prismService.holiday.findMany();
-    for (const holiday of holidays) {
-      const holidayDate = new Date(holiday.date);
-      holidayDate.setUTCHours(0, 0, 0, 0);
-
-      if (holidayDate.getTime() === dateOnly.getTime()) {
-        return { isBlocked: true, reason: `Holiday: ${holiday.title}` };
-      }
-      if (
-        holiday.repeatYearly &&
-        holidayDate.getUTCMonth() === dateOnly.getUTCMonth() &&
-        holidayDate.getUTCDate() === dateOnly.getUTCDate()
-      ) {
-        return { isBlocked: true, reason: `Holiday: ${holiday.title}` };
-      }
-    }
     return { isBlocked: false };
   }
 
@@ -1440,6 +1418,15 @@ export class HrService {
     });
 
     if (existing) {
+      // 24-hour lock: prevent updates if attendance was generated/marked more than 24h ago
+      const lockedAt = existing.generatedAt || existing.markedAt;
+      const hoursSince = (Date.now() - new Date(lockedAt).getTime()) / (1000 * 60 * 60);
+      if (hoursSince > 24) {
+        throw new BadRequestException(
+          `Attendance for ${formattedDate} is locked. Records can only be modified within 24 hours of generation. Generated at: ${new Date(lockedAt).toLocaleString()}.`,
+        );
+      }
+
       // Update existing attendance
       return await this.prismService.staffAttendance.update({
         where: { id: existing.id },
@@ -1532,6 +1519,34 @@ export class HrService {
     });
     return {
       message: `Deleted ${result.count} auto-generated attendance records for ${formattedDate}`,
+    };
+  }
+
+  async deleteAttendanceByDate(date: string, role: 'teaching' | 'non-teaching' | 'all' = 'all') {
+    const formattedDate = new Date(date).toISOString().split('T')[0];
+    const targetDate = new Date(formattedDate);
+
+    // Build staff filter based on role
+    let staffFilter: any = {};
+    if (role === 'teaching') staffFilter = { isTeaching: true };
+    else if (role === 'non-teaching') staffFilter = { isNonTeaching: true };
+
+    // Get matching staff IDs if role filter is needed
+    let staffIdFilter: any = {};
+    if (role !== 'all') {
+      const matchingStaff = await this.prismService.staff.findMany({
+        where: staffFilter,
+        select: { id: true },
+      });
+      staffIdFilter = { staffId: { in: matchingStaff.map(s => s.id) } };
+    }
+
+    const result = await this.prismService.staffAttendance.deleteMany({
+      where: { date: targetDate, ...staffIdFilter },
+    });
+    return {
+      message: `Deleted ${result.count} attendance records for ${formattedDate}`,
+      count: result.count,
     };
   }
 

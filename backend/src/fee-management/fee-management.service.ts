@@ -452,13 +452,40 @@ export class FeeManagementService {
     }
 
     if (status && status !== 'all') {
-      if (status === 'overdue') {
-        where.status = 'PENDING';
-        where.dueDate = { lt: new Date() };
-      } else if (status === 'void' || status === 'superseded') {
-        where.status = 'VOID';
+      const statuses = status.split(',').map((s: string) => s.trim()).filter(Boolean);
+
+      if (statuses.length === 1) {
+        const s = statuses[0];
+        if (s === 'overdue') {
+          where.status = 'PENDING';
+          where.dueDate = { lt: new Date() };
+        } else if (s === 'void' || s === 'superseded') {
+          where.status = 'VOID';
+        } else {
+          where.status = s.toUpperCase();
+        }
       } else {
-        where.status = status.toUpperCase();
+        // Multiple statuses — build an OR/in clause
+        // Handle 'overdue' specially: it's PENDING + dueDate < now
+        const hasOverdue = statuses.includes('overdue');
+        const normalStatuses = statuses
+          .filter(s => s !== 'overdue' && s !== 'void' && s !== 'superseded')
+          .map(s => s.toUpperCase());
+        if (statuses.includes('void') || statuses.includes('superseded')) {
+          normalStatuses.push('VOID');
+        }
+
+        if (hasOverdue && normalStatuses.length > 0) {
+          where.OR = [
+            { status: { in: normalStatuses as any[] } },
+            { status: 'PENDING', dueDate: { lt: new Date() } },
+          ];
+        } else if (hasOverdue) {
+          where.status = 'PENDING';
+          where.dueDate = { lt: new Date() };
+        } else {
+          where.status = { in: normalStatuses as any[] };
+        }
       }
     }
 

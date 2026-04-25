@@ -4525,6 +4525,19 @@ export const undoGenerateAttendance = async (date) => {
   }
 };
 
+export const deleteStaffAttendanceByDate = async (date, role = 'all') => {
+  try {
+    const response = await axios.delete(
+      `${base_url}/hr/staff-attendance/by-date?date=${date}&role=${role}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message;
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 export const undoMarkHoliday = async (id) => {
   try {
     const response = await axios.delete(
@@ -4720,3 +4733,4 @@ export const deleteHostelChallan = async (id) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
+

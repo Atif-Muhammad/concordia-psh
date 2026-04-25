@@ -54,7 +54,7 @@ const FeeManagement = () => {
   const [historyChallanTypeFilter, setHistoryChallanTypeFilter] = useState("all");
 
   const [challanSearch, setChallanSearch] = useState("");
-  const [challanFilter, setChallanFilter] = useState("all");
+  const [challanFilter, setChallanFilter] = useState([]);
   const [challanSessionFilter, setChallanSessionFilter] = useState("all");
   const [selectedInstallment, setSelectedInstallment] = useState("all");
   const [selectedMonth, setSelectedMonth] = useState("");
@@ -478,7 +478,7 @@ const FeeManagement = () => {
 
       return getFeeChallans({
         search: challanSearch,
-        status: challanFilter,
+        status: challanFilter.length > 0 ? challanFilter.join(',') : undefined,
         sessionId: challanSessionFilter !== "all" ? challanSessionFilter : undefined,
         installmentNumber: selectedInstallment === 'all' ? '' : selectedInstallment,
         startDate,
@@ -1678,19 +1678,56 @@ const FeeManagement = () => {
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Status</Label>
-                  <Select value={challanFilter} onValueChange={setChallanFilter}>
-                    <SelectTrigger className="w-[130px]">
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="partial">Partial</SelectItem>
-                      <SelectItem value="paid">Paid</SelectItem>
-                      <SelectItem value="overdue">Overdue</SelectItem>
-                      <SelectItem value="void">Superseded</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-9 w-[160px] justify-between font-normal text-sm">
+                        <span className="truncate">
+                          {challanFilter.length === 0
+                            ? "All Status"
+                            : challanFilter.length === 1
+                              ? challanFilter[0].charAt(0).toUpperCase() + challanFilter[0].slice(1)
+                              : `${challanFilter.length} selected`}
+                        </span>
+                        <ChevronsUpDown className="w-3.5 h-3.5 shrink-0 opacity-50 ml-1" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[160px] p-2" align="start">
+                      <div className="space-y-1">
+                        {[
+                          { value: "pending", label: "Pending" },
+                          { value: "partial", label: "Partial" },
+                          { value: "paid", label: "Paid" },
+                          { value: "overdue", label: "Overdue" },
+                          { value: "void", label: "Superseded" },
+                        ].map(({ value, label }) => (
+                          <label key={value} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-muted cursor-pointer text-sm">
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 rounded border-input accent-primary"
+                              checked={challanFilter.includes(value)}
+                              onChange={(e) => {
+                                setChallanFilter(prev =>
+                                  e.target.checked
+                                    ? [...prev, value]
+                                    : prev.filter(v => v !== value)
+                                );
+                                setPage(1);
+                              }}
+                            />
+                            {label}
+                          </label>
+                        ))}
+                        {challanFilter.length > 0 && (
+                          <button
+                            className="w-full text-xs text-muted-foreground hover:text-foreground pt-1 border-t mt-1 text-left px-1"
+                            onClick={() => { setChallanFilter([]); setPage(1); }}
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Session</Label>
@@ -1731,13 +1768,13 @@ const FeeManagement = () => {
                     className="w-[160px]"
                   />
                 </div>
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 items-end self-end">
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => {
                       setChallanSearch("");
-                      setChallanFilter("all");
+                      setChallanFilter([]);
                       setChallanSessionFilter(activeSessionId);
                       setSelectedInstallment("all");
                       setSelectedMonth("");
@@ -3053,7 +3090,7 @@ const FeeManagement = () => {
           resetChallanForm();
         }
       }}>
-         <DialogContent className="min-w-[80dvw] h-[100dvh] overflow-y-auto p-0 border-none shadow-2xl">
+         <DialogContent className="min-w-[92dvw] h-[100dvh] overflow-y-auto p-0 border-none shadow-2xl">
           <DialogHeader className="bg-white border-b p-4">
             <div className="flex justify-between items-center">
               <DialogTitle className="text-lg font-bold text-slate-800">Pay Students Fee</DialogTitle>
@@ -3061,7 +3098,7 @@ const FeeManagement = () => {
           </DialogHeader>
 
           {itemToPay && (
-            <div className="p-4 space-y-6">
+            <div className="p-1 space-y-6">
               {itemToPay.status === 'VOID' && (
                 <div className="bg-orange-50 border border-orange-200 p-3 rounded-md flex items-center gap-3 text-orange-800 text-sm font-medium">
                   <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -3076,19 +3113,19 @@ const FeeManagement = () => {
                 <table className="w-full border-collapse ">
                   <thead>
                     <tr className="bg-slate-800 text-white text-[10px] font-bold text-center">
-                      <th className="border-r border-slate-600 p-1.5 min-w-[80px]">Roll No</th>
-                      <th className="border-r border-slate-600 p-1.5 min-w-[100px]">Student / Father</th>
-                      <th className="border-r border-slate-600 p-1.5 min-w-[70px]">Class</th>
-                      <th className="border-r border-slate-600 p-1.5 min-w-[70px]">Month</th>
-                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Tuition Fee</th>
-                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Arrears</th>
-                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Extra/Heads</th>
-                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Fine (Late Fee)</th>
-                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Discount</th>
-                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Total</th>
-                      <th className="border-r border-slate-600 p-1.5 min-w-[80px]">Paid</th>
-                      <th className="border-r border-slate-600 p-1.5 min-w-[100px]">Receiving</th>
-                      <th className="p-1.5 min-w-[90px]">Remaining</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[70px]">Roll No</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[90px]">Student / Father</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[60px]">Class</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[60px]">Month</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[75px]">Tuition Fee</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[70px]">Arrears</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[75px]">Extra/Heads</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[75px]">Fine (Late Fee)</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[75px]">Discount</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[75px]">Total</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[65px]">Paid</th>
+                      <th className="border-r border-slate-600 p-1.5 min-w-[85px]">Receiving</th>
+                      <th className="p-1.5 min-w-[75px]">Remaining</th>
                     </tr>
                   </thead>
                   <tbody>
