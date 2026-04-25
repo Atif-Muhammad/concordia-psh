@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE `admin` (
+CREATE TABLE IF NOT EXISTS `admin` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(50) NOT NULL,
     `email` VARCHAR(50) NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE `admin` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `department` (
+CREATE TABLE IF NOT EXISTS `department` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(100) NOT NULL,
     `description` VARCHAR(300) NULL,
@@ -29,7 +29,7 @@ CREATE TABLE `department` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `program` (
+CREATE TABLE IF NOT EXISTS `program` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(200) NOT NULL,
     `description` VARCHAR(300) NULL,
@@ -45,7 +45,7 @@ CREATE TABLE `program` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `class` (
+CREATE TABLE IF NOT EXISTS `class` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(100) NOT NULL,
     `year` INTEGER NULL,
@@ -62,7 +62,7 @@ CREATE TABLE `class` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `section` (
+CREATE TABLE IF NOT EXISTS `section` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(20) NOT NULL,
     `capacity` INTEGER NULL,
@@ -76,7 +76,7 @@ CREATE TABLE `section` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `academicsession` (
+CREATE TABLE IF NOT EXISTS `academicsession` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(50) NOT NULL,
     `startDate` DATETIME(3) NOT NULL,
@@ -90,7 +90,7 @@ CREATE TABLE `academicsession` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `staff` (
+CREATE TABLE IF NOT EXISTS `staff` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(100) NOT NULL,
     `fatherName` VARCHAR(100) NULL,
@@ -130,7 +130,7 @@ CREATE TABLE `staff` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `staffleavesettings` (
+CREATE TABLE IF NOT EXISTS `staffleavesettings` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `staffId` INTEGER NOT NULL,
     `sickAllowed` INTEGER NOT NULL DEFAULT 0,
@@ -147,7 +147,7 @@ CREATE TABLE `staffleavesettings` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `subject` (
+CREATE TABLE IF NOT EXISTS `subject` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(100) NOT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -157,7 +157,7 @@ CREATE TABLE `subject` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `subjectclassmapping` (
+CREATE TABLE IF NOT EXISTS `subjectclassmapping` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `subjectId` INTEGER NOT NULL,
     `classId` INTEGER NOT NULL,
@@ -173,7 +173,7 @@ CREATE TABLE `subjectclassmapping` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `student` (
+CREATE TABLE IF NOT EXISTS `student` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `photo_url` VARCHAR(191) NULL,
     `photo_public_id` VARCHAR(191) NULL,
@@ -218,7 +218,7 @@ CREATE TABLE `student` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `studentacademicrecord` (
+CREATE TABLE IF NOT EXISTS `studentacademicrecord` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `studentId` INTEGER NOT NULL,
     `sessionId` INTEGER NOT NULL,
@@ -236,7 +236,7 @@ CREATE TABLE `studentacademicrecord` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `studentstatushistory` (
+CREATE TABLE IF NOT EXISTS `studentstatushistory` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `studentId` INTEGER NOT NULL,
     `previousStatus` ENUM('ACTIVE', 'EXPELLED', 'STRUCK_OFF', 'GRADUATED') NULL,
@@ -248,7 +248,7 @@ CREATE TABLE `studentstatushistory` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `teachersubjectmapping` (
+CREATE TABLE IF NOT EXISTS `teachersubjectmapping` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `teacherId` INTEGER NOT NULL,
     `subjectId` INTEGER NOT NULL,
@@ -260,7 +260,7 @@ CREATE TABLE `teachersubjectmapping` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `teacherclasssectionmapping` (
+CREATE TABLE IF NOT EXISTS `teacherclasssectionmapping` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `teacherId` INTEGER NOT NULL,
     `classId` INTEGER NOT NULL,
@@ -276,7 +276,7 @@ CREATE TABLE `teacherclasssectionmapping` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `classtimetable` (
+CREATE TABLE IF NOT EXISTS `classtimetable` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `classId` INTEGER NOT NULL,
     `sectionId` INTEGER NULL,
@@ -290,7 +290,7 @@ CREATE TABLE `classtimetable` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `assignment` (
+CREATE TABLE IF NOT EXISTS `assignment` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `title` VARCHAR(200) NOT NULL,
     `description` TEXT NULL,
@@ -305,7 +305,7 @@ CREATE TABLE `assignment` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `attendance` (
+CREATE TABLE IF NOT EXISTS `attendance` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `studentId` INTEGER NOT NULL,
     `classId` INTEGER NOT NULL,
@@ -326,7 +326,7 @@ CREATE TABLE `attendance` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `attendanceskip` (
+CREATE TABLE IF NOT EXISTS `attendanceskip` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `classId` INTEGER NOT NULL,
     `sectionId` INTEGER NULL,
@@ -340,7 +340,7 @@ CREATE TABLE `attendanceskip` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `leave` (
+CREATE TABLE IF NOT EXISTS `leave` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `studentId` INTEGER NOT NULL,
     `reason` VARCHAR(500) NOT NULL,
@@ -357,7 +357,7 @@ CREATE TABLE `leave` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `staffattendance` (
+CREATE TABLE IF NOT EXISTS `staffattendance` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `staffId` INTEGER NOT NULL,
     `date` DATE NOT NULL,
@@ -372,7 +372,7 @@ CREATE TABLE `staffattendance` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `inquiry` (
+CREATE TABLE IF NOT EXISTS `inquiry` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `studentName` VARCHAR(191) NOT NULL,
     `fatherName` VARCHAR(191) NULL,
@@ -402,7 +402,7 @@ CREATE TABLE `inquiry` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `visitor` (
+CREATE TABLE IF NOT EXISTS `visitor` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `visitorName` VARCHAR(100) NOT NULL,
     `phone` BIGINT NOT NULL,
@@ -422,7 +422,7 @@ CREATE TABLE `visitor` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `complaint` (
+CREATE TABLE IF NOT EXISTS `complaint` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `type` ENUM('Parent', 'Student', 'Staff') NOT NULL DEFAULT 'Student',
     `complainantName` VARCHAR(50) NOT NULL,
@@ -439,7 +439,7 @@ CREATE TABLE `complaint` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `complaintremark` (
+CREATE TABLE IF NOT EXISTS `complaintremark` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `complaintId` INTEGER NOT NULL,
     `authorId` INTEGER NOT NULL,
@@ -452,7 +452,7 @@ CREATE TABLE `complaintremark` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `contact` (
+CREATE TABLE IF NOT EXISTS `contact` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(255) NOT NULL,
     `phone` BIGINT NOT NULL,
@@ -468,7 +468,7 @@ CREATE TABLE `contact` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `exam` (
+CREATE TABLE IF NOT EXISTS `exam` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `examName` VARCHAR(191) NOT NULL,
     `programId` INTEGER NOT NULL,
@@ -484,7 +484,7 @@ CREATE TABLE `exam` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `examschedule` (
+CREATE TABLE IF NOT EXISTS `examschedule` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `examId` INTEGER NOT NULL,
     `subjectId` INTEGER NOT NULL,
@@ -501,7 +501,7 @@ CREATE TABLE `examschedule` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `marks` (
+CREATE TABLE IF NOT EXISTS `marks` (
     `id` VARCHAR(191) NOT NULL,
     `examId` INTEGER NOT NULL,
     `studentId` INTEGER NOT NULL,
@@ -516,7 +516,7 @@ CREATE TABLE `marks` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `result` (
+CREATE TABLE IF NOT EXISTS `result` (
     `id` VARCHAR(191) NOT NULL,
     `examId` INTEGER NOT NULL,
     `studentId` INTEGER NOT NULL,
@@ -532,7 +532,7 @@ CREATE TABLE `result` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `position` (
+CREATE TABLE IF NOT EXISTS `position` (
     `id` VARCHAR(191) NOT NULL,
     `examId` INTEGER NOT NULL,
     `classId` INTEGER NOT NULL,
@@ -552,7 +552,7 @@ CREATE TABLE `position` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `reportcardtemplate` (
+CREATE TABLE IF NOT EXISTS `reportcardtemplate` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(191) NOT NULL,
     `htmlContent` TEXT NOT NULL,
@@ -565,7 +565,7 @@ CREATE TABLE `reportcardtemplate` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `hostelregistration` (
+CREATE TABLE IF NOT EXISTS `hostelregistration` (
     `id` VARCHAR(191) NOT NULL,
     `studentId` INTEGER NULL,
     `externalName` VARCHAR(100) NULL,
@@ -587,7 +587,7 @@ CREATE TABLE `hostelregistration` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `hostelexternalchallan` (
+CREATE TABLE IF NOT EXISTS `hostelexternalchallan` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `registrationId` VARCHAR(191) NOT NULL,
     `challanNumber` VARCHAR(50) NOT NULL,
@@ -611,7 +611,7 @@ CREATE TABLE `hostelexternalchallan` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `hostelfee_payment` (
+CREATE TABLE IF NOT EXISTS `hostelfee_payment` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `registrationId` VARCHAR(191) NOT NULL,
     `month` VARCHAR(50) NOT NULL,
@@ -624,7 +624,7 @@ CREATE TABLE `hostelfee_payment` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `hostelchallan` (
+CREATE TABLE IF NOT EXISTS `hostelchallan` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `challanNumber` VARCHAR(50) NOT NULL,
     `registrationId` VARCHAR(191) NOT NULL,
@@ -653,7 +653,7 @@ CREATE TABLE `hostelchallan` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `room` (
+CREATE TABLE IF NOT EXISTS `room` (
     `id` VARCHAR(191) NOT NULL,
     `roomNumber` VARCHAR(20) NOT NULL,
     `roomType` VARCHAR(20) NOT NULL,
@@ -669,7 +669,7 @@ CREATE TABLE `room` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `roomallocation` (
+CREATE TABLE IF NOT EXISTS `roomallocation` (
     `id` VARCHAR(191) NOT NULL,
     `roomId` VARCHAR(191) NOT NULL,
     `studentId` INTEGER NULL,
@@ -685,7 +685,7 @@ CREATE TABLE `roomallocation` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `hostelexpense` (
+CREATE TABLE IF NOT EXISTS `hostelexpense` (
     `id` VARCHAR(191) NOT NULL,
     `expenseTitle` VARCHAR(200) NOT NULL,
     `amount` DOUBLE NOT NULL,
@@ -699,7 +699,7 @@ CREATE TABLE `hostelexpense` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `hostelinventory` (
+CREATE TABLE IF NOT EXISTS `hostelinventory` (
     `id` VARCHAR(191) NOT NULL,
     `itemName` VARCHAR(200) NOT NULL,
     `category` VARCHAR(50) NOT NULL,
@@ -713,7 +713,7 @@ CREATE TABLE `hostelinventory` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `schoolinventory` (
+CREATE TABLE IF NOT EXISTS `schoolinventory` (
     `id` VARCHAR(191) NOT NULL,
     `itemName` VARCHAR(200) NOT NULL,
     `category` VARCHAR(50) NOT NULL,
@@ -741,7 +741,7 @@ CREATE TABLE `schoolinventory` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `inventoryexpense` (
+CREATE TABLE IF NOT EXISTS `inventoryexpense` (
     `id` VARCHAR(191) NOT NULL,
     `inventoryItemId` VARCHAR(191) NOT NULL,
     `expenseType` VARCHAR(50) NOT NULL,
@@ -758,7 +758,7 @@ CREATE TABLE `inventoryexpense` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `payrollsettings` (
+CREATE TABLE IF NOT EXISTS `payrollsettings` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `absentDeduction` DOUBLE NOT NULL DEFAULT 0,
     `leaveDeduction` DOUBLE NOT NULL DEFAULT 0,
@@ -771,7 +771,7 @@ CREATE TABLE `payrollsettings` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `feehead` (
+CREATE TABLE IF NOT EXISTS `feehead` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(100) NOT NULL,
     `description` VARCHAR(255) NULL,
@@ -796,7 +796,7 @@ CREATE TABLE `feehead` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `feestructure` (
+CREATE TABLE IF NOT EXISTS `feestructure` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `programId` INTEGER NOT NULL,
     `classId` INTEGER NOT NULL,
@@ -810,7 +810,7 @@ CREATE TABLE `feestructure` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `feestructurehead` (
+CREATE TABLE IF NOT EXISTS `feestructurehead` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `feeStructureId` INTEGER NOT NULL,
     `feeHeadId` INTEGER NOT NULL,
@@ -821,7 +821,7 @@ CREATE TABLE `feestructurehead` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `feechallan` (
+CREATE TABLE IF NOT EXISTS `feechallan` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `challanNumber` VARCHAR(50) NOT NULL,
     `studentId` INTEGER NOT NULL,
@@ -866,7 +866,7 @@ CREATE TABLE `feechallan` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `payroll` (
+CREATE TABLE IF NOT EXISTS `payroll` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `month` VARCHAR(7) NOT NULL,
     `staffId` INTEGER NULL,
@@ -902,7 +902,7 @@ CREATE TABLE `payroll` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `staffleave` (
+CREATE TABLE IF NOT EXISTS `staffleave` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `month` VARCHAR(7) NOT NULL,
     `staffId` INTEGER NULL,
@@ -923,7 +923,7 @@ CREATE TABLE `staffleave` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `holiday` (
+CREATE TABLE IF NOT EXISTS `holiday` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `date` DATETIME(3) NOT NULL,
     `title` VARCHAR(191) NOT NULL,
@@ -937,7 +937,7 @@ CREATE TABLE `holiday` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `advancesalary` (
+CREATE TABLE IF NOT EXISTS `advancesalary` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `staffId` INTEGER NULL,
     `employeeId` INTEGER NULL,
@@ -955,7 +955,7 @@ CREATE TABLE `advancesalary` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `financeincome` (
+CREATE TABLE IF NOT EXISTS `financeincome` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `date` DATE NOT NULL,
     `category` VARCHAR(100) NOT NULL,
@@ -970,7 +970,7 @@ CREATE TABLE `financeincome` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `financeexpense` (
+CREATE TABLE IF NOT EXISTS `financeexpense` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `date` DATE NOT NULL,
     `category` VARCHAR(100) NOT NULL,
@@ -985,7 +985,7 @@ CREATE TABLE `financeexpense` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `financeclosing` (
+CREATE TABLE IF NOT EXISTS `financeclosing` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `date` DATE NOT NULL,
     `type` VARCHAR(50) NOT NULL,
@@ -1001,7 +1001,7 @@ CREATE TABLE `financeclosing` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `institutesettings` (
+CREATE TABLE IF NOT EXISTS `institutesettings` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `instituteName` VARCHAR(200) NOT NULL,
     `email` VARCHAR(100) NULL,
@@ -1020,7 +1020,7 @@ CREATE TABLE `institutesettings` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `studentarrear` (
+CREATE TABLE IF NOT EXISTS `studentarrear` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `studentId` INTEGER NOT NULL,
     `classId` INTEGER NOT NULL,
@@ -1035,7 +1035,7 @@ CREATE TABLE `studentarrear` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `payrolltemplate` (
+CREATE TABLE IF NOT EXISTS `payrolltemplate` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(191) NOT NULL,
     `type` VARCHAR(191) NOT NULL,
@@ -1048,7 +1048,7 @@ CREATE TABLE `payrolltemplate` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `feechallantemplate` (
+CREATE TABLE IF NOT EXISTS `feechallantemplate` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(191) NOT NULL,
     `htmlContent` TEXT NOT NULL,
@@ -1060,20 +1060,7 @@ CREATE TABLE `feechallantemplate` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `staffidcardtemplate` (
-    `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `name` VARCHAR(191) NOT NULL,
-    `htmlContent` TEXT NOT NULL,
-    `isDefault` BOOLEAN NOT NULL DEFAULT false,
-    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `updatedAt` DATETIME(3) NOT NULL,
-    `createdBy` VARCHAR(191) NULL,
-
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
-CREATE TABLE `studentidcardtemplate` (
+CREATE TABLE IF NOT EXISTS `staffidcardtemplate` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(191) NOT NULL,
     `htmlContent` TEXT NOT NULL,
@@ -1086,7 +1073,20 @@ CREATE TABLE `studentidcardtemplate` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `studentfeeinstallment` (
+CREATE TABLE IF NOT EXISTS `studentidcardtemplate` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `name` VARCHAR(191) NOT NULL,
+    `htmlContent` TEXT NOT NULL,
+    `isDefault` BOOLEAN NOT NULL DEFAULT false,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+    `createdBy` VARCHAR(191) NULL,
+
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE IF NOT EXISTS `studentfeeinstallment` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `studentId` INTEGER NOT NULL,
     `classId` INTEGER NOT NULL,
@@ -1113,7 +1113,7 @@ CREATE TABLE `studentfeeinstallment` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `_ComplaintAssignees` (
+CREATE TABLE IF NOT EXISTS `_ComplaintAssignees` (
     `A` INTEGER NOT NULL,
     `B` INTEGER NOT NULL,
 
@@ -1122,7 +1122,7 @@ CREATE TABLE `_ComplaintAssignees` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `_ArrearsChain` (
+CREATE TABLE IF NOT EXISTS `_ArrearsChain` (
     `A` INTEGER NOT NULL,
     `B` INTEGER NOT NULL,
 
