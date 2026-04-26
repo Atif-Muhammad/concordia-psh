@@ -83,6 +83,7 @@ import {
   getHostelFeePayments,
   getHostelRegistrations,
   getHostelChallansByRegistration,
+  getHostelRegistrationHistory,
   getFeeHeads,
   getDefaultFeeChallanTemplate,
   getFeeChallans,
@@ -127,6 +128,53 @@ import {
 } from "lucide-react";
 
 const EMPTY_OBJECT = {};
+
+// ── Hostel Registration History Panel ────────────────────────────────────────
+function HostelRegistrationHistoryPanel({ regId }) {
+  const { data: history = [], isLoading } = useQuery({
+    queryKey: ['hostelRegHistory', regId],
+    queryFn: () => getHostelRegistrationHistory(regId),
+    enabled: !!regId,
+  });
+
+  const actionMeta = {
+    registered:  { label: 'Registered',  color: 'bg-green-100 text-green-700' },
+    terminated:  { label: 'Terminated',  color: 'bg-red-100 text-red-700' },
+    withdrawn:   { label: 'Withdrawn',   color: 'bg-gray-100 text-gray-700' },
+    readmitted:  { label: 'Readmitted',  color: 'bg-blue-100 text-blue-700' },
+  };
+
+  if (isLoading) return <div className="py-8 flex justify-center text-sm text-muted-foreground">Loading history...</div>;
+  if (!history.length) return <p className="text-sm text-muted-foreground text-center py-6">No history yet.</p>;
+
+  return (
+    <div className="relative pl-5 space-y-0 max-h-72 overflow-y-auto">
+      <div className="absolute left-[9px] top-2 bottom-2 w-px bg-border" />
+      {[...history].reverse().map((entry, i) => {
+        const meta = actionMeta[entry.action] || { label: entry.action, color: 'bg-muted text-muted-foreground' };
+        return (
+          <div key={i} className="relative flex gap-3 pb-4">
+            <div className="mt-1 w-3 h-3 rounded-full border-2 border-background bg-primary shrink-0 z-10" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${meta.color}`}>{meta.label}</span>
+                {entry.previousStatus && (
+                  <span className="text-[10px] text-muted-foreground">from {entry.previousStatus}</span>
+                )}
+              </div>
+              {entry.reason && (
+                <p className="text-xs text-muted-foreground mt-0.5 italic">"{entry.reason}"</p>
+              )}
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '—'}
+              </p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const Students = () => {
   const { toast } = useToast();
@@ -481,20 +529,24 @@ const Students = () => {
   });
 
   // Fetch all hostel registrations once — used to show indicator dots in the student table
-  const { data: allHostelRegistrations = [] } = useQuery({
+  const { data: allHostelRegistrationsRaw } = useQuery({
     queryKey: ["hostelRegistrations"],
-    queryFn: getHostelRegistrations,
+    queryFn: () => getHostelRegistrations({ status: 'active', limit: 1000 }),
     staleTime: 5 * 60 * 1000, // 5 min — hostel data doesn't change often
   });
 
   // Set of student IDs who are active hostel residents — O(1) lookup per row
   const hostelStudentIds = useMemo(() => {
+    // getHostelRegistrations now returns { data, total, ... } — extract the array
+    const list = Array.isArray(allHostelRegistrationsRaw)
+      ? allHostelRegistrationsRaw
+      : (allHostelRegistrationsRaw?.data ?? []);
     return new Set(
-      allHostelRegistrations
+      list
         .filter(r => r.studentId && r.status === "active")
         .map(r => r.studentId)
     );
-  }, [allHostelRegistrations]);
+  }, [allHostelRegistrationsRaw]);
 
   const { data: studentHostelRoom, isLoading: hostelRoomLoading } = useQuery({
     queryKey: ["studentHostelRoom", viewStudent?.id],
@@ -2562,87 +2614,129 @@ const Students = () => {
                       <p className="text-sm text-muted-foreground">This student has no hostel registration.</p>
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      {studentHostelReg.status === "active" && (
-                        <Badge className="text-sm px-3 py-1">Hostel Resident</Badge>
-                      )}
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-lg flex items-center gap-2">
-                            <Home className="w-5 h-5 text-primary" />
-                            Hostel Registration
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="grid grid-cols-2 gap-4">
-                          <div><span className="font-semibold">Hostel:</span> {studentHostelReg.hostelName}</div>
-                          <div><span className="font-semibold">Status:</span> <Badge variant={studentHostelReg.status === "active" ? "default" : "secondary"}>{studentHostelReg.status}</Badge></div>
-                          <div><span className="font-semibold">Registration Date:</span> {studentHostelReg.registrationDate ? new Date(studentHostelReg.registrationDate).toLocaleDateString() : "-"}</div>
-                          <div><span className="font-semibold">Registration ID:</span> <span className="text-xs text-muted-foreground font-mono">{studentHostelReg.id}</span></div>
-                          <div><span className="font-semibold">Room Number:</span> {studentHostelRoom?.room?.roomNumber ?? "-"}</div>
-                          <div><span className="font-semibold">Decided Fee/Month:</span> {studentHostelReg.decidedFeePerMonth != null ? `PKR ${studentHostelReg.decidedFeePerMonth}` : "-"}</div>
-                        </CardContent>
-                      </Card>
-                      {studentHostelRoom && (
+                    <Tabs defaultValue="details">
+                      <TabsList className="w-full">
+                        <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
+                        <TabsTrigger value="challans" className="flex-1">Fee Challans</TabsTrigger>
+                        <TabsTrigger value="history" className="flex-1">History</TabsTrigger>
+                      </TabsList>
+
+                      {/* ── Details ── */}
+                      <TabsContent value="details" className="space-y-4 mt-3">
+                        <div className="flex items-center gap-3">
+                          <Badge variant={
+                            studentHostelReg.status === "active" ? "default" :
+                            studentHostelReg.status === "terminated" ? "destructive" : "secondary"
+                          } className="text-sm px-3 py-1 capitalize">
+                            {studentHostelReg.status}
+                          </Badge>
+                          {studentHostelReg.status === "terminated" && (() => {
+                            const reason = (() => {
+                              if (!studentHostelReg.terminationReason) return null;
+                              try {
+                                const arr = JSON.parse(studentHostelReg.terminationReason);
+                                if (Array.isArray(arr)) {
+                                  const last = [...arr].reverse().find(e => e.action === 'terminated' && e.reason);
+                                  return last?.reason || null;
+                                }
+                              } catch {}
+                              return studentHostelReg.terminationReason;
+                            })();
+                            return reason ? (
+                              <span className="text-xs text-red-600 italic">Reason: "{reason}"</span>
+                            ) : null;
+                          })()}
+                        </div>
                         <Card>
                           <CardHeader>
                             <CardTitle className="text-lg flex items-center gap-2">
-                              <Bed className="w-5 h-5 text-primary" />
-                              Room Allocation
+                              <Home className="w-5 h-5 text-primary" /> Hostel Registration
                             </CardTitle>
                           </CardHeader>
                           <CardContent className="grid grid-cols-2 gap-4">
-                            <div><span className="font-semibold">Room Number:</span> {studentHostelRoom.room?.roomNumber}</div>
-                            <div><span className="font-semibold">Room Type:</span> {studentHostelRoom.room?.roomType}</div>
-                            <div><span className="font-semibold">Capacity:</span> {studentHostelRoom.room?.capacity}</div>
-                            <div><span className="font-semibold">Occupancy:</span> {studentHostelRoom.room?.currentOccupancy} / {studentHostelRoom.room?.capacity}</div>
-                            <div><span className="font-semibold">Allocation Date:</span> {studentHostelRoom.allocationDate ? new Date(studentHostelRoom.allocationDate).toLocaleDateString() : "-"}</div>
+                            <div><span className="font-semibold">Hostel:</span> {studentHostelReg.hostelName}</div>
+                            <div><span className="font-semibold">Registration Date:</span> {studentHostelReg.registrationDate ? new Date(studentHostelReg.registrationDate).toLocaleDateString() : "-"}</div>
+                            <div><span className="font-semibold">Registration ID:</span> <span className="text-xs text-muted-foreground font-mono">{studentHostelReg.id}</span></div>
+                            <div><span className="font-semibold">Decided Fee/Month:</span> {studentHostelReg.decidedFeePerMonth != null ? `PKR ${Number(studentHostelReg.decidedFeePerMonth).toLocaleString()}` : "-"}</div>
                           </CardContent>
                         </Card>
-                      )}
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-lg flex items-center gap-2">
-                            <Receipt className="w-5 h-5 text-primary" />
-                            Fee Challans
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          {studentHostelChallans.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">No fee challans generated yet.</p>
-                          ) : (
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead className="py-2 px-3 text-sm">Challan No</TableHead>
-                                  <TableHead className="py-2 px-3 text-sm">Month</TableHead>
-                                  <TableHead className="py-2 px-3 text-sm">Total</TableHead>
-                                  <TableHead className="py-2 px-3 text-sm">Paid</TableHead>
-                                  <TableHead className="py-2 px-3 text-sm">Status</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {studentHostelChallans.map((c) => {
-                                  const total = (c.hostelFee||0) + (c.fineAmount||0) + (c.lateFeeFine||0) + (c.arrearsAmount||0) - (c.discount||0);
-                                  return (
-                                    <TableRow key={c.id} className={c.status === 'VOID' ? 'opacity-50' : ''}>
-                                      <TableCell className="py-2 px-3 text-sm font-medium text-xs">{c.challanNumber}</TableCell>
-                                      <TableCell className="py-2 px-3 text-sm">{c.month}</TableCell>
-                                      <TableCell className="py-2 px-3 text-sm">PKR {total.toLocaleString()}</TableCell>
-                                      <TableCell className="py-2 px-3 text-sm text-green-600">PKR {(c.paidAmount||0).toLocaleString()}</TableCell>
-                                      <TableCell className="py-2 px-3 text-sm">
-                                        <Badge variant={c.status === 'PAID' ? 'default' : c.status === 'VOID' ? 'outline' : c.status === 'PARTIAL' ? 'warning' : 'secondary'}>
-                                          {c.status === 'VOID' ? 'Superseded' : c.status}
-                                        </Badge>
-                                      </TableCell>
-                                    </TableRow>
-                                  );
-                                })}
-                              </TableBody>
-                            </Table>
-                          )}
-                        </CardContent>
-                      </Card>
-                    </div>
+                        {studentHostelRoom && (
+                          <Card>
+                            <CardHeader>
+                              <CardTitle className="text-lg flex items-center gap-2">
+                                <Bed className="w-5 h-5 text-primary" /> Room Allocation
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="grid grid-cols-2 gap-4">
+                              <div><span className="font-semibold">Room Number:</span> {studentHostelRoom.room?.roomNumber}</div>
+                              <div><span className="font-semibold">Room Type:</span> {studentHostelRoom.room?.roomType}</div>
+                              <div><span className="font-semibold">Capacity:</span> {studentHostelRoom.room?.capacity}</div>
+                              <div><span className="font-semibold">Occupancy:</span> {studentHostelRoom.room?.currentOccupancy} / {studentHostelRoom.room?.capacity}</div>
+                              <div><span className="font-semibold">Allocation Date:</span> {studentHostelRoom.allocationDate ? new Date(studentHostelRoom.allocationDate).toLocaleDateString() : "-"}</div>
+                            </CardContent>
+                          </Card>
+                        )}
+                      </TabsContent>
+
+                      {/* ── Fee Challans ── */}
+                      <TabsContent value="challans" className="mt-3">
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="text-base flex items-center gap-2">
+                              <Receipt className="w-4 h-4 text-primary" /> Fee Challans
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            {studentHostelChallans.length === 0 ? (
+                              <p className="text-sm text-muted-foreground py-4 text-center">No fee challans generated yet.</p>
+                            ) : (
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead className="py-2 px-3 text-sm">Challan No</TableHead>
+                                    <TableHead className="py-2 px-3 text-sm">Month</TableHead>
+                                    <TableHead className="py-2 px-3 text-sm">Total</TableHead>
+                                    <TableHead className="py-2 px-3 text-sm">Paid</TableHead>
+                                    <TableHead className="py-2 px-3 text-sm">Due Date</TableHead>
+                                    <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {studentHostelChallans.map((c) => {
+                                    const total = (c.hostelFee||0) + (c.fineAmount||0) + (c.lateFeeFine||0) + (c.arrearsAmount||0) - (c.discount||0);
+                                    const balance = Math.max(0, total - (c.paidAmount||0));
+                                    return (
+                                      <TableRow key={c.id} className={c.status === 'VOID' ? 'opacity-50' : ''}>
+                                        <TableCell className="py-2 px-3 text-sm font-medium text-xs">{c.challanNumber}</TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">{c.month}</TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">PKR {total.toLocaleString()}</TableCell>
+                                        <TableCell className="py-2 px-3 text-sm text-green-600">PKR {(c.paidAmount||0).toLocaleString()}</TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">{c.dueDate ? new Date(c.dueDate).toLocaleDateString() : '—'}</TableCell>
+                                        <TableCell className="py-2 px-3 text-sm">
+                                          <div className="flex flex-col gap-0.5">
+                                            <Badge variant={c.status === 'PAID' ? 'default' : c.status === 'VOID' ? 'outline' : c.status === 'PARTIAL' ? 'warning' : 'secondary'}>
+                                              {c.status === 'VOID' ? 'Superseded' : c.status}
+                                            </Badge>
+                                            {balance > 0 && c.status !== 'VOID' && (
+                                              <span className="text-[10px] text-red-600">Due: PKR {balance.toLocaleString()}</span>
+                                            )}
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </TableBody>
+                              </Table>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </TabsContent>
+
+                      {/* ── History ── */}
+                      <TabsContent value="history" className="mt-3">
+                        <HostelRegistrationHistoryPanel regId={studentHostelReg.id} />
+                      </TabsContent>
+                    </Tabs>
                   )}
                 </TabsContent>
               </Tabs>

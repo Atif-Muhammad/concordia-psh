@@ -3162,9 +3162,15 @@ export const getDefaultReportCardTemplate = async () => {
 // HOSTEL - REGISTRATIONS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export const getHostelRegistrations = async () => {
+export const getHostelRegistrations = async (filters = {}) => {
   try {
-    const { data } = await axios.get(`${base_url}/hostel/registrations`, {
+    const params = new URLSearchParams();
+    if (filters.search) params.append('search', filters.search);
+    if (filters.status) params.append('status', filters.status);
+    if (filters.type) params.append('type', filters.type);
+    if (filters.page) params.append('page', String(filters.page));
+    if (filters.limit) params.append('limit', String(filters.limit));
+    const { data } = await axios.get(`${base_url}/hostel/registrations?${params.toString()}`, {
       withCredentials: true,
     });
     return data;
@@ -3227,6 +3233,61 @@ export const deleteHostelRegistration = async (id) => {
       error.response?.data?.error ||
       error.message ||
       "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const terminateHostelRegistration = async (id, reason) => {
+  try {
+    const { data } = await axios.patch(
+      `${base_url}/hostel/registrations/${id}/terminate`,
+      { reason },
+      { withCredentials: true }
+    );
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const withdrawHostelRegistration = async (id) => {
+  try {
+    const { data } = await axios.patch(
+      `${base_url}/hostel/registrations/${id}/withdraw`,
+      {},
+      { withCredentials: true }
+    );
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const readmitHostelRegistration = async (id) => {
+  try {
+    const { data } = await axios.patch(
+      `${base_url}/hostel/registrations/${id}/readmit`,
+      {},
+      { withCredentials: true }
+    );
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getHostelRegistrationHistory = async (id) => {
+  try {
+    const { data } = await axios.get(
+      `${base_url}/hostel/registrations/${id}/history`,
+      { withCredentials: true }
+    );
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }
 };

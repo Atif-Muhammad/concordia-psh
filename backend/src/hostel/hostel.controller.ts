@@ -36,8 +36,20 @@ export class HostelController {
   }
 
   @Get('registrations')
-  findAllRegistrations() {
-    return this.hostelService.findAllRegistrations();
+  findAllRegistrations(
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('type') type?: 'internal' | 'external' | 'all',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.hostelService.findAllRegistrations({
+      search,
+      status,
+      type,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
   }
 
   @Get('registrations/by-student/:studentId')
@@ -61,6 +73,26 @@ export class HostelController {
   @Delete('registrations/:id')
   deleteRegistration(@Param('id') id: string) {
     return this.hostelService.deleteRegistration(id);
+  }
+
+  @Patch('registrations/:id/terminate')
+  terminateRegistration(@Param('id') id: string, @Body('reason') reason: string) {
+    return this.hostelService.terminateRegistration(id, reason);
+  }
+
+  @Patch('registrations/:id/withdraw')
+  withdrawRegistration(@Param('id') id: string) {
+    return this.hostelService.withdrawRegistration(id);
+  }
+
+  @Patch('registrations/:id/readmit')
+  readmitRegistration(@Param('id') id: string) {
+    return this.hostelService.readmitRegistration(id);
+  }
+
+  @Get('registrations/:id/history')
+  getRegistrationHistory(@Param('id') id: string) {
+    return this.hostelService.getRegistrationHistory(id);
   }
 
   @Post('registrations/:id/payments')

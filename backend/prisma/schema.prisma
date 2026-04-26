@@ -923,7 +923,8 @@ model HostelRegistration {
   decidedFeePerMonth     Float    @default(0)
   hostelName             String   @db.VarChar(100)
   registrationDate       DateTime
-  status                 String   @db.VarChar(20) // "active" | "inactive"
+  status                 String   @db.VarChar(20) // "active" | "terminated" | "withdrawn"
+  terminationReason      String?  @db.Text        // reason when status = "terminated"
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 

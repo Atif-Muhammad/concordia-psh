@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateRegistrationDto } from './dtos/create-registration.dto';
@@ -11,8 +12,15 @@ import { CreateHostelChallanDto } from './dtos/create-hostel-challan.dto';
 import { UpdateHostelChallanDto } from './dtos/update-hostel-challan.dto';
 
 @Injectable()
-export class HostelService {
+export class HostelService implements OnModuleInit {
   constructor(private prisma: PrismaService) {}
+
+  async onModuleInit() {
+    // Add statusHistory column if it doesn't exist yet (idempotent)
+    await this.prisma.$executeRawUnsafe(
+      `ALTER TABLE hostelregistration ADD COLUMN IF NOT EXISTS statusHistory JSON NULL`
+    ).catch(() => {/* already exists — ignore */});
+  }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // REGISTRATION CRUD
@@ -70,27 +78,70 @@ export class HostelService {
     });
   }
 
-  async findAllRegistrations() {
-    return this.prisma.hostelRegistration.findMany({
-      include: {
-        student: {
-          select: {
-            id: true,
-            fName: true,
-            lName: true,
-            rollNumber: true,
-            fatherOrguardian: true,
-            parentOrGuardianPhone: true,
-            parentCNIC: true,
-            studentCnic: true,
-            address: true,
-            class: { select: { name: true } },
-            program: { select: { name: true } },
-          },
+  async findAllRegistrations(filters?: {
+    search?: string;
+    status?: string;
+    type?: 'internal' | 'external' | 'all';
+    page?: number;
+    limit?: number;
+  }) {
+    const page = filters?.page ?? 1;
+    const limit = filters?.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+
+    if (filters?.status && filters.status !== 'all') {
+      where.status = filters.status;
+    }
+
+    if (filters?.type === 'internal') {
+      where.studentId = { not: null };
+    } else if (filters?.type === 'external') {
+      where.studentId = null;
+    }
+
+    if (filters?.search) {
+      const q = filters.search.toLowerCase();
+      where.OR = [
+        { externalName: { contains: q } },
+        { student: { fName: { contains: q } } },
+        { student: { lName: { contains: q } } },
+        { student: { rollNumber: { contains: q } } },
+        { id: { contains: q } },
+      ];
+    }
+
+    const include = {
+      student: {
+        select: {
+          id: true,
+          fName: true,
+          lName: true,
+          rollNumber: true,
+          fatherOrguardian: true,
+          parentOrGuardianPhone: true,
+          parentCNIC: true,
+          studentCnic: true,
+          address: true,
+          class: { select: { name: true } },
+          program: { select: { name: true } },
         },
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    };
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.hostelRegistration.findMany({
+        where,
+        include,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.hostelRegistration.count({ where }),
+    ]);
+
+    return { data, total, page, limit, hasMore: skip + data.length < total };
   }
 
   async findOneRegistration(id: string) {
@@ -180,6 +231,88 @@ export class HostelService {
     }
 
     return this.prisma.hostelRegistration.delete({ where: { id } });
+  }
+
+  async terminateRegistration(id: string, reason: string) {
+    const exists = await this.prisma.hostelRegistration.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException(`Registration ${id} not found`);
+    if (!reason?.trim()) throw new BadRequestException('Termination reason is required');
+
+    const history = this.appendHistory(this.parseHistory(exists.terminationReason), {
+      action: 'terminated',
+      previousStatus: exists.status,
+      reason: reason.trim(),
+    });
+
+    return this.prisma.hostelRegistration.update({
+      where: { id },
+      data: { status: 'terminated', terminationReason: JSON.stringify(history) },
+    });
+  }
+
+  async withdrawRegistration(id: string) {
+    const exists = await this.prisma.hostelRegistration.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException(`Registration ${id} not found`);
+
+    const history = this.appendHistory(this.parseHistory(exists.terminationReason), {
+      action: 'withdrawn',
+      previousStatus: exists.status,
+    });
+
+    return this.prisma.hostelRegistration.update({
+      where: { id },
+      data: { status: 'withdrawn', terminationReason: JSON.stringify(history) },
+    });
+  }
+
+  async readmitRegistration(id: string) {
+    const exists = await this.prisma.hostelRegistration.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException(`Registration ${id} not found`);
+    if (exists.status === 'active') throw new BadRequestException('Registration is already active');
+
+    const history = this.appendHistory(this.parseHistory(exists.terminationReason), {
+      action: 'readmitted',
+      previousStatus: exists.status,
+    });
+
+    return this.prisma.hostelRegistration.update({
+      where: { id },
+      // Keep history in terminationReason; clear display reason since now active
+      data: { status: 'active', terminationReason: JSON.stringify(history) },
+    });
+  }
+
+  async getRegistrationHistory(id: string) {
+    const reg = await this.prisma.hostelRegistration.findUnique({ where: { id } });
+    if (!reg) throw new NotFoundException(`Registration ${id} not found`);
+
+    const storedHistory = this.parseHistory(reg.terminationReason);
+
+    return [
+      { action: 'registered', previousStatus: null, timestamp: reg.createdAt, reason: null },
+      ...storedHistory,
+    ];
+  }
+
+  /** Parse history array from terminationReason field (JSON array or plain string) */
+  private parseHistory(raw: string | null): any[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      // Legacy plain-text reason — not a JSON array, ignore
+      return [];
+    }
+  }
+
+  private appendHistory(existing: any[], entry: { action: string; previousStatus: string; reason?: string }): any[] {
+    return [...existing, { ...entry, timestamp: new Date().toISOString() }];
+  }
+
+  /** @deprecated — no longer needed, kept for safety */
+  private async readStatusHistory(id: string): Promise<any[]> {
+    return [];
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

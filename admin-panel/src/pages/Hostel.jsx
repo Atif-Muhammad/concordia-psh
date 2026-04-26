@@ -9,13 +9,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useData } from "@/contexts/DataContext";
-import { useState, useEffect, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getHostelRegistrations,
   createHostelRegistration,
   updateHostelRegistration,
   deleteHostelRegistration,
+  terminateHostelRegistration,
+  withdrawHostelRegistration,
+  readmitHostelRegistration,
+  getHostelRegistrationHistory,
   getRooms,
   createRoom,
   updateRoom as updateRoomApi,
@@ -48,7 +52,7 @@ import {
   getDefaultFeeChallanTemplate,
 } from "../../config/apis";
 import { computeOutstandingBalance } from "@/lib/hostelUtils";
-import { Home, Bed, UtensilsCrossed, DollarSign, Edit, Trash2, UserPlus, Package, Search, X, Receipt, Plus, Eye, ExternalLink, Printer, AlertCircle, ArrowRight } from "lucide-react";
+import { Home, Bed, UtensilsCrossed, DollarSign, Edit, Trash2, UserPlus, Package, Search, X, Receipt, Plus, Eye, ExternalLink, Printer, AlertCircle, ArrowRight, UserX, LogOut, Loader2, RotateCcw } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -67,6 +71,67 @@ import {
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
+// ── Registration History Tab component ──────────────────────────────────────
+// Helper: extract last termination reason from terminationReason field (now a JSON array)
+function getLastTerminationReason(terminationReason) {
+  if (!terminationReason) return null;
+  try {
+    const arr = JSON.parse(terminationReason);
+    if (Array.isArray(arr)) {
+      const last = [...arr].reverse().find(e => e.action === 'terminated' && e.reason);
+      return last?.reason || null;
+    }
+  } catch {}
+  // Legacy plain string
+  return terminationReason;
+}
+function RegistrationHistoryTab({ regId }) {
+  const { data: history = [], isLoading } = useQuery({
+    queryKey: ['hostelRegHistory', regId],
+    queryFn: () => getHostelRegistrationHistory(regId),
+    enabled: !!regId,
+  });
+
+  const actionMeta = {
+    registered:  { label: 'Registered',  color: 'bg-green-100 text-green-700' },
+    terminated:  { label: 'Terminated',  color: 'bg-red-100 text-red-700' },
+    withdrawn:   { label: 'Withdrawn',   color: 'bg-gray-100 text-gray-700' },
+    readmitted:  { label: 'Readmitted',  color: 'bg-blue-100 text-blue-700' },
+  };
+
+  if (isLoading) return <div className="py-8 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>;
+  if (!history.length) return <p className="text-sm text-muted-foreground text-center py-6">No history yet.</p>;
+
+  return (
+    <div className="relative pl-4 space-y-0 max-h-72 overflow-y-auto">
+      {/* vertical line */}
+      <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
+      {[...history].reverse().map((entry, i) => {
+        const meta = actionMeta[entry.action] || { label: entry.action, color: 'bg-muted text-muted-foreground' };
+        return (
+          <div key={i} className="relative flex gap-3 pb-4">
+            <div className="mt-1 w-3 h-3 rounded-full border-2 border-background bg-primary shrink-0 z-10" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${meta.color}`}>{meta.label}</span>
+                {entry.previousStatus && (
+                  <span className="text-[10px] text-muted-foreground">from {entry.previousStatus}</span>
+                )}
+              </div>
+              {entry.reason && (
+                <p className="text-xs text-muted-foreground mt-0.5 italic">"{entry.reason}"</p>
+              )}
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '—'}
+              </p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const Hostel = () => {
   const {
     students,
@@ -79,10 +144,47 @@ const Hostel = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { data: hostelRegistrations = [] } = useQuery({
-    queryKey: ['hostelRegistrations'],
-    queryFn: getHostelRegistrations
+
+  // Registration filters
+  const [regSearch, setRegSearch] = useState("");
+  const [regStatusFilter, setRegStatusFilter] = useState("all");
+  const [regTypeFilter, setRegTypeFilter] = useState("all");
+  const scrollSentinelRef = useRef(null);
+
+  const {
+    data: regPages,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading: regLoading,
+    refetch: refetchRegistrations,
+  } = useInfiniteQuery({
+    queryKey: ['hostelRegistrations', regSearch, regStatusFilter, regTypeFilter],
+    queryFn: ({ pageParam = 1 }) => getHostelRegistrations({
+      search: regSearch || undefined,
+      status: regStatusFilter !== 'all' ? regStatusFilter : undefined,
+      type: regTypeFilter !== 'all' ? regTypeFilter : undefined,
+      page: pageParam,
+      limit: 20,
+    }),
+    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
+    initialPageParam: 1,
   });
+
+  const hostelRegistrations = regPages?.pages.flatMap(p => p.data) ?? [];
+
+  // Infinite scroll observer
+  useEffect(() => {
+    const el = scrollSentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+        fetchNextPage();
+      }
+    }, { threshold: 0.1 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const { data: rooms = [] } = useQuery({
     queryKey: ['rooms'],
@@ -99,9 +201,6 @@ const Hostel = () => {
     queryFn: getInventoryItems
   });
 
-  // Fees tab queries — declared after state (see below for useState)
-  const externalRegistrations = hostelRegistrations.filter(r => !r.studentId);
-
   const { data: feeHeads = [] } = useQuery({
     queryKey: ['feeHeads'],
     queryFn: getFeeHeads,
@@ -114,11 +213,18 @@ const Hostel = () => {
   const [messOpen, setMessOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [inventoryOpen, setInventoryOpen] = useState(false);
-  const [filterProgram, setFilterProgram] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
   const [editMode, setEditMode] = useState({});
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteItem, setDeleteItem] = useState(null);
+
+  // Terminate / Withdraw state
+  const [terminateOpen, setTerminateOpen] = useState(false);
+  const [terminateReg, setTerminateReg] = useState(null);
+  const [terminateReason, setTerminateReason] = useState("");
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawReg, setWithdrawReg] = useState(null);
+  const [readmitOpen, setReadmitOpen] = useState(false);
+  const [readmitReg, setReadmitReg] = useState(null);
 
   // Student search state
   const [studentSearch, setStudentSearch] = useState("");
@@ -572,18 +678,6 @@ const Hostel = () => {
     }
   };
 
-  const filteredRegistrations = hostelRegistrations.filter(reg => {
-    const studentName = reg.student
-      ? `${reg.student.fName} ${reg.student.lName || ''}`.toLowerCase()
-      : (reg.externalName || '').toLowerCase();
-    const rollNumber = reg.student?.rollNumber?.toLowerCase() || 'external';
-    const programName = reg.student?.program?.name || reg.externalInstitute || '';
-
-    const matchesProgram = filterProgram === "all" || programName === filterProgram;
-    const matchesSearch = studentName.includes(searchQuery.toLowerCase()) || rollNumber.includes(searchQuery.toLowerCase());
-    return matchesProgram && matchesSearch;
-  });
-
   const handleStudentSelect = (student) => {
     const isRegistered = hostelRegistrations.some(reg => reg.studentId === student.id);
     if (isRegistered) {
@@ -985,7 +1079,7 @@ const Hostel = () => {
               <Home className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{hostelRegistrations.filter(r => r.status === "active").length}</div>
+              <div className="text-2xl font-bold">{regPages?.pages[0]?.total ?? hostelRegistrations.filter(r => r.status === "active").length}</div>
             </CardContent>
           </Card>
           <Card>
@@ -1040,19 +1134,37 @@ const Hostel = () => {
                     Add Registration
                   </Button>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-4 mt-4">
-                  <Input placeholder="Search students..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="flex-1" />
-                  {/* <Select value={filterProgram} onValueChange={setFilterProgram}>
-                    <SelectTrigger className="w-full sm:w-[200px]">
-                      <SelectValue placeholder="Filter by program" />
+                <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search by name, roll number, ID..."
+                      value={regSearch}
+                      onChange={e => setRegSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                  <Select value={regStatusFilter} onValueChange={setRegStatusFilter}>
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue placeholder="Status" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Programs</SelectItem>
-                      <SelectItem value="HSSC">HSSC</SelectItem>
-                      <SelectItem value="Diploma">Diploma</SelectItem>
-                      <SelectItem value="BS">BS</SelectItem>
+                      <SelectItem value="all">All Statuses</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="terminated">Terminated</SelectItem>
+                      <SelectItem value="withdrawn">Withdrawn</SelectItem>
                     </SelectContent>
-                  </Select> */}
+                  </Select>
+                  <Select value={regTypeFilter} onValueChange={setRegTypeFilter}>
+                    <SelectTrigger className="w-[130px]">
+                      <SelectValue placeholder="Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Types</SelectItem>
+                      <SelectItem value="internal">Internal</SelectItem>
+                      <SelectItem value="external">External</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </CardHeader>
               <CardContent>
@@ -1070,7 +1182,11 @@ const Hostel = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredRegistrations.map(reg => {
+                      {regLoading ? (
+                        <TableRow><TableCell colSpan={7} className="py-8 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      ) : hostelRegistrations.length === 0 ? (
+                        <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">No registrations found.</TableCell></TableRow>
+                      ) : hostelRegistrations.map(reg => {
                         const studentRoom = getStudentRoom(reg.studentId, reg.externalName);
                         const studentName = reg.student ? `${reg.student.fName} ${reg.student.lName || ''}` : reg.externalName;
                         const rollNumber = reg.student?.rollNumber || "External";
@@ -1094,9 +1210,16 @@ const Hostel = () => {
                           </TableCell>
                           <TableCell className="py-2 px-3 text-sm">{reg.registrationDate?.split("T")[0]}</TableCell>
                           <TableCell className="py-2 px-3 text-sm">
-                            <Badge variant={reg.status === "active" ? "default" : "secondary"}>
-                              {reg.status}
-                            </Badge>
+                            <div className="flex flex-col gap-0.5">
+                              <Badge variant={reg.status === "active" ? "default" : reg.status === "terminated" ? "destructive" : "secondary"}>
+                                {reg.status}
+                              </Badge>
+                              {reg.status === "terminated" && reg.terminationReason && (
+                                <span className="text-[10px] text-muted-foreground truncate max-w-[120px]" title={getLastTerminationReason(reg.terminationReason)}>
+                                  {getLastTerminationReason(reg.terminationReason)}
+                                </span>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="py-2 px-3 text-sm">
                             <div className="flex gap-2">
@@ -1143,19 +1266,48 @@ const Hostel = () => {
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <Button size="sm" variant="destructive" onClick={() => confirmDelete('reg', reg)}>
-                                    <Trash2 className="h-4 w-4" />
+                                  <Button size="sm" variant="outline" className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                                    disabled={reg.status === 'terminated' || reg.status === 'withdrawn'}
+                                    onClick={() => { setTerminateReg(reg); setTerminateReason(""); setTerminateOpen(true); }}>
+                                    <UserX className="h-4 w-4" />
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>Delete</TooltipContent>
+                                <TooltipContent>Terminate (expelled)</TooltipContent>
                               </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button size="sm" variant="outline" className="text-gray-600 border-gray-300 hover:bg-gray-50"
+                                    disabled={reg.status === 'terminated' || reg.status === 'withdrawn'}
+                                    onClick={() => { setWithdrawReg(reg); setWithdrawOpen(true); }}>
+                                    <LogOut className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Withdraw (checked out)</TooltipContent>
+                              </Tooltip>
+                              {(reg.status === 'terminated' || reg.status === 'withdrawn') && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button size="sm" variant="outline" className="text-green-600 border-green-300 hover:bg-green-50"
+                                      onClick={() => { setReadmitReg(reg); setReadmitOpen(true); }}>
+                                      <RotateCcw className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Readmit</TooltipContent>
+                                </Tooltip>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>;
                       })}
                     </TableBody>
                   </Table>
-                </div>
+                  {/* Infinite scroll sentinel */}
+                  <div ref={scrollSentinelRef} className="py-2 flex justify-center">
+                    {isFetchingNextPage && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                    {!hasNextPage && hostelRegistrations.length > 0 && (
+                      <span className="text-xs text-muted-foreground">All registrations loaded ({hostelRegistrations.length})</span>
+                    )}
+                  </div>                </div>
               </CardContent>
             </Card>
 
@@ -2588,131 +2740,122 @@ const Hostel = () => {
       </AlertDialog>
 
       {/* Student Profile Dialog — works for both internal and external */}
-      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="max-w-md">
+      <Dialog open={profileOpen} onOpenChange={open => { setProfileOpen(open); }}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {profileReg?.studentId ? "Internal Student" : "External Student Profile"}
+              {profileReg?.studentId ? "Internal Student" : "External Student"} — {profileReg?.student ? `${profileReg.student.fName} ${profileReg.student.lName || ''}`.trim() : profileReg?.externalName}
             </DialogTitle>
           </DialogHeader>
           {profileReg && (
-            <div className="space-y-4">
-              {profileReg.studentId ? (
-                // Internal student — brief summary + navigate to full profile
-                <div className="space-y-3">
+            <Tabs defaultValue="details">
+              <TabsList className="w-full">
+                <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
+                <TabsTrigger value="challans" className="flex-1">Fee Challans</TabsTrigger>
+                <TabsTrigger value="history" className="flex-1">History</TabsTrigger>
+              </TabsList>
+
+              {/* ── Details Tab ── */}
+              <TabsContent value="details" className="mt-3 space-y-3">
+                {profileReg.studentId ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                      <span className="text-muted-foreground font-medium">Full Name</span>
+                      <span>{profileReg.student ? `${profileReg.student.fName} ${profileReg.student.lName || ''}`.trim() : "—"}</span>
+                      <span className="text-muted-foreground font-medium">Roll Number</span>
+                      <span>{profileReg.student?.rollNumber || "—"}</span>
+                      <span className="text-muted-foreground font-medium">Program</span>
+                      <span>{profileReg.student?.program?.name || "—"}</span>
+                      <span className="text-muted-foreground font-medium">Registration Date</span>
+                      <span>{profileReg.registrationDate ? new Date(profileReg.registrationDate).toLocaleDateString() : "—"}</span>
+                      <span className="text-muted-foreground font-medium">Status</span>
+                      <span><Badge variant={profileReg.status === "active" ? "default" : profileReg.status === "terminated" ? "destructive" : "secondary"}>{profileReg.status}</Badge></span>
+                      <span className="text-muted-foreground font-medium">Decided Fee / Month</span>
+                      <span>PKR {profileReg.decidedFeePerMonth != null ? Number(profileReg.decidedFeePerMonth).toLocaleString() : "—"}</span>
+                      {profileReg.terminationReason && getLastTerminationReason(profileReg.terminationReason) && (
+                        <>
+                          <span className="text-muted-foreground font-medium">Termination Reason</span>
+                          <span className="text-red-600 text-xs">{getLastTerminationReason(profileReg.terminationReason)}</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="pt-2 border-t">
+                      <p className="text-xs text-muted-foreground mb-2">Full student details are in the Students module.</p>
+                      <Button className="w-full gap-2" onClick={() => { setProfileOpen(false); navigate("/students", { state: { openStudentId: profileReg.studentId } }); }}>
+                        <ExternalLink className="h-4 w-4" /> View Full Profile in Students
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
                   <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                     <span className="text-muted-foreground font-medium">Full Name</span>
-                    <span>{profileReg.student ? `${profileReg.student.fName} ${profileReg.student.lName || ''}`.trim() : "—"}</span>
-
-                    <span className="text-muted-foreground font-medium">Roll Number</span>
-                    <span>{profileReg.student?.rollNumber || "—"}</span>
-
-                    <span className="text-muted-foreground font-medium">Program</span>
-                    <span>{profileReg.student?.program?.name || "—"}</span>
-
+                    <span>{profileReg.externalName || "—"}</span>
+                    <span className="text-muted-foreground font-medium">Institute</span>
+                    <span>{profileReg.externalInstitute || "—"}</span>
+                    <span className="text-muted-foreground font-medium">Guardian Name</span>
+                    <span>{profileReg.externalGuardianName || "—"}</span>
+                    <span className="text-muted-foreground font-medium">Guardian Phone</span>
+                    <span>{profileReg.externalGuardianNumber || "—"}</span>
+                    <span className="text-muted-foreground font-medium">Guardian CNIC</span>
+                    <span>{profileReg.guardianCnic || "—"}</span>
+                    <span className="text-muted-foreground font-medium">Student CNIC</span>
+                    <span>{profileReg.studentCnic || "—"}</span>
+                    <span className="text-muted-foreground font-medium">Address</span>
+                    <span>{profileReg.address || "—"}</span>
+                    <span className="text-muted-foreground font-medium">Registration Date</span>
+                    <span>{profileReg.registrationDate ? new Date(profileReg.registrationDate).toLocaleDateString() : "—"}</span>
+                    <span className="text-muted-foreground font-medium">Status</span>
+                    <span><Badge variant={profileReg.status === "active" ? "default" : profileReg.status === "terminated" ? "destructive" : "secondary"}>{profileReg.status}</Badge></span>
                     <span className="text-muted-foreground font-medium">Decided Fee / Month</span>
                     <span>PKR {profileReg.decidedFeePerMonth != null ? Number(profileReg.decidedFeePerMonth).toLocaleString() : "—"}</span>
-                  </div>
-                  <div className="pt-2 border-t">
-                    {/* Challan summary for internal student */}
-                    {profileChallans.filter(c => c.status !== 'VOID').length > 0 && (
-                      <div className="mb-3 space-y-1">
-                        <p className="text-xs font-semibold text-muted-foreground mb-1">Recent Fee Challans</p>
-                        {profileChallans.filter(c => c.status !== 'VOID').slice(0, 4).map(c => {
-                          const total = (c.hostelFee||0) + (c.fineAmount||0) + (c.lateFeeFine||0) + (c.arrearsAmount||0) - (c.discount||0);
-                          return (
-                            <div key={c.id} className="flex items-center justify-between text-xs bg-muted/50 rounded px-2 py-1">
-                              <span className="font-medium">{c.month}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-muted-foreground">PKR {total.toLocaleString()}</span>
-                                <span className={`font-semibold px-1.5 py-0.5 rounded leading-none ${
-                                  c.status === 'PAID' ? 'bg-green-100 text-green-700' :
-                                  c.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
-                                  'bg-blue-100 text-blue-700'
-                                }`}>{c.status}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                    <span className="text-muted-foreground font-medium">Registration ID</span>
+                    <span className="font-mono text-xs">{profileReg.id}</span>
+                    {profileReg.terminationReason && getLastTerminationReason(profileReg.terminationReason) && (
+                      <>
+                        <span className="text-muted-foreground font-medium">Termination Reason</span>
+                        <span className="text-red-600 text-xs">{getLastTerminationReason(profileReg.terminationReason)}</span>
+                      </>
                     )}
-                    <p className="text-xs text-muted-foreground mb-2">Full student details are available in the Students module.</p>
-                    <Button
-                      className="w-full gap-2"
-                      onClick={() => {
-                        setProfileOpen(false);
-                        navigate("/students", { state: { openStudentId: profileReg.studentId } });
-                      }}
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                      View Full Profile in Students
-                    </Button>
                   </div>
-                </div>
-              ) : (
-                // External student — all personal info stored in HostelRegistration
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                  <span className="text-muted-foreground font-medium">Full Name</span>
-                  <span>{profileReg.externalName || "—"}</span>
+                )}
+              </TabsContent>
 
-                  <span className="text-muted-foreground font-medium">Institute</span>
-                  <span>{profileReg.externalInstitute || "—"}</span>
-
-                  <span className="text-muted-foreground font-medium">Guardian Name</span>
-                  <span>{profileReg.externalGuardianName || "—"}</span>
-
-                  <span className="text-muted-foreground font-medium">Guardian Phone</span>
-                  <span>{profileReg.externalGuardianNumber || "—"}</span>
-
-                  <span className="text-muted-foreground font-medium">Guardian CNIC</span>
-                  <span>{profileReg.guardianCnic || "—"}</span>
-
-                  <span className="text-muted-foreground font-medium">Student CNIC</span>
-                  <span>{profileReg.studentCnic || "—"}</span>
-
-                  <span className="text-muted-foreground font-medium">Address</span>
-                  <span className="col-span-1">{profileReg.address || "—"}</span>
-
-                  <span className="text-muted-foreground font-medium">Registration Date</span>
-                  <span>{profileReg.registrationDate ? new Date(profileReg.registrationDate).toLocaleDateString() : "—"}</span>
-
-                  <span className="text-muted-foreground font-medium">Status</span>
-                  <span><Badge variant={profileReg.status === "active" ? "default" : "secondary"}>{profileReg.status}</Badge></span>
-
-                  <span className="text-muted-foreground font-medium">Decided Fee / Month</span>
-                  <span>PKR {profileReg.decidedFeePerMonth != null ? Number(profileReg.decidedFeePerMonth).toLocaleString() : "—"}</span>
-
-                  <span className="text-muted-foreground font-medium">Registration ID</span>
-                  <span className="font-mono text-xs">{profileReg.id}</span>
+              {/* ── Fee Challans Tab ── */}
+              <TabsContent value="challans" className="mt-3">
+                {profileChallans.filter(c => c.status !== 'VOID').length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">No challans yet.</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                    {profileChallans.filter(c => c.status !== 'VOID').map(c => {
+                      const total = (c.hostelFee||0) + (c.fineAmount||0) + (c.lateFeeFine||0) + (c.arrearsAmount||0) - (c.discount||0);
+                      const balance = Math.max(0, total - (c.paidAmount||0));
+                      return (
+                        <div key={c.id} className="flex items-center justify-between text-xs bg-muted/50 rounded px-3 py-2">
+                          <div>
+                            <div className="font-medium">{c.month}</div>
+                            <div className="text-muted-foreground">{c.challanNumber}</div>
+                          </div>
+                          <div className="text-right">
+                            <div>PKR {total.toLocaleString()}</div>
+                            {balance > 0 && <div className="text-red-600">Due: PKR {balance.toLocaleString()}</div>}
+                            <span className={`font-semibold px-1.5 py-0.5 rounded leading-none ${
+                              c.status === 'PAID' ? 'bg-green-100 text-green-700' :
+                              c.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-blue-100 text-blue-700'
+                            }`}>{c.status}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  {/* Challan history for external student */}
-                  {profileChallans.length > 0 && (
-                    <div className="pt-3 border-t space-y-2">
-                      <p className="text-sm font-semibold">Fee Challans</p>
-                      <div className="space-y-1">
-                        {profileChallans.filter(c => c.status !== 'VOID').slice(0, 6).map(c => {
-                          const total = (c.hostelFee||0) + (c.fineAmount||0) + (c.lateFeeFine||0) + (c.arrearsAmount||0) - (c.discount||0);
-                          return (
-                            <div key={c.id} className="flex items-center justify-between text-xs bg-muted/50 rounded px-2 py-1">
-                              <span className="font-medium">{c.month}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-muted-foreground">PKR {total.toLocaleString()}</span>
-                                <span className={`font-semibold px-1.5 py-0.5 rounded leading-none ${
-                                  c.status === 'PAID' ? 'bg-green-100 text-green-700' :
-                                  c.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
-                                  'bg-blue-100 text-blue-700'
-                                }`}>{c.status}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+                )}
+              </TabsContent>
+
+              {/* ── History Tab ── */}
+              <TabsContent value="history" className="mt-3">
+                <RegistrationHistoryTab regId={profileReg.id} />
+              </TabsContent>
+            </Tabs>
           )}
         </DialogContent>
       </Dialog>
@@ -2728,6 +2871,127 @@ const Hostel = () => {
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteItem(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={executeDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Terminate Registration Dialog */}
+      <Dialog open={terminateOpen} onOpenChange={open => { setTerminateOpen(open); if (!open) { setTerminateReg(null); setTerminateReason(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-600">
+              <UserX className="h-5 w-5" /> Terminate Registration
+            </DialogTitle>
+          </DialogHeader>
+          {terminateReg && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                You are terminating the hostel registration for <span className="font-semibold text-foreground">
+                  {terminateReg.student ? `${terminateReg.student.fName} ${terminateReg.student.lName || ''}`.trim() : terminateReg.externalName}
+                </span>. This marks them as expelled. Please state the reason.
+              </p>
+              <div className="space-y-1.5">
+                <Label>Reason for Termination <span className="text-destructive">*</span></Label>
+                <Textarea
+                  placeholder="e.g. Violation of hostel rules, disciplinary action..."
+                  value={terminateReason}
+                  onChange={e => setTerminateReason(e.target.value)}
+                  rows={3}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setTerminateOpen(false)}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  disabled={!terminateReason.trim()}
+                  onClick={async () => {
+                    try {
+                      await terminateHostelRegistration(terminateReg.id, terminateReason);
+                      // Room allocation is kept — not deallocated — so readmit can restore it
+                      queryClient.invalidateQueries({ queryKey: ['hostelRegistrations'] });
+                      toast({ title: "Registration terminated" });
+                      setTerminateOpen(false);
+                    } catch (e) {
+                      toast({ title: e.message || "Failed to terminate", variant: "destructive" });
+                    }
+                  }}
+                >
+                  Terminate
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Withdraw Registration Dialog */}
+      <AlertDialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <LogOut className="h-5 w-5" /> Withdraw Registration
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This marks <span className="font-semibold">
+                {withdrawReg?.student ? `${withdrawReg.student.fName} ${withdrawReg.student.lName || ''}`.trim() : withdrawReg?.externalName}
+              </span> as withdrawn (checked out voluntarily). Their room will be deallocated.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setWithdrawOpen(false); setWithdrawReg(null); }}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={async () => {
+              try {
+                await withdrawHostelRegistration(withdrawReg.id);
+                // Room allocation is kept — not deallocated — so readmit can restore it
+                queryClient.invalidateQueries({ queryKey: ['hostelRegistrations'] });
+                toast({ title: "Registration withdrawn" });
+                setWithdrawOpen(false);
+                setWithdrawReg(null);
+              } catch (e) {
+                toast({ title: e.message || "Failed to withdraw", variant: "destructive" });
+              }
+            }}>Withdraw</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Readmit Registration Dialog */}
+      <AlertDialog open={readmitOpen} onOpenChange={open => { setReadmitOpen(open); if (!open) setReadmitReg(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-green-600" /> Readmit Registration
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span>
+                You are readmitting <span className="font-semibold text-foreground">
+                  {readmitReg?.student ? `${readmitReg.student.fName} ${readmitReg.student.lName || ''}`.trim() : readmitReg?.externalName}
+                </span> back to the hostel.
+              </span>
+              {readmitReg?.status === 'terminated' && readmitReg?.terminationReason && getLastTerminationReason(readmitReg.terminationReason) && (
+                <span className="block text-xs text-red-600 mt-1">
+                  Previously terminated for: "{getLastTerminationReason(readmitReg.terminationReason)}"
+                </span>
+              )}
+              <span className="block text-xs text-muted-foreground mt-1">
+                Their previous room allocation will be restored and status set back to active.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setReadmitOpen(false); setReadmitReg(null); }}>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-green-600 hover:bg-green-700" onClick={async () => {
+              try {
+                await readmitHostelRegistration(readmitReg.id);
+                queryClient.invalidateQueries({ queryKey: ['hostelRegistrations'] });
+                queryClient.invalidateQueries({ queryKey: ['hostelRegHistory', readmitReg.id] });
+                toast({ title: "Registration readmitted successfully" });
+                setReadmitOpen(false);
+                setReadmitReg(null);
+              } catch (e) {
+                toast({ title: e.message || "Failed to readmit", variant: "destructive" });
+              }
+            }}>Readmit</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
