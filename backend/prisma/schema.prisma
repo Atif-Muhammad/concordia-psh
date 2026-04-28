@@ -1222,6 +1222,7 @@ model FeeChallan {
   feeStructureId Int?
   feeStructure   FeeStructure? @relation(fields: [feeStructureId], references: [id])
   
+  // Legacy fields (deprecated - use frozen amount fields instead)
   amount         Float
   paidAmount     Float         @default(0)
   totalAmount    Float         @default(0)  // amount + fineAmount + lateFeeFine (kept in sync)
@@ -1230,6 +1231,24 @@ model FeeChallan {
   fineAmount     Float         @default(0)
   lateFeeFine    Float?         @default(0)
   settledAmount  Float?        @default(0)  // For VOID challans: amount settled via superseding challan payment
+  settlementSnapshot Json?      @default("null") // JSON snapshot of settlement details: { settledChallans: [{ challanId, challanNumber, amountSettled, settlementDate }], totalSettled, paymentDate }
+  
+  // Frozen amount fields (immutable after generation)
+  baseAmount            Decimal?  @db.Decimal(10, 2) // Face-value fee for current installment only
+  frozenArrearsAmount   Decimal   @default(0) @db.Decimal(10, 2) // Arrears principal frozen at generation
+  frozenArrearsFine     Decimal   @default(0) @db.Decimal(10, 2) // Late fee on arrears frozen at generation
+  frozenBaseFine        Decimal   @default(0) @db.Decimal(10, 2) // Late fee on current base frozen at generation
+  totalDiscount         Decimal   @default(0) @db.Decimal(10, 2) // Total discounts applied
+  computedTotalDue      Decimal?  @db.Decimal(10, 2) // Frozen total payable (replaces mutable totalAmount)
+  amountReceived        Decimal   @default(0) @db.Decimal(10, 2) // Cash/bank actually received (replaces paidAmount)
+  outstandingAmount     Decimal?  @db.Decimal(10, 2) // Computed as computedTotalDue - amountReceived (replaces remainingAmount)
+  
+  // Arrears tracking fields
+  arrearsBreakdown      Json? // JSON array of {installmentId, installmentNumber, month, principalOwed, lateFeeOwed}
+  arrearsFingerprint    String? // SHA-256 of arrearsBreakdown sorted by installmentId
+  coveredInstallmentIds Json? // JSON array of installment IDs covered by this challan
+  
+  isLocked       Boolean       @default(false) // Set to true after generation; provides defence-in-depth against direct DB mutations
   
   dueDate        DateTime      @db.Date
   issueDate      DateTime      @default(now()) 
@@ -1273,6 +1292,10 @@ model FeeChallan {
 
   previousChallans FeeChallan[] @relation("ArrearsChain")
   nextChallans     FeeChallan[] @relation("ArrearsChain")
+  
+  // ChallanSettlement relations
+  payingSettlements    ChallanSettlement[] @relation("PayingChallan")
+  settledBySettlements ChallanSettlement[] @relation("SettledChallan")
 
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
@@ -1282,7 +1305,31 @@ model FeeChallan {
   @@index([studentClassId])
   @@index([studentProgramId])
   @@index([studentSectionId])
+  @@index([isLocked])
+  @@index([arrearsFingerprint])
+  @@index([computedTotalDue])
+  @@index([outstandingAmount])
   @@map("feechallan")
+}
+
+model ChallanSettlement {
+  id                   Int      @id @default(autoincrement())
+  payingChallanId      Int
+  settledChallanId     Int?
+  settledInstallmentId Int
+  amountApplied        Decimal  @db.Decimal(10, 2)
+  settlementDate       DateTime @default(now())
+  createdAt            DateTime @default(now())
+  
+  payingChallan        FeeChallan           @relation("PayingChallan", fields: [payingChallanId], references: [id], onDelete: Cascade)
+  settledChallan       FeeChallan?          @relation("SettledChallan", fields: [settledChallanId], references: [id], onDelete: Cascade)
+  settledInstallment   StudentFeeInstallment @relation(fields: [settledInstallmentId], references: [id], onDelete: Cascade)
+  
+  @@index([payingChallanId])
+  @@index([settledChallanId])
+  @@index([settledInstallmentId])
+  @@index([settlementDate])
+  @@map("challansettlement")
 }
 
 model Payroll {
@@ -1569,8 +1616,7 @@ model StudentFeeInstallment {
   amount            Int                              // Base tuition amount (fixed at plan creation)
   totalAmount       Float    @default(0)             // amount + lateFeeAccrued (recalculated by cron)
   paidAmount        Float    @default(0)
-  pendingAmount     Float    @default(0)
-  remainingAmount   Float    @default(0)
+  outstandingPrincipal Float @default(0)             // Amount still owed on this installment (renamed from pendingAmount)
   status            InstallmentStatus @default(PENDING)
   dueDate           DateTime
   paidDate          DateTime?
@@ -1580,11 +1626,14 @@ model StudentFeeInstallment {
   // Incremental late fee tracking
   lateFeeAccrued          Float    @default(0)   // Total late fee accumulated so far
   lateFeeLastCalculatedAt DateTime?              // Last time lateFeeAccrued was updated
+  lateFeeSnapshot         Decimal? @db.Decimal(10, 2) // Snapshot of late fee at last challan generation
+  lateFeeSnapshotAt       DateTime?              // Timestamp of late fee snapshot
   
   sessionId         Int?
   sessionRel        AcademicSession? @relation("SessionInstallments", fields: [sessionId], references: [id])
   
   challans          FeeChallan[]
+  settlements       ChallanSettlement[]
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

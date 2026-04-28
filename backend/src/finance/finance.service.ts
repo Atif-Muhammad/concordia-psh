@@ -92,7 +92,7 @@ export class FinanceService {
           date: c.paidDate || c.createdAt,
           category: 'Fee',
           description: `Fee Payment: ${studentName} (${c.student.rollNumber}) - For ${billingMonth}`,
-          amount: Number(c.paidAmount),
+          amount: Number(c.amountReceived?.toNumber() ?? c.paidAmount ?? 0),
           createdAt: c.createdAt,
           updatedAt: c.updatedAt,
           source: 'fee-challan',
@@ -433,7 +433,7 @@ export class FinanceService {
       0,
     );
     const feeIncome = paidChallans.reduce(
-      (sum, item) => sum + Number(item.paidAmount),
+      (sum, item) => sum + Number(item.amountReceived?.toNumber() ?? item.paidAmount ?? 0),
       0,
     );
     const totalIncome = manualIncome + feeIncome;
@@ -482,7 +482,7 @@ export class FinanceService {
         date: c.paidDate || c.createdAt,
         category: 'Fee',
         description: `Fee payment from ${c.student.fName} ${c.student.lName || ''}`,
-        amount: Number(c.paidAmount),
+        amount: Number(c.amountReceived?.toNumber() ?? c.paidAmount ?? 0),
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
       })),

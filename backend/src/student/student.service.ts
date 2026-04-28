@@ -387,7 +387,7 @@ export class StudentService {
             },
           });
 
-          const totalPaid = paidChallans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
+          const totalPaid = paidChallans.reduce((sum, c) => sum + (c.amountReceived?.toNumber() ?? c.paidAmount ?? 0), 0);
           const paidInstallments = paidChallans.length;
 
           const targetAmount = (student as any).tuitionFee && (student as any).tuitionFee > 0
@@ -667,11 +667,9 @@ export class StudentService {
         }
 
         // For UNPAID, PARTIAL, OVERDUE, and unsettled VOID challans, add the remaining balance
-        const challanBalance = 
-          (challan.amount || 0) + 
-          (challan.fineAmount || 0) - 
-          (challan.discount || 0) - 
-          (challan.paidAmount || 0);
+        const totalDue = (challan.amount || 0) + (challan.fineAmount || 0) - (challan.discount || 0);
+        const amountPaid = challan.amountReceived?.toNumber() ?? challan.paidAmount ?? 0;
+        const challanBalance = totalDue - amountPaid;
         
         if (challanBalance > 0) {
           outstandingAmount += challanBalance;
@@ -721,7 +719,7 @@ export class StudentService {
                     (c.amount || 0) +
                     (c.fineAmount || 0) -
                     (c.discount || 0) -
-                    (c.paidAmount || 0),
+                    (c.amountReceived?.toNumber() ?? c.paidAmount ?? 0),
                   ),
                   dueDate: c.dueDate,
                 }))
@@ -1307,7 +1305,8 @@ export class StudentService {
           for (const challan of currentChallans) {
             if (challan.status === 'PAID' || challan.status === 'PARTIAL') {
               const netTuitionAmount = (challan.amount || 0) - (challan.discount || 0);
-              const tuitionPortionPaid = Math.min(challan.paidAmount || 0, netTuitionAmount);
+              const amountPaid = challan.amountReceived?.toNumber() ?? challan.paidAmount ?? 0;
+              const tuitionPortionPaid = Math.min(amountPaid, netTuitionAmount);
               totalTuitionPaid += tuitionPortionPaid;
             }
             if (expectedTuitionTotal === 0 && challan.feeStructure) {

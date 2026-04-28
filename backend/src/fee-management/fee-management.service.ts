@@ -268,6 +268,43 @@ export class FeeManagementService {
     console.log('ðŸ·ï¸ CreateFeeChallan - isArrearsPayment:', isArrearsPayment);
     console.log('ðŸ·ï¸ Initial classId:', classId, 'programId:', programId);
 
+    // Sequential generation validation: Ensure all prior installments have challans
+    // Skip validation for arrears payments as they follow different logic
+    if (!isArrearsPayment && installmentNumber > 1) {
+      // Query all installments for the student ordered by installmentNumber
+      const allInstallments = await this.prisma.studentFeeInstallment.findMany({
+        where: {
+          studentId: payload.studentId,
+          classId: classId,
+        },
+        orderBy: {
+          installmentNumber: 'asc',
+        },
+      });
+
+      // Check each installment before the target installment
+      for (const installment of allInstallments) {
+        if (installment.installmentNumber < installmentNumber) {
+          // Check if at least one non-VOID challan exists for this installment
+          const existingChallans = await this.prisma.feeChallan.count({
+            where: {
+              studentId: payload.studentId,
+              installmentNumber: installment.installmentNumber,
+              status: {
+                not: 'VOID',
+              },
+            },
+          });
+
+          if (existingChallans === 0) {
+            throw new BadRequestException(
+              `Challan for ${installment.month || 'installment #' + installment.installmentNumber} (installment #${installment.installmentNumber}) has not been generated yet. Please generate it before proceeding with installment #${installmentNumber}.`
+            );
+          }
+        }
+      }
+    }
+
     // If arrears payment, use studentArrearId
     if (isArrearsPayment) {
       const studentArrearId = (payload as any).studentArrearId;
@@ -367,6 +404,123 @@ export class FeeManagementService {
       programId,
     );
 
+    // Step 1: Build arrearsBreakdown array with arrears from prior installments
+    const arrearsBreakdown: Array<{
+      installmentId: number;
+      installmentNumber: number;
+      month: string;
+      principalOwed: number;
+      lateFeeOwed: number;
+      challanId: number;
+      challanNumber: string;
+    }> = [];
+
+    // Query all prior installments with outstanding balances
+    const priorInstallments = await this.prisma.studentFeeInstallment.findMany({
+      where: {
+        studentId: payload.studentId,
+        classId: classId,
+        installmentNumber: { lt: installmentNumber },
+        outstandingPrincipal: { gt: 0 },
+      },
+      orderBy: {
+        installmentNumber: 'asc',
+      },
+      include: {
+        challans: {
+          where: {
+            status: { in: ['PENDING', 'PARTIAL'] },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1, // Get the most recent active challan for this installment
+        },
+      },
+    });
+
+    // Build arrears breakdown from prior installments
+    for (const installment of priorInstallments) {
+      if (installment.challans.length > 0) {
+        const sourceChallan = installment.challans[0];
+        
+        arrearsBreakdown.push({
+          installmentId: installment.id,
+          installmentNumber: installment.installmentNumber,
+          month: installment.month || `Installment ${installment.installmentNumber}`,
+          principalOwed: installment.outstandingPrincipal,
+          lateFeeOwed: installment.lateFeeAccrued || 0,
+          challanId: sourceChallan.id,
+          challanNumber: sourceChallan.challanNumber,
+        });
+      }
+    }
+
+    // Step 2: Compute frozen amounts from breakdown
+    const frozenArrearsAmount = arrearsBreakdown.reduce(
+      (sum, entry) => sum + entry.principalOwed,
+      0,
+    );
+    const frozenArrearsFine = arrearsBreakdown.reduce(
+      (sum, entry) => sum + entry.lateFeeOwed,
+      0,
+    );
+
+    // Step 3: Sort array by installmentId ascending
+    arrearsBreakdown.sort((a, b) => a.installmentId - b.installmentId);
+
+    // Step 4: Compute SHA-256 hash
+    const crypto = require('crypto');
+    const arrearsFingerprint = arrearsBreakdown.length > 0
+      ? crypto
+          .createHash('sha256')
+          .update(JSON.stringify(arrearsBreakdown))
+          .digest('hex')
+      : null;
+
+    // Step 5: MANDATORY INTEGRITY VALIDATION
+    for (const arrearsEntry of arrearsBreakdown) {
+      // Fetch the source challan by challanId
+      const sourceChallan = await this.prisma.feeChallan.findUnique({
+        where: { id: arrearsEntry.challanId },
+      });
+
+      if (!sourceChallan) {
+        throw new BadRequestException(
+          `Source challan #${arrearsEntry.challanNumber} not found. Cannot validate arrears integrity.`,
+        );
+      }
+
+      // Recompute source challan's outstanding
+      const sourceOutstanding =
+        (sourceChallan.computedTotalDue?.toNumber() || sourceChallan.totalAmount || 0) -
+        (sourceChallan.amountReceived?.toNumber() || sourceChallan.paidAmount || 0);
+
+      // Compare with principalOwed in breakdown (allow 0.01 tolerance for floating point)
+      const difference = Math.abs(sourceOutstanding - arrearsEntry.principalOwed);
+      if (difference > 0.01) {
+        throw new BadRequestException(
+          `Integrity mismatch: Challan #${arrearsEntry.challanNumber} for ${arrearsEntry.month} shows outstanding amount ${sourceOutstanding} but arrears calculation used ${arrearsEntry.principalOwed}. The challan may have been modified externally. Please refresh and retry.`,
+        );
+      }
+    }
+
+    // Step 6: Store installment IDs in coveredInstallmentIds array
+    const coveredInstallmentIds = arrearsBreakdown.map((entry) => entry.installmentId);
+
+    // Compute base amount and frozen base fine
+    const baseAmount = amount || 0;
+    const frozenBaseFine = payload.fineAmount || 0;
+    const totalDiscount = payload.discount || 0;
+
+    // Compute total due
+    const computedTotalDue =
+      baseAmount + frozenArrearsAmount + frozenArrearsFine + frozenBaseFine - totalDiscount;
+
+    const amountReceived = payload.paidAmount || 0;
+    const outstandingAmount = computedTotalDue - amountReceived;
+
+    // Step 8: Write all frozen amounts, fingerprint, and breakdown to DB atomically
     return await this.prisma.feeChallan.create({
       data: {
         studentId: payload.studentId,
@@ -375,8 +529,8 @@ export class FeeManagementService {
           : null,
         dueDate: new Date(payload.dueDate),
         amount,
-        discount: 0,
-        paidAmount: payload.paidAmount || 0,
+        discount: totalDiscount,
+        paidAmount: amountReceived,
         remarks: payload.remarks || null,
         coveredInstallments: payload.coveredInstallments || null,
         feeStructureId,
@@ -386,12 +540,32 @@ export class FeeManagementService {
         studentSectionId: student.sectionId, // Snapshot current section
         fineAmount: payload.fineAmount || 0,
         challanNumber: await this.generateChallanNumber(),
-        remainingAmount: (amount || 0) + (payload.fineAmount || 0) - (payload.paidAmount || 0),
-        status: (payload.paidAmount || 0) >= ((amount || 0) + (payload.fineAmount || 0)) ? 'PAID' : ((payload.paidAmount || 0) > 0 ? 'PARTIAL' : 'PENDING'),
+        remainingAmount: outstandingAmount,
+        totalAmount: computedTotalDue,
+        status:
+          amountReceived >= computedTotalDue
+            ? 'PAID'
+            : amountReceived > 0
+              ? 'PARTIAL'
+              : 'PENDING',
         challanType: isArrearsPayment ? 'ARREARS_ONLY' : 'INSTALLMENT',
         studentArrearId: (payload as any).studentArrearId
           ? Number((payload as any).studentArrearId)
           : null,
+        // Frozen amount fields
+        baseAmount: baseAmount,
+        frozenArrearsAmount: frozenArrearsAmount,
+        frozenArrearsFine: frozenArrearsFine,
+        frozenBaseFine: frozenBaseFine,
+        totalDiscount: totalDiscount,
+        computedTotalDue: computedTotalDue,
+        amountReceived: amountReceived,
+        outstandingAmount: outstandingAmount,
+        // Arrears tracking fields
+        arrearsBreakdown: arrearsBreakdown.length > 0 ? JSON.stringify(arrearsBreakdown) : null,
+        arrearsFingerprint: arrearsFingerprint,
+        coveredInstallmentIds: coveredInstallmentIds.length > 0 ? JSON.stringify(coveredInstallmentIds) : null,
+        isLocked: true, // Lock the challan after generation
       },
       include: {
         student: true,
@@ -638,11 +812,11 @@ export class FeeManagementService {
             id: true, challanNumber: true, status: true, amount: true,
             fineAmount: true, lateFeeFine: true, dueDate: true, paidAmount: true,
             discount: true, remainingAmount: true, month: true, session: true,
-            installmentNumber: true,
+            installmentNumber: true, settledAmount: true, settlementSnapshot: true,
           }
         },
         supersededBy: {
-          select: { id: true, status: true, challanNumber: true, paidAmount: true, amount: true, fineAmount: true, lateFeeFine: true, discount: true }
+          select: { id: true, status: true, challanNumber: true, paidAmount: true, amount: true, fineAmount: true, lateFeeFine: true, discount: true, settlementSnapshot: true }
         },
       },
       orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
@@ -792,6 +966,8 @@ export class FeeManagementService {
             month: true,
             session: true,
             installmentNumber: true,
+            settledAmount: true,
+            settlementSnapshot: true,
           }
         }
       },
@@ -853,8 +1029,7 @@ export class FeeManagementService {
             installmentNumber: true,
             amount: true,
             paidAmount: true,
-            pendingAmount: true,
-            remainingAmount: true,
+            outstandingPrincipal: true,
             status: true,
             dueDate: true,
             month: true,
@@ -1757,6 +1932,20 @@ export class FeeManagementService {
 
       if (!challan) throw new Error('Challan not found');
 
+      // Lock validation: prevent edits on locked challans (superseded and settled)
+      if (challan.isLocked) {
+        const protectedFields = ['amount', 'fineAmount', 'selectedHeads'];
+        const updateAttemptedOnProtected = Object.keys(payload).some(k => 
+          protectedFields.includes(k) && 
+          payload[k] !== undefined && 
+          payload[k] !== (challan as any)[k]
+        );
+        
+        if (updateAttemptedOnProtected) {
+          throw new BadRequestException('Cannot edit locked challan. This challan has been superseded and settled.');
+        }
+      }
+
       if (challan.status === 'VOID') {
         const allowedVoidFields = ['selectedHeads', 'dueDate', 'remarks'];
         const updateAttemptedOnProtected = Object.keys(payload).some(k => 
@@ -1803,8 +1992,13 @@ export class FeeManagementService {
 
         // Update fineAmount to reflect new heads total; amount (tuition) is preserved
         data.fineAmount = newHeadsTotal;
-        data.totalAmount = (challan.amount || 0) + newHeadsTotal + (challan.lateFeeFine || 0);
-        data.remainingAmount = Math.max(0, data.totalAmount - (challan.paidAmount || 0) - (challan.discount || 0));
+        const newComputedTotal = (challan.amount || 0) + newHeadsTotal + (challan.lateFeeFine || 0);
+        data.totalAmount = newComputedTotal; // Legacy field
+        data.computedTotalDue = newComputedTotal; // New frozen field
+        const currentAmountReceived = challan.amountReceived?.toNumber() || challan.paidAmount || 0;
+        const newOutstanding = Math.max(0, newComputedTotal - currentAmountReceived - (challan.discount || 0));
+        data.remainingAmount = newOutstanding; // Legacy field
+        data.outstandingAmount = newOutstanding; // New frozen field
         // _deltaAmount is NOT set here — deltaFine in step 9 will capture the heads change correctly
       }
 
@@ -1893,7 +2087,7 @@ export class FeeManagementService {
       delete data.receivingAmount;
       delete data.paidBy;
       // Also remove any other non-schema fields that might have leaked in
-      const validFields = ['status', 'paidAmount', 'paidDate', 'selectedHeads', 'amount', 'dueDate', 'fineAmount', 'lateFeeFine', 'remarks', 'installmentNumber', 'coveredInstallments', 'paymentHistory', 'discount', 'isLateFeeExempt', 'studentId', 'feeStructureId', 'remainingAmount', 'totalAmount'];
+      const validFields = ['status', 'paidAmount', 'paidDate', 'selectedHeads', 'amount', 'dueDate', 'fineAmount', 'lateFeeFine', 'remarks', 'installmentNumber', 'coveredInstallments', 'paymentHistory', 'discount', 'isLateFeeExempt', 'studentId', 'feeStructureId', 'remainingAmount', 'totalAmount', 'settlementSnapshot'];
       Object.keys(data).forEach(key => {
         if (!validFields.includes(key) && key !== 'customArrearsAmount') delete data[key];
       });
@@ -1988,14 +2182,18 @@ export class FeeManagementService {
         const totalAmountDue = voidChainTotal + currentChallanAmount;
         
         // Update totalAmount to reflect the full amount including VOID chain
-        data.totalAmount = totalAmountDue;
+        data.totalAmount = totalAmountDue; // Legacy field
+        data.computedTotalDue = totalAmountDue; // New frozen field
 
         if (data.paidAmount === undefined) {
           // For PAID: include the locked lateFeeFine; for PARTIAL: lateFeeFine is 0 (dynamic)
-          data.paidAmount = (payload.amount || challan.amount) + headsTotal + (data.lateFeeFine || 0);
+          const paidValue = (payload.amount || challan.amount) + headsTotal + (data.lateFeeFine || 0);
+          data.paidAmount = paidValue; // Legacy field
+          data.amountReceived = paidValue; // New frozen field
         }
 
-        const paymentIncrease = data.paidAmount - challan.paidAmount;
+        const currentPaidAmount = data.paidAmount ?? challan.paidAmount;
+        const paymentIncrease = currentPaidAmount - challan.paidAmount;
         if (paymentIncrease > 0) {
           // Admin-provided paidDate is the authoritative settlement date for late fee calculation
           const settlementDate = payload.paidDate ? new Date(payload.paidDate) : new Date();
@@ -2120,6 +2318,50 @@ export class FeeManagementService {
                   });
                 }
               }
+            }
+          }
+          
+          // Step 2.5: Create settlement snapshot if this challan supersedes others and is being marked as PAID
+          if (payload.status === 'PAID' && voidPredecessors.length > 0) {
+            // Fetch fresh data for all superseded challans to get updated settledAmount values
+            const supersededChallansWithUpdates = await prisma.feeChallan.findMany({
+              where: { id: { in: voidPredecessors.map(p => p.id) } },
+              select: {
+                id: true,
+                challanNumber: true,
+                amount: true,
+                fineAmount: true,
+                lateFeeFine: true,
+                discount: true,
+                settledAmount: true,
+                selectedHeads: true,
+                installmentNumber: true,
+              }
+            });
+
+            // Calculate settlement distribution using the helper method
+            const settlementSnapshot = this.calculateSettlementDistribution(
+              {
+                paidAmount: data.paidAmount,
+                paidDate: data.paidDate || new Date(),
+              },
+              supersededChallansWithUpdates
+            );
+
+            // Store the settlement snapshot in the current challan
+            data.settlementSnapshot = settlementSnapshot;
+
+            // Lock all superseded challans that have been settled (partially or fully)
+            const challansToLock = supersededChallansWithUpdates.filter(c => {
+              const settled = c.settledAmount || 0;
+              return settled > 0;
+            });
+
+            if (challansToLock.length > 0) {
+              await prisma.feeChallan.updateMany({
+                where: { id: { in: challansToLock.map(c => c.id) } },
+                data: { isLocked: true }
+              });
             }
           }
           
@@ -2249,15 +2491,21 @@ export class FeeManagementService {
         headsTotal7 +
         effectiveLateFeeForRemaining +
         currentArrears;
-      const totalPaidAndDiscount = (data.paidAmount ?? challan.paidAmount) +
+      const currentPaidAmount = data.paidAmount ?? challan.paidAmount;
+      const currentAmountReceivedValue = data.amountReceived?.toNumber() ?? challan.amountReceived?.toNumber() ?? currentPaidAmount;
+      const totalPaidAndDiscount = currentAmountReceivedValue +
         (payload.discount !== undefined ? payload.discount : (challan.discount || 0));
-      data.remainingAmount = Math.max(0, totalBillableForChallan - totalPaidAndDiscount);
+      const newOutstandingValue = Math.max(0, totalBillableForChallan - totalPaidAndDiscount);
+      data.remainingAmount = newOutstandingValue; // Legacy field
+      data.outstandingAmount = newOutstandingValue; // New frozen field
 
       // 7.6b Keep totalAmount in sync: tuition + fineAmount (heads) + lateFeeFine
       // totalAmount represents the full billed amount on this challan (excluding arrears from predecessors)
       const currentLateFeeFine = data.lateFeeFine !== undefined ? (data.lateFeeFine || 0) : (challan.lateFeeFine || 0);
       const currentFineAmount = data.fineAmount !== undefined ? (data.fineAmount || 0) : (challan.fineAmount || 0);
-      data.totalAmount = (payload.amount || challan.amount) + currentFineAmount + currentLateFeeFine;
+      const newTotalAmount = (payload.amount || challan.amount) + currentFineAmount + currentLateFeeFine;
+      data.totalAmount = newTotalAmount; // Legacy field
+      data.computedTotalDue = newTotalAmount; // New frozen field
 
       // Determine status based on payments and due date
       if (challan.status === 'VOID') {
@@ -2580,6 +2828,7 @@ export class FeeManagementService {
               status: newStatus,
               supersededById: null,
               settledAmount: 0, // reset settlement allocation
+              isLocked: false, // unlock the challan since it's no longer superseded
               remarks: newRemarks || null,
             }
           });
@@ -2685,7 +2934,7 @@ export class FeeManagementService {
           select: { id: true, lateFeeAccrued: true, lateFeeLastCalculatedAt: true, paidDate: true } as any
         },
         supersededBy: {
-          select: { id: true, status: true, challanNumber: true, paidAmount: true, amount: true, fineAmount: true, lateFeeFine: true, discount: true }
+          select: { id: true, status: true, challanNumber: true, paidAmount: true, amount: true, fineAmount: true, lateFeeFine: true, discount: true, settlementSnapshot: true }
         },
       },
       orderBy: {
@@ -2736,7 +2985,8 @@ export class FeeManagementService {
     let totalAllSessionsAdditional = 0;
 
     allChallans.forEach((c: any) => {
-      totalAllSessionsPaid += c.paidAmount;
+      const challanPaid = c.amountReceived?.toNumber() ?? c.paidAmount ?? 0;
+      totalAllSessionsPaid += challanPaid;
       totalAllSessionsAdditional += c.fineAmount;
 
       // Calculate dynamic late fee for this challan if not paid
@@ -2784,7 +3034,7 @@ export class FeeManagementService {
       }
 
       const totalPaid = challans.reduce(
-        (sum, c) => sum + (c.paidAmount || 0),
+        (sum, c) => sum + (c.amountReceived?.toNumber() ?? c.paidAmount ?? 0),
         0,
       );
       const totalAdditional = challans.reduce(
@@ -3182,13 +3432,16 @@ export class FeeManagementService {
       }
 
       if ((c.status === 'PAID' || c.status === 'PARTIAL') && c.paidDate && new Date(c.paidDate) >= startDate) {
-        stats[className].collected += c.paidAmount || 0;
+        const challanPaid = c.amountReceived?.toNumber() ?? c.paidAmount ?? 0;
+        stats[className].collected += challanPaid;
       }
 
-      // Outstanding: use totalAmount (kept in sync by cron + updates)
+      // Outstanding: use computedTotalDue (frozen field) or fallback to totalAmount
       if (c.status !== 'PAID' && c.status !== 'VOID' && new Date(c.dueDate) >= startDate) {
-        const netAmount = (c.totalAmount || 0) - (c.discount || 0);
-        stats[className].outstanding += Math.max(0, netAmount - (c.paidAmount || 0));
+        const totalDue = c.computedTotalDue?.toNumber() ?? c.totalAmount ?? 0;
+        const amountPaid = c.amountReceived?.toNumber() ?? c.paidAmount ?? 0;
+        const netAmount = totalDue - (c.discount || 0);
+        stats[className].outstanding += Math.max(0, netAmount - amountPaid);
       }
     });
 
@@ -3378,6 +3631,165 @@ export class FeeManagementService {
     } catch { return 0; }
   }
 
+  /**
+   * Helper method to get settled amount from settlement snapshot
+   * 
+   * This method reads the settlement snapshot to determine how much of a challan
+   * has been settled, providing a clear audit trail without recursive calculation.
+   * 
+   * **Usage**: This method should be used when querying or displaying settlement
+   * information for audit/reporting purposes. It should NOT be used during payment
+   * processing, as snapshots are created AFTER payment distribution is complete.
+   * 
+   * **How it works**: 
+   * - Finds all challans that supersede the given challan
+   * - Reads their settlementSnapshot to see how much they settled from this challan
+   * - Sums up all settlements to get the total settled amount
+   * 
+   * @param challanId - The ID of the challan to check
+   * @param prisma - Prisma transaction client
+   * @returns The settled amount for the challan based on settlement snapshots
+   * 
+   * @example
+   * // Get settled amount for challan #106 from snapshots
+   * const settled = await this.getSettledAmountFromSnapshot(106, prisma);
+   * // Returns: 5000 (if challan #107 settled Rs. 5000 from #106)
+   */
+  private async getSettledAmountFromSnapshot(
+    challanId: number,
+    prisma: any
+  ): Promise<number> {
+    // Find all challans that supersede this challan and have settlement snapshots
+    const supersedingChallans = await prisma.feeChallan.findMany({
+      where: {
+        supersedes: {
+          some: { id: challanId }
+        },
+        settlementSnapshot: {
+          not: null
+        }
+      },
+      select: {
+        settlementSnapshot: true
+      }
+    });
+
+    // Sum up all settlements for this challan from all superseding challans
+    let totalSettled = 0;
+    for (const superseding of supersedingChallans) {
+      const snapshot = superseding.settlementSnapshot as any;
+      if (snapshot && snapshot.settledChallans) {
+        const settlement = snapshot.settledChallans.find(
+          (s: any) => s.challanId === challanId
+        );
+        if (settlement) {
+          totalSettled += settlement.amountSettled || 0;
+        }
+      }
+    }
+
+    return totalSettled;
+  }
+
+  /**
+   * Calculate settlement distribution for a superseding challan's payment across superseded challans
+   * @param supersedingChallan - The challan that supersedes others and is receiving payment
+   * @param supersededChallans - Array of challans that are being superseded
+   * @returns Array of settlement objects with challan ID, amount settled, etc.
+   * 
+   * Requirements: 2.1, 2.4, 2.5
+   * 
+   * Logic:
+   * - Distributes paid amount across superseded challans based on their outstanding amounts
+   * - Handles edge cases: partial settlement, over-payment, zero settlement
+   * - Returns settlement snapshot data structure for storage
+   */
+  private calculateSettlementDistribution(
+    supersedingChallan: any,
+    supersededChallans: any[]
+  ): {
+    settledChallans: Array<{
+      challanId: number;
+      challanNumber: string;
+      amountSettled: number;
+      settlementDate: string;
+    }>;
+    totalSettled: number;
+    paymentDate: string;
+  } {
+    // Edge case: no payment or no superseded challans
+    if (!supersedingChallan.paidAmount || supersedingChallan.paidAmount <= 0) {
+      return {
+        settledChallans: [],
+        totalSettled: 0,
+        paymentDate: supersedingChallan.paidDate?.toISOString() || new Date().toISOString()
+      };
+    }
+
+    if (!supersededChallans || supersededChallans.length === 0) {
+      return {
+        settledChallans: [],
+        totalSettled: 0,
+        paymentDate: supersedingChallan.paidDate?.toISOString() || new Date().toISOString()
+      };
+    }
+
+    let remainingPayment = supersedingChallan.paidAmount;
+    const settledChallans: Array<{
+      challanId: number;
+      challanNumber: string;
+      amountSettled: number;
+      settlementDate: string;
+    }> = [];
+    const settlementDate = supersedingChallan.paidDate?.toISOString() || new Date().toISOString();
+
+    // Sort superseded challans by installment number (oldest first) for FIFO distribution
+    const sortedChallans = [...supersededChallans].sort((a, b) => {
+      const aNum = a.installmentNumber || 0;
+      const bNum = b.installmentNumber || 0;
+      return aNum - bNum;
+    });
+
+    // Distribute payment across superseded challans
+    for (const challan of sortedChallans) {
+      if (remainingPayment <= 0) break;
+
+      // Calculate outstanding amount for this challan
+      const headsTotal = this.getSelectedHeadsTotal(challan);
+      const totalDue = (challan.amount || 0) + headsTotal + (challan.lateFeeFine || 0) - (challan.discount || 0);
+      const alreadySettled = challan.settledAmount || 0;
+      const outstanding = Math.max(0, totalDue - alreadySettled);
+
+      // Edge case: challan already fully settled
+      if (outstanding <= 0) continue;
+
+      // Calculate amount to settle for this challan
+      const amountToSettle = Math.min(remainingPayment, outstanding);
+      remainingPayment -= amountToSettle;
+
+      // Add to settlement snapshot
+      settledChallans.push({
+        challanId: challan.id,
+        challanNumber: challan.challanNumber || `#${challan.id}`,
+        amountSettled: amountToSettle,
+        settlementDate: settlementDate
+      });
+    }
+
+    // Calculate total settled amount
+    const totalSettled = settledChallans.reduce((sum, s) => sum + s.amountSettled, 0);
+
+    // Edge case: over-payment (payment exceeds all outstanding amounts)
+    // This is handled by returning the actual settled amount, not the full payment
+    // The caller should handle any remaining payment separately
+
+    return {
+      settledChallans,
+      totalSettled,
+      paymentDate: settlementDate
+    };
+  }
+
   private injectLateFeeRecursive(challans: any[], _globalLateFee: number): any[] {
     // lateFeeFine is now stamped at generation/update time and kept in sync by the cron job.
     // No dynamic recalculation needed — just pass through stored values.
@@ -3468,9 +3880,12 @@ export class FeeManagementService {
           const prevHeadsTotal = this.getSelectedHeadsTotal(prev);
 
           if (prev.status === 'VOID') {
-            // VOID challans: add full totalDue as arrears (paidAmount on superseding challan covers the settled portion)
+            // VOID challans: add totalDue minus settledAmount as arrears
+            // settledAmount tracks how much of this VOID challan has been settled by superseding challan payments
             const totalDue = (prev.amount || 0) + prevHeadsTotal + (prev.lateFeeFine || 0) - (prev.discount || 0);
-            total += totalDue;
+            const settled = prev.settledAmount || 0;
+            const unsettled = Math.max(0, totalDue - settled);
+            total += unsettled;
             nextLevelIds.push(prev.id);
             continue;
           }
