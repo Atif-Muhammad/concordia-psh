@@ -13,6 +13,29 @@ import { UpdateStudentIDCardTemplateDto } from './dtos/update-student-id-card-te
 export class ConfigurationService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async getInstituteSettingsColumns(): Promise<Set<string>> {
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ COLUMN_NAME: string }>>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'institutesettings'`,
+    );
+    return new Set(rows.map((r) => r.COLUMN_NAME));
+  }
+
+  private async getInstituteSettingsRowRaw(): Promise<any | null> {
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT * FROM institutesettings LIMIT 1`,
+    );
+    const row = rows?.[0] ?? null;
+    if (!row) return null;
+    // Backward compatibility for older DBs missing newer columns
+    if (row.lateFeeRatePerDay === undefined) row.lateFeeRatePerDay = 0;
+    if (row.extraChallanLateFee === undefined) row.extraChallanLateFee = 0;
+    if (row.hostelLateFee === undefined) row.hostelLateFee = 0;
+    return row;
+  }
+
   // Create a new ReportCardTemplate
   async createReportCardTemplate(data: CreateReportCardTemplateDto) {
     if (data.isDefault) {
@@ -166,28 +189,54 @@ export class ConfigurationService {
 
   // Get institute settings or create default if none exist
   async getInstituteSettings() {
-    return this.prisma.instituteSettings.findFirst();
+    return this.getInstituteSettingsRowRaw();
   }
 
   // Update institute settings (or create if doesn't exist)
   async updateInstituteSettings(data: UpdateInstituteSettingsDto) {
-    // Try to find existing settings
-    const existing = await this.prisma.instituteSettings.findFirst();
+    const columns = await this.getInstituteSettingsColumns();
+    const existing = await this.getInstituteSettingsRowRaw();
+
+    const filteredEntries = Object.entries(data || {}).filter(
+      ([key, value]) => value !== undefined && columns.has(key),
+    );
 
     if (existing) {
-      // Update existing
-      return this.prisma.instituteSettings.update({
-        where: { id: existing.id },
-        data,
-      });
-    } else {
-      // Create new with provided data + required defaults
-      return this.prisma.instituteSettings.create({
-        data: {
-          instituteName: 'My Institute',
-          ...data,
-        },
-      });
+      if (filteredEntries.length > 0) {
+        const setClause = filteredEntries
+          .map(([key]) => `\`${key}\` = ?`)
+          .join(', ');
+        const values = filteredEntries.map(([, value]) => value);
+
+        await this.prisma.$executeRawUnsafe(
+          `UPDATE institutesettings SET ${setClause} WHERE id = ?`,
+          ...values,
+          existing.id,
+        );
+      }
+      return this.getInstituteSettingsRowRaw();
     }
+
+    const createData: Record<string, any> = {};
+    if (columns.has('instituteName')) createData.instituteName = 'My Institute';
+    for (const [key, value] of filteredEntries) {
+      createData[key] = value;
+    }
+
+    const createEntries = Object.entries(createData);
+    if (createEntries.length > 0) {
+      const colClause = createEntries.map(([key]) => `\`${key}\``).join(', ');
+      const placeholders = createEntries.map(() => '?').join(', ');
+      const values = createEntries.map(([, value]) => value);
+
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO institutesettings (${colClause}) VALUES (${placeholders})`,
+        ...values,
+      );
+    } else {
+      await this.prisma.$executeRawUnsafe(`INSERT INTO institutesettings () VALUES ()`);
+    }
+
+    return this.getInstituteSettingsRowRaw();
   }
 }
