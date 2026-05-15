@@ -1,8 +1,0 @@
--- AlterTable
-ALTER TABLE `fee_challan_v2` ADD COLUMN `settledAmount` DECIMAL(12, 2) NULL,
-    ADD COLUMN `settledAt` DATETIME(3) NULL,
-    MODIFY `status` ENUM('PENDING', 'PARTIAL', 'PAID', 'VOID', 'SUPERSEDED', 'SETTLED') NOT NULL DEFAULT 'PENDING';
-
--- AlterTable
-ALTER TABLE `fee_installment` ADD COLUMN `settledByInstallmentId` INTEGER NULL,
-    MODIFY `status` ENUM('PENDING', 'PARTIAL', 'PAID', 'VOID', 'SUPERSEDED', 'SETTLED') NOT NULL DEFAULT 'PENDING';
