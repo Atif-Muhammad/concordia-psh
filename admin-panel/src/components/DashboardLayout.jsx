@@ -3,20 +3,20 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, DollarSign, ClipboardCheck, GraduationCap,
   BookOpen, Settings, BriefcaseBusiness, Home, FileText, TrendingUp,
-  Menu, X, LogOut, Bell, ChevronLeft, ChevronRight, Package, UserCircle, Lock, User, UsersRound, MessageSquare
+  Menu, X, LogOut, ChevronLeft, ChevronRight, Package, User, UsersRound, MessageSquare
 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { logout, userWho, refreshTokens, getInstituteSettings } from "../../config/apis";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import logo from "../assets/logo-full.png"
@@ -32,7 +32,7 @@ const menuItems = [
   { icon: BookOpen, label: "Examination", path: "/examination" },
   { icon: GraduationCap, label: "Academics", path: "/academics" },
   { icon: BriefcaseBusiness, label: "HR & Payroll", path: "/hr-payroll" },
-  { icon: Home, label: "Hostel", path: "/hostel" },
+  { icon: Home, label: "Boarding", path: "/hostel" },
   { icon: TrendingUp, label: "Finance", path: "/finance" },
   { icon: Package, label: "Inventory", path: "/inventory" },
   { icon: MessageSquare, label: "Complaints", path: "/complaints" },
@@ -41,6 +41,7 @@ const menuItems = [
 
 const DashboardLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem("sidebarCollapsed");
     return saved ? JSON.parse(saved) : false;
@@ -206,6 +207,40 @@ const DashboardLayout = ({ children }) => {
               )}
             </Button>
           </div>
+
+          <div className="px-2 pb-3 pt-2 border-t border-sidebar-accent/30">
+            {sidebarCollapsed ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setLogoutDialogOpen(true)}
+                className="h-8 w-full rounded-md justify-center px-1 text-sidebar-foreground/85 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                title="Log out"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            ) : (
+              <div className="flex items-center justify-between gap-2 px-1">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-sidebar-foreground line-clamp-1">
+                    {currentUser?.name || "User"}
+                  </p>
+                  <p className="text-[10px] text-sidebar-foreground/70 line-clamp-1">
+                    {currentUser?.designation || currentUser?.role || "Staff Member"}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setLogoutDialogOpen(true)}
+                  className="h-8 w-8 shrink-0 rounded-md text-sidebar-foreground/85 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                  title="Log out"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -263,6 +298,27 @@ const DashboardLayout = ({ children }) => {
                   );
                 })}
               </nav>
+              <div className="px-3 pb-4 pt-2 border-t border-sidebar-accent/30">
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-sidebar-foreground line-clamp-1">
+                      {currentUser?.name || "User"}
+                    </p>
+                    <p className="text-[10px] text-sidebar-foreground/70 line-clamp-1">
+                      {currentUser?.designation || currentUser?.role || "Staff Member"}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setLogoutDialogOpen(true)}
+                    className="h-8 w-8 shrink-0 rounded-md text-sidebar-foreground/85 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                    title="Log out"
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
           </aside>
         </>
@@ -275,60 +331,36 @@ const DashboardLayout = ({ children }) => {
           sidebarCollapsed ? "lg:pl-14" : "lg:pl-52"
         )}
       >
-        <header className="bg-card border-b border-border sticky top-0 z-30">
-          <div className="flex items-center justify-between px-3 py-2">
-            <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="lg:hidden h-7 w-7"
-                onClick={() => setSidebarOpen(true)}
-              >
-                <Menu className="w-4 h-4" />
-              </Button>
-              <h1 className="text-sm font-semibold text-foreground">
-                {settings?.instituteName}
-              </h1>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <ThemeToggle />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="flex items-center gap-1.5 pl-1.5 pr-1 h-8 rounded-full hover:bg-muted">
-                    <span className="hidden md:flex flex-col items-end mr-1 px-1">
-                      <span className="text-xs text-foreground font-semibold leading-none">{currentUser?.name}</span>
-                      <span className="text-[10px] text-muted-foreground leading-none mt-0.5">{currentUser?.designation || currentUser?.role}</span>
-                    </span>
-                    <Avatar className="h-7 w-7 border border-border">
-                      <AvatarImage src="" alt={currentUser?.name} />
-                      <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                        {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : <User className="h-3 w-3" />}
-                      </AvatarFallback>
-                    </Avatar>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56" align="end" forceMount>
-                  <DropdownMenuLabel className="font-normal md:hidden">
-                    <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium leading-none">{currentUser?.name}</p>
-                      <p className="text-xs leading-none text-muted-foreground">
-                        {currentUser?.email || currentUser?.designation || currentUser?.role}
-                      </p>
-                    </div>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator className="md:hidden" />
-                  <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer">
-                    <LogOut className="mr-2 h-4 w-4" />
-                    <span>Log out</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+        <main className="flex-1 p-3 lg:p-4 w-full overflow-x-hidden">
+          <div className="lg:hidden mb-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setSidebarOpen(true)}
+            >
+              <Menu className="w-4 h-4" />
+            </Button>
           </div>
-        </header>
-
-        <main className="flex-1 p-3 lg:p-4 w-full overflow-x-hidden">{children}</main>
+          <div key={location.pathname} className="animate-in fade-in slide-in- duration-500">
+            {children}
+          </div>
+        </main>
       </div>
+      <AlertDialog open={logoutDialogOpen} onOpenChange={setLogoutDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Log out?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will be signed out of your account and redirected to login.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleLogout}>Log out</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

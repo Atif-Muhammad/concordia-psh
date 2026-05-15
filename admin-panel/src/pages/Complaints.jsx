@@ -111,7 +111,7 @@ const Complaints = () => {
     <DashboardLayout>
       <div className="space-y-6 animate-in fade-in slide-in- duration-500">
         <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold tracking-tight bg-clip-text text-transparent">
+          <h1 className="text-xl font-semibold tracking-tight bg-clip-text text-foreground">
             My Assigned Complaints
           </h1>
           <p className="text-muted-foreground">

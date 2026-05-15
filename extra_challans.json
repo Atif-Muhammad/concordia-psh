@@ -1,0 +1,18 @@
+[
+	{
+		"id" : 10,
+		"challanNumber" : "76887665",
+		"studentId" : 3,
+		"generatedAt" : "2026-05-07 16:34:33.363",
+		"dueDate" : "2026-05-08",
+		"totalAmount" : 2000.00,
+		"status" : "PENDING",
+		"remarks" : "Extra fee head challan",
+		"createdAt" : "2026-05-07 16:34:33.363",
+		"updatedAt" : "2026-05-07 16:34:33.363",
+		"paidAmount" : 0.00,
+		"lateFeeFine" : 0.00,
+		"lateFeeRatePerDay" : 100.00,
+		"discount" : 0.00
+	}
+]

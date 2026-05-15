@@ -74,7 +74,19 @@ const StudentForm = ({
             tuitionFee: initialData.tuitionFee?.toString() || "",
             numberOfInstallments: initialData.numberOfInstallments?.toString() || "1",
             lateFeeFine: initialData.lateFeeFine || 0,
-            installments: initialData.installments || initialData.feeInstallments || [],
+            installments: (initialData.installments || initialData.feeInstallments || []).map(inst => {
+                let sessionName = inst.session || "";
+                if (typeof sessionName === "object" && sessionName?.name) sessionName = sessionName.name;
+                if (!sessionName && inst.sessionId) {
+                    const found = academicSessions.find(s => s.id.toString() === inst.sessionId.toString());
+                    sessionName = found?.name || "";
+                }
+                return {
+                    ...inst,
+                    amount: inst.amount || Number(inst.basePayable) || 0,
+                    session: sessionName,
+                };
+            }),
             documents: docs,
             // New fields
             admissionFormNumber: initialData.admissionFormNumber || "",
@@ -123,7 +135,19 @@ const StudentForm = ({
             tuitionFee: initialData.tuitionFee?.toString() || "",
             numberOfInstallments: initialData.numberOfInstallments?.toString() || "1",
             lateFeeFine: initialData.lateFeeFine || 0,
-            installments: initialData.installments || initialData.feeInstallments || [],
+            installments: (initialData.installments || initialData.feeInstallments || []).map(inst => {
+                let sessionName = inst.session || "";
+                if (typeof sessionName === "object" && sessionName?.name) sessionName = sessionName.name;
+                if (!sessionName && inst.sessionId) {
+                    const found = academicSessions.find(s => s.id.toString() === inst.sessionId.toString());
+                    sessionName = found?.name || "";
+                }
+                return {
+                    ...inst,
+                    amount: inst.amount || Number(inst.basePayable) || 0,
+                    session: sessionName,
+                };
+            }),
             documents: docs,
             // New fields
             admissionFormNumber: initialData.admissionFormNumber || "",
@@ -811,7 +835,7 @@ const StudentForm = ({
                         </div>
                         <div>
                             <Label>Parent Phone *</Label>
-                            <Input value={formData.parentOrGuardianPhone} onChange={e => setFormData({ ...formData, parentOrGuardianPhone: e.target.value })} />
+                            <Input autoComplete="off" value={formData.parentOrGuardianPhone} onChange={e => setFormData({ ...formData, parentOrGuardianPhone: e.target.value })} />
                         </div>
                         <div>
                             <Label>Parent CNIC <span className="text-muted-foreground text-xs">(optional)</span></Label>

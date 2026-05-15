@@ -174,10 +174,12 @@ export class AcademicsController {
   async getSubjectsForClassWithAssignments(
     @Query('classId') classId: string,
     @Query('sessionId') sessionId?: string,
+    @Query('sectionId') sectionId?: string,
   ) {
     return await this.academicService.getSubjectsForClassWithAssignments(
       Number(classId),
       sessionId ? Number(sessionId) : undefined,
+      sectionId ? Number(sectionId) : undefined,
     );
   }
   @Post('scm/create')

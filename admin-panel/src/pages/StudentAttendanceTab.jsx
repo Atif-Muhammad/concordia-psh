@@ -21,11 +21,12 @@ export const StudentAttendanceTab = ({
     reportData,
     generateReport,
     isFetchingReport,
+    showFilters = true,
 }) => {
     // Calculate stats for the selected student
     const studentStats = useMemo(() => {
         if (!reportData || reportData.length === 0 || !startDate || !endDate) {
-            return { totalDays: 0, presentCount: 0, absentCount: 0, leaveCount: 0, percentage: 0 };
+            return { totalDays: 0, presentCount: 0, absentCount: 0, leaveCount: 0, shortLeaveCount: 0, totalClasses: 0, percentage: 0 };
         }
 
         const start = new Date(startDate);
@@ -34,14 +35,16 @@ export const StudentAttendanceTab = ({
         const totalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
 
         const student = reportData[0];
-        let presentCount = 0, absentCount = 0, leaveCount = 0;
+        let presentCount = 0, absentCount = 0, leaveCount = 0, shortLeaveCount = 0;
 
         if (student && student.subjects) {
             student.subjects.forEach(subject => {
                 subject.attendance.forEach(a => {
-                    if (a.status === 'present') presentCount++;
-                    else if (a.status === 'absent') absentCount++;
-                    else if (a.status === 'leave') leaveCount++;
+                    const status = String(a.status || "").toLowerCase();
+                    if (status === 'present') presentCount++;
+                    else if (status === 'absent') absentCount++;
+                    else if (status === 'leave') leaveCount++;
+                    else if (status === 'short_leave') shortLeaveCount++;
                 });
             });
         }
@@ -50,10 +53,10 @@ export const StudentAttendanceTab = ({
         // Or should it be based on days? 
         // Usually attendance percentage is (Total Present / Total Classes Held) * 100
         // Total Classes Held = Sum of all attendance records across all subjects
-        const totalClasses = presentCount + absentCount + leaveCount;
-        const percentage = totalClasses > 0 ? ((presentCount / totalClasses) * 100).toFixed(1) : 0;
+        const totalClasses = presentCount + absentCount + leaveCount + shortLeaveCount;
+        const percentage = totalClasses > 0 ? (((presentCount + shortLeaveCount) / totalClasses) * 100).toFixed(1) : 0;
 
-        return { totalDays, presentCount, absentCount, leaveCount, percentage };
+        return { totalDays, presentCount, absentCount, leaveCount, shortLeaveCount, totalClasses, percentage };
     }, [reportData, startDate, endDate]);
 
     // Generate all dates in the range
@@ -108,69 +111,71 @@ export const StudentAttendanceTab = ({
                 <CardTitle>Individual Student Attendance Report</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
-                    <div className="space-y-2 md:col-span-2">
-                        <Label>Search Student (by name or roll number)</Label>
-                        <div className="relative">
-                            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder="Type student name or roll number..."
-                                value={studentSearchQuery}
-                                onChange={(e) => handleStudentSearch(e.target.value)}
-                                className="pl-9"
-                            />
-                        </div>
-                        {isSearching && <p className="text-sm text-muted-foreground">Searching...</p>}
-                        {searchResults.length > 0 && (
-                            <div className="border rounded-md max-h-48 overflow-y-auto">
-                                {searchResults.map(student => (
-                                    <div
-                                        key={student.id}
-                                        onClick={() => handleSelectStudent(student)}
-                                        className="px-3 py-2 hover:bg-accent cursor-pointer border-b last:border-0"
-                                    >
-                                        <p className="font-medium">{student.rollNumber} - {student.fName} {student.lName}</p>
+                <div className={`transition-all duration-300 ease-out overflow-hidden ${showFilters ? "max-h-[520px] opacity-100" : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"}`}>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
+                            <div className="space-y-2 md:col-span-2">
+                                <Label>Search Student (by name or roll number)</Label>
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Type student name or roll number..."
+                                        value={studentSearchQuery}
+                                        onChange={(e) => handleStudentSearch(e.target.value)}
+                                        className="pl-9"
+                                    />
+                                </div>
+                                {isSearching && <p className="text-sm text-muted-foreground">Searching...</p>}
+                                {searchResults.length > 0 && (
+                                    <div className="border rounded-md max-h-48 overflow-y-auto bg-card">
+                                        {searchResults.map(student => (
+                                            <div
+                                                key={student.id}
+                                                onClick={() => handleSelectStudent(student)}
+                                                className="px-3 py-2 hover:bg-primary/10 cursor-pointer border-b last:border-0 transition-colors"
+                                            >
+                                                <p className="font-medium">{student.rollNumber} - {student.fName} {student.lName}</p>
+                                                <p className="text-sm text-muted-foreground">
+                                                    {student.class?.name} {student.section && `- ${student.section.name}`}
+                                                </p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {selectedStudent && (
+                                    <div className="p-3 rounded-md border border-primary/30 bg-primary/10">
+                                        <p className="font-medium text-foreground">Selected: {selectedStudent.rollNumber} - {selectedStudent.fName} {selectedStudent.lName}</p>
                                         <p className="text-sm text-muted-foreground">
-                                            {student.class?.name} {student.section && `- ${student.section.name}`}
+                                            {selectedStudent.class?.name} {selectedStudent.section && `- ${selectedStudent.section.name}`}
                                         </p>
                                     </div>
-                                ))}
+                                )}
                             </div>
-                        )}
-                        {selectedStudent && (
-                            <div className="p-3 bg-accent rounded-md">
-                                <p className="font-medium">Selected: {selectedStudent.rollNumber} - {selectedStudent.fName} {selectedStudent.lName}</p>
-                                <p className="text-sm text-muted-foreground">
-                                    {selectedStudent.class?.name} {selectedStudent.section && `- ${selectedStudent.section.name}`}
-                                </p>
+
+                            <div className="space-y-2">
+                                <Label>Start Date</Label>
+                                <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
                             </div>
-                        )}
-                    </div>
 
-                    <div className="space-y-2">
-                        <Label>Start Date</Label>
-                        <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-                    </div>
+                            <div className="space-y-2">
+                                <Label>End Date</Label>
+                                <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                            </div>
+                        </div>
 
-                    <div className="space-y-2">
-                        <Label>End Date</Label>
-                        <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
-                    </div>
-                </div>
-
-                <div className="flex gap-4">
-                    <Button onClick={generateReport} disabled={!selectedStudent || !startDate || !endDate || isFetchingReport}>
-                        Generate Report
-                    </Button>
-                    <Button variant="outline" onClick={printAttendanceReport} disabled={!reportData || reportData.length === 0} className="gap-2">
-                        <Printer className="w-4 h-4" />
-                        Print Report
-                    </Button>
+                        <div className="flex gap-4">
+                            <Button onClick={generateReport} disabled={!selectedStudent || !startDate || !endDate || isFetchingReport}>
+                                Generate Report
+                            </Button>
+                            <Button variant="outline" onClick={printAttendanceReport} disabled={!reportData || reportData.length === 0} className="gap-2">
+                                <Printer className="w-4 h-4" />
+                                Print Report
+                            </Button>
+                        </div>
                 </div>
 
                 {reportData && reportData.length > 0 && (
                     <>
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mt-6">
+                        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mt-6">
                             <Card>
                                 <CardContent className="pt-6">
                                     <p className="text-sm text-muted-foreground">Total Days</p>
@@ -197,11 +202,36 @@ export const StudentAttendanceTab = ({
                             </Card>
                             <Card>
                                 <CardContent className="pt-6">
-                                    <p className="text-sm text-muted-foreground">Attendance %</p>
+                                    <p className="text-sm text-muted-foreground">Recorded Classes</p>
+                                    <p className="text-2xl font-bold">{studentStats.totalClasses}</p>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Attendance Rate</p>
                                     <p className="text-2xl font-bold text-primary">{studentStats.percentage}%</p>
                                 </CardContent>
                             </Card>
                         </div>
+
+                        <Card className="mt-4 border-dashed">
+                            <CardContent className="pt-6 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm font-medium">Status Distribution</p>
+                                    <p className="text-xs text-muted-foreground">Weighted by subject attendance entries</p>
+                                </div>
+                                <div className="w-full h-4 rounded-full bg-muted overflow-hidden flex">
+                                    {studentStats.totalClasses > 0 && (
+                                        <>
+                                            <div className="bg-green-500" style={{ width: `${(studentStats.presentCount / studentStats.totalClasses) * 100}%` }} />
+                                            <div className="bg-red-500" style={{ width: `${(studentStats.absentCount / studentStats.totalClasses) * 100}%` }} />
+                                            <div className="bg-amber-500" style={{ width: `${(studentStats.leaveCount / studentStats.totalClasses) * 100}%` }} />
+                                            <div className="bg-blue-500" style={{ width: `${(studentStats.shortLeaveCount / studentStats.totalClasses) * 100}%` }} />
+                                        </>
+                                    )}
+                                </div>
+                            </CardContent>
+                        </Card>
 
                         <div className="overflow-x-auto mt-6 border rounded-lg individual-attendance-table">
                             <Table>
@@ -233,12 +263,15 @@ export const StudentAttendanceTab = ({
                                             const isFirstRow = index === 0;
                                             const attendanceMap = {};
                                             subject.attendance.forEach(att => {
-                                                attendanceMap[att.date] = att.status;
+                                                const dateKey = typeof att.date === "string" && att.date.length >= 10
+                                                    ? att.date.slice(0, 10)
+                                                    : new Date(att.date).toISOString().slice(0, 10);
+                                                attendanceMap[dateKey] = att.status;
                                             });
 
-                                            const present = subject.attendance.filter(a => a.status === 'present').length;
-                                            const absent = subject.attendance.filter(a => a.status === 'absent').length;
-                                            const leave = subject.attendance.filter(a => a.status === 'leave').length;
+                                            const present = subject.attendance.filter(a => String(a.status || "").toLowerCase() === 'present').length;
+                                            const absent = subject.attendance.filter(a => String(a.status || "").toLowerCase() === 'absent').length;
+                                            const leave = subject.attendance.filter(a => String(a.status || "").toLowerCase() === 'leave').length;
 
                                             return (
                                                 <TableRow key={`${student.id}-${subject.subjectId}`} className="hover:bg-muted/30">
@@ -257,9 +290,10 @@ export const StudentAttendanceTab = ({
                                                         const status = attendanceMap[date];
                                                         return (
                                                             <TableCell key={date} className="text-center border-r p-2">
-                                                                {status === 'present' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-green-50 text-green-700 font-semibold text-xs">P</span>}
-                                                                {status === 'absent' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-red-50 text-red-700 font-semibold text-xs">A</span>}
-                                                                {status === 'leave' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-amber-50 text-amber-700 font-semibold text-xs">L</span>}
+                                                                {String(status || "").toLowerCase() === 'present' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-green-50 text-green-700 font-semibold text-xs">P</span>}
+                                                                {String(status || "").toLowerCase() === 'absent' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-red-50 text-red-700 font-semibold text-xs">A</span>}
+                                                                {String(status || "").toLowerCase() === 'leave' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-amber-50 text-amber-700 font-semibold text-xs">L</span>}
+                                                                {String(status || "").toLowerCase() === 'short_leave' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-blue-50 text-blue-700 font-semibold text-[10px]">SL</span>}
                                                                 {!status && <span className="text-gray-300">-</span>}
                                                             </TableCell>
                                                         );

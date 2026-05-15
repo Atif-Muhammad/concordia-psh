@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsNumber, IsDateString } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsDateString, IsOptional } from 'class-validator';
 
 export class CreateClosingDto {
   @IsDateString()
@@ -10,17 +10,18 @@ export class CreateClosingDto {
   type: string;
 
   @IsNumber()
-  @IsNotEmpty()
+  @IsOptional()
   totalIncome: number;
 
   @IsNumber()
-  @IsNotEmpty()
+  @IsOptional()
   totalExpense: number;
 
   @IsNumber()
-  @IsNotEmpty()
+  @IsOptional()
   netBalance: number;
 
   @IsString()
+  @IsOptional()
   remarks?: string;
 }

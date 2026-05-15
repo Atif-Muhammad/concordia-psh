@@ -5,13 +5,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { StudentDto } from './dtos/student.dto';
-import { FeeManagementService } from '../fee-management/fee-management.service';
 
 @Injectable()
 export class StudentService {
   constructor(
     private prismaService: PrismaService,
-    private feeManagementService: FeeManagementService,
   ) { }
 
   async findOne(id: number) {
@@ -129,11 +127,8 @@ export class StudentService {
         class: { select: { id: true, name: true } },
         section: { select: { id: true, name: true } },
         feeInstallments: { 
-          include: { class: true },
-          orderBy: { installmentNumber: 'asc' } 
-        },
-        studentArrears: {
-          include: { class: true, program: true }
+          orderBy: { installmentNumber: 'asc' },
+          include: { session: { select: { id: true, name: true } } },
         },
         academicRecords: {
             orderBy: { id: 'desc' },
@@ -207,14 +202,13 @@ export class StudentService {
       const targetMonthName = monthNames[monthIdx - 1];
 
       where.AND = [
-        // Must have an installment for this month/session that is completely unbilled/unpaid
+        // Must have an installment for this month/session that has not had a challan generated yet
         {
           feeInstallments: {
             some: {
               month: targetMonthName,
               sessionId: Number(filters.unbilledInSessionId),
-              pendingAmount: 0,
-              paidAmount: 0
+              challanGenerated: false,
             }
           }
         }
@@ -239,29 +233,8 @@ export class StudentService {
           class: { select: { id: true, name: true } },
           section: { select: { id: true, name: true } },
           feeInstallments: { 
-            include: { class: true },
-            orderBy: { installmentNumber: 'asc' } 
-          },
-          challans: {
-            where: { status: { in: ['PENDING', 'OVERDUE', 'PARTIAL'] } },
-            select: {
-              id: true,
-              month: true,
-              session: true,
-              amount: true,
-              paidAmount: true,
-              fineAmount: true,
-              lateFeeFine: true,
-              status: true,
-              dueDate: true,
-              installmentNumber: true,
-              studentClassId: true,
-              studentFeeInstallmentId: true,
-              remainingAmount: true,
-            }
-          },
-          studentArrears: {
-            include: { class: true, program: true }
+            orderBy: { installmentNumber: 'asc' },
+            include: { session: { select: { id: true, name: true } } },
           },
           academicRecords: {
             orderBy: { id: 'desc' },
@@ -294,6 +267,10 @@ export class StudentService {
     } else if (installments && Array.isArray(installments)) {
       installmentsData = installments;
     }
+
+    // Fetch global late fee rate to apply to new installments
+    const instituteSettings = await this.prismaService.instituteSettings.findFirst();
+    const globalLateFeeRate = Number(instituteSettings?.lateFeeRatePerDay ?? 0);
 
     const result = await this.prismaService.student.create({
       data: {
@@ -329,13 +306,14 @@ export class StudentService {
             }
             return {
               installmentNumber: Number(i.installmentNumber),
-              amount: Number(i.amount),
+              basePayable: Number(i.amount),
+              pendingAmount: Number(i.amount),
+              totalAmount: Number(i.amount),
               dueDate: dueDate,
               month: i.month || null,
-              session: i.session || null,
               sessionId: payload.sessionId ? Number(payload.sessionId) : null,
               classId: Number(payload.classId),
-              remainingAmount: Number(i.amount),
+              lateFeeRatePerDay: globalLateFeeRate,
             };
           }),
         },
@@ -379,16 +357,25 @@ export class StudentService {
         });
 
         if (currentFeeStructure) {
-          const paidChallans = await this.prismaService.feeChallan.findMany({
+          // Check via new FeeInstallment model
+          const paidInstallments = await this.prismaService.feeInstallment.count({
             where: {
               studentId: student.id,
-              feeStructureId: currentFeeStructure.id,
+              classId: student.classId,
               status: 'PAID',
             },
           });
 
-          const totalPaid = paidChallans.reduce((sum, c) => sum + (c.amountReceived?.toNumber() ?? c.paidAmount ?? 0), 0);
-          const paidInstallments = paidChallans.length;
+          const totalPaidAmount = await this.prismaService.feeInstallment.aggregate({
+            where: {
+              studentId: student.id,
+              classId: student.classId,
+              status: { notIn: ['VOID', 'SUPERSEDED', 'SETTLED'] },
+            },
+            _sum: { paidAmount: true },
+          });
+
+          const totalPaid = Number(totalPaidAmount._sum.paidAmount ?? 0);
 
           const targetAmount = (student as any).tuitionFee && (student as any).tuitionFee > 0
             ? (student as any).tuitionFee
@@ -492,45 +479,31 @@ export class StudentService {
           }
         }
 
+        // Fetch global late fee rate for new installments
+        const settingsForUpdate = await tx.instituteSettings.findFirst();
+        const lateFeeRateForUpdate = Number(settingsForUpdate?.lateFeeRatePerDay ?? 0);
+
         const iNumbers = installmentsData.map(i => Number(i.installmentNumber));
-        await tx.studentFeeInstallment.deleteMany({
+        await tx.feeInstallment.deleteMany({
           where: { studentId: id, classId: targetClassId_forInst, installmentNumber: { notIn: iNumbers } }
         });
 
         for (const i of installmentsData) {
           const instNum = Number(i.installmentNumber);
           const amount = Number(i.amount);
-          const upserted = await tx.studentFeeInstallment.upsert({
-            where: { studentId_classId_installmentNumber: { studentId: id, classId: targetClassId_forInst, installmentNumber: instNum } },
+          await tx.feeInstallment.upsert({
+            where: { studentId_installmentNumber_sessionId: { studentId: id, installmentNumber: instNum, sessionId: targetSessionId ?? 0 } },
             create: {
               studentId: id, classId: targetClassId_forInst, installmentNumber: instNum,
-              amount, dueDate: new Date(i.dueDate), month: i.month || null,
-              session: i.session || resolvedSessionName || null, remainingAmount: amount,
-              totalAmount: amount, // totalAmount starts as base amount (no late fee yet)
+              basePayable: amount, pendingAmount: amount, totalAmount: amount,
+              dueDate: new Date(i.dueDate), month: i.month || null,
+              sessionId: targetSessionId ?? null,
+              lateFeeRatePerDay: lateFeeRateForUpdate,
             },
             update: {
-              amount, dueDate: new Date(i.dueDate), month: i.month || null,
-              session: i.session || resolvedSessionName || null,
-              // When base amount changes, reset totalAmount to new base (cron will re-add late fee)
-              // But only reset if amount actually changed to avoid wiping accrued late fee
+              basePayable: amount, dueDate: new Date(i.dueDate), month: i.month || null,
             }
           });
-
-          // Sync amount change to the linked active challan (if any)
-          const activeChallan = await (tx.feeChallan as any).findFirst({
-            where: {
-              studentFeeInstallmentId: upserted.id,
-              status: { notIn: ['PAID', 'VOID'] },
-            },
-            select: { id: true, fineAmount: true, lateFeeFine: true },
-          });
-          if (activeChallan) {
-            const newChallanTotal = amount + (activeChallan.fineAmount || 0) + (activeChallan.lateFeeFine || 0);
-            await (tx.feeChallan as any).update({
-              where: { id: activeChallan.id },
-              data: { amount, totalAmount: newChallanTotal },
-            });
-          }
         }
       }
 
@@ -566,14 +539,11 @@ export class StudentService {
     await this.prismaService.$transaction([
       this.prismaService.attendance.deleteMany({ where: { studentId: id } }),
       this.prismaService.leave.deleteMany({ where: { studentId: id } }),
-      (this.prismaService as any).studentFeeInstallment.deleteMany({
-        where: { studentId: id },
-      }),
-      this.prismaService.feeChallan.deleteMany({ where: { studentId: id } }),
+      this.prismaService.feeInstallment.deleteMany({ where: { studentId: id } }),
+      this.prismaService.feeChallanV2.deleteMany({ where: { installment: { studentId: id } } }),
       this.prismaService.result.deleteMany({ where: { studentId: id } }),
       this.prismaService.marks.deleteMany({ where: { studentId: id } }),
       this.prismaService.position.deleteMany({ where: { studentId: id } }),
-      this.prismaService.studentArrear.deleteMany({ where: { studentId: id } }),
       this.prismaService.studentStatusHistory.deleteMany({
         where: { studentId: id },
       }),
@@ -628,53 +598,30 @@ export class StudentService {
 
     // Check for arrears before promotion - ALWAYS calculate to handle both initial check and force promote
     let outstandingAmount = 0;
-    if (student.classId && student.programId) {
-      const currentChallans = await this.prismaService.feeChallan.findMany({
+    if (student.classId) {
+      const pendingInstallments = await this.prismaService.feeInstallment.findMany({
         where: {
           studentId: id,
-          OR: [
-            {
-              studentClassId: student.classId,
-              studentProgramId: student.programId,
-            },
-            {
-              // Legacy support: Check via fee structure if snapshot missing
-              studentClassId: null,
-              feeStructure: {
-                classId: student.classId,
-                programId: student.programId,
-              },
-            },
-          ],
+          classId: student.classId,
+          pendingAmount: { gt: 0 },
+          // Exclude SUPERSEDED/SETTLED — their debt is already absorbed into the
+          // leading installment's pendingAmount. Including them would double-count.
+          status: { notIn: ['SUPERSEDED', 'SETTLED', 'VOID', 'PAID'] },
         },
-        include: { feeStructure: true },
+        select: { pendingAmount: true, installmentNumber: true, month: true, basePayable: true, totalAmount: true, paidAmount: true, status: true, challanGenerated: true },
       });
 
-      // Calculate outstanding amount by summing actual unpaid/partial challans
-      // Exclude VOID challans that are 100% settled
-      for (const challan of currentChallans) {
-        // Skip PAID challans (fully paid)
-        if (challan.status === 'PAID') continue;
-
-        // Skip VOID challans that are 100% settled
-        if (challan.status === 'VOID') {
-          const totalDue = (challan.amount || 0) + (challan.fineAmount || 0) - (challan.discount || 0);
-          const settledAmount = challan.settledAmount || 0;
-          if (settledAmount >= totalDue) {
-            // This VOID challan is fully settled, skip it
-            continue;
-          }
-        }
-
-        // For UNPAID, PARTIAL, OVERDUE, and unsettled VOID challans, add the remaining balance
-        const totalDue = (challan.amount || 0) + (challan.fineAmount || 0) - (challan.discount || 0);
-        const amountPaid = challan.amountReceived?.toNumber() ?? challan.paidAmount ?? 0;
-        const challanBalance = totalDue - amountPaid;
-        
-        if (challanBalance > 0) {
-          outstandingAmount += challanBalance;
-        }
-      }
+      // Smart remaining calculation:
+      // - challan generated: use totalAmount - paidAmount (totalAmount was frozen at
+      //   challan generation time: base + arrears + lateFeeFine + extraFine - discount,
+      //   so it correctly reflects what's owed on that specific challan)
+      // - no challan yet: use basePayable (pendingAmount may be inflated by rolled-up arrears)
+      outstandingAmount = pendingInstallments.reduce(
+        (sum, inst) => sum + (inst.challanGenerated
+          ? Math.max(0, Number(inst.totalAmount) - Number(inst.paidAmount))
+          : Number(inst.basePayable)),
+        0,
+      );
 
       // If arrears found
       if (outstandingAmount > 0) {
@@ -697,37 +644,14 @@ export class StudentService {
               outstandingAmount,
               className: student.class?.name,
               programName: student.program?.name,
-              unpaidChallans: currentChallans
-                .filter((c: any) => {
-                  // Exclude PAID challans
-                  if (c.status === 'PAID') return false;
-                  
-                  // Exclude VOID challans that are 100% settled
-                  if (c.status === 'VOID') {
-                    const totalDue = (c.amount || 0) + (c.fineAmount || 0) - (c.discount || 0);
-                    const settledAmount = c.settledAmount || 0;
-                    if (settledAmount >= totalDue) return false;
-                  }
-                  
-                  return true;
-                })
-                .map((c: any) => ({
-                  installmentNumber: c.installmentNumber,
-                  challanNumber: c.challanNumber,
-                  status: c.status,
-                  balance: Math.round(
-                    (c.amount || 0) +
-                    (c.fineAmount || 0) -
-                    (c.discount || 0) -
-                    (c.amountReceived?.toNumber() ?? c.paidAmount ?? 0),
-                  ),
-                  dueDate: c.dueDate,
-                }))
-                .filter((c) => c.balance > 0)
-                .sort(
-                  (a, b) =>
-                    (a.installmentNumber || 0) - (b.installmentNumber || 0),
-                ),
+              unpaidInstallments: pendingInstallments.map((inst) => ({
+                installmentNumber: inst.installmentNumber,
+                month: inst.month,
+                balance: inst.challanGenerated
+                  ? Math.max(0, Number(inst.totalAmount) - Number(inst.paidAmount))
+                  : Number(inst.basePayable),
+                status: inst.status,
+              })),
             },
             targetClassId,
             targetSectionId,
@@ -839,27 +763,7 @@ export class StudentService {
         studentUpdateData.program = { connect: { id: Number(targetProgramId) } };
       }
 
-      // 2. Manage Arrears
-      if (outstandingAmount > 0 && student.classId && student.programId) {
-        await tx.studentArrear.upsert({
-          where: {
-            studentId_classId_programId: {
-              studentId: id,
-              classId: student.classId,
-              programId: student.programId,
-            },
-          },
-          create: {
-            studentId: id,
-            classId: student.classId!,
-            programId: student.programId!,
-            arrearAmount: outstandingAmount,
-          },
-          update: {
-            arrearAmount: outstandingAmount,
-          },
-        });
-      }
+      // 2. Arrears are implicit in FeeInstallment.pendingAmount — no separate record needed
 
       // 3. Automated Fees
       const newFeeStructure = await tx.feeStructure.findUnique({
@@ -870,6 +774,10 @@ export class StudentService {
           },
         },
       });
+
+      // Fetch global late fee rate from InstituteSettings
+      const instituteSettings = await tx.instituteSettings.findFirst();
+      const globalLateFeeRate = Number(instituteSettings?.lateFeeRatePerDay ?? 0);
 
       const totalAmount = newFeeStructure ? newFeeStructure.totalAmount : student.tuitionFee || 0;
       const installmentCount = newFeeStructure?.installments || student.numberOfInstallments || 1;
@@ -883,24 +791,24 @@ export class StudentService {
           const d = new Date();
           d.setMonth(d.getMonth() + idx + 1);
           d.setDate(10);
+          const basePayable = idx === installmentCount - 1 
+            ? totalAmount - (defaultInstallmentAmount * (installmentCount - 1))
+            : defaultInstallmentAmount;
           return {
             studentId: id,
             classId: nextClass.id,
             installmentNumber: idx + 1,
-            amount: idx === installmentCount - 1 
-              ? totalAmount - (defaultInstallmentAmount * (installmentCount - 1))
-              : defaultInstallmentAmount,
+            basePayable,
+            pendingAmount: basePayable,
+            totalAmount: basePayable,
             dueDate: d,
             month: d.toLocaleString('default', { month: 'long' }),
-            remainingAmount: idx === installmentCount - 1 
-              ? totalAmount - (defaultInstallmentAmount * (installmentCount - 1))
-              : defaultInstallmentAmount,
-            session: effectiveSession,
             sessionId: effectiveSessionId,
+            lateFeeRatePerDay: globalLateFeeRate,
           };
         });
 
-        await tx.studentFeeInstallment.createMany({
+        await tx.feeInstallment.createMany({
           data: newInstallments,
           skipDuplicates: true,
         });
@@ -912,23 +820,40 @@ export class StudentService {
       });
 
       // 4. Academic Record / Session Update
-      if (effectiveSessionId && effectiveSessionId > 0) {
+      // Always create/update an academic record on promotion so that demotion
+      // can reliably restore the previous session by reading academicRecords history.
+      {
         const currentRecord = student.academicRecords?.find(ar => ar.isCurrent);
-        const isSameSession = currentRecord?.sessionId === effectiveSessionId;
+        const recordSessionId = effectiveSessionId && effectiveSessionId > 0
+          ? effectiveSessionId
+          : (currentRecord?.sessionId ?? null);
+        const isSameSession = currentRecord?.sessionId === recordSessionId && currentRecord?.classId === nextClass.id;
 
         if (!isSameSession) {
+          // Mark all existing records as not current
           await tx.studentAcademicRecord.updateMany({
             where: { studentId: id },
             data: { isCurrent: false }
           });
+          // Create new record for the promoted-to class/session
           await tx.studentAcademicRecord.create({
             data: {
               studentId: id,
-              sessionId: effectiveSessionId,
+              sessionId: recordSessionId ?? (currentRecord?.sessionId ?? 1),
               classId: nextClass.id,
               sectionId: matchingSection ? matchingSection.id : null,
               programId: effectiveProgramId,
               isCurrent: true,
+            }
+          });
+        } else if (currentRecord) {
+          // Same session but class may have changed — update the existing record
+          await tx.studentAcademicRecord.update({
+            where: { id: currentRecord.id },
+            data: {
+              classId: nextClass.id,
+              sectionId: matchingSection ? matchingSection.id : null,
+              programId: effectiveProgramId,
             }
           });
         }
@@ -986,7 +911,7 @@ export class StudentService {
     );
 
     // --- RESTORE PREVIOUS FEE STRUCTURE ---
-    const previousInstallments = await this.prismaService.studentFeeInstallment.findMany({
+    const previousInstallments = await this.prismaService.feeInstallment.findMany({
       where: {
         studentId: id,
         classId: prevClass.id,
@@ -998,7 +923,7 @@ export class StudentService {
     let restoredInstallmentsCount = 0;
 
     if (previousInstallments.length > 0) {
-      restoredTuitionFee = previousInstallments.reduce((sum, inst) => sum + inst.amount, 0);
+      restoredTuitionFee = previousInstallments.reduce((sum, inst) => sum + Number(inst.basePayable), 0);
       restoredInstallmentsCount = previousInstallments.length;
     } else {
       const targetFeeStructure = await this.prismaService.feeStructure.findUnique({
@@ -1039,22 +964,15 @@ export class StudentService {
     }
 
     return await this.prismaService.$transaction(async (tx) => {
-      // 1. Cleanup Arrears for the class we are demoting TO (the arrears that were moved)
-      if (student.programId) {
-        await tx.studentArrear.deleteMany({
-          where: {
-            studentId: id,
-            classId: prevClass.id,
-            programId: student.programId,
-          },
-        });
-      }
+      // 1. Cleanup Arrears for the class we are demoting TO — arrears are implicit in FeeInstallment.pendingAmount
 
-      // 2. Remove Challans for the class we are LEAVING
-      await this.feeManagementService.removeChallansForDemotion(id, student.classId);
+      // 2. Remove feeChallanV2s for the class we are LEAVING
+      await tx.feeChallanV2.deleteMany({
+        where: { installment: { studentId: id, classId: student.classId } },
+      });
 
       // 3. Remove installments for the current class
-      await tx.studentFeeInstallment.deleteMany({
+      await tx.feeInstallment.deleteMany({
         where: { studentId: id, classId: student.classId },
       });
 
@@ -1101,29 +1019,18 @@ export class StudentService {
       throw new BadRequestException('Student already passed out');
 
     // Check for remaining arrears before allowing passout
-    const [remainingInstallments, outstandingArrears] = await Promise.all([
-      this.prismaService.studentFeeInstallment.findMany({
-        where: {
-          studentId: id,
-          remainingAmount: { gt: 0 }
-        }
-      }),
-      this.prismaService.studentArrear.findMany({
-        where: {
-          studentId: id,
-          arrearAmount: { gt: 0 }
-        }
-      })
-    ]);
+    const remainingInstallments = await this.prismaService.feeInstallment.findMany({
+      where: {
+        studentId: id,
+        pendingAmount: { gt: 0 }
+      }
+    });
 
-    if (remainingInstallments.length > 0 || outstandingArrears.length > 0) {
-      const installmentOutstanding = remainingInstallments.reduce((sum, inst) => sum + inst.remainingAmount, 0);
-      const arrearOutstanding = outstandingArrears.reduce((sum, arr) => sum + arr.arrearAmount, 0);
-      const totalOutstanding = installmentOutstanding + arrearOutstanding;
+    if (remainingInstallments.length > 0) {
+      const totalOutstanding = remainingInstallments.reduce((sum, inst) => sum + Number(inst.pendingAmount), 0);
       
       let message = `Cannot pass out student. Total outstanding: PKR ${totalOutstanding}.`;
-      if (installmentOutstanding > 0) message += ` Unpaid installments: PKR ${installmentOutstanding}.`;
-      if (arrearOutstanding > 0) message += ` Past arrears: PKR ${arrearOutstanding}.`;
+      message += ` Unpaid installments: PKR ${totalOutstanding}.`;
       message += ` Please clear all dues first.`;
       
       throw new BadRequestException(message);
@@ -1157,15 +1064,15 @@ export class StudentService {
     if (!student) throw new NotFoundException('Student not found');
 
     // Check for remaining arrears before allowing expel
-    const remainingArrears = await this.prismaService.studentFeeInstallment.findMany({
+    const remainingArrears = await this.prismaService.feeInstallment.findMany({
       where: {
         studentId: id,
-        remainingAmount: { gt: 0 }
+        pendingAmount: { gt: 0 }
       }
     });
 
     if (remainingArrears.length > 0) {
-      const totalOutstanding = remainingArrears.reduce((sum, inst) => sum + inst.remainingAmount, 0);
+      const totalOutstanding = remainingArrears.reduce((sum, inst) => sum + Number(inst.pendingAmount), 0);
       throw new BadRequestException(
         `Cannot expel student. Total outstanding arrears: PKR ${totalOutstanding}. Please clear all dues before finalizing status.`
       );
@@ -1285,70 +1192,8 @@ export class StudentService {
           }
         }
 
-        // --- MANAGE ARREARS FOR OLD CLASS BEFORE SWITCHING (Consistent with Promote) ---
-        if (!isSameClass && student.classId && student.programId) {
-          // Calculate arrears for the class they are leaving (before updating student record)
-          const currentChallans = await tx.feeChallan.findMany({
-            where: {
-              studentId: id,
-              OR: [
-                { studentClassId: student.classId, studentProgramId: student.programId },
-                { studentClassId: null, feeStructure: { classId: student.classId, programId: student.programId } },
-              ],
-            },
-            include: { feeStructure: true },
-          });
-
-          let totalTuitionPaid = 0;
-          let expectedTuitionTotal = (student as any).tuitionFee || 0;
-
-          for (const challan of currentChallans) {
-            if (challan.status === 'PAID' || challan.status === 'PARTIAL') {
-              const netTuitionAmount = (challan.amount || 0) - (challan.discount || 0);
-              const amountPaid = challan.amountReceived?.toNumber() ?? challan.paidAmount ?? 0;
-              const tuitionPortionPaid = Math.min(amountPaid, netTuitionAmount);
-              totalTuitionPaid += tuitionPortionPaid;
-            }
-            if (expectedTuitionTotal === 0 && challan.feeStructure) {
-              expectedTuitionTotal = challan.feeStructure.totalAmount;
-            }
-          }
-
-          if (expectedTuitionTotal === 0) {
-            const structure = await tx.feeStructure.findUnique({
-              where: {
-                programId_classId: {
-                  programId: student.programId,
-                  classId: student.classId,
-                },
-              },
-            });
-            if (structure) expectedTuitionTotal = structure.totalAmount;
-          }
-
-          const outstandingAmount = Math.max(0, expectedTuitionTotal - totalTuitionPaid);
-
-          if (outstandingAmount > 0) {
-            await tx.studentArrear.upsert({
-              where: {
-                studentId_classId_programId: {
-                  studentId: id,
-                  classId: student.classId,
-                  programId: student.programId,
-                },
-              },
-              create: {
-                studentId: id,
-                classId: student.classId,
-                programId: student.programId,
-                arrearAmount: outstandingAmount,
-              },
-              update: {
-                arrearAmount: outstandingAmount,
-              },
-            });
-          }
-        }
+        // --- ARREARS FOR OLD CLASS BEFORE SWITCHING — arrears are implicit in FeeInstallment.pendingAmount
+        // No separate StudentArrear record needed.
 
         // --- AUTO-GENERATE NEW FEES FOR NEW CLASS IF NOT SAME CLASS ---
         if (!isSameClass && details.programId && details.classId) {
@@ -1365,6 +1210,10 @@ export class StudentService {
             },
           });
 
+          // Fetch global late fee rate from InstituteSettings
+          const instituteSettingsRejoin = await tx.instituteSettings.findFirst();
+          const globalLateFeeRateRejoin = Number(instituteSettingsRejoin?.lateFeeRatePerDay ?? 0);
+
           const totalAmount = newFeeStructure
             ? newFeeStructure.totalAmount
             : student.tuitionFee || 0;
@@ -1377,29 +1226,36 @@ export class StudentService {
             updateData.numberOfInstallments = installmentCount;
 
             const defaultInstallmentAmount = Math.floor(totalAmount / installmentCount);
-            const newInstallments = Array.from({ length: installmentCount }).map((_, idx) => ({
-              studentId: id,
-              classId: newClassId,
-              installmentNumber: idx + 1,
-              amount: idx === installmentCount - 1 
+            const newInstallments = Array.from({ length: installmentCount }).map((_, idx) => {
+              const d = new Date();
+              d.setMonth(d.getMonth() + idx + 1);
+              d.setDate(10);
+              const basePayable = idx === installmentCount - 1 
                 ? totalAmount - (defaultInstallmentAmount * (installmentCount - 1))
-                : defaultInstallmentAmount,
-              dueDate: new Date(new Date().setMonth(new Date().getMonth() + idx)),
-              remainingAmount: idx === installmentCount - 1 
-                ? totalAmount - (defaultInstallmentAmount * (installmentCount - 1))
-                : defaultInstallmentAmount,
-              sessionId: effectiveSessionId,
-            }));
+                : defaultInstallmentAmount;
+              return {
+                studentId: id,
+                classId: newClassId,
+                installmentNumber: idx + 1,
+                basePayable,
+                pendingAmount: basePayable,
+                totalAmount: basePayable,
+                dueDate: d,
+                month: d.toLocaleString('default', { month: 'long' }),
+                sessionId: effectiveSessionId,
+                lateFeeRatePerDay: globalLateFeeRateRejoin,
+              };
+            });
 
-            // --- FIX: Delete existing installments for target class to avoid unique constraint --
-            await tx.studentFeeInstallment.deleteMany({
+            // Delete existing installments for target class to avoid unique constraint
+            await tx.feeInstallment.deleteMany({
               where: {
                 studentId: id,
                 classId: newClassId
               }
             });
 
-            await tx.studentFeeInstallment.createMany({
+            await tx.feeInstallment.createMany({
               data: newInstallments,
             });
           }

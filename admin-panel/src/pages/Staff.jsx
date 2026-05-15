@@ -36,8 +36,7 @@ import {
     getStaffById,
     getPayrollHistory,
     getStaffAttendance,
-    markStaffAttendance,
-    generateStaffAttendance,
+    bulkMarkStaffAttendance,
     markDateAsHoliday,
     undoGenerateAttendance,
     undoMarkHoliday,
@@ -255,6 +254,7 @@ export default function Staff() {
     const [activeTab, setActiveTab] = useState("directory");
     const [attendanceDate, setAttendanceDate] = useState(new Date());
     const [attendanceRoleFilter, setAttendanceRoleFilter] = useState("all");
+    const [attendanceDraftRows, setAttendanceDraftRows] = useState([]);
     const [confirmDialog, setConfirmDialog] = useState(null); // { type: 'generate' | 'holiday', date: Date, holidayId?: number } | null
     // Pending action when user confirms override (e.g. generate on holiday, or mark holiday when attendance exists)
     const [pendingAction, setPendingAction] = useState(null); // 'generate' | 'holiday' | null
@@ -268,10 +268,14 @@ export default function Staff() {
 
     // Queries
     const { data: attendanceData = [], isFetching: attendanceLoading, refetch: refetchAttendance } = useQuery({
-        queryKey: ["staffAttendance", attendanceDateStr],
-        queryFn: () => getStaffAttendance(attendanceDateStr),
+        queryKey: ["staffAttendance", attendanceDateStr, attendanceRoleFilter],
+        queryFn: () => getStaffAttendance(attendanceDateStr, attendanceRoleFilter),
         enabled: activeTab === "attendance",
     });
+
+    useEffect(() => {
+        setAttendanceDraftRows(Array.isArray(attendanceData) ? attendanceData : []);
+    }, [attendanceData]);
 
     // Check if today is a global holiday
     const { data: holidays = [] } = useQuery({
@@ -290,6 +294,39 @@ export default function Staff() {
 
     const isAttendanceGenerated = attendanceData.length > 0;
 
+    const visibleAttendanceRows = useMemo(() => {
+        const scoped = attendanceDraftRows.filter((record) => {
+            if (attendanceRoleFilter === "all") return true;
+            const isTeaching = record.staff?.isTeaching;
+            const isNonTeaching = record.staff?.isNonTeaching;
+            if (attendanceRoleFilter === "teaching") return isTeaching;
+            if (attendanceRoleFilter === "non-teaching") return isNonTeaching;
+            return true;
+        });
+
+        const byStaff = new Map();
+        const score = (r) => {
+            let s = 0;
+            if (r?.id) s += 4;
+            if (r?.generatedAt) s += 3;
+            if (r?.markedAt) s += 2;
+            return s;
+        };
+
+        for (const row of scoped) {
+            const sid = Number(row?.staff?.id ?? row?.staffId);
+            if (!Number.isFinite(sid)) continue;
+            const prev = byStaff.get(sid);
+            if (!prev || score(row) > score(prev)) byStaff.set(sid, row);
+        }
+
+        const deduped = Array.from(byStaff.values());
+        const hasAttendance = deduped.some((r) => r?.id || r?.generatedAt || r?.markedAt);
+        return hasAttendance
+            ? deduped.filter((r) => r?.id || r?.generatedAt || r?.markedAt)
+            : deduped;
+    }, [attendanceDraftRows, attendanceRoleFilter]);
+
     // Future date check — disable both buttons for future dates
     const isFutureDate = useMemo(() => {
         const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -297,16 +334,51 @@ export default function Staff() {
         return sel > today;
     }, [attendanceDateStr]);
 
-    const markAttendanceMutation = useMutation({
-        mutationFn: markStaffAttendance,
-        onSuccess: () => {
-            toast({ title: "Success", description: "Attendance marked successfully" });
-            refetchAttendance();
+    const saveAttendanceMutation = useMutation({
+        mutationFn: bulkMarkStaffAttendance,
+        onSuccess: async () => {
+            toast({ title: "Success", description: "Attendance saved successfully" });
+            await queryClient.invalidateQueries({ queryKey: ["staffAttendance", attendanceDateStr, attendanceRoleFilter] });
+            await refetchAttendance();
         },
         onError: (error) => {
             toast({ title: "Error", description: error.message, variant: "destructive" });
         }
     });
+
+    const buildAttendancePayloadRows = () => {
+        const filtered = attendanceDraftRows.filter((record) => {
+            if (attendanceRoleFilter === "all") return true;
+            const isTeaching = record.staff?.isTeaching;
+            const isNonTeaching = record.staff?.isNonTeaching;
+            if (attendanceRoleFilter === "teaching") return isTeaching;
+            if (attendanceRoleFilter === "non-teaching") return isNonTeaching;
+            return true;
+        });
+
+        return filtered.map((record) => ({
+            staffId: record.staff?.id ?? record.staffId,
+            status: record.status || "PRESENT",
+            notes: record.notes || "",
+        }));
+    };
+
+    const handleSaveStaffAttendance = async () => {
+        if (!attendanceDate) {
+            toast({ title: "Please select a date", variant: "destructive" });
+            return;
+        }
+        const rows = buildAttendancePayloadRows();
+        if (!rows.length) {
+            toast({ title: "No staff found for selected filter", variant: "destructive" });
+            return;
+        }
+        saveAttendanceMutation.mutate({
+            date: attendanceDateStr,
+            role: attendanceRoleFilter,
+            rows,
+        });
+    };
 
     const undoGenerateMutation = useMutation({
         mutationFn: (date) => undoGenerateAttendance(format(date, 'yyyy-MM-dd')),
@@ -348,16 +420,23 @@ export default function Staff() {
 
     const _doGenerateAttendance = async () => {
         try {
-            const result = await generateStaffAttendance(attendanceDateStr);
-            refetchAttendance();
-            // Only show undo box if records were actually created (not "already exists" or "0 records")
-            const msg = result?.message || "";
-            const created = msg.match(/Generated (\d+) attendance/);
-            const count = created ? parseInt(created[1]) : 0;
+            const rows = buildAttendancePayloadRows();
+            if (!rows.length) {
+                toast({ title: "No staff found for selected filter", variant: "destructive" });
+                return;
+            }
+            const result = await bulkMarkStaffAttendance({
+                date: attendanceDateStr,
+                role: attendanceRoleFilter,
+                rows,
+            });
+            await queryClient.invalidateQueries({ queryKey: ["staffAttendance", attendanceDateStr, attendanceRoleFilter] });
+            await refetchAttendance();
+            const count = Number(result?.count || 0);
             if (count > 0) {
                 setConfirmDialog({ type: 'generate', date: attendanceDate });
             } else {
-                toast({ title: msg || "No new records generated" });
+                toast({ title: result?.message || "No records saved" });
             }
         } catch (error) {
             toast({ title: error.message || "Failed to generate attendance", variant: "destructive" });
@@ -910,17 +989,16 @@ export default function Staff() {
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="py-2 px-3 text-sm">
-                                                        {staff.isTeaching && staff.department?.name && (
-                                                            <p className="text-sm">{staff.department.name}</p>
+                                                        {staff.designation && (
+                                                            <p className="text-sm font-medium">{staff.designation}</p>
                                                         )}
-                                                        {staff.isTeaching && staff.specialization && (
-                                                            <p className="text-sm text-muted-foreground">{staff.specialization}</p>
+                                                        {staff.isTeaching && (
+                                                            <p className="text-sm text-muted-foreground">
+                                                                {staff.department?.name || "No Dept"} {staff.specialization ? `(${staff.specialization})` : ""}
+                                                            </p>
                                                         )}
-                                                        {staff.isNonTeaching && staff.designation && (
-                                                            <p className="text-sm">{staff.designation}</p>
-                                                        )}
-                                                        {staff.isNonTeaching && staff.empDepartment && (
-                                                            <p className="text-sm text-muted-foreground">{staff.empDepartment}</p>
+                                                        {staff.isNonTeaching && !staff.isTeaching && (
+                                                            <p className="text-sm text-muted-foreground">{staff.empDepartment?.replace("_", " ")}</p>
                                                         )}
                                                     </TableCell>
                                                     <TableCell className="py-2 px-3 text-sm">{getStatusBadge(staff.status)}</TableCell>
@@ -1023,9 +1101,17 @@ export default function Staff() {
                                             <SelectItem value="non-teaching">Non-Teaching</SelectItem>
                                         </SelectContent>
                                     </Select>
-                                    <Button onClick={handleGenerateStaffAttendance} disabled={isFutureDate || isAttendanceGenerated} variant="outline" title={isAttendanceGenerated ? "Attendance already generated for this date" : isFutureDate ? "Cannot generate for future dates" : undefined}>
+                                    <Button
+                                        onClick={handleSaveStaffAttendance}
+                                        disabled={isFutureDate || saveAttendanceMutation.isPending}
+                                        variant="default"
+                                        title={isFutureDate ? "Cannot save for future dates" : undefined}
+                                    >
+                                        {saveAttendanceMutation.isPending ? "Saving..." : "Save Attendance"}
+                                    </Button>
+                                    <Button onClick={handleGenerateStaffAttendance} disabled={isFutureDate} variant="outline" title={isFutureDate ? "Cannot generate for future dates" : undefined}>
                                         Generate Attendance
-                                        {isAttendanceGenerated && <span className="ml-1.5 text-[10px] bg-green-100 text-green-700 px-1 rounded">Done</span>}
+                                        {isAttendanceGenerated && <span className="ml-1.5 text-[10px] bg-green-100 text-green-700 px-1 rounded">Ready</span>}
                                     </Button>
                                     <Button onClick={handleMarkHoliday} disabled={isFutureDate || isDateHoliday} variant="outline" title={isDateHoliday ? "Already marked as holiday" : isFutureDate ? "Cannot mark future dates" : undefined}>
                                         Mark as Holiday
@@ -1034,7 +1120,7 @@ export default function Staff() {
                                 </div>
                             </CardHeader>
                             <CardContent>
-                                {attendanceData.some(r => {
+                                {attendanceDraftRows.some(r => {
                                     const ts = r.generatedAt || r.markedAt;
                                     return ts && (Date.now() - new Date(ts).getTime()) > 24 * 60 * 60 * 1000;
                                 }) && (
@@ -1056,15 +1142,7 @@ export default function Staff() {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {attendanceData
-                                                .filter(record => {
-                                                    if (attendanceRoleFilter === "all") return true;
-                                                    const isTeaching = record.staff?.isTeaching;
-                                                    const isNonTeaching = record.staff?.isNonTeaching;
-                                                    if (attendanceRoleFilter === "teaching") return isTeaching;
-                                                    if (attendanceRoleFilter === "non-teaching") return isNonTeaching;
-                                                    return true;
-                                                })
+                                            {visibleAttendanceRows
                                                 .map((record) => {
                                                     const lockTimestamp = record.generatedAt || record.markedAt;
                                                     const isLocked = lockTimestamp
@@ -1076,7 +1154,7 @@ export default function Staff() {
                                                     const auditTitle = auditLines.join('\n');
 
                                                     return (
-                                                    <TableRow key={record.id} className={isLocked ? "opacity-80" : ""}>
+                                                    <TableRow key={`${record.staff?.id ?? record.staffId}-${record.id ?? "draft"}`} className={isLocked ? "opacity-80" : ""}>
                                                         <TableCell className="py-2 px-3 text-sm">
                                                             <div className="flex items-center gap-2">
                                                                 <Avatar className="h-8 w-8">
@@ -1090,8 +1168,15 @@ export default function Staff() {
                                                             </div>
                                                         </TableCell>
                                                         <TableCell className="py-2 px-3 text-sm">
-                                                            {record.staff?.isTeaching && <Badge variant="outline" className="mr-1">Teaching</Badge>}
-                                                            {record.staff?.isNonTeaching && <Badge variant="secondary">Staff</Badge>}
+                                                            {record.staff?.isTeaching && record.staff?.isNonTeaching ? (
+                                                                <Badge variant="secondary">Dual</Badge>
+                                                            ) : record.staff?.isTeaching ? (
+                                                                <Badge variant="outline">Teaching</Badge>
+                                                            ) : record.staff?.isNonTeaching ? (
+                                                                <Badge variant="secondary">Non-Teaching</Badge>
+                                                            ) : (
+                                                                <Badge variant="secondary">Unassigned</Badge>
+                                                            )}
                                                         </TableCell>
                                                         <TableCell className="py-2 px-3 text-sm">
                                                             {record.staff?.isTeaching
@@ -1104,12 +1189,13 @@ export default function Staff() {
                                                                     value={record.status}
                                                                     disabled={isLocked}
                                                                     onValueChange={(val) =>
-                                                                        markAttendanceMutation.mutate({
-                                                                            staffId: record.staff?.id,
-                                                                            date: format(attendanceDate, "yyyy-MM-dd"),
-                                                                            status: val,
-                                                                            notes: record.notes
-                                                                        })
+                                                                        setAttendanceDraftRows((prev) =>
+                                                                            prev.map((r) =>
+                                                                                r.staff?.id === record.staff?.id
+                                                                                    ? { ...r, status: val }
+                                                                                    : r
+                                                                            )
+                                                                        )
                                                                     }
                                                                 >
                                                                     <SelectTrigger className="w-[130px]">
@@ -1147,17 +1233,16 @@ export default function Staff() {
                                                                 className="h-8 w-[200px]"
                                                                 placeholder="Notes..."
                                                                 disabled={isLocked}
-                                                                defaultValue={record.notes}
-                                                                onBlur={(e) => {
-                                                                    if (!isLocked && e.target.value !== record.notes) {
-                                                                        markAttendanceMutation.mutate({
-                                                                            staffId: record.staff?.id,
-                                                                            date: format(attendanceDate, "yyyy-MM-dd"),
-                                                                            status: record.status,
-                                                                            notes: e.target.value
-                                                                        });
-                                                                    }
-                                                                }}
+                                                                value={record.notes || ""}
+                                                                onChange={(e) =>
+                                                                    setAttendanceDraftRows((prev) =>
+                                                                        prev.map((r) =>
+                                                                            r.staff?.id === record.staff?.id
+                                                                                ? { ...r, notes: e.target.value }
+                                                                                : r
+                                                                        )
+                                                                    )
+                                                                }
                                                             />
                                                         </TableCell>
                                                         <TableCell className="py-2 px-3 text-sm">
@@ -1188,7 +1273,7 @@ export default function Staff() {
                                                     </TableRow>
                                                     );
                                                 })}
-                                            {attendanceData.length === 0 && (
+                                            {visibleAttendanceRows.length === 0 && (
                                                 <TableRow>
                                                     <TableCell colSpan={6} className="py-2 px-3 text-sm text-center">
                                                         No attendance records found for this date.
@@ -1341,6 +1426,7 @@ export default function Staff() {
                                         <Label>Email <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
                                         <Input
                                             type="email"
+                                            autoComplete="off"
                                             value={formData.email}
                                             onChange={(e) => {
                                                 setFormData({ ...formData, email: e.target.value });
@@ -1354,6 +1440,7 @@ export default function Staff() {
                                     <div>
                                         <Label>Phone <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
                                         <Input
+                                            autoComplete="off"
                                             value={formData.phone}
                                             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                                             placeholder="03001234567"
@@ -1369,6 +1456,7 @@ export default function Staff() {
                                         </Label>
                                         <Input
                                             type="password"
+                                            autoComplete="off"
                                             value={formData.password}
                                             onChange={(e) => {
                                                 setFormData({ ...formData, password: e.target.value });
@@ -1380,13 +1468,28 @@ export default function Staff() {
                                         {errors.password && <p className="text-xs text-destructive mt-1">{errors.password}</p>}
                                     </div>
                                 </div>
-                                <div>
-                                    <Label>Religion <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
-                                    <Input
-                                        value={formData.religion}
-                                        onChange={(e) => setFormData({ ...formData, religion: e.target.value })}
-                                        placeholder="e.g. Islam, Christianity"
-                                    />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <Label>Religion <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
+                                        <Input
+                                            value={formData.religion}
+                                            onChange={(e) => setFormData({ ...formData, religion: e.target.value })}
+                                            placeholder="e.g. Islam, Christianity"
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label>Designation <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
+                                        <Input
+                                            value={formData.designation}
+                                            onChange={(e) => {
+                                                setFormData({ ...formData, designation: e.target.value });
+                                                setErrors(prev => { const next = {...prev}; delete next.designation; return next; });
+                                            }}
+                                            placeholder="e.g., Office Manager, Principal"
+                                            className={errors.designation ? "border-destructive" : ""}
+                                        />
+                                        {errors.designation && <p className="text-xs text-destructive mt-1">{errors.designation}</p>}
+                                    </div>
                                 </div>
                                 <div>
                                     <Label>Address <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
@@ -1672,14 +1775,28 @@ export default function Staff() {
                                             <Briefcase className="w-4 h-4 text-purple-500" />
                                             Non-Teaching Details
                                         </h4>
-                                        <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-1 gap-4">
                                             <div>
-                                                <Label>Designation</Label>
-                                                <Input
-                                                    value={formData.designation}
-                                                    onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                                                    placeholder="e.g., Office Manager"
-                                                />
+                                                <Label>Linked Department (Report FK)</Label>
+                                                <Select
+                                                    value={formData.departmentId || "none"}
+                                                    onValueChange={(value) =>
+                                                        setFormData({
+                                                            ...formData,
+                                                            departmentId: value === "none" ? "" : value,
+                                                        })
+                                                    }
+                                                >
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select Department (optional)" />
+                                                    </SelectTrigger>
+                                                    <SelectContent className="max-h-60 overflow-y-auto">
+                                                        <SelectItem value="none">Not linked</SelectItem>
+                                                        {departments.map((d) => (
+                                                            <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
                                             </div>
                                             <div>
                                                 <Label>Employee Department</Label>
@@ -1893,6 +2010,7 @@ function StaffDetailView({ staffId, onBack, onEdit }) {
                                     {staff.status}
                                 </Badge>
                             </div>
+                            <p className="text-muted-foreground font-medium">{staff.designation || (staff.isTeaching ? "Teacher" : "Staff")}</p>
                             <div className="flex gap-2 mt-2">{getRoleBadges()}</div>
                             <div className="grid grid-cols-3 gap-4 mt-4">
                                 {staff.email && (
@@ -2024,6 +2142,12 @@ function StaffDetailView({ staffId, onBack, onEdit }) {
                                         <span className="text-muted-foreground">Designation</span>
                                         <span>{staff.designation || "-"}</span>
                                     </div>
+                                    <Separator />
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Linked Department</span>
+                                        <span>{staff.department?.name || "-"}</span>
+                                    </div>
+                                    <Separator />
                                     <div className="flex justify-between">
                                         <span className="text-muted-foreground">Employee Department</span>
                                         <span>{staff.empDepartment?.replace("_", " ") || "-"}</span>

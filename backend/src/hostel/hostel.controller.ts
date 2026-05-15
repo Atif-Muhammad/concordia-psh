@@ -7,6 +7,9 @@ import {
   Param,
   Delete,
   Query,
+  Header,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { HostelService } from './hostel.service';
 import { CreateRegistrationDto } from './dtos/create-registration.dto';
@@ -21,6 +24,7 @@ import { UpdateInventoryDto } from './dtos/update-inventory.dto';
 import { CreateFeePaymentDto } from './dtos/create-fee-payment.dto';
 import { CreateHostelChallanDto } from './dtos/create-hostel-challan.dto';
 import { UpdateHostelChallanDto } from './dtos/update-hostel-challan.dto';
+import { RecordHostelPaymentDto } from './dtos/record-hostel-payment.dto';
 
 @Controller('hostel')
 export class HostelController {
@@ -95,26 +99,6 @@ export class HostelController {
     return this.hostelService.getRegistrationHistory(id);
   }
 
-  @Post('registrations/:id/payments')
-  createFeePayment(
-    @Param('id') id: string,
-    @Body() dto: CreateFeePaymentDto,
-  ) {
-    return this.hostelService.createFeePayment(id, dto);
-  }
-
-  @Get('registrations/:id/payments')
-  getFeePayments(@Param('id') id: string) {
-    return this.hostelService.getFeePayments(id);
-  }
-
-  @Delete('registrations/:id/payments/:paymentId')
-  deleteFeePayment(
-    @Param('id') id: string,
-    @Param('paymentId') paymentId: string,
-  ) {
-    return this.hostelService.deleteFeePayment(id, +paymentId);
-  }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // ROOMS & ALLOCATION ENDPOINTS
@@ -165,8 +149,11 @@ export class HostelController {
   }
 
   @Get('expenses')
-  findAllExpenses() {
-    return this.hostelService.findAllExpenses();
+  findAllExpenses(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.hostelService.findAllExpenses(startDate, endDate);
   }
 
   @Get('expenses/:id')
@@ -223,36 +210,7 @@ export class HostelController {
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // EXTERNAL CHALLAN ENDPOINTS
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  @Post('external-challans')
-  createExternalChallan(@Body() data: any) {
-    return this.hostelService.createExternalChallan(data);
-  }
-
-  @Get('external-challans')
-  findAllExternalChallans() {
-    return this.hostelService.findAllExternalChallans();
-  }
-
-  @Get('external-challans/by-registration/:registrationId')
-  findExternalChallansByRegistration(@Param('registrationId') registrationId: string) {
-    return this.hostelService.findExternalChallansByRegistration(registrationId);
-  }
-
-  @Patch('external-challans/:id')
-  updateExternalChallan(@Param('id') id: string, @Body() data: any) {
-    return this.hostelService.updateExternalChallan(Number(id), data);
-  }
-
-  @Delete('external-challans/:id')
-  deleteExternalChallan(@Param('id') id: string) {
-    return this.hostelService.deleteExternalChallan(Number(id));
-  }
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // HOSTEL CHALLAN ENDPOINTS
+  // HOSTEL CHALLAN ENDPOINTS (Modular)
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   @Post('challans')
@@ -260,9 +218,21 @@ export class HostelController {
     return this.hostelService.createHostelChallan(dto);
   }
 
-  @Get('challans/by-registration/:registrationId')
-  getHostelChallans(@Param('registrationId') registrationId: string) {
-    return this.hostelService.getHostelChallans(registrationId);
+  @Get('challans')
+  getHostelChallans(
+    @Query('registrationId') registrationId?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.hostelService.getHostelChallans({
+      registrationId,
+      status,
+      search,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 10,
+    });
   }
 
   @Patch('challans/:id')
@@ -275,9 +245,57 @@ export class HostelController {
     return this.hostelService.deleteHostelChallan(Number(id));
   }
 
-  @Get('registrations/search')
+  @Get('registrations-search')
   searchRegistrations(@Query('q') q: string) {
     return this.hostelService.searchRegistrations(q || '');
+  }
+
+  @Get('registrations/:id/payments')
+  getPaymentsByRegistration(@Param('id') id: string) {
+    return this.hostelService.getPaymentsByRegistration(id);
+  }
+
+  @Get('challans/:id/print')
+  @Header('Content-Type', 'text/html')
+  async printHostelChallan(@Param('id') id: string) {
+    return this.hostelService.getHostelChallanHtml(Number(id));
+  }
+
+  // ── Payment recording ─────────────────────────────────────────────────────
+
+  @Post('challans/:id/payment')
+  recordHostelPayment(
+    @Param('id') id: string,
+    @Body() dto: RecordHostelPaymentDto,
+  ) {
+    return this.hostelService.recordHostelPayment(
+      Number(id),
+      dto.amount,
+      dto.paymentMode,
+      new Date(dto.paidDate),
+      dto.remarks,
+    );
+  }
+
+  // ── Revenue ───────────────────────────────────────────────────────────────
+
+  @Get('revenue')
+  getHostelRevenue(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.hostelService.getHostelRevenue(startDate, endDate);
+  }
+
+  // ── Deprecated: legacy simple payment route — returns 410 Gone ───────────
+
+  @Post('registrations/:id/payments')
+  @HttpCode(HttpStatus.GONE)
+  deprecatedCreateFeePayment() {
+    return {
+      message: 'This endpoint is deprecated. Use POST /hostel/challans/:id/payment instead.',
+      statusCode: 410,
+    };
   }
 }
 

@@ -82,11 +82,12 @@ import {
   getHostelRoomByStudent,
   getHostelFeePayments,
   getHostelRegistrations,
-  getHostelChallansByRegistration,
+  getHostelChallansDedicated,
   getHostelRegistrationHistory,
   getFeeHeads,
   getDefaultFeeChallanTemplate,
   getFeeChallans,
+  getExtraChallansDedicated,
 } from "../../config/apis";
 import { computeOutstandingBalance } from "@/lib/hostelUtils";
 import StudentForm from "@/components/students/StudentForm";
@@ -104,6 +105,7 @@ import {
   Upload,
   X,
   Search,
+  SlidersHorizontal,
   Check,
   ChevronsUpDown,
   UserX,
@@ -129,10 +131,10 @@ import {
 
 const EMPTY_OBJECT = {};
 
-// ── Hostel Registration History Panel ────────────────────────────────────────
-function HostelRegistrationHistoryPanel({ regId }) {
+// ── Boarding Registration History Panel ────────────────────────────────────────
+function BoardingRegistrationHistoryPanel({ regId }) {
   const { data: history = [], isLoading } = useQuery({
-    queryKey: ['hostelRegHistory', regId],
+    queryKey: ['boardingRegHistory', regId],
     queryFn: () => getHostelRegistrationHistory(regId),
     enabled: !!regId,
   });
@@ -202,6 +204,7 @@ const Students = () => {
   const [studentToDelete, setStudentToDelete] = useState(null);
   const [editingStudent, setEditingStudent] = useState(null);
   const [viewStudent, setViewStudent] = useState(null);
+  const [activeProfileTab, setActiveProfileTab] = useState("info");
   const [selectedForPromotion, setSelectedForPromotion] = useState([]);
   const [promotionDialog, setPromotionDialog] = useState({
     open: false,
@@ -212,6 +215,8 @@ const Students = () => {
   const [promotionAction, setPromotionAction] = useState("promote_manual");
   const [selectedStatus, setSelectedStatus] = useState("ACTIVE");
   const [promotionReason, setPromotionReason] = useState("");
+  const [activeFeesSubTab, setActiveFeesSubTab] = useState("payment-history");
+  const [activeBoardingSubTab, setActiveBoardingSubTab] = useState("details");
   const [selectedFeeSession, setSelectedFeeSession] = useState("current");
   const [challanTypeFilter, setChallanTypeFilter] = useState("all"); // "all" | "tuition" | "extra"
   const [selectedStudent, setSelectedStudent] = useState({});
@@ -245,6 +250,93 @@ const Students = () => {
   const [filterClass, setFilterClass] = useState(null);
   const [filterSection, setFilterSection] = useState(null);
   const [filterSessionId, setFilterSessionId] = useState("all");
+
+  // --- Financial Helpers (Moved up to fix initialization order) ---
+  const getSelectedHeadsTotal = (challan) => {
+    try {
+      const raw = challan?.heads || (typeof challan?.selectedHeads === 'string'
+        ? JSON.parse(challan.selectedHeads)
+        : (challan?.selectedHeads || []));
+      if (!Array.isArray(raw)) return 0;
+      return raw
+        .filter(h => typeof h === 'object' && h !== null && (h.isSelected !== false))
+        .reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+    } catch { return 0; }
+  };
+
+  const getRecursiveArrears = (challan) => {
+    if (!challan?.previousChallans?.length || challan.installmentNumber === 0) return 0;
+    return challan.previousChallans.reduce((total, prev) => {
+      if (prev.status === 'PAID') return total;
+      const prevHeads = getSelectedHeadsTotal(prev);
+      const rem = Math.max(0,
+        (prev.amount || 0) + prevHeads + (prev.lateFeeFine || 0) - (prev.paidAmount || 0) - (prev.discount || 0)
+      );
+      return total + rem + getRecursiveArrears(prev);
+    }, 0);
+  };
+
+  const getSupersededArrears = (challan) => {
+    if (!challan?.supersedes?.length) return 0;
+    const prevIds = new Set((challan.previousChallans || []).map(p => p.id));
+    return challan.supersedes.reduce((total, prev) => {
+      if (prev.status === 'VOID' && !prevIds.has(prev.id)) {
+        const due = Math.max(0, (prev.amount || 0) + (prev.fineAmount || 0) + (prev.lateFeeFine || 0) - (prev.discount || 0));
+        return total + due + getSupersededArrears(prev);
+      }
+      return total;
+    }, 0);
+  };
+
+  const getTotalArrears = (challan) => {
+    return getRecursiveArrears(challan) + getSupersededArrears(challan);
+  };
+
+  const getChallanTotal = (challan) => {
+    if (challan.snapshotTotalDue != null) return Number(challan.snapshotTotalDue);
+    return (challan.amount || 0) +
+      getSelectedHeadsTotal(challan) +
+      (challan.lateFeeFine || 0) +
+      getTotalArrears(challan);
+  };
+
+  const normalizeChallan = (c) => {
+    if (!c || c._normalized) return c;
+    const inst = c.installment || {};
+    const student = inst.student || c.student || viewStudent || null;
+    
+    // Priority: 1. Installment snapshot, 2. Challan snapshot, 3. Student current (fallback)
+    const studentClassId = inst.classId ?? c.studentClassId ?? student?.classId ?? null;
+    const studentProgramId = inst.programId ?? c.studentProgramId ?? student?.programId ?? null;
+
+    return {
+      ...c,
+      _normalized: true,
+      student,
+      studentId: student?.id ?? c.studentId,
+      studentClassId,
+      studentProgramId,
+      month: inst.month ?? c.month ?? null,
+      installmentNumber: c.installmentNo ?? inst.installmentNumber ?? c.installmentNumber ?? 0,
+      dueDate: inst.dueDate ?? c.dueDate ?? null,
+      issueDate: c.generatedDate ?? c.issueDate ?? null,
+      paidDate: c.paidAt ?? c.paidDate ?? null,
+      amount: Number(c.snapshotBaseAmount ?? 0),
+      // Fix: For SUPERSEDED/SETTLED challans, show the installment's actual paidAmount (payment went via the leading challan)
+      paidAmount: (c.status === 'SUPERSEDED' || c.status === 'SETTLED')
+        ? Number(inst.paidAmount ?? c.amountReceived ?? 0)
+        : Number(c.amountReceived ?? 0),
+      totalAmount: Number(c.snapshotTotalDue ?? 0),
+      lateFeeFine: Number(c.snapshotLateFee ?? 0),
+      arrears: Number(c.snapshotArrearsAmount ?? 0),
+      extraFine: Number(c.snapshotExtraFine ?? 0),
+      discount: Number(c.snapshotDiscount ?? 0),
+      remainingAmount: Number(c.snapshotTotalDue ?? 0) - Number(c.amountReceived ?? 0),
+      status: c.status === 'SUPERSEDED' ? 'SUPERSEDED' : c.status === 'SETTLED' ? 'SETTLED' : (c.status ?? 'PENDING'),
+      challanType: c.installmentId ? 'INSTALLMENT' : 'FEE_HEADS_ONLY',
+      selectedHeads: c.heads || c.selectedHeads,
+    };
+  };
   const [showFilters, setShowFilters] = useState(false);
 
   // Dialog-specific filters (independent from main page)
@@ -266,12 +358,17 @@ const Students = () => {
       const found = studentsData.find(s => s.id === targetId);
       if (found) {
         setViewStudent(found);
+        setActiveProfileTab("info");
         setViewOpen(true);
       } else {
         // Student may not be in current page — fetch directly
         import("../../config/apis").then(({ getStudentById }) => {
           getStudentById(targetId).then(student => {
-            if (student) { setViewStudent(student); setViewOpen(true); }
+            if (student) { 
+              setViewStudent(student); 
+              setActiveProfileTab("info");
+              setViewOpen(true); 
+            }
           }).catch(() => {});
         });
       }
@@ -493,39 +590,91 @@ const Students = () => {
 
 
 
-  // Fetch student fee history when viewing a student
+  // Fetch installment-only challans
   const { data: studentFees = [], isLoading: feesLoading } = useQuery({
-    queryKey: ["studentFees", viewStudent?.id],
-    queryFn: () => getStudentFeeHistory(viewStudent.id),
-    enabled: !!viewStudent?.id,
+    queryKey: ["studentFees", viewStudent?.id, "INSTALLMENT"],
+    queryFn: () => getStudentFeeHistory(viewStudent.id, "INSTALLMENT"),
+    enabled: !!viewStudent?.id && activeProfileTab === "fees" && (activeFeesSubTab === "payment-history" || activeFeesSubTab === "installment-plan"),
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
   });
+
+  // Fetch legacy 'EXTRA' challans from main history
+  const { data: studentFeesExtra = [] } = useQuery({
+    queryKey: ["studentFees", viewStudent?.id, "EXTRA"],
+    queryFn: () => getStudentFeeHistory(viewStudent.id, "EXTRA"),
+    enabled: !!viewStudent?.id && activeProfileTab === "fees" && activeFeesSubTab === "extra-challans",
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+  });
+
+  // Fetch extra challans (dedicated table)
+  const { data: extraChallansRaw, isLoading: extraChallansLoading } = useQuery({
+    queryKey: ["extraChallans", viewStudent?.id],
+    queryFn: () => getExtraChallansDedicated({ studentId: viewStudent.id }),
+    enabled: !!viewStudent?.id && activeProfileTab === "fees" && activeFeesSubTab === "extra-challans",
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+  });
+
+  const studentExtraChallans = useMemo(() => {
+    // Use only the dedicated extra_challan table — do NOT merge with studentFeesExtra
+    // (which hits the same endpoint via getStudentFeeHistory type=EXTRA) to avoid duplicates.
+    const raw = extraChallansRaw?.data || extraChallansRaw || [];
+    return raw.map(c => ({
+      ...c,
+      // Extra challans are not in fee_challan_v2 so snapshotTotalDue is absent.
+      // Use the raw totalAmount field directly.
+      _normalized: true,
+      student: c.student || null,
+      studentId: c.studentId,
+      challanType: 'FEE_HEADS_ONLY',
+      // Keep raw financial fields as-is (already plain numbers from the API)
+      totalAmount: Number(c.totalAmount ?? 0),
+      paidAmount: Number(c.paidAmount ?? 0),
+      lateFeeFine: Number(c.lateFeeFine ?? 0),
+      discount: Number(c.discount ?? 0),
+      remainingAmount: Math.max(0, Number(c.totalAmount ?? 0) - Number(c.paidAmount ?? 0)),
+      status: c.status ?? 'PENDING',
+      // heads from the dedicated heads relation
+      selectedHeads: c.heads || [],
+    }));
+  }, [extraChallansRaw]);
 
   // Fetch student attendance when viewing a student
   const { data: studentAttendance = [], isLoading: attendanceLoading } = useQuery({
     queryKey: ["studentAttendance", viewStudent?.id],
     queryFn: () => getStudentAttendance(viewStudent.id),
-    enabled: !!viewStudent?.id,
+    enabled: !!viewStudent?.id && activeProfileTab === "attendance",
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
   });
 
   // Fetch student results when viewing a student
   const { data: studentResults = [], isLoading: resultsLoading } = useQuery({
     queryKey: ["studentResults", viewStudent?.id],
     queryFn: () => getStudentResults(viewStudent.id),
-    enabled: !!viewStudent?.id,
+    enabled: !!viewStudent?.id && activeProfileTab === "results",
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
   });
 
   // Fetch full student details with statusHistory
   const { data: studentDetails, isLoading: detailsLoading } = useQuery({
     queryKey: ["studentDetails", viewStudent?.id],
     queryFn: () => getStudentById(viewStudent.id),
-    enabled: !!viewStudent?.id,
+    enabled: !!viewStudent?.id && (activeProfileTab === "info" || activeProfileTab === "history" || activeProfileTab === "fees"),
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
   });
 
   // Fetch hostel registration and room for the viewed student
   const { data: studentHostelReg, isLoading: hostelRegLoading } = useQuery({
     queryKey: ["studentHostelReg", viewStudent?.id],
     queryFn: () => getHostelRegistrationByStudent(viewStudent.id),
-    enabled: !!viewStudent?.id,
+    enabled: !!viewStudent?.id && activeProfileTab === "boarding",
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
   });
 
   // Fetch all hostel registrations once — used to show indicator dots in the student table
@@ -560,11 +709,30 @@ const Students = () => {
     enabled: !!studentHostelReg?.id,
   });
 
-  const { data: studentHostelChallans = [] } = useQuery({
+  const { data: studentHostelChallansRaw } = useQuery({
     queryKey: ["studentHostelChallans", studentHostelReg?.id],
-    queryFn: () => getHostelChallansByRegistration(studentHostelReg.id),
-    enabled: !!studentHostelReg?.id,
+    queryFn: () => getHostelChallansDedicated({ registrationId: studentHostelReg.id }),
+    enabled: !!studentHostelReg?.id && activeProfileTab === "boarding" && activeBoardingSubTab === "challans",
   });
+
+  // Fetch legacy 'HOSTEL' challans from main history
+  const { data: studentFeesHostel = [] } = useQuery({
+    queryKey: ["studentFees", viewStudent?.id, "HOSTEL"],
+    queryFn: () => getStudentFeeHistory(viewStudent.id, "HOSTEL"),
+    enabled: !!viewStudent?.id && activeProfileTab === "boarding" && activeBoardingSubTab === "challans",
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+  });
+
+  const studentHostelChallans = useMemo(() => {
+    const fromDedicated = (Array.isArray(studentHostelChallansRaw)
+      ? studentHostelChallansRaw
+      : (studentHostelChallansRaw?.data ?? [])).map(c => normalizeChallan(c));
+    
+    const fromMain = (studentFeesHostel || []).map(c => normalizeChallan(c));
+    
+    return [...fromDedicated, ...fromMain];
+  }, [studentHostelChallansRaw, studentFeesHostel]);
 
   const { data: feeHeads = [] } = useQuery({
     queryKey: ['feeHeads'],
@@ -672,11 +840,20 @@ const Students = () => {
         const dueDateStr = inst.dueDate ? new Date(inst.dueDate).toISOString().split("T")[0] : "";
         const dateObj = inst.dueDate ? new Date(inst.dueDate) : null;
         const monthName = dateObj ? dateObj.toLocaleString('default', { month: 'long' }) : "";
+        // Resolve session name: from included relation, or lookup by sessionId
+        let sessionName = "";
+        if (inst.session && typeof inst.session === "object" && inst.session.name) {
+          sessionName = inst.session.name;
+        } else if (inst.sessionId) {
+          const found = academicSessions.find(s => s.id === inst.sessionId || s.id.toString() === inst.sessionId.toString());
+          sessionName = found?.name || "";
+        }
         return {
           ...inst,
+          amount: inst.amount || Number(inst.basePayable) || 0,
           dueDate: dueDateStr,
           month: inst.month || monthName,
-          session: inst.session || "",
+          session: sessionName,
         };
       });
 
@@ -743,46 +920,7 @@ const Students = () => {
       .sort((a, b) => b.avgGPA - a.avgGPA);
   };
 
-  // Helper functions for challan total calculation (mirrors FeeManagement.jsx logic)
-  const getSelectedHeadsTotal = (challan) => {
-    try {
-      const raw = typeof challan?.selectedHeads === 'string'
-        ? JSON.parse(challan.selectedHeads)
-        : (challan?.selectedHeads || []);
-      if (!Array.isArray(raw)) return 0;
-      return raw
-        .filter(h => typeof h === 'object' && h !== null && h.isSelected !== false && h.type === 'additional')
-        .reduce((sum, h) => sum + (h.amount || 0), 0);
-    } catch { return 0; }
-  };
 
-  const getRecursiveArrears = (challan) => {
-    if (!challan?.previousChallans?.length || challan.installmentNumber === 0) return 0;
-    return challan.previousChallans.reduce((total, prev) => {
-      if (prev.status === 'PAID') return total;
-      const prevHeads = getSelectedHeadsTotal(prev);
-      const rem = Math.max(0,
-        (prev.amount || 0) + prevHeads + (prev.lateFeeFine || 0) - (prev.paidAmount || 0) - (prev.discount || 0)
-      );
-      return total + rem + getRecursiveArrears(prev);
-    }, 0);
-  };
-
-  const getSupersededArrears = (challan) => {
-    if (!challan?.supersedes?.length) return 0;
-    const prevIds = new Set((challan.previousChallans || []).map(p => p.id));
-    return challan.supersedes.reduce((total, prev) => {
-      if (prev.status === 'VOID' && !prevIds.has(prev.id)) {
-        const due = Math.max(0, (prev.amount || 0) + (prev.fineAmount || 0) + (prev.lateFeeFine || 0) - (prev.discount || 0));
-        return total + due + getSupersededArrears(prev);
-      }
-      return total;
-    }, 0);
-  };
-
-  const getChallanTotal = (challan) =>
-    (challan.amount || 0) + getSelectedHeadsTotal(challan) + (challan.lateFeeFine || 0) +
-    getRecursiveArrears(challan) + getSupersededArrears(challan);
 
   // 2.1 formatAmount — rounds and localizes a number
   const formatAmount = (amount) => {
@@ -807,10 +945,6 @@ const Students = () => {
     return convert(n) + " Only";
   };
 
-  // 2.3 getTotalArrears — combined arrears: chain-linked + superseded
-  const getTotalArrears = (challan) => {
-    return getRecursiveArrears(challan) + getSupersededArrears(challan);
-  };
 
   // 2.4 generateChallanHtml — ported from FeeManagement, using programData/classesData
   const generateChallanHtml = (challan, manualTemplate = null) => {
@@ -1127,7 +1261,7 @@ const Students = () => {
   };
 
   const processFeesData = () => {
-    if (!viewStudent || !studentFees || studentFees.length === 0) {
+    if (!viewStudent) {
       return {
         sessions: [],
         overall: { totalFees: 0, totalPaid: 0, totalDues: 0 },
@@ -1137,130 +1271,131 @@ const Students = () => {
       };
     }
 
-    // Fix 2+3: Partition challans — separate FEE_HEADS_ONLY from regular
-    const extraChallans = studentFees.filter(c => c.challanType === 'FEE_HEADS_ONLY');
-    const regularChallans = studentFees.filter(c => c.challanType !== 'FEE_HEADS_ONLY');
+    const extraChallans = studentExtraChallans;
 
-    const sessionMap = new Map();
-    let totalAllSessions = 0;
-    let paidAllSessions = 0;
-    let duesAllSessions = 0;
+    // ── Build session map strictly from fee_installment records ──────────────
+    // Stats (sessionFee, paid, remaining, counts) are derived 100% from
+    // fee_installment rows. Challans from fee_challan_v2 are attached only
+    // for the display table — they do NOT influence any stat calculation.
 
-    regularChallans.forEach(challan => {
-      // Fix 3: Always use snapshot fields for session key, never feeStructure
-      let sessionKey;
-      if (challan.studentClassId && challan.studentProgramId) {
-        sessionKey = `snapshot-${challan.studentProgramId}-${challan.studentClassId}`;
-      } else {
-        sessionKey = 'unclassified';
-      }
+    // Use studentDetails.feeInstallments when available — it's fetched fresh via
+    // getStudentById and always has the latest field values (including discount).
+    // Fall back to viewStudent.feeInstallments for the initial render before the
+    // detail query resolves.
+    const allInstallments = ((studentDetails?.feeInstallments || viewStudent.feeInstallments) || []).filter(
+      i => i.status !== 'VOID'
+    );
 
-      if (!sessionMap.has(sessionKey)) {
-        // Fix 3: isCurrentSession uses snapshot fields only
-        const isCurrentSession =
-          challan.studentClassId === viewStudent.classId &&
-          challan.studentProgramId === viewStudent.programId;
-        sessionMap.set(sessionKey, {
-          sessionKey,
-          studentClassId: challan.studentClassId,
-          studentProgramId: challan.studentProgramId,
-          feeStructureId: challan.feeStructureId,
-          feeStructure: challan.feeStructure,
-          // Fix 3: derive program/class from snapshot, not feeStructure
-          program: challan.studentProgram || challan.feeStructure?.program,
-          class: challan.studentClass || challan.feeStructure?.class,
+    // Group installments by classId (each class = one "session" group)
+    const instSessionMap = new Map();
+    allInstallments.forEach(inst => {
+      const classId = inst.classId;
+      if (!instSessionMap.has(classId)) {
+        const classObj = inst.class || classesData.find(c => c.id === classId);
+        const programId = classObj?.programId ?? inst.programId ?? null;
+        const programObj = classObj?.program || programData.find(p => p.id === programId);
+        const isCurrentSession = classId === viewStudent.classId;
+        instSessionMap.set(classId, {
+          sessionKey: `class-${classId}`,
+          studentClassId: classId,
+          studentProgramId: programId,
+          program: programObj,
+          class: classObj,
+          isCurrentSession,
+          installments: [],
           challans: [],
-          isCurrentSession
         });
       }
-      sessionMap.get(sessionKey).challans.push(challan);
+      instSessionMap.get(classId).installments.push(inst);
+    });
 
-      // Fix 1: Exclude VOID from overall totals
-      if (challan.status === 'VOID') return;
+    // Attach normalized challans to their session group (for display table only)
+    const regularChallans = (studentFees || [])
+      .filter(c => c.type !== 'EXTRA' && c.type !== 'HOSTEL')
+      .map(c => normalizeChallan(c));
 
-      totalAllSessions += (challan.amount - (challan.discount || 0)) || 0;
-      paidAllSessions += challan.paidAmount || 0;
-      if (challan.status !== 'PAID') {
-        const netPayable = (challan.amount - (challan.discount || 0) + (challan.fineAmount || 0));
-        duesAllSessions += Math.max(0, netPayable - (challan.paidAmount || 0));
+    regularChallans.forEach(challan => {
+      const classId = challan.installment?.classId ?? challan.studentClassId ?? null;
+      if (classId && instSessionMap.has(classId)) {
+        instSessionMap.get(classId).challans.push(challan);
       }
     });
 
-    const sessions = Array.from(sessionMap.values()).map(session => {
-      session.challans.sort((a, b) => {
-        if (a.installmentNumber !== b.installmentNumber) {
-          return (a.installmentNumber || 0) - (b.installmentNumber || 0);
-        }
-        return new Date(a.dueDate || 0) - new Date(b.dueDate || 0);
-      });
+    const sessions = Array.from(instSessionMap.values()).map(session => {
+      const { installments } = session;
 
-      // Fix 1: Exclude VOID from per-session stats
-      const nonVoidChallans = session.challans.filter(c => c.status !== 'VOID');
-      const voidChallans = session.challans.filter(c => c.status === 'VOID');
-      const paidChallans = nonVoidChallans.filter(c => c.status === 'PAID');
-
-      // Fix 4: Derive stats from feeInstallments when available
-      const matchingInsts = (viewStudent.feeInstallments || []).filter(
-        i => i.classId === session.studentClassId
+      // Sort challans by installment number for display
+      session.challans.sort((a, b) =>
+        (a.installmentNumber || 0) - (b.installmentNumber || 0) ||
+        new Date(a.dueDate || 0) - new Date(b.dueDate || 0)
       );
 
-      let sessionFee, paidInstallments, totalInstallments;
+      // ── All installments for this class (non-VOID) ────────────────────────
+      // Used for: sessionFee, totalInstallments, paidInstallments
+      const allClassInsts = installments; // already filtered VOID above
 
-      if (matchingInsts.length > 0) {
-        // Use installment plan as source of truth
-        sessionFee = matchingInsts.reduce((sum, i) => sum + (i.amount || 0), 0);
-        totalInstallments = matchingInsts.length;
-        paidInstallments = matchingInsts.filter(i => i.status === 'PAID').length;
-      } else {
-        // Fallback: derive from non-VOID challan amounts
-        sessionFee = session.isCurrentSession
-          ? (viewStudent.tuitionFee || session.feeStructure?.totalAmount || nonVoidChallans.reduce((sum, c) => sum + ((c.amount - (c.discount || 0)) || 0), 0))
-          : nonVoidChallans.reduce((sum, c) => sum + ((c.amount - (c.discount || 0)) || 0), 0);
-        totalInstallments = session.feeStructure?.installments || nonVoidChallans.length;
-        // Count paid installments from coveredInstallments
-        paidInstallments = 0;
-        paidChallans.forEach(c => {
-          if (c.coveredInstallments) {
-            const parts = c.coveredInstallments.split('-');
-            paidInstallments = Math.max(paidInstallments, parseInt(parts[parts.length - 1]) || 0);
-          } else if (c.installmentNumber) {
-            paidInstallments = Math.max(paidInstallments, c.installmentNumber);
-          }
-        });
-      }
+      // ── Active installments (non-SUPERSEDED, non-SETTLED) ─────────────────
+      // Used for: paidThisSession, remainingDues
+      // SUPERSEDED/SETTLED installments have their financial state absorbed into
+      // the leading installment — including them would double-count.
+      const activeInsts = allClassInsts.filter(
+        i => !['SUPERSEDED', 'SETTLED'].includes(i.status)
+      );
 
-      // Use installment table as single source of truth for paid stats (avoids double-counting
-      // between VOID settledAmount and active challan paidAmount — they represent the same money).
-      // Fallback to challan paidAmount sum if no installments available.
-      let paidThisSession, tuitionPaidThisSession, headsPlusFinesPaid;
+      // ── Session Fee: sum of basePayable across ALL installments ───────────
+      // basePayable is the clean per-installment fee, never inflated by arrears.
+      const sessionFee = allClassInsts.reduce(
+        (sum, i) => sum + Number(i.basePayable || 0), 0
+      );
+      const totalInstallments = allClassInsts.length;
+      // An installment is "paid" when its own status is PAID or SETTLED
+      const paidInstallments = allClassInsts.filter(
+        i => ['PAID', 'SETTLED'].includes(i.status)
+      ).length;
 
-      if (matchingInsts.length > 0) {
-        // inst.paidAmount = tuition + late fee paid for that installment
-        // inst.lateFeeAccrued = late fee portion (stored by cron)
-        paidThisSession = matchingInsts.reduce((sum, i) => sum + (i.paidAmount || 0), 0);
-        const lateFeesPaid = matchingInsts.reduce((sum, i) => sum + (i.lateFeeAccrued || 0), 0);
-        tuitionPaidThisSession = Math.max(0, paidThisSession - lateFeesPaid);
-        headsPlusFinesPaid = lateFeesPaid;
-      } else {
-        // Fallback: use active challan paidAmount only (no double-counting with VOID)
-        paidThisSession = nonVoidChallans.reduce((sum, c) => sum + (c.paidAmount || 0), 0);
-        const lateFeesPaid = nonVoidChallans.reduce((sum, c) => sum + (c.lateFeeFine || 0), 0);
-        tuitionPaidThisSession = Math.max(0, paidThisSession - lateFeesPaid);
-        headsPlusFinesPaid = lateFeesPaid;
-      }
-      // Remaining dues: only from active non-PAID challans
-      const remainingDues = nonVoidChallans
-        .filter(c => c.status !== 'PAID')
-        .reduce((sum, c) => {
-          const netPayable = getChallanTotal(c) - (c.discount || 0);
-          return sum + Math.max(0, netPayable - (c.paidAmount || 0));
-        }, 0);
+      // ── Paid: sum of paidAmount on active installments ────────────────────
+      const paidThisSession = activeInsts.reduce(
+        (sum, i) => sum + Number(i.paidAmount || 0), 0
+      );
+      const lateFeesPaid = activeInsts
+        .filter(i => i.status === 'PAID')
+        .reduce((sum, i) => sum + Number(i.lateFeeFine || 0), 0);
+      const tuitionPaidThisSession = Math.max(0, paidThisSession - lateFeesPaid);
+      const headsPlusFinesPaid = lateFeesPaid;
 
-      // Fix 3: sessionLabel from snapshot — include section if available
-      const sectionName = session.challans[0]?.studentSection?.name || '';
+      // ── Remaining: smart calculation per installment ─────────────────────
+      // - For challan-generated installments: use totalAmount - paidAmount.
+      //   totalAmount was frozen at challan generation time (base + arrears +
+      //   lateFeeFine + extraFine - discount), so it correctly reflects what's
+      //   owed on that specific challan without double-counting arrears.
+      // - For installments without a challan yet: use basePayable (pendingAmount
+      //   may be inflated by rolled-up arrears from prior unpaid installments).
+      const unpaidActiveInsts = activeInsts.filter(i => i.status !== 'PAID');
+      const remainingDues = unpaidActiveInsts.reduce((sum, i) => {
+        if (i.challanGenerated) {
+          // Challan exists — totalAmount - paidAmount is the real remaining
+          return sum + Math.max(0, Number(i.totalAmount || 0) - Number(i.paidAmount || 0));
+        } else {
+          // No challan yet — use basePayable to avoid arrears inflation
+          return sum + Number(i.basePayable || 0);
+        }
+      }, 0);
+      // Extra charges (late fee + extra fine) on unpaid installments — sub-text only
+      const remainingExtras = unpaidActiveInsts.reduce(
+        (sum, i) => sum + Number(i.lateFeeFine || 0) + Number(i.extraFine || 0), 0
+      );
+
+      // ── Discount: sum of discount across ALL non-VOID installments ────────
+      // Discount is stored as a negative value (e.g. -5000) in the DB, so use
+      // Math.abs() to get the positive display amount.
+      const totalDiscount = allClassInsts.reduce(
+        (sum, i) => sum + Math.abs(Number(i.discount || 0)), 0
+      );
+
+      // ── Session label ─────────────────────────────────────────────────────
       const sessionLabel = session.class && session.program
-        ? [session.program.name, session.class.name, sectionName].filter(Boolean).join(' / ')
-        : 'Unclassified';
+        ? [session.program.name, session.class.name].filter(Boolean).join(' / ')
+        : `Class ${session.studentClassId}`;
 
       return {
         ...session,
@@ -1271,10 +1406,12 @@ const Students = () => {
           tuitionPaidThisSession,
           headsPlusFinesPaid,
           remainingDues,
+          remainingExtras,
+          totalDiscount,
           paidInstallments,
           totalInstallments,
           pendingInstallments: Math.max(0, totalInstallments - paidInstallments),
-          currentLateFee: nonVoidChallans.reduce((sum, c) => sum + (c.lateFeeFine || 0), 0),
+          advancePaid: activeInsts.reduce((sum, i) => sum + (Number(i.advancePaid) || 0), 0),
         }
       };
     });
@@ -1293,9 +1430,9 @@ const Students = () => {
     return {
       sessions,
       overall: {
-        totalFees: totalAllSessions,
-        totalPaid: paidAllSessions,
-        totalDues: duesAllSessions
+        totalFees: sessions.reduce((s, sess) => s + sess.stats.sessionFee, 0),
+        totalPaid: sessions.reduce((s, sess) => s + sess.stats.paidThisSession, 0),
+        totalDues: sessions.reduce((s, sess) => s + sess.stats.remainingDues, 0),
       },
       extraChallans,
       currentSessionData,
@@ -1393,6 +1530,15 @@ const Students = () => {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowFilters((s) => !s)}
+              className="gap-2"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              {showFilters ? "Hide Filters" : "Filters"}
+            </Button>
             <Button size="sm" onClick={() => { 
                 setDialogFilterProgram(null); 
                 setDialogFilterClass(null); 
@@ -1418,6 +1564,7 @@ const Students = () => {
           </div>
         </div>
         {/* filters */}
+        <div className={`transition-all duration-300 ease-out overflow-hidden ${showFilters ? "max-h-[900px] opacity-100 mt-0" : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"}`}>
         <Card className="shadow-soft w-full">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Filter Students</CardTitle>
@@ -1521,6 +1668,7 @@ const Students = () => {
             </Command>
           </CardContent>
         </Card>
+        </div>
 
         {/* Main Table */}
         <Card className="shadow-soft">
@@ -1596,7 +1744,7 @@ const Students = () => {
                           <div className="flex items-center gap-1.5">
                             {student.rollNumber}
                             {hostelStudentIds.has(student.id) && (
-                              <span title="Hostel Resident" className="inline-block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                              <span title="Boarding Student" className="inline-block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
                             )}
                           </div>
                         </TableCell>
@@ -1605,7 +1753,7 @@ const Students = () => {
                             {student.fName} {student.lName}
                             {hostelStudentIds.has(student.id) && (
                               <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded px-1 py-0.5 leading-none">
-                                Hostel
+                                Boarding
                               </span>
                             )}
                           </div>
@@ -1631,7 +1779,7 @@ const Students = () => {
                           <div className="flex gap-2">
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setViewOpen(true); }}>
+                                <Button size="sm" variant="outline" onClick={() => { setViewStudent(student); setActiveProfileTab("info"); setViewOpen(true); }}>
                                   <Eye className="w-4 h-4" />
                                 </Button>
                               </TooltipTrigger>
@@ -1777,14 +1925,14 @@ const Students = () => {
               <DialogDescription>Complete student information and statistics</DialogDescription>
             </DialogHeader>
             {viewStudent && (
-              <Tabs defaultValue="info" className="w-full">
+              <Tabs value={activeProfileTab} onValueChange={setActiveProfileTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-6">
                   <TabsTrigger value="info">Info</TabsTrigger>
                   <TabsTrigger value="fees">Fees</TabsTrigger>
                   <TabsTrigger value="attendance">Attendance</TabsTrigger>
                   <TabsTrigger value="results">Results</TabsTrigger>
                   <TabsTrigger value="history">Status History</TabsTrigger>
-                  <TabsTrigger value="hostel">Hostel</TabsTrigger>
+                  <TabsTrigger value="boarding">Boarding</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="info" className="space-y-4">
@@ -1886,7 +2034,7 @@ const Students = () => {
                 </TabsContent>
 
                 <TabsContent value="fees">
-                  <Tabs defaultValue="payment-history" className="w-full">
+                  <Tabs value={activeFeesSubTab} onValueChange={setActiveFeesSubTab} className="w-full">
                     <TabsList className="bg-muted p-1 mb-6 h-10 w-full grid grid-cols-3">
                       <TabsTrigger value="payment-history" className="px-6">
                         <History className="w-4 h-4 mr-2" /> Payment History
@@ -1894,8 +2042,8 @@ const Students = () => {
                       <TabsTrigger value="installment-plan" className="px-6">
                         <Calendar className="w-4 h-4 mr-2" /> Installment Plan
                       </TabsTrigger>
-                      <TabsTrigger value="extra-charges" className="px-6">
-                        <Plus className="w-4 h-4 mr-2" /> Extra Charges
+                      <TabsTrigger value="extra-challans" className="px-6">
+                        <Plus className="w-4 h-4 mr-2" /> Extra Challans
                         {feesData.extraChallans?.length > 0 && (
                           <span className="ml-1.5 bg-orange-500 text-white text-[10px] rounded-full px-1.5 py-0.5 font-bold">
                             {feesData.extraChallans.length}
@@ -1936,7 +2084,6 @@ const Students = () => {
                               </Card>
                             </div>
                           </div> */}
-                          {/* Session + Challan Type Filters */}
                           <div className="flex flex-wrap gap-3 items-end">
                             <div className="flex-1 min-w-[200px]">
                               <Label className="text-xs">Session / Class</Label>
@@ -1959,19 +2106,6 @@ const Students = () => {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="min-w-[160px]">
-                              <Label className="text-xs">Challan Type</Label>
-                              <Select value={challanTypeFilter} onValueChange={setChallanTypeFilter}>
-                                <SelectTrigger className="w-full">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All Challans</SelectItem>
-                                  <SelectItem value="tuition">Tuition Only</SelectItem>
-                                  <SelectItem value="extra">Extra Charges</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
                           </div>
                           {/* Current Session Warning */}
                           {selectedFeeSession === "current" && !feesData.currentSessionData && feesData.sessions.length > 0 && (
@@ -1988,7 +2122,7 @@ const Students = () => {
                               <h4 className="text-sm font-semibold text-muted-foreground mb-3">
                                 {feesData.selectedSessionData.isCurrentSession ? "Current Session Stats" : feesData.selectedSessionData.sessionLabel}
                               </h4>
-                              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                                 <Card>
                                   <CardContent className="pt-6">
                                     <p className="text-sm text-muted-foreground">Session Fee</p>
@@ -2013,6 +2147,24 @@ const Students = () => {
                                   <CardContent className="pt-6">
                                     <p className="text-sm text-muted-foreground">Remaining</p>
                                     <p className="text-xl font-bold text-red-600">PKR {feesData.selectedSessionData.stats.remainingDues.toLocaleString()}</p>
+                                    {feesData.selectedSessionData.stats.remainingExtras > 0 && (
+                                      <p className="text-[10px] text-orange-500 mt-1">
+                                        + PKR {feesData.selectedSessionData.stats.remainingExtras.toLocaleString()} late/extra fees
+                                      </p>
+                                    )}
+                                  </CardContent>
+                                </Card>
+                                <Card>
+                                  <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Discount Given</p>
+                                    <p className="text-xl font-bold text-purple-600">
+                                      {feesData.selectedSessionData.stats.totalDiscount > 0
+                                        ? `PKR ${feesData.selectedSessionData.stats.totalDiscount.toLocaleString()}`
+                                        : '—'}
+                                    </p>
+                                    {feesData.selectedSessionData.stats.totalDiscount > 0 && (
+                                      <p className="text-[10px] text-muted-foreground mt-1">across all installments</p>
+                                    )}
                                   </CardContent>
                                 </Card>
                                 <Card>
@@ -2023,13 +2175,13 @@ const Students = () => {
                                     </p>
                                   </CardContent>
                                 </Card>
-                                 <Card>
-                                   <CardContent className="pt-6">
-                                     <p className="text-sm text-muted-foreground">Pending Installments</p>
-                                     <p className="text-xl font-bold text-orange-600">{feesData.selectedSessionData.stats.pendingInstallments}</p>
-                                   </CardContent>
-                                 </Card>
-                              </div>
+                                  <Card>
+                                    <CardContent className="pt-6">
+                                      <p className="text-sm text-muted-foreground">Pending Installments</p>
+                                      <p className="text-xl font-bold text-orange-600">{feesData.selectedSessionData.stats.pendingInstallments}</p>
+                                    </CardContent>
+                                  </Card>
+                               </div>
                               {/* Challans Table */}
                               <div className="mt-4">
                                 <h4 className="text-sm font-semibold mb-3">Fee Challans</h4>
@@ -2042,37 +2194,37 @@ const Students = () => {
                                       <TableHead className="py-2 px-3 text-sm">Status</TableHead>
                                       <TableHead className="py-2 px-3 text-sm">Installments</TableHead>
                                       <TableHead className="py-2 px-3 text-sm">Installment Month</TableHead>
-                                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
                                     {(() => {
-                                      const filtered = feesData.selectedSessionData.challans.filter(fee => {
-                                        if (challanTypeFilter === "tuition") return fee.challanType !== 'FEE_HEADS_ONLY';
-                                        if (challanTypeFilter === "extra") return fee.challanType === 'FEE_HEADS_ONLY';
-                                        return true;
-                                      });
-                                      if (filtered.length === 0) return (
+                                      const filteredChallans = feesData.selectedSessionData?.challans || [];
+                                      if (filteredChallans.length === 0) return (
                                         <TableRow>
-                                          <TableCell colSpan={7} className="py-2 px-3 text-sm text-center py-4 text-muted-foreground">
+                                          <TableCell colSpan={6} className="py-2 px-3 text-sm text-center py-4 text-muted-foreground">
                                             No challans for this session
                                           </TableCell>
                                         </TableRow>
                                       );
-                                      return filtered.map(fee => (
-                                        <TableRow key={fee.id} className={fee.status === 'VOID' ? 'opacity-50' : ''}>
+                                      return filteredChallans.map(fee => (
+                                        <TableRow key={fee.id} className={['VOID', 'SUPERSEDED', 'SETTLED'].includes(fee.status) ? 'opacity-50' : ''}>
                                           <TableCell className="py-2 px-3 text-sm font-medium">{fee.challanNumber || fee.id}</TableCell>
                                           <TableCell className="py-2 px-3 text-sm">
-                                            {fee.status === 'VOID' ? (
+                                            {['VOID', 'SUPERSEDED', 'SETTLED'].includes(fee.status) ? (
                                               <span className="text-muted-foreground line-through text-xs">
-                                                PKR {getChallanTotal(fee).toLocaleString()}
+                                                PKR {fee.totalAmount.toLocaleString()}
                                               </span>
                                             ) : (
                                               <>
-                                                <div>PKR {getChallanTotal(fee).toLocaleString()}</div>
+                                                <div>PKR {fee.totalAmount.toLocaleString()}</div>
                                                 {fee.lateFeeFine > 0 && (
                                                   <div className="text-[10px] text-destructive font-bold">
                                                     Inc. Late Fee: PKR {fee.lateFeeFine.toLocaleString()}
+                                                  </div>
+                                                )}
+                                                {fee.arrears > 0 && (
+                                                  <div className="text-[10px] text-muted-foreground font-medium">
+                                                    + Arrears: PKR {fee.arrears.toLocaleString()}
                                                   </div>
                                                 )}
                                               </>
@@ -2080,45 +2232,21 @@ const Students = () => {
                                           </TableCell>
                                           <TableCell className="py-2 px-3 text-sm text-green-600">PKR {fee.paidAmount?.toLocaleString() || 0}</TableCell>
                                           <TableCell className="py-2 px-3 text-sm">
-                                            <Badge variant={fee.status === "PAID" ? "default" : fee.status === "VOID" ? "outline" : "destructive"}>
-                                              {fee.status === "VOID" ? "Superseded" : fee.status}
-                                            </Badge>
+                                            <div className="flex flex-col gap-1">
+                                              <Badge variant={fee.status === "PAID" ? "default" : fee.status === "OVERDUE" ? "destructive" : (['VOID', 'SUPERSEDED', 'SETTLED'].includes(fee.status)) ? "outline" : "secondary"}>
+                                                {fee.status === "VOID" ? "Voided" : 
+                                                 fee.status === "SETTLED" ? "Settled" : 
+                                                 fee.status === "SUPERSEDED" ? "Superseded" : fee.status}
+                                              </Badge>
+                                              {fee.settledByChallanNumber && (
+                                                <div className="text-[10px] text-green-600 font-medium">
+                                                  via #{fee.settledByChallanNumber}
+                                                </div>
+                                              )}
+                                            </div>
                                           </TableCell>
                                           <TableCell className="py-2 px-3 text-sm">{fee.coveredInstallments || fee.installmentNumber || "-"}</TableCell>
                                           <TableCell className="py-2 px-3 text-sm">{fee.dueDate ? format(new Date(fee.dueDate), "MMM yyyy") : "-"}</TableCell>
-                                          <TableCell className="py-2 px-3 text-sm">
-                                              <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={async () => {
-                                                  setSelectedChallanDetails(fee);
-                                                  setDetailsDialogOpen(true);
-                                                  // Fetch full challan with previousChallans, supersedes, etc.
-                                                  try {
-                                                    setChallanDetailLoading(true);
-                                                    const result = await getFeeChallans({ id: fee.id });
-                                                    const full = (result?.data || [])[0] || fee;
-                                                    if (full && full.id) setSelectedChallanDetails(full);
-                                                  } catch { /* keep the shallow fee object */ } finally {
-                                                    setChallanDetailLoading(false);
-                                                  }
-                                                }}
-                                              >
-                                                <Eye className="h-4 w-4" />
-                                              </Button>
-                                              {fee.paymentHistory && (
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  onClick={() => {
-                                                    setSelectedChallanForHistory(fee);
-                                                    setHistoryDialogOpen(true);
-                                                  }}
-                                                >
-                                                  <History className="h-4 w-4" />
-                                                </Button>
-                                              )}
-                                            </TableCell>
                                         </TableRow>
                                       ));
                                     })()}
@@ -2141,12 +2269,22 @@ const Students = () => {
                        ) : (
                          (() => {
                            // Group installments by Class and Session
+                           const getInstSessionName = (inst) => {
+                             if (inst.session && typeof inst.session === 'object') return inst.session.name || 'N/A';
+                             if (typeof inst.session === 'string') return inst.session || 'N/A';
+                             if (inst.sessionId) {
+                               const found = academicSessions.find(s => s.id === inst.sessionId || s.id.toString() === inst.sessionId.toString());
+                               return found?.name || 'N/A';
+                             }
+                             return 'N/A';
+                           };
                            const grouped = viewStudent.feeInstallments.reduce((acc, inst) => {
-                             const key = `${inst.classId}-${inst.session}`;
+                             const sessName = getInstSessionName(inst);
+                             const key = `${inst.classId}-${sessName}`;
                              if (!acc[key]) {
                                acc[key] = {
                                  className: inst.class?.name || programData.flatMap(p => p.classes).find(c => c.id === inst.classId)?.name || 'Unknown Class',
-                                 session: inst.session || 'N/A',
+                                 session: sessName,
                                  classYear: programData.flatMap(p => p.classes).find(c => c.id === inst.classId)?.year || 0,
                                  installments: []
                                };
@@ -2174,7 +2312,7 @@ const Students = () => {
                                    </div>
                                  </div>
                                  <Badge variant="outline" className="bg-slate-50 uppercase text-[10px] py-1 px-3">
-                                   Plan Total: PKR {group.installments.reduce((sum, i) => sum + (i.amount || 0), 0).toLocaleString()}
+                                   Plan Total: PKR {group.installments.reduce((sum, i) => sum + Number(i.basePayable ?? i.amount ?? 0), 0).toLocaleString()}
                                  </Badge>
                                </div>
 
@@ -2199,7 +2337,12 @@ const Students = () => {
                                            {inst.dueDate ? format(new Date(inst.dueDate), "dd MMM yyyy") : "-"}
                                          </TableCell>
                                          <TableCell className="py-2 px-3 text-sm text-right font-bold text-slate-900">
-                                           PKR {inst.amount.toLocaleString()}
+                                           <div className="flex flex-col items-end">
+                                             <span>PKR {Number(inst.basePayable ?? inst.amount ?? 0).toLocaleString()}</span>
+                                             {Number(inst.advancePaid || 0) > 0 && (
+                                               <span className="text-[10px] text-green-600 font-semibold">Advance Paid: PKR {Number(inst.advancePaid).toLocaleString()}</span>
+                                             )}
+                                           </div>
                                          </TableCell>
                                        </TableRow>
                                      ))}
@@ -2212,11 +2355,13 @@ const Students = () => {
                        )}
                     </TabsContent>
 
-                    <TabsContent value="extra-charges" className="space-y-4 animate-in fade-in duration-300">
-                      {!feesData.extraChallans || feesData.extraChallans.length === 0 ? (
+                    <TabsContent value="extra-challans" className="space-y-4 animate-in fade-in duration-300">
+                      {extraChallansLoading ? (
+                        <div className="py-12 flex justify-center text-sm text-muted-foreground">Loading extra challans...</div>
+                      ) : !feesData.extraChallans || feesData.extraChallans.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg">
                           <DollarSign className="w-10 h-10 text-muted-foreground mb-3 opacity-20" />
-                          <p className="text-lg text-muted-foreground mb-1">No extra charges</p>
+                          <p className="text-lg text-muted-foreground mb-1">No extra challans</p>
                           <p className="text-sm text-muted-foreground">No supplementary fee challans on record for this student.</p>
                         </div>
                       ) : (
@@ -2224,8 +2369,7 @@ const Students = () => {
                           <TableHeader>
                             <TableRow>
                               <TableHead className="py-2 px-3 text-sm">Challan No</TableHead>
-                              <TableHead className="py-2 px-3 text-sm">Month</TableHead>
-                              <TableHead className="py-2 px-3 text-sm">Heads</TableHead>
+                              <TableHead className="py-2 px-3 text-sm">Remarks</TableHead>
                               <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
                               <TableHead className="py-2 px-3 text-sm">Paid</TableHead>
                               <TableHead className="py-2 px-3 text-sm">Status</TableHead>
@@ -2236,19 +2380,20 @@ const Students = () => {
                             {feesData.extraChallans.map(fee => {
                               let headsLabel = '-';
                               try {
-                                const heads = typeof fee.selectedHeads === 'string' ? JSON.parse(fee.selectedHeads) : (fee.selectedHeads || []);
-                                headsLabel = heads.filter(h => h?.isSelected !== false).map(h => h.name).join(', ') || '-';
+                                const heads = Array.isArray(fee.selectedHeads)
+                                  ? fee.selectedHeads
+                                  : (typeof fee.selectedHeads === 'string' ? JSON.parse(fee.selectedHeads) : []);
+                                headsLabel = heads.map(h => h.headName || h.name).filter(Boolean).join(', ') || '-';
                               } catch {}
                               return (
                                 <TableRow key={fee.id}>
                                   <TableCell className="py-2 px-3 text-sm font-medium">{fee.challanNumber}</TableCell>
-                                  <TableCell className="py-2 px-3 text-sm">{fee.month || (fee.dueDate ? format(new Date(fee.dueDate), "MMM yyyy") : '-')}</TableCell>
                                   <TableCell className="py-2 px-3 text-sm text-xs text-muted-foreground max-w-[200px] truncate">{headsLabel}</TableCell>
-                                  <TableCell className="py-2 px-3 text-sm">PKR {(fee.amount + (fee.fineAmount || 0)).toLocaleString()}</TableCell>
-                                  <TableCell className="py-2 px-3 text-sm text-green-600">PKR {(fee.paidAmount || 0).toLocaleString()}</TableCell>
+                                  <TableCell className="py-2 px-3 text-sm">PKR {fee.totalAmount.toLocaleString()}</TableCell>
+                                  <TableCell className="py-2 px-3 text-sm text-green-600">PKR {fee.paidAmount.toLocaleString()}</TableCell>
                                   <TableCell className="py-2 px-3 text-sm">
-                                    <Badge variant={fee.status === 'PAID' ? 'default' : fee.status === 'VOID' ? 'outline' : 'destructive'}>
-                                      {fee.status === 'VOID' ? 'Superseded' : fee.status}
+                                    <Badge variant={fee.status === 'PAID' ? 'default' : fee.status === 'VOID' ? 'outline' : 'secondary'}>
+                                      {fee.status}
                                     </Badge>
                                   </TableCell>
                                   <TableCell className="py-2 px-3 text-sm">{fee.dueDate ? format(new Date(fee.dueDate), "dd MMM yyyy") : '-'}</TableCell>
@@ -2602,19 +2747,19 @@ const Students = () => {
                   })()}
                 </TabsContent>
 
-                <TabsContent value="hostel" className="space-y-4">
+                <TabsContent value="boarding" className="space-y-4">
                   {hostelRegLoading ? (
                     <div className="flex items-center justify-center py-12">
-                      <p className="text-muted-foreground">Loading hostel info...</p>
+                      <p className="text-muted-foreground">Loading boarding info...</p>
                     </div>
                   ) : !studentHostelReg ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg">
                       <Home className="w-12 h-12 text-muted-foreground mb-4 opacity-20" />
-                      <p className="text-lg text-muted-foreground mb-2">Not registered in hostel</p>
-                      <p className="text-sm text-muted-foreground">This student has no hostel registration.</p>
+                      <p className="text-lg text-muted-foreground mb-2">Not registered in Boarding</p>
+                      <p className="text-sm text-muted-foreground">This student has no boarding registration.</p>
                     </div>
                   ) : (
-                    <Tabs defaultValue="details">
+                    <Tabs value={activeBoardingSubTab} onValueChange={setActiveBoardingSubTab}>
                       <TabsList className="w-full">
                         <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
                         <TabsTrigger value="challans" className="flex-1">Fee Challans</TabsTrigger>
@@ -2650,11 +2795,11 @@ const Students = () => {
                         <Card>
                           <CardHeader>
                             <CardTitle className="text-lg flex items-center gap-2">
-                              <Home className="w-5 h-5 text-primary" /> Hostel Registration
+                              <Home className="w-5 h-5 text-primary" /> Boarding Registration
                             </CardTitle>
                           </CardHeader>
                           <CardContent className="grid grid-cols-2 gap-4">
-                            <div><span className="font-semibold">Hostel:</span> {studentHostelReg.hostelName}</div>
+                            <div><span className="font-semibold">Boarding:</span> {studentHostelReg.hostelName}</div>
                             <div><span className="font-semibold">Registration Date:</span> {studentHostelReg.registrationDate ? new Date(studentHostelReg.registrationDate).toLocaleDateString() : "-"}</div>
                             <div><span className="font-semibold">Registration ID:</span> <span className="text-xs text-muted-foreground font-mono">{studentHostelReg.id}</span></div>
                             <div><span className="font-semibold">Decided Fee/Month:</span> {studentHostelReg.decidedFeePerMonth != null ? `PKR ${Number(studentHostelReg.decidedFeePerMonth).toLocaleString()}` : "-"}</div>
@@ -2703,10 +2848,10 @@ const Students = () => {
                                 </TableHeader>
                                 <TableBody>
                                   {studentHostelChallans.map((c) => {
-                                    const total = (c.hostelFee||0) + (c.fineAmount||0) + (c.lateFeeFine||0) + (c.arrearsAmount||0) - (c.discount||0);
+                                    const total = c.snapshotTotalDue != null ? Number(c.snapshotTotalDue) : ((c.hostelFee||0) + (c.fineAmount||0) + (c.lateFeeFine||0) + (c.arrearsAmount||0) - (c.discount||0));
                                     const balance = Math.max(0, total - (c.paidAmount||0));
                                     return (
-                                      <TableRow key={c.id} className={c.status === 'VOID' ? 'opacity-50' : ''}>
+                                      <TableRow key={c.id} className={(['VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status)) ? 'opacity-50' : ''}>
                                         <TableCell className="py-2 px-3 text-sm font-medium text-xs">{c.challanNumber}</TableCell>
                                         <TableCell className="py-2 px-3 text-sm">{c.month}</TableCell>
                                         <TableCell className="py-2 px-3 text-sm">PKR {total.toLocaleString()}</TableCell>
@@ -2714,10 +2859,10 @@ const Students = () => {
                                         <TableCell className="py-2 px-3 text-sm">{c.dueDate ? new Date(c.dueDate).toLocaleDateString() : '—'}</TableCell>
                                         <TableCell className="py-2 px-3 text-sm">
                                           <div className="flex flex-col gap-0.5">
-                                            <Badge variant={c.status === 'PAID' ? 'default' : c.status === 'VOID' ? 'outline' : c.status === 'PARTIAL' ? 'warning' : 'secondary'}>
-                                              {c.status === 'VOID' ? 'Superseded' : c.status}
+                                            <Badge variant={c.status === 'PAID' ? 'default' : (['VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status)) ? 'outline' : c.status === 'PARTIAL' ? 'warning' : 'secondary'}>
+                                              {(['VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status)) ? 'Superseded' : c.status}
                                             </Badge>
-                                            {balance > 0 && c.status !== 'VOID' && (
+                                            {balance > 0 && !(['VOID', 'SUPERSEDED', 'SETTLED'].includes(c.status)) && (
                                               <span className="text-[10px] text-red-600">Due: PKR {balance.toLocaleString()}</span>
                                             )}
                                           </div>
@@ -2734,7 +2879,7 @@ const Students = () => {
 
                       {/* ── History ── */}
                       <TabsContent value="history" className="mt-3">
-                        <HostelRegistrationHistoryPanel regId={studentHostelReg.id} />
+                        <BoardingRegistrationHistoryPanel regId={studentHostelReg.id} />
                       </TabsContent>
                     </Tabs>
                   )}
@@ -3245,10 +3390,10 @@ const Students = () => {
                       <p className="text-sm"><strong>Class:</strong> {promotionDialog.arrears?.className}</p>
                       <p className="text-sm"><strong>Program:</strong> {promotionDialog.arrears?.programName}</p>
 
-                      {promotionDialog.arrears?.unpaidChallans?.length > 0 && (
+                      {promotionDialog.arrears?.unpaidInstallments?.length > 0 && (
                         <div className="mt-2 space-y-1 border-t pt-2 border-border">
                           <p className="text-[10px] uppercase font-black text-destructive/60 mb-1">Unpaid Installments</p>
-                          {promotionDialog.arrears.unpaidChallans.map((c, idx) => (
+                          {promotionDialog.arrears.unpaidInstallments.map((c, idx) => (
                             <div key={idx} className="flex justify-between text-xs">
                               <span className="text-muted-foreground">Inst. #{c.installmentNumber} ({c.status})</span>
                               <span className="font-medium text-destructive">PKR {c.balance.toLocaleString()}</span>

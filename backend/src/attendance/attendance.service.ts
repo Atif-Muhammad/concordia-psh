@@ -13,18 +13,69 @@ import { LeaveDto } from './dtos/leave.dto';
 export class AttendanceService {
   constructor(private prismaService: PrismaService) {}
 
+  private parseDateOnly(date: string | Date) {
+    if (date instanceof Date) {
+      return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    }
+    const [year, month, day] = date.split('-').map(Number);
+    if (!year || !month || !day) {
+      const parsed = new Date(date);
+      return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
+    }
+    return new Date(Date.UTC(year, month - 1, day));
+  }
+
+  private canManageAllAttendance(user?: any) {
+    const role = String(user?.role || '').toUpperCase();
+    const modules = user?.permissions?.modules || [];
+    return role === 'SUPER_ADMIN' || modules.includes('Attendance') || user?.permissions?.all === true;
+  }
+
+  private isTeacherUser(user?: any) {
+    return String(user?.role || '').toUpperCase() === 'TEACHER';
+  }
+
+  private async ensureTeacherAttendanceScope(
+    user: any,
+    classId: number,
+    sectionId: number | null,
+    subjectId: number,
+  ) {
+    if (!this.isTeacherUser(user) || this.canManageAllAttendance(user)) return;
+
+    const teacherId = Number(user.id);
+    const mapping = await this.prismaService.teacherClassSectionMapping.findFirst({
+      where: {
+        teacherId,
+        classId,
+        OR: [
+          { sectionId: null },
+          ...(sectionId ? [{ sectionId }] : []),
+        ],
+      },
+    });
+    if (!mapping) throw new ForbiddenException('You are not assigned to this class/section');
+
+    const teacherSubject = await this.prismaService.teacherSubjectMapping.findFirst({
+      where: { teacherId, subjectId },
+    });
+    if (!teacherSubject) throw new ForbiddenException('You are not assigned to this subject');
+
+    const subjectClass = await this.prismaService.subjectClassMapping.findFirst({
+      where: { classId, subjectId },
+    });
+    if (!subjectClass) throw new ForbiddenException('This subject does not belong to the selected class');
+  }
+
   async isNonWorkingDay(
     date: Date,
   ): Promise<{ isBlocked: boolean; reason?: string }> {
     // Only block future dates — holidays and weekends are allowed (frontend handles override)
     const now = new Date();
-    const today = new Date(
-      Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()),
-    );
-    const dateOnly = new Date(date);
-    dateOnly.setUTCHours(0, 0, 0, 0);
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const dateKey = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 
-    if (dateOnly.getTime() > today.getTime()) {
+    if (dateKey > todayKey) {
       return {
         isBlocked: true,
         reason: 'Cannot mark attendance for future dates',
@@ -140,23 +191,9 @@ export class AttendanceService {
     date: string,
     requestingUser?: any,
   ) {
-    // RBAC check for teachers
-    if (requestingUser?.role === 'Teacher') {
-      const mapping = await this.prismaService.teacherClassSectionMapping.findFirst({
-        where: {
-          teacherId: Number(requestingUser.id),
-          classId,
-          OR: [
-            { sectionId: null },
-            ...(sectionId ? [{ sectionId }] : []),
-          ],
-        },
-      });
-      if (!mapping) throw new ForbiddenException('You are not assigned to this class/section');
-    }
+    await this.ensureTeacherAttendanceScope(requestingUser, classId, sectionId, subjectId);
 
-    const targetDate = new Date(date);
-    targetDate.setUTCHours(0, 0, 0, 0);
+    const targetDate = this.parseDateOnly(date);
 
     // Check if date is weekend or holiday
     const dateCheck = await this.isNonWorkingDay(targetDate);
@@ -172,7 +209,7 @@ export class AttendanceService {
     const nextDate = new Date(targetDate);
     nextDate.setDate(nextDate.getDate() + 1);
 
-    const studentWhere = sectionId ? { sectionId } : { classId };
+    const studentWhere = sectionId ? { classId, sectionId } : { classId };
     // console.log(studentWhere)
     const students = await this.prismaService.student.findMany({
       where: { ...studentWhere, passedOut: false },
@@ -202,24 +239,12 @@ export class AttendanceService {
     date: string,
     payload: { studentId: string; status: AttendanceStatus }[],
     requestingUser?: any,
+    options?: { generatedById?: number },
   ) {
-    // RBAC check for teachers
-    if (requestingUser?.role === 'Teacher') {
-      const mapping = await this.prismaService.teacherClassSectionMapping.findFirst({
-        where: {
-          teacherId: Number(requestingUser.id),
-          classId,
-          OR: [
-            { sectionId: null },
-            ...(sectionId ? [{ sectionId }] : []),
-          ],
-        },
-      });
-      if (!mapping) throw new ForbiddenException('You are not assigned to this class/section');
-    }
+    await this.ensureTeacherAttendanceScope(requestingUser, classId, sectionId, subjectId);
 
     // Validate date is not weekend/holiday
-    const targetDate = new Date(date);
+    const targetDate = this.parseDateOnly(date);
     const dateCheck = await this.isNonWorkingDay(targetDate);
 
     if (dateCheck.isBlocked) {
@@ -236,7 +261,7 @@ export class AttendanceService {
           classId,
           sectionId: sectionId ?? null,
           subjectId,
-          date: new Date(date),
+          date: targetDate,
         },
       });
 
@@ -269,16 +294,19 @@ export class AttendanceService {
             sectionId: sectionId ?? null,
             subjectId,
             teacherId: teacherId ?? null,
-            date: new Date(date),
+            date: targetDate,
             status,
             markedAt: new Date(),
             markedById: teacherId ?? (requestingUser?.id ? Number(requestingUser.id) : null),
+            generatedAt: new Date(),
+            generatedById: options?.generatedById ?? (requestingUser?.id ? Number(requestingUser.id) : null),
+            autoGenerated: false,
           },
         });
       }
     }
 
-    return { success: true };
+    return { success: true, generatedCount: payload.length };
   }
 
   async getAttendanceReport(

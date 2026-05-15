@@ -62,9 +62,10 @@ import {
 import { Plus } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const EditLeaveDialog = ({ open, onOpenChange, record, onSuccess }) => {
-    const [selectedDates, setSelectedDates] = useState([]);
+    const [selectedRange, setSelectedRange] = useState(undefined);
     const [calOpen, setCalOpen] = useState(false);
     const [reason, setReason] = useState("");
     const [leaveType, setLeaveType] = useState("CASUAL");
@@ -88,17 +89,7 @@ const EditLeaveDialog = ({ open, onOpenChange, record, onSuccess }) => {
             };
             const start = parseLocalDate(record.startDate);
             const end = parseLocalDate(record.endDate);
-            // Expand the full range so all days between start and end are pre-selected
-            const dates = [];
-            if (start) {
-                const cursor = new Date(start);
-                const last = end || start;
-                while (cursor <= last) {
-                    dates.push(new Date(cursor));
-                    cursor.setDate(cursor.getDate() + 1);
-                }
-            }
-            setSelectedDates(dates);
+            setSelectedRange({ from: start, to: end || start });
             setReason(record.reason || "");
             setLeaveType(record.leaveType || "CASUAL");
             setCalOpen(false);
@@ -109,13 +100,19 @@ const EditLeaveDialog = ({ open, onOpenChange, record, onSuccess }) => {
         if (!record) return;
         setIsSubmitting(true);
         try {
+            const fromDate = selectedRange?.from;
+            const toDate = selectedRange?.to || selectedRange?.from;
+            const days = fromDate && toDate
+                ? Math.floor((new Date(toDate).setHours(0, 0, 0, 0) - new Date(fromDate).setHours(0, 0, 0, 0)) / (1000 * 60 * 60 * 24)) + 1
+                : 0;
+
             await upsertLeave({
                 leaveId: record.leaveId,
                 staffId: record.staffId,
-                startDate: format(selectedDates[0], "yyyy-MM-dd"),
-                endDate: format(selectedDates[selectedDates.length - 1], "yyyy-MM-dd"),
-                days: selectedDates.length,
-                month: record.month,
+                startDate: format(fromDate, "yyyy-MM-dd"),
+                endDate: format(toDate, "yyyy-MM-dd"),
+                days,
+                month: format(fromDate, "yyyy-MM"),
                 reason,
                 status: record.status,
                 leaveType,
@@ -132,9 +129,11 @@ const EditLeaveDialog = ({ open, onOpenChange, record, onSuccess }) => {
         }
     };
 
-    const dateLabel = selectedDates.length === 0
-        ? "Pick dates..."
-        : `${selectedDates.length} date(s) selected`;
+    const dateLabel = !selectedRange?.from
+        ? "Pick date range..."
+        : selectedRange?.to
+            ? `${format(selectedRange.from, "yyyy-MM-dd")} to ${format(selectedRange.to, "yyyy-MM-dd")}`
+            : format(selectedRange.from, "yyyy-MM-dd");
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -205,9 +204,9 @@ const EditLeaveDialog = ({ open, onOpenChange, record, onSuccess }) => {
                             </PopoverTrigger>
                             <PopoverContent className="w-auto p-0" align="start">
                                 <Calendar
-                                    mode="multiple"
-                                    selected={selectedDates}
-                                    onSelect={(dates) => setSelectedDates(dates || [])}
+                                    mode="range"
+                                    selected={selectedRange}
+                                    onSelect={(range) => setSelectedRange(range)}
                                 />
                             </PopoverContent>
                         </Popover>
@@ -228,7 +227,7 @@ const EditLeaveDialog = ({ open, onOpenChange, record, onSuccess }) => {
                         <Button variant="outline" onClick={() => onOpenChange(false)}>
                             Cancel
                         </Button>
-                        <Button onClick={handleSave} disabled={isSubmitting || selectedDates.length === 0}>
+                        <Button onClick={handleSave} disabled={isSubmitting || !selectedRange?.from}>
                             {isSubmitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                             Save
                         </Button>
@@ -249,7 +248,7 @@ const LeavesManagementDialog = () => {
         reason: "",
         leaveType: "CASUAL",
     });
-    const [selectedDates, setSelectedDates] = useState([]);
+    const [selectedRange, setSelectedRange] = useState(undefined);
     const [dateError, setDateError] = useState("");
     const [calOpen, setCalOpen] = useState(false);
     const [staffSearch, setStaffSearch] = useState("");
@@ -338,6 +337,16 @@ const LeavesManagementDialog = () => {
         return <Badge variant="secondary">PENDING</Badge>;
     };
 
+    const leaveAuditLabel = (row) => {
+        const events = Array.isArray(row?.actionAudit) ? row.actionAudit : [];
+        if (!events.length) return "No audit yet";
+        return events
+            .slice(-4)
+            .reverse()
+            .map((e) => `${e.action || "UPDATED"} - ${e.byName || "System"} - ${e.at ? new Date(e.at).toLocaleString() : ""}`)
+            .join("\n");
+    };
+
     const roleLabel = (s) => {
         if (s.isTeaching && s.isNonTeaching) return "Dual";
         if (s.isTeaching) return "Teacher";
@@ -354,29 +363,34 @@ const LeavesManagementDialog = () => {
             toast({ title: "Please fill all required fields", variant: "destructive" });
             return;
         }
-        if (selectedDates.length === 0) {
-            setDateError("Please select at least one date");
+        if (!selectedRange?.from) {
+            setDateError("Please select a date range");
             return;
         }
 
         try {
-            for (const date of selectedDates) {
-                const dateStr = format(date, "yyyy-MM-dd");
-                await upsertLeave({
-                    staffId: parseInt(leaveFormData.personId),
-                    startDate: dateStr,
-                    endDate: dateStr,
-                    days: 1,
-                    month: format(date, "yyyy-MM"),
-                    reason: leaveFormData.reason,
-                    status: "PENDING",
-                    leaveType: leaveFormData.leaveType,
-                });
-            }
-            toast({ title: "Leave request(s) created successfully" });
+            const fromDate = selectedRange.from;
+            const toDate = selectedRange.to || selectedRange.from;
+            const days = Math.floor(
+                (new Date(toDate).setHours(0, 0, 0, 0) - new Date(fromDate).setHours(0, 0, 0, 0)) /
+                (1000 * 60 * 60 * 24)
+            ) + 1;
+
+            await upsertLeave({
+                staffId: parseInt(leaveFormData.personId),
+                startDate: format(fromDate, "yyyy-MM-dd"),
+                endDate: format(toDate, "yyyy-MM-dd"),
+                days,
+                month: format(fromDate, "yyyy-MM"),
+                reason: leaveFormData.reason,
+                status: "PENDING",
+                leaveType: leaveFormData.leaveType,
+            });
+
+            toast({ title: "Leave request created successfully" });
             setCreateDialogOpen(false);
             setLeaveFormData({ personId: "", personName: "", reason: "", leaveType: "CASUAL" });
-            setSelectedDates([]);
+            setSelectedRange(undefined);
             setDateError("");
             setCalOpen(false);
             setStaffSearch("");
@@ -481,6 +495,14 @@ const LeavesManagementDialog = () => {
                                             <div className="flex flex-col gap-1">
                                                 {statusBadge(row.status)}
                                                 {row.locked && <Badge variant="outline" className="text-xs w-fit gap-1"><Lock className="h-3 w-3" />Locked</Badge>}
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Clock className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                                                    </TooltipTrigger>
+                                                    <TooltipContent className="text-xs whitespace-pre-line max-w-[320px]">
+                                                        {leaveAuditLabel(row)}
+                                                    </TooltipContent>
+                                                </Tooltip>
                                             </div>
                                         </TableCell>
                                         <TableCell className="py-2 px-3 text-sm">
@@ -660,16 +682,18 @@ const LeavesManagementDialog = () => {
                                 <PopoverTrigger asChild>
                                     <Button variant="outline" className="w-full justify-start mt-1 font-normal">
                                         <CalendarIcon className="mr-2 h-4 w-4 opacity-50" />
-                                        {selectedDates.length === 0
-                                            ? "Pick dates..."
-                                            : `${selectedDates.length} date(s) selected`}
+                                        {!selectedRange?.from
+                                            ? "Pick date range..."
+                                            : selectedRange?.to
+                                                ? `${format(selectedRange.from, "yyyy-MM-dd")} to ${format(selectedRange.to, "yyyy-MM-dd")}`
+                                                : format(selectedRange.from, "yyyy-MM-dd")}
                                     </Button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-auto p-0" align="start">
                                     <Calendar
-                                        mode="multiple"
-                                        selected={selectedDates}
-                                        onSelect={(dates) => { setSelectedDates(dates || []); setDateError(""); }}
+                                        mode="range"
+                                        selected={selectedRange}
+                                        onSelect={(range) => { setSelectedRange(range); setDateError(""); }}
                                     />
                                 </PopoverContent>
                             </Popover>
@@ -729,7 +753,7 @@ const LeavesManagementDialog = () => {
                                 onClick={() => {
                                     setCreateDialogOpen(false);
                                     setLeaveFormData({ personId: "", personName: "", reason: "", leaveType: "CASUAL" });
-                                    setSelectedDates([]);
+                                    setSelectedRange(undefined);
                                     setDateError("");
                                     setCalOpen(false);
                                     setStaffSearch("");

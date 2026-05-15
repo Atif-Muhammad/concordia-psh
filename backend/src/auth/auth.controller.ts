@@ -123,17 +123,21 @@ export class AuthController {
     let designation: string | undefined;
     if (isStaff) {
       const staff = user as any;
-      if (staff.isTeaching) {
+      // If a specific designation is set, use it. 
+      // Otherwise fallback to Teaching/Non-Teaching logic
+      if (staff.designation) {
+        designation = staff.designation;
+      } else if (staff.isTeaching) {
         designation = staff.specialization ? `Teacher - ${staff.specialization}` : 'Teacher';
       } else {
-        designation = staff.designation || 'Staff';
+        designation = 'Staff';
       }
     }
 
     return {
       id: user.id,
       name: user.name,
-      role: (user as any).role || 'Staff',
+      role: (user as any).role || (isStaff ? 'Staff' : 'ADMIN'),
       designation,
       email: user.email,
       permissions: (user as any).permissions || {},

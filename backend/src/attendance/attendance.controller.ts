@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -25,9 +26,6 @@ export class AttendanceController {
     @Req() req: any,
     @Query('date') date: string,
     @Query('attenFor') attenFor: 'teacher' | 'student',
-    @Query('classId') classId?: string,
-    @Query('sectionId') sectionId?: string,
-    @Query('subjectId') subjectId?: string,
   ) {
     const generatedById = req?.user?.id ? Number(req.user.id) : undefined;
     let targetDate: Date;
@@ -48,12 +46,8 @@ export class AttendanceController {
     if (attenFor === 'teacher')
       return await this.attendanceService.generateAttendanceStaff(targetDate, generatedById);
     if (attenFor === 'student')
-      return await this.attendanceService.generateAttendanceForDate(
-        targetDate,
-        Number(classId) || undefined,
-        Number(sectionId) || undefined,
-        Number(subjectId) || undefined,
-        generatedById,
+      throw new BadRequestException(
+        'Student attendance must be recorded by fetching students first and then saving selected statuses.',
       );
     throw new ForbiddenException();
   }

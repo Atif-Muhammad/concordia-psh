@@ -1,33 +1,109 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import React from 'react';
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, CartesianGrid, XAxis, YAxis, Legend, ResponsiveContainer } from "recharts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useQuery } from "@tanstack/react-query";
-import { getDashboardStats, getAcademicSessions } from "../../config/apis";
+import {
+  getAcademicSessions,
+  getDashboardStudents,
+  getDashboardFees,
+  getDashboardAttendance,
+  getDashboardStaff,
+  getDashboardFinance,
+  getDashboardCharts,
+} from "../../config/apis";
 import { cn } from "@/lib/utils";
-import { Users, DollarSign, TrendingUp, ClipboardCheck, UserPlus, FileText, BookOpen, GraduationCap, Building, Package, Briefcase, Loader2, Info } from "lucide-react";
+import { Users, DollarSign, TrendingUp, ClipboardCheck, FileText, BookOpen, GraduationCap, Briefcase, Loader2, Info, ChevronRight } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 
+// â”€â”€ Skeleton helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const Skeleton = ({ className }) => (
+  <div className={cn("animate-pulse rounded bg-muted", className)} />
+);
+
+const CardSkeleton = ({ rows = 2 }) => (
+  <Card className="shadow-sm">
+    <CardContent className="pt-4 pb-3 px-4 space-y-2">
+      {Array.from({ length: rows }).map((_, i) => (
+        <Skeleton key={i} className={`h-4 ${i === 0 ? 'w-1/2' : 'w-3/4'}`} />
+      ))}
+    </CardContent>
+  </Card>
+);
+
+const ChartSkeleton = ({ height = 200 }) => (
+  <div className="flex items-center justify-center bg-muted/30 rounded-lg" style={{ height }}>
+    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+  </div>
+);
+
+const formatPKR = (amount = 0) => `PKR ${Math.round(Number(amount || 0)).toLocaleString()}`;
+
+// â”€â”€ Section components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+const StatCard = ({ title, value, change, icon: Icon, color, bgColor, breakdown, loading, onClick }) => (
+  <Card onClick={onClick} className={cn("shadow-sm hover:shadow-md transition-all border-l-4 border-border", onClick && "cursor-pointer")}>
+    <CardContent className="pt-4 pb-3 px-4">
+      {loading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-1/2" />
+          <Skeleton className="h-6 w-2/3" />
+          <Skeleton className="h-3 w-1/3" />
+        </div>
+      ) : (
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-1">
+              <p className="text-xs font-medium text-muted-foreground">{title}</p>
+              {breakdown && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="w-3 h-3 text-muted-foreground/60 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="text-xs space-y-1 p-3">
+                    <p className="font-semibold mb-1">Breakdown</p>
+                    <p>Regular Fee: PKR {Math.round(breakdown.regular).toLocaleString()}</p>
+                    <p>Extra Challans: PKR {Math.round(breakdown.extra).toLocaleString()}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+            <h3 className="text-lg font-semibold">{value}</h3>
+            <p className="text-[10px] text-muted-foreground">{change}</p>
+          </div>
+          <div className="flex items-start gap-1">
+            {onClick && <ChevronRight className="w-3.5 h-3.5 text-muted-foreground mt-0.5" />}
+            <div className={cn("p-2 rounded-md", bgColor, color)}>
+              <Icon className="w-4 h-4" />
+            </div>
+          </div>
+        </div>
+      )}
+    </CardContent>
+  </Card>
+);
+
+const chartConfig = {
+  collected: { label: "Collected", color: "hsl(var(--success))" },
+  pending: { label: "Pending", color: "hsl(var(--warning))" },
+  rate: { label: "Attendance %", color: "hsl(var(--primary))" },
+};
+
+// â”€â”€ Main Dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const Dashboard = () => {
+  const navigate = useNavigate();
+  const go = (path) => navigate(path);
   const [selectedSessionId, setSelectedSessionId] = React.useState(null);
 
-  // Fetch academic sessions
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
     queryKey: ["academicSessions"],
     queryFn: getAcademicSessions,
-    onSuccess: (data) => {
-      // Auto-select active session on first load
-      if (!selectedSessionId && data?.length > 0) {
-        const active = data.find(s => s.isActive);
-        setSelectedSessionId(active ? active.id.toString() : data[0].id.toString());
-      }
-    },
   });
 
-  // Auto-select active session once sessions load
   React.useEffect(() => {
     if (sessions.length > 0 && !selectedSessionId) {
       const active = sessions.find(s => s.isActive);
@@ -35,16 +111,54 @@ const Dashboard = () => {
     }
   }, [sessions, selectedSessionId]);
 
-  const selectedSession = sessions.find(s => s.id.toString() === selectedSessionId);
+  const sid = selectedSessionId;
+  const enabled = !!sid;
+  const selectedSession = sessions.find(s => s.id.toString() === sid);
+  const sessionLabel = sid === 'all' ? 'All Time' : (selectedSession?.name || "â€”");
 
-  const { data: dashboardData, isLoading, isError } = useQuery({
-    queryKey: ['dashboardStats', selectedSessionId],
-    queryFn: () => getDashboardStats({ sessionId: selectedSessionId }),
-    enabled: !!selectedSessionId,
-    refetchInterval: 60000,
+  // â”€â”€ Individual section queries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const { data: students, isLoading: studentsLoading } = useQuery({
+    queryKey: ['dashboard-students', sid],
+    queryFn: () => getDashboardStudents(sid),
+    enabled,
+    staleTime: 60000,
   });
 
-  if (sessionsLoading || (sessions.length > 0 && !selectedSessionId)) {
+  const { data: fees, isLoading: feesLoading } = useQuery({
+    queryKey: ['dashboard-fees', sid],
+    queryFn: () => getDashboardFees(sid),
+    enabled,
+    staleTime: 60000,
+  });
+
+  const { data: attendance, isLoading: attendanceLoading } = useQuery({
+    queryKey: ['dashboard-attendance', sid],
+    queryFn: () => getDashboardAttendance(sid),
+    enabled,
+    staleTime: 60000,
+  });
+
+  const { data: staff, isLoading: staffLoading } = useQuery({
+    queryKey: ['dashboard-staff'],
+    queryFn: () => getDashboardStaff(sid),
+    staleTime: 300000,
+  });
+
+  const { data: finance, isLoading: financeLoading } = useQuery({
+    queryKey: ['dashboard-finance', sid],
+    queryFn: () => getDashboardFinance(sid),
+    enabled,
+    staleTime: 60000,
+  });
+
+  const { data: charts, isLoading: chartsLoading } = useQuery({
+    queryKey: ['dashboard-charts', sid],
+    queryFn: () => getDashboardCharts(sid),
+    enabled,
+    staleTime: 60000,
+  });
+
+  if (sessionsLoading || (sessions.length > 0 && !sid)) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-96">
@@ -57,284 +171,245 @@ const Dashboard = () => {
     );
   }
 
-  if (isError || (selectedSessionId && !dashboardData)) {
-    return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center h-96">
-          <div className="text-center">
-            <p className="text-lg text-destructive">Failed to load dashboard data</p>
-            <p className="text-sm text-muted-foreground">Please try refreshing the page</p>
-          </div>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  const { students, fees, attendance, inventory, hostel, staff, exams, finance, charts } = dashboardData ?? {
-    students: { total: 0, active: 0, byProgram: { intermediate: 0, diploma: 0, bs: 0, shortCourse: 0, coaching: 0 }, byStatus: { active: 0, expelled: 0, passedOut: 0 } },
-    fees: { paidAmount: 0, regularRevenue: 0, extraRevenue: 0, byStatus: { paid: 0, pending: 0, overdue: 0 } },
-    attendance: { today: { rate: 0, present: 0 }, byStatus: { present: 0, absent: 0, leave: 0 } },
-    inventory: {}, hostel: {}, exams: {},
-    staff: { total: 0, teaching: 0 },
-    finance: { netBalance: 0, monthlyIncome: 0, monthlyExpense: 0, totalReceivable: 0 },
-    charts: { monthlyFeeCollection: [], weeklyAttendance: [] },
-  };
-
-  const sessionLabel = selectedSessionId === 'all' ? 'All Time' : (selectedSession?.name || "—");
-
-  const stats = [{
-    title: "Total Students",
-    value: students.total.toString(),
-    change: `${students.active} active`,
-    icon: Users,
-    color: "text-primary",
-    bgColor: "bg-primary/10",
-  }, {
-    title: "Fee Collected",
-    value: `PKR ${(fees.paidAmount / 1000).toFixed(0)}K`,
-    change: `${sessionLabel}`,
-    icon: DollarSign,
-    color: "text-green-600",
-    bgColor: "bg-green-500/10",
-    breakdown: { regular: fees.regularRevenue || 0, extra: fees.extraRevenue || 0 },
-  }, {
-    title: "Attendance Rate",
-    value: `${attendance.today.rate}%`,
-    change: `${attendance.today.present} records · ${sessionLabel}`,
-    icon: ClipboardCheck,
-    color: "text-blue-600",
-    bgColor: "bg-blue-500/10",
-  }, {
-    title: "Finance Balance",
-    value: `PKR ${(finance.netBalance / 1000).toFixed(0)}K`,
-    change: `Net · ${sessionLabel}`,
-    icon: TrendingUp,
-    color: "text-purple-600",
-    bgColor: "bg-purple-500/10",
-  }];
-
-  const quickStats = [{
-    label: "Intermediate",
-    value: students.byProgram.intermediate?.toString() || "0",
-    icon: BookOpen,
-    color: "text-blue-500",
-    bg: "bg-blue-500/10"
-  }, {
-    label: "Diploma",
-    value: students.byProgram.diploma.toString(),
-    icon: GraduationCap,
-    color: "text-purple-500",
-    bg: "bg-purple-500/10"
-  }, {
-    label: "BS Programs",
-    value: students.byProgram.bs.toString(),
-    icon: FileText,
-    color: "text-pink-500",
-    bg: "bg-pink-500/10"
-  }, {
-    label: "Short Courses",
-    value: students.byProgram.shortCourse?.toString() || "0",
-    icon: Users,
-    color: "text-orange-500",
-    bg: "bg-orange-500/10"
-  }];
-
-  const studentDistribution = [
+  // â”€â”€ Derived display values â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const studentDistribution = students ? [
     { name: "Intermediate", value: students.byProgram.intermediate || 0, fill: "hsl(var(--primary))" },
-    { name: "Diploma", value: students.byProgram.diploma || 0, fill: "hsl(var(--secondary))" },
-    { name: "BS", value: students.byProgram.bs || 0, fill: "hsl(var(--accent))" },
-    { name: "Short Course", value: students.byProgram.shortCourse || 0, fill: "hsl(var(--warning))" },
-    { name: "Coaching", value: students.byProgram.coaching || 0, fill: "hsl(var(--destructive))" },
-  ];
+    { name: "Diploma",      value: students.byProgram.diploma || 0,      fill: "hsl(var(--secondary))" },
+    { name: "BS",           value: students.byProgram.bs || 0,           fill: "hsl(var(--accent))" },
+    { name: "Short Course", value: students.byProgram.shortCourse || 0,  fill: "hsl(var(--warning))" },
+    { name: "Coaching",     value: students.byProgram.coaching || 0,     fill: "hsl(var(--destructive))" },
+  ] : [];
 
-  const studentStatusData = [
-    { name: "Active", value: students.byStatus.active, fill: "hsl(var(--success))" },
-    { name: "Expelled", value: students.byStatus.expelled, fill: "hsl(var(--destructive))" },
-    { name: "Passed Out", value: students.byStatus.passedOut, fill: "hsl(var(--primary))" },
-  ];
+  const studentStatusData = students ? [
+    { name: "Active",      value: students.byStatus.active,     fill: "hsl(var(--success))" },
+    { name: "Expelled",    value: students.byStatus.expelled,   fill: "hsl(var(--destructive))" },
+    { name: "Passed Out",  value: students.byStatus.passedOut,  fill: "hsl(var(--primary))" },
+  ] : [];
 
-  const feeStatusData = [
-    { name: "Paid", value: fees.byStatus.paid, fill: "hsl(var(--success))" },
+  const feeStatusData = fees ? [
+    { name: "Paid",    value: fees.byStatus.paid,    fill: "hsl(var(--success))" },
     { name: "Pending", value: fees.byStatus.pending, fill: "hsl(var(--warning))" },
     { name: "Overdue", value: fees.byStatus.overdue, fill: "hsl(var(--destructive))" },
-  ];
+  ] : [];
 
-  const attendanceStatusData = [
-    { name: "Present", value: attendance.byStatus.present, fill: "hsl(var(--success))" },
-    { name: "Absent", value: attendance.byStatus.absent, fill: "hsl(var(--destructive))" },
-    { name: "Leave", value: attendance.byStatus.leave, fill: "hsl(var(--warning))" },
-  ];
-
-  const chartConfig = {
-    collected: { label: "Collected", color: "hsl(var(--success))" },
-    pending: { label: "Pending", color: "hsl(var(--warning))" },
-    rate: { label: "Attendance %", color: "hsl(var(--primary))" },
+  const feeBreakdown = {
+    installment: fees?.breakdown?.installment || {
+      collected: fees?.regularRevenue || 0,
+      outstanding: fees?.installmentPendingAmount || fees?.pendingAmount || 0,
+    },
+    hostel: fees?.breakdown?.hostel || {
+      collected: fees?.hostelRevenue || 0,
+      outstanding: fees?.hostelPendingAmount || 0,
+    },
+    extraChallans: fees?.breakdown?.extraChallans || {
+      collected: fees?.extraRevenue || 0,
+      outstanding: fees?.extraPendingAmount || 0,
+    },
   };
+  const totalInflow = finance?.totalInflow ?? finance?.monthlyIncome ?? 0;
+  const totalOutflow = finance?.totalOutflow ?? finance?.monthlyExpense ?? 0;
+  const totalPending = finance?.totalPending ?? fees?.pendingAmount ?? finance?.totalReceivable ?? 0;
+  const netBalance = finance?.netBalance ?? (totalInflow - totalOutflow);
 
-  const recentActivity = [
-    { action: "Students", detail: `${students.total} total · ${students.active} active`, time: sessionLabel },
-    { action: "Fee Collection", detail: `PKR ${(fees.paidAmount / 1000).toFixed(0)}K collected`, time: sessionLabel },
-    { action: "Attendance", detail: `${attendance.today.present} presence records`, time: sessionLabel },
-    { action: "Finance", detail: `Cash received: PKR ${(finance.monthlyIncome / 1000).toFixed(0)}K`, time: sessionLabel },
-    { action: "Staff", detail: `${staff.total} staff members (${staff.teaching} teaching)`, time: "Current" },
-  ];
+  const attendanceStatusData = attendance ? [
+    { name: "Present", value: attendance.byStatus.present, fill: "hsl(var(--success))" },
+    { name: "Absent",  value: attendance.byStatus.absent,  fill: "hsl(var(--destructive))" },
+    { name: "Leave",   value: attendance.byStatus.leave,   fill: "hsl(var(--warning))" },
+  ] : [];
 
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
+
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <div>
             <h1 className="text-xl font-semibold">Concordia College Management Dashboard</h1>
             <p className="text-muted-foreground mt-1">Welcome back! Here's what's happening in your school.</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Select value={selectedSessionId || ""} onValueChange={setSelectedSessionId}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Select session" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Time</SelectItem>
-                {sessions.map(s => (
-                  <SelectItem key={s.id} value={s.id.toString()}>
-                    <span className="flex items-center gap-2">
-                      {s.name}
-                      {s.isActive && <Badge className="bg-green-500 text-white text-[10px] py-0 px-1 h-4">Active</Badge>}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <Select value={sid || ""} onValueChange={setSelectedSessionId}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Select session" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Time</SelectItem>
+              {sessions.map(s => (
+                <SelectItem key={s.id} value={s.id.toString()}>
+                  <span className="flex items-center gap-2">
+                    {s.name}
+                    {s.isActive && <Badge className="bg-green-500 text-white text-[10px] py-0 px-1 h-4">Active</Badge>}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        {/* Main Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {stats.map((stat) => {
-            const Icon = stat.icon;
-            return (
-              <Card key={stat.title} className="shadow-sm hover:shadow-md transition-all border-l-4 border-border">
-                <CardContent className="pt-4 pb-3 px-4">
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1">
-                        <p className="text-xs font-medium text-muted-foreground">{stat.title}</p>
-                        {stat.breakdown && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="w-3 h-3 text-muted-foreground/60 cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent className="text-xs space-y-1 p-3">
-                              <p className="font-semibold mb-1">Breakdown</p>
-                              <p>Regular Fee: PKR {Math.round(stat.breakdown.regular).toLocaleString()}</p>
-                              <p>Extra Challans: PKR {Math.round(stat.breakdown.extra).toLocaleString()}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-                      </div>
-                      <h3 className="text-lg font-semibold">{stat.value}</h3>
-                      <p className="text-[10px] text-muted-foreground">{stat.change}</p>
-                    </div>
-                    <div className={cn("p-2 rounded-md", stat.bgColor, stat.color)}>
-                      <Icon className="w-4 h-4" />
+        {/* â”€â”€ Main Stats â”€â”€ */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+          <StatCard
+            title="Total Students" icon={Users}
+            onClick={() => go("/students")}
+            color="text-primary" bgColor="bg-primary/10"
+            loading={studentsLoading}
+            value={students ? students.total.toString() : "â€”"}
+            change={students ? `${students.active} active` : ""}
+          />
+          <StatCard
+            title="Installment Fees" icon={DollarSign}
+            onClick={() => go("/fee-management")}
+            color="text-green-600" bgColor="bg-green-500/10"
+            loading={feesLoading}
+            value={fees ? formatPKR(feeBreakdown.installment.collected) : "---"}
+            change={fees ? `Pending ${formatPKR(feeBreakdown.installment.outstanding)} - ${sessionLabel}` : ""}
+          />
+          <StatCard
+            title="Hostel Fees" icon={Briefcase}
+            onClick={() => go("/hostel")}
+            color="text-blue-600" bgColor="bg-blue-500/10"
+            loading={feesLoading}
+            value={fees ? formatPKR(feeBreakdown.hostel.collected) : "---"}
+            change={fees ? `Pending ${formatPKR(feeBreakdown.hostel.outstanding)} - ${sessionLabel}` : ""}
+          />
+          <StatCard
+            title="Extra Challans" icon={FileText}
+            onClick={() => go("/fee-management")}
+            color="text-orange-600" bgColor="bg-orange-500/10"
+            loading={feesLoading}
+            value={fees ? formatPKR(feeBreakdown.extraChallans.collected) : "---"}
+            change={fees ? `Pending ${formatPKR(feeBreakdown.extraChallans.outstanding)} - ${sessionLabel}` : ""}
+          />
+          <StatCard
+            title="Attendance Rate" icon={ClipboardCheck}
+            onClick={() => go("/attendance")}
+            color="text-blue-600" bgColor="bg-blue-500/10"
+            loading={attendanceLoading}
+            value={attendance ? `${attendance.today.rate}%` : "â€”"}
+            change={attendance ? `${attendance.today.present} records Â· ${sessionLabel}` : ""}
+          />
+          {/* <StatCard
+            title="Finance Balance" icon={TrendingUp}
+            color="text-purple-600" bgColor="bg-purple-500/10"
+            loading={financeLoading}
+            value={finance ? `PKR ${Math.round(finance.netBalance).toLocaleString()}` : "â€”"}
+            change={`Net Â· ${sessionLabel}`}
+          /> */}
+        </div>
+
+        {/* â”€â”€ Quick Stats (students by program) â”€â”€ */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: "Intermediate", key: "intermediate", icon: BookOpen,      color: "text-blue-500",   bg: "bg-blue-500/10" },
+            { label: "Diploma",      key: "diploma",       icon: GraduationCap, color: "text-purple-500", bg: "bg-purple-500/10" },
+            { label: "BS Programs",  key: "bs",            icon: FileText,      color: "text-pink-500",   bg: "bg-pink-500/10" },
+            { label: "Short Courses",key: "shortCourse",   icon: Users,         color: "text-orange-500", bg: "bg-orange-500/10" },
+          ].map(({ label, key, icon: Icon, color, bg }) => (
+            <Card key={label} onClick={() => go("/students")} className="shadow-sm hover:shadow-md transition-all bg-card/50 border-muted/50 cursor-pointer relative">
+              <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-2 right-2" />
+              <CardContent className="pt-4 pb-3 px-4">
+                {studentsLoading ? (
+                  <div className="flex items-center gap-2.5">
+                    <Skeleton className="w-8 h-8 rounded-md" />
+                    <div className="space-y-1.5 flex-1">
+                      <Skeleton className="h-5 w-10" />
+                      <Skeleton className="h-3 w-20" />
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {quickStats.map((stat) => {
-            const Icon = stat.icon;
-            return (
-              <Card key={stat.label} className="shadow-sm hover:shadow-md transition-all bg-card/50 border-muted/50">
-                <CardContent className="pt-4 pb-3 px-4">
+                ) : (
                   <div className="flex items-center gap-2.5">
-                    <div className={cn("p-1.5 rounded-md", stat.bg)}>
-                      <Icon className={cn("w-4 h-4", stat.color)} />
+                    <div className={cn("p-1.5 rounded-md", bg)}>
+                      <Icon className={cn("w-4 h-4", color)} />
                     </div>
                     <div>
-                      <p className="text-lg font-semibold">{stat.value}</p>
-                      <p className="text-[10px] text-muted-foreground">{stat.label}</p>
+                      <p className="text-lg font-semibold">{students?.byProgram[key] ?? 0}</p>
+                      <p className="text-[10px] text-muted-foreground">{label}</p>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                )}
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
-        {/* Charts Row 1 */}
+        {/* â”€â”€ Charts Row â”€â”€ */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card className="shadow-sm hover:shadow-md transition-all h-full">
+          {/* Student Distribution */}
+          <Card onClick={() => go("/students")} className="shadow-sm hover:shadow-md transition-all cursor-pointer relative">
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-3 right-3" />
             <CardHeader><CardTitle>Student Distribution</CardTitle></CardHeader>
             <CardContent className="p-4">
-              <div className="w-full h-[200px]">
-                <ChartContainer config={chartConfig} className="w-full h-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={studentDistribution} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={5} dataKey="value">
-                        {studentDistribution.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                      </Pie>
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Legend verticalAlign="bottom" height={36} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="lg:col-span-2">
-            <Card className="shadow-sm hover:shadow-md transition-all h-full">
-              <CardHeader><CardTitle>Fee Collection Trend ({sessionLabel})</CardTitle></CardHeader>
-              <CardContent className="p-4">
+              {studentsLoading ? <ChartSkeleton height={200} /> : (
                 <div className="w-full h-[200px]">
                   <ChartContainer config={chartConfig} className="w-full h-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={charts?.monthlyFeeCollection || []} barGap={8}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
-                        <XAxis dataKey="month" axisLine={false} tickLine={false} tickMargin={10} />
-                        <YAxis axisLine={false} tickLine={false} />
-                        <ChartTooltip content={<ChartTooltipContent indicator="dashed" />} cursor={{ fill: 'transparent' }} />
-                        <Legend verticalAlign="top" align="right" height={36} iconType="circle" />
-                        <Bar dataKey="collected" fill="hsl(var(--success))" name="Collected" radius={[6, 6, 0, 0]} maxBarSize={50} />
-                        <Bar dataKey="pending" fill="hsl(var(--warning))" name="Pending" radius={[6, 6, 0, 0]} maxBarSize={50} />
-                      </BarChart>
+                      <PieChart>
+                        <Pie data={studentDistribution} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={5} dataKey="value">
+                          {studentDistribution.map((e, i) => <Cell key={i} fill={e.fill} />)}
+                        </Pie>
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Legend verticalAlign="bottom" height={36} />
+                      </PieChart>
                     </ResponsiveContainer>
                   </ChartContainer>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Fee Collection Trend */}
+          <div className="lg:col-span-2">
+            <Card onClick={() => go("/fee-management")} className="shadow-sm hover:shadow-md transition-all h-full cursor-pointer relative">
+              <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-3 right-3" />
+              <CardHeader><CardTitle>Fee Collection Trend ({sessionLabel})</CardTitle></CardHeader>
+              <CardContent className="p-4">
+                {chartsLoading ? <ChartSkeleton height={200} /> : (
+                  <div className="w-full h-[200px]">
+                    <ChartContainer config={chartConfig} className="w-full h-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={charts?.monthlyFeeCollection || []} barGap={8}>
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
+                          <XAxis dataKey="month" axisLine={false} tickLine={false} tickMargin={10} />
+                          <YAxis axisLine={false} tickLine={false} />
+                          <ChartTooltip content={<ChartTooltipContent indicator="dashed" />} cursor={{ fill: 'transparent' }} />
+                          <Legend verticalAlign="top" align="right" height={36} iconType="circle" />
+                          <Bar dataKey="collected" fill="hsl(var(--success))" name="Collected" radius={[6,6,0,0]} maxBarSize={50} />
+                          <Bar dataKey="pending"   fill="hsl(var(--warning))" name="Pending"   radius={[6,6,0,0]} maxBarSize={50} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartContainer>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
         </div>
 
-        {/* Attendance Trend */}
-        <Card className="shadow-sm hover:shadow-md transition-all">
+        {/* â”€â”€ Attendance Trend â”€â”€ */}
+        <Card onClick={() => go("/attendance")} className="shadow-sm hover:shadow-md transition-all cursor-pointer relative">
+          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-3 right-3" />
           <CardHeader><CardTitle>Attendance Trend ({sessionLabel})</CardTitle></CardHeader>
           <CardContent className="p-4">
-            <div className="w-full h-[220px]">
-              <ChartContainer config={chartConfig} className="w-full h-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={charts?.weeklyAttendance || []}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
-                    <XAxis dataKey="day" axisLine={false} tickLine={false} tickMargin={10} />
-                    <YAxis domain={[0, 100]} axisLine={false} tickLine={false} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Line type="monotone" dataKey="rate" stroke="hsl(var(--primary))" strokeWidth={4}
-                      dot={{ fill: "hsl(var(--primary))", r: 6, strokeWidth: 2, stroke: "white" }}
-                      activeDot={{ r: 8, strokeWidth: 0 }} name="Attendance %" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </div>
+            {chartsLoading ? <ChartSkeleton height={220} /> : (
+              <div className="w-full h-[220px]">
+                <ChartContainer config={chartConfig} className="w-full h-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={charts?.weeklyAttendance || []}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
+                      <XAxis dataKey="day" axisLine={false} tickLine={false} tickMargin={10} />
+                      <YAxis domain={[0, 100]} axisLine={false} tickLine={false} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Line type="monotone" dataKey="rate" stroke="hsl(var(--primary))" strokeWidth={4}
+                        dot={{ fill: "hsl(var(--primary))", r: 6, strokeWidth: 2, stroke: "white" }}
+                        activeDot={{ r: 8, strokeWidth: 0 }} name="Attendance %" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* Module Status */}
+        {/* â”€â”€ Module Status â”€â”€ */}
         <div>
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
             <Briefcase className="w-4 h-4 text-primary" />
@@ -342,85 +417,136 @@ const Dashboard = () => {
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
-              { title: "Student Status", icon: Users, data: studentStatusData },
-              { title: "Fee Status", icon: DollarSign, data: feeStatusData },
-              { title: `Attendance (${sessionLabel})`, icon: ClipboardCheck, data: attendanceStatusData },
-            ].map(({ title, icon: Icon, data }) => (
-              <Card key={title} className="shadow-sm hover:shadow-md transition-all">
+              { title: "Student Status",              icon: Users,         data: studentStatusData,   loading: studentsLoading },
+              { title: "Fee Status",                  icon: DollarSign,    data: feeStatusData,        loading: feesLoading },
+              { title: `Attendance (${sessionLabel})`,icon: ClipboardCheck,data: attendanceStatusData, loading: attendanceLoading },
+            ].map(({ title, icon: Icon, data, loading }) => (
+              <Card
+                key={title}
+                onClick={() => go(title.startsWith("Student") ? "/students" : title.startsWith("Fee") ? "/fee-management" : "/attendance")}
+                className="shadow-sm hover:shadow-md transition-all cursor-pointer relative"
+              >
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-3 right-3" />
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-base font-medium text-muted-foreground">
                     <Icon className="w-4 h-4" />{title}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-4">
-                  <div className="w-full h-[180px]">
-                    <ChartContainer config={chartConfig} className="w-full h-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={3} dataKey="value">
-                            {data.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                          </Pie>
-                          <ChartTooltip content={<ChartTooltipContent />} />
-                          <Legend verticalAlign="bottom" height={24} iconSize={8} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </ChartContainer>
-                  </div>
+                  {loading ? <ChartSkeleton height={180} /> : (
+                    <div className="w-full h-[180px]">
+                      <ChartContainer config={chartConfig} className="w-full h-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={3} dataKey="value">
+                              {data.map((e, i) => <Cell key={i} fill={e.fill} />)}
+                            </Pie>
+                            <ChartTooltip content={<ChartTooltipContent />} />
+                            <Legend verticalAlign="bottom" height={24} iconSize={8} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </ChartContainer>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}
           </div>
         </div>
 
-        {/* Bottom Row */}
+        {/* â”€â”€ Bottom Row â”€â”€ */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Summary */}
           <Card className="shadow-sm hover:shadow-md transition-all">
             <CardHeader><CardTitle>Summary</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {recentActivity.map((a, i) => (
-                  <div key={i} className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors border border-transparent hover:border-muted">
+                {[
+                  { action: "Students",       detail: studentsLoading   ? null : `${students?.total ?? 0} total Â· ${students?.active ?? 0} active` },
+                  { action: "Installment Fees", detail: feesLoading     ? null : `${formatPKR(feeBreakdown.installment.collected)} collected - ${formatPKR(feeBreakdown.installment.outstanding)} pending` },
+                  { action: "Hostel Fees",      detail: feesLoading     ? null : `${formatPKR(feeBreakdown.hostel.collected)} collected - ${formatPKR(feeBreakdown.hostel.outstanding)} pending` },
+                  { action: "Extra Challans",   detail: feesLoading     ? null : `${formatPKR(feeBreakdown.extraChallans.collected)} collected - ${formatPKR(feeBreakdown.extraChallans.outstanding)} pending` },
+                  { action: "Attendance",     detail: attendanceLoading ? null : `${attendance?.today.present ?? 0} presence records` },
+                  { action: "Finance",        detail: financeLoading    ? null : `Inflow: ${formatPKR(totalInflow)} - Outflow: ${formatPKR(totalOutflow)}` },
+                  { action: "Staff",          detail: staffLoading      ? null : `${staff?.total ?? 0} staff members (${staff?.teaching ?? 0} teaching)` },
+                ].map((a, i) => (
+                  <div
+                    key={i}
+                    onClick={() => go(
+                      a.action === "Students" ? "/students" :
+                      a.action.includes("Fees") || a.action.includes("Challans") ? "/fee-management" :
+                      a.action === "Attendance" ? "/attendance" :
+                      a.action === "Finance" ? "/finance" :
+                      a.action === "Staff" ? "/staff" : "/dashboard"
+                    )}
+                    className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors border border-transparent hover:border-muted cursor-pointer"
+                  >
                     <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium">{a.action}</p>
-                      <p className="text-sm text-muted-foreground">{a.detail}</p>
+                      {a.detail === null
+                        ? <Skeleton className="h-4 w-40 mt-1" />
+                        : <p className="text-sm text-muted-foreground">{a.detail}</p>
+                      }
                     </div>
-                    <p className="text-xs text-muted-foreground whitespace-nowrap bg-muted px-2 py-1 rounded-full">{a.time}</p>
+                    <p className="text-xs text-muted-foreground whitespace-nowrap bg-muted px-2 py-1 rounded-full">{sessionLabel}</p>
                   </div>
                 ))}
               </div>
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm hover:shadow-md transition-all">
+          {/* Financial Overview */}
+          <Card onClick={() => go("/finance")} className="shadow-sm hover:shadow-md transition-all cursor-pointer relative">
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-3 right-3" />
             <CardHeader><CardTitle>Financial Overview</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 border border-border">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Cash Received</p>
-                    <p className="text-base font-semibold text-green-600">PKR {(finance.monthlyIncome / 1000).toFixed(0)}K</p>
-                  </div>
-                  <div className="p-2 bg-green-500/20 rounded-md"><TrendingUp className="w-4 h-4 text-green-600" /></div>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 border border-border">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Receivable (All Time)</p>
-                    <p className="text-base font-semibold text-yellow-600">PKR {(finance.totalReceivable / 1000).toFixed(0)}K</p>
-                  </div>
-                  <div className="p-2 bg-yellow-500/20 rounded-md"><DollarSign className="w-4 h-4 text-yellow-600" /></div>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 border border-border">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Expenses</p>
-                    <p className="text-base font-semibold text-purple-600">PKR {(finance.monthlyExpense / 1000).toFixed(0)}K</p>
-                  </div>
-                  <div className="p-2 bg-purple-500/20 rounded-md"><FileText className="w-4 h-4 text-purple-600" /></div>
-                </div>
+                {financeLoading ? (
+                  <>
+                    <Skeleton className="h-16 rounded-md" />
+                    <Skeleton className="h-16 rounded-md" />
+                    <Skeleton className="h-16 rounded-md" />
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 border border-border">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Total Inflow</p>
+                        <p className="text-base font-semibold text-green-600">{formatPKR(totalInflow)}</p>
+                      </div>
+                      <div className="p-2 bg-green-500/20 rounded-md"><TrendingUp className="w-4 h-4 text-green-600" /></div>
+                    </div>
+                    <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 border border-border">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Total Pending</p>
+                        <p className="text-base font-semibold text-yellow-600">{formatPKR(totalPending)}</p>
+                      </div>
+                      <div className="p-2 bg-yellow-500/20 rounded-md"><DollarSign className="w-4 h-4 text-yellow-600" /></div>
+                    </div>
+                    <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 border border-border">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Total Outflow</p>
+                        <p className="text-base font-semibold text-purple-600">{formatPKR(totalOutflow)}</p>
+                      </div>
+                      <div className="p-2 bg-purple-500/20 rounded-md"><FileText className="w-4 h-4 text-purple-600" /></div>
+                    </div>
+                    <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 border border-border">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Net Balance</p>
+                        <p className={cn("text-base font-semibold", netBalance >= 0 ? "text-green-600" : "text-red-600")}>{formatPKR(netBalance)}</p>
+                      </div>
+                      <div className={cn("p-2 rounded-md", netBalance >= 0 ? "bg-green-500/20" : "bg-red-500/20")}>
+                        <Briefcase className={cn("w-4 h-4", netBalance >= 0 ? "text-green-600" : "text-red-600")} />
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </CardContent>
           </Card>
         </div>
+
       </div>
     </DashboardLayout>
   );

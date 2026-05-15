@@ -1,4 +1,5 @@
 import {
+  UnauthorizedException,
   Body,
   Controller,
   Get,
@@ -70,12 +71,15 @@ export class HrController {
 
   @Post('staff-leaves')
   @HttpCode(201)
-  async createStaffLeave(@Body() dto: CreateStaffLeaveDto) {
-    return await this.hrService.createStaffLeave(dto);
+  @UseGuards(JwtAccGuard)
+  async createStaffLeave(@Req() req: any, @Body() dto: CreateStaffLeaveDto) {
+    return await this.hrService.createStaffLeave(dto, req.user);
   }
 
   @Patch('staff-leaves/:id')
+  @UseGuards(JwtAccGuard)
   async updateStaffLeave(
+    @Req() req: any,
     @Param('id') id: string,
     @Body() dto: UpdateStaffLeaveDto,
   ) {
@@ -93,13 +97,15 @@ export class HrController {
   }
 
   @Patch('staff-leaves/:id/lock')
-  async toggleLockStaffLeave(@Param('id') id: string, @Body('locked') locked: boolean) {
-    return await this.hrService.toggleLockStaffLeave(Number(id), locked);
+  @UseGuards(JwtAccGuard)
+  async toggleLockStaffLeave(@Req() req: any, @Param('id') id: string, @Body('locked') locked: boolean) {
+    return await this.hrService.toggleLockStaffLeave(Number(id), locked, req.user);
   }
 
   @Patch('staff-leaves/:id/status')
-  async updateStaffLeaveStatus(@Param('id') id: string, @Body('status') status: string) {
-    return await this.hrService.updateStaffLeaveStatus(Number(id), status);
+  @UseGuards(JwtAccGuard)
+  async updateStaffLeaveStatus(@Req() req: any, @Param('id') id: string, @Body('status') status: string) {
+    return await this.hrService.updateStaffLeaveStatus(Number(id), status, req.user);
   }
 
   @Get('staff/:id')
@@ -317,6 +323,33 @@ export class HrController {
     return await this.hrService.getPayrollSheet(month, type);
   }
 
+  @Get('payroll-missing-staff')
+  async getMissingPayrollStaff(
+    @Query('month') month: string,
+    @Query('type') type: 'teacher' | 'employee' | 'all',
+  ) {
+    return await this.hrService.getMissingPayrollStaff(month, type);
+  }
+
+  @UseGuards(JwtAccGuard)
+  @Post('payroll-generate')
+  async generatePayroll(
+    @Req() req: any,
+    @Body()
+    payload: {
+      month: string;
+      type: 'teacher' | 'employee' | 'all';
+      staffIds?: number[];
+    },
+  ) {
+    return await this.hrService.generatePayroll(
+      payload.month,
+      payload.type || 'all',
+      req.user,
+      payload.staffIds,
+    );
+  }
+
   @Get('payroll-history')
   async getPayrollHistory(
     @Query('staffId') staffId: string,
@@ -326,8 +359,19 @@ export class HrController {
   }
 
   @Post('payroll')
-  async upsertPayroll(@Body() payload: any) {
-    return await this.hrService.upsertPayroll(payload);
+  @UseGuards(JwtAccGuard)
+  async upsertPayroll(@Req() req: any, @Body() payload: any) {
+    return await this.hrService.upsertPayroll(payload, req.user);
+  }
+
+  @UseGuards(JwtAccGuard)
+  @Post('payroll/:id/payment')
+  async recordPayrollPayment(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() payload: any,
+  ) {
+    return await this.hrService.recordPayrollPayment(Number(id), payload, req.user);
   }
 
   @Get('leave-sheet')
@@ -339,13 +383,17 @@ export class HrController {
   }
 
   @Post('leave')
-  async upsertLeave(@Body() payload: any) {
-    return await this.hrService.upsertLeave(payload);
+  @UseGuards(JwtAccGuard)
+  async upsertLeave(@Req() req: any, @Body() payload: any) {
+    return await this.hrService.upsertLeave(payload, req.user);
   }
 
   @Get('staff-attendance')
-  async getStaffAttendance(@Query('date') date: string) {
-    return await this.hrService.getStaffAttendance(new Date(date));
+  async getStaffAttendance(
+    @Query('date') date: string,
+    @Query('role') role?: 'teaching' | 'non-teaching' | 'all',
+  ) {
+    return await this.hrService.getStaffAttendance(new Date(date), role || 'all');
   }
 
   @UseGuards(JwtAccGuard)
@@ -363,7 +411,37 @@ export class HrController {
     },
   ) {
     const adminId = req.user?.id ? Number(req.user.id) : null;
+    if (!adminId) {
+      throw new UnauthorizedException('Unable to identify the user marking attendance.');
+    }
     return await this.hrService.markStaffAttendance({
+      ...payload,
+      markedBy: adminId,
+    });
+  }
+
+  @UseGuards(JwtAccGuard)
+  @Post('staff-attendance/bulk')
+  async bulkMarkStaffAttendance(
+    @Req() req: { user: { id: string } },
+    @Body()
+    payload: {
+      date: string;
+      role?: 'teaching' | 'non-teaching' | 'all';
+      rows: Array<{
+        staffId?: number;
+        employeeId?: number;
+        teacherId?: number;
+        status: string;
+        notes?: string;
+      }>;
+    },
+  ) {
+    const adminId = req.user?.id ? Number(req.user.id) : null;
+    if (!adminId) {
+      throw new UnauthorizedException('Unable to identify the user marking attendance.');
+    }
+    return await this.hrService.bulkMarkStaffAttendance({
       ...payload,
       markedBy: adminId,
     });
@@ -405,8 +483,9 @@ export class HrController {
   }
 
   @Post('advance-salary')
-  async createAdvanceSalary(@Body() payload: any) {
-    return await this.hrService.createAdvanceSalary(payload);
+  @UseGuards(JwtAccGuard)
+  async createAdvanceSalary(@Req() req: any, @Body() payload: any) {
+    return await this.hrService.createAdvanceSalary(payload, req.user);
   }
 
   @Get('advance-salary')
@@ -418,8 +497,9 @@ export class HrController {
   }
 
   @Patch('advance-salary')
-  async updateAdvanceSalary(@Query('id') id: string, @Body() payload: any) {
-    return await this.hrService.updateAdvanceSalary(Number(id), payload);
+  @UseGuards(JwtAccGuard)
+  async updateAdvanceSalary(@Req() req: any, @Query('id') id: string, @Body() payload: any) {
+    return await this.hrService.updateAdvanceSalary(Number(id), payload, req.user);
   }
 
   @Delete('advance-salary')

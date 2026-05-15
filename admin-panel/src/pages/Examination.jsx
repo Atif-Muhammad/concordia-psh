@@ -40,6 +40,7 @@ import {
   Printer,
   Eye,
   LayoutGrid,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -128,6 +129,10 @@ const Examination = () => {
   const [positionsFilterExam, setPositionsFilterExam] = useState("");
   const [positionsFilterClass, setPositionsFilterClass] = useState("");
   const [positionsFilterSection, setPositionsFilterSection] = useState("");
+  const [showExamsFilters, setShowExamsFilters] = useState(false);
+  const [showMarksFilters, setShowMarksFilters] = useState(false);
+  const [showResultsFilters, setShowResultsFilters] = useState(false);
+  const [showPositionsFilters, setShowPositionsFilters] = useState(false);
 
   // Student Results filters
   const [studentResultProgram, setStudentResultProgram] = useState("");
@@ -1539,7 +1544,14 @@ const Examination = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
+                  <div className="flex justify-end">
+                    <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowExamsFilters((s) => !s)}>
+                      <SlidersHorizontal className="w-4 h-4" />
+                      {showExamsFilters ? "Hide Filters" : "Filters"}
+                    </Button>
+                  </div>
                   {/* Filters */}
+                  <div className={`transition-all duration-300 ease-out overflow-hidden ${showExamsFilters ? "max-h-[420px] opacity-100" : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"}`}>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="space-y-2">
                       <Label>Session_Filter</Label>
@@ -1588,6 +1600,7 @@ const Examination = () => {
                         onChange={(e) => setExamTimeFilter(e.target.value)}
                       />
                     </div>
+                  </div>
                   </div>
 
                   <div className="overflow-x-auto">
@@ -1700,7 +1713,12 @@ const Examination = () => {
                     <FileText className="w-5 h-5" />
                     Marks Entry
                   </CardTitle>
+                  <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowMarksFilters((s) => !s)}>
+                    <SlidersHorizontal className="w-4 h-4" />
+                    {showMarksFilters ? "Hide Filters" : "Filters"}
+                  </Button>
                 </div>
+                <div className={`transition-all duration-300 ease-out overflow-hidden ${showMarksFilters ? "max-h-[520px] opacity-100" : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"}`}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div className="flex-1">
                     <Label>Session_Filter</Label>
@@ -1813,6 +1831,7 @@ const Examination = () => {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
                 </div>
                 <div className="flex justify-end">
                   <Button
@@ -2292,13 +2311,18 @@ const Examination = () => {
                         <Award className="w-5 h-5" />
                         Examination Results by Class
                       </CardTitle>
-                      <Dialog open={resultDialog} onOpenChange={setResultDialog}>
-                        <DialogTrigger asChild>
-                          <Button>
-                            <PlusCircle className="w-4 h-4 mr-2" />
-                            Generate Results
-                          </Button>
-                        </DialogTrigger>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowResultsFilters((s) => !s)}>
+                          <SlidersHorizontal className="w-4 h-4" />
+                          {showResultsFilters ? "Hide Filters" : "Filters"}
+                        </Button>
+                        <Dialog open={resultDialog} onOpenChange={setResultDialog}>
+                          <DialogTrigger asChild>
+                            <Button>
+                              <PlusCircle className="w-4 h-4 mr-2" />
+                              Generate Results
+                            </Button>
+                          </DialogTrigger>
                         <DialogContent>
                           <DialogHeader>
                             <DialogTitle>Generate Results</DialogTitle>
@@ -2370,9 +2394,11 @@ const Examination = () => {
                             </Button>
                           </div>
                         </DialogContent>
-                      </Dialog>
+                        </Dialog>
+                      </div>
                     </div>
-                    <div className="flex gap-4 mt-4">
+                    <div className={`transition-all duration-300 ease-out overflow-hidden ${showResultsFilters ? "max-h-[520px] opacity-100 mt-4" : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"}`}>
+                    <div className="flex gap-4">
                       <div className="flex-1">
                         <Label>Session Filter</Label>
                         <Select value={resultsSessionFilter || "__all__"} onValueChange={(v) => setResultsSessionFilter(v === "__all__" ? "" : v)}>
@@ -2468,6 +2494,7 @@ const Examination = () => {
                           </SelectContent>
                         </Select>
                       </div>
+                    </div>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -2627,6 +2654,10 @@ const Examination = () => {
                     Student Rankings & Positions
                   </CardTitle>
                   <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowPositionsFilters((s) => !s)}>
+                      <SlidersHorizontal className="w-4 h-4" />
+                      {showPositionsFilters ? "Hide Filters" : "Filters"}
+                    </Button>
                     <Button
                       onClick={() => {
                         if (!positionsFilterExam || positionsFilterExam === "") {
@@ -2653,6 +2684,7 @@ const Examination = () => {
                     </Button>
                   </div>
                 </div>
+                <div className={`transition-all duration-300 ease-out overflow-hidden ${showPositionsFilters ? "max-h-[420px] opacity-100" : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"}`}>
                 <div className="flex gap-4">
                   <div className="flex-1">
                     <Label>Filter by Exam *</Label>
@@ -2696,6 +2728,7 @@ const Examination = () => {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
                 </div>
               </CardHeader>
               <CardContent>

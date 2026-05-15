@@ -78,8 +78,6 @@ model Program {
   inquiries Inquiry[]
   exams Exam[]
   feeStructures FeeStructure[]
-  challanSnapshots FeeChallan[] @relation("ChallanStudentProgram")
-  studentArrears   StudentArrear[]
   academicRecords   StudentAcademicRecord[]
 
   createdAt DateTime @default(now())
@@ -111,9 +109,7 @@ model Class {
   exams                  Exam[]
   positions Position[]
   feeStructures FeeStructure[]
-  challanSnapshots FeeChallan[] @relation("ChallanStudentClass")
-  studentArrears   StudentArrear[]
-  studentFeeInstallments StudentFeeInstallment[]
+  feeInstallments  FeeInstallment[]             @relation("ClassFeeInstallments")
   academicRecords         StudentAcademicRecord[]
 
   createdAt DateTime @default(now())
@@ -138,7 +134,6 @@ model Section {
   teacherMappings TeacherClassSectionMapping[] @relation("SectionTeacherMappings")
   attendance      Attendance[]
   attendanceSkips AttendanceSkip[]
-  challanSnapshots FeeChallan[] @relation("ChallanStudentSection")
   academicRecords   StudentAcademicRecord[]
 
   createdAt DateTime @default(now())
@@ -156,8 +151,7 @@ model AcademicSession {
   isActive  Boolean  @default(false)
   
   exams           Exam[]                       @relation("SessionExams")
-  challans        FeeChallan[]                 @relation("SessionChallans")
-  installments    StudentFeeInstallment[]      @relation("SessionInstallments")
+  feeInstallments FeeInstallment[]             @relation("SessionFeeInstallments")
   academicRecords StudentAcademicRecord[]
   inquiries       Inquiry[]                    @relation("InquirySession")
   subjectMappings SubjectClassMapping[]        @relation("SessionSubjectMappings")
@@ -226,6 +220,7 @@ model Staff {
   classAttendance      Attendance[]
   attendance           StaffAttendance[]
   payrolls             Payroll[]
+  payrollPayments      PayrollPayment[] @relation("payroll_payment_staff")
   leaves               StaffLeave[]
   advanceSalaries      AdvanceSalary[]
   complaints           Complaint[] @relation("ComplaintAssignees")
@@ -337,7 +332,7 @@ model Student {
   obtainedMarks            Int?
   totalMarks               Int?
 
-  feeInstallments       StudentFeeInstallment[]
+  feeInstallments       FeeInstallment[]
 
   departmentId Int?
   department   Department? @relation("DepartmentStudents", fields: [departmentId], references: [id])
@@ -364,10 +359,10 @@ model Student {
 
   hostelRegistrations HostelRegistration[]
   roomAllocations     RoomAllocation[]
-  challans            FeeChallan[]
-  studentArrears      StudentArrear[]
   statusHistory       StudentStatusHistory[]
   academicRecords      StudentAcademicRecord[]
+  extraChallans        ExtraChallan[]
+  hostelChallans       HostelChallan[]
 
 
   createdAt DateTime @default(now())
@@ -469,9 +464,9 @@ model ClassTimetable {
   // JSON array of slots: [{ dayOfWeek, startTime, endTime, subjectId }]
   slots     Json    @default("[]")
 
-  class   Class    @relation("ClassTimetable", fields: [classId], references: [id], onDelete: Cascade)
-  section Section? @relation("SectionTimetables", fields: [sectionId], references: [id], onDelete: SetNull)
-  session AcademicSession? @relation("SessionTimetables", fields: [sessionId], references: [id], onDelete: SetNull)
+  class   Class    @relation("ClassTimetable", fields: [classId], references: [id], onDelete: Cascade, map: "ct_classId_fkey")
+  section Section? @relation("SectionTimetables", fields: [sectionId], references: [id], onDelete: SetNull, map: "ct_sectionId_fkey")
+  session AcademicSession? @relation("SessionTimetables", fields: [sessionId], references: [id], onDelete: SetNull, map: "ct_sessionId_fkey")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -928,82 +923,12 @@ model HostelRegistration {
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
-  externalChallans       HostelExternalChallan[]
-  feePayments            HostelFeePayment[]
   hostelChallans         HostelChallan[]
 
   @@index([studentId])
   @@map("hostelregistration")
 }
 
-model HostelExternalChallan {
-  id                   Int      @id @default(autoincrement())
-  registrationId       String
-  registration         HostelRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  challanNumber        String   @unique @db.VarChar(50)
-  amount               Float
-  paidAmount           Float    @default(0)
-  discount             Float    @default(0)
-  fineAmount           Float    @default(0)
-  dueDate              DateTime @db.Date
-  paidDate             DateTime? @db.Date
-  status               String   @default("PENDING") // PENDING | PAID | PARTIAL | OVERDUE | VOID
-  month                String?  @db.VarChar(50)
-  selectedHeads        String?  @db.Text // JSON array of fee head snapshots
-  remarks              String?  @db.Text
-  paymentHistory       Json?    @default("[]")
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
-  @@index([registrationId])
-  @@map("hostelexternalchallan")
-}
-
-model HostelFeePayment {
-  id             Int      @id @default(autoincrement())
-  registrationId String
-  registration   HostelRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  month          String   @db.VarChar(50)
-  paidDate       DateTime @db.Date
-  amount         Float
-  createdAt      DateTime @default(now())
-
-  @@index([registrationId])
-  @@map("hostelfee_payment")
-}
-
-// Hostel fee challan — one per month per registration, supports supersede/arrears
-model HostelChallan {
-  id               Int      @id @default(autoincrement())
-  challanNumber    String   @unique @db.VarChar(50)
-  registrationId   String
-  registration     HostelRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  month            String   @db.VarChar(50)
-  dueDate          DateTime @db.Date
-  hostelFee        Float    @default(0)
-  fineAmount       Float    @default(0)
-  lateFeeFine      Float    @default(0)
-  arrearsAmount    Float    @default(0)
-  discount         Float    @default(0)
-  paidAmount       Float    @default(0)
-  status           String   @default("PENDING") @db.VarChar(20)
-  paidDate         DateTime? @db.Date
-  remarks          String?  @db.Text
-  settledAmount    Float    @default(0)
-  supersededById   Int?
-  supersededBy     HostelChallan?  @relation("HostelChallanSupersede", fields: [supersededById], references: [id])
-  supersedes       HostelChallan[] @relation("HostelChallanSupersede")
-  previousChallanId Int?
-  previousChallan  HostelChallan?  @relation("hostelchallan_previousChallanIdTohostelchallan", fields: [previousChallanId], references: [id])
-  nextChallans     HostelChallan[] @relation("hostelchallan_previousChallanIdTohostelchallan")
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  @@index([registrationId])
-  @@index([supersededById])
-  @@index([previousChallanId])
-  @@map("hostelchallan")
-}
 
 model Room {
   id               String           @id @default(uuid())
@@ -1154,8 +1079,25 @@ model FeeHead {
   updatedAt   DateTime @updatedAt
 
   structures  FeeStructureHead[]
+  challanHeads FeeChallanHead[]
+  installmentHeads InstallmentHead[]
 
   @@map("feehead")
+}
+
+model FeeChallanHead {
+  id              Int      @id @default(autoincrement())
+  challanId       Int
+  feeHeadId       Int?
+  headName        String   @db.VarChar(100)
+  amount          Decimal  @db.Decimal(12, 2)
+  
+  challan         FeeChallanV2 @relation(fields: [challanId], references: [id], onDelete: Cascade)
+  feeHead         FeeHead?               @relation(fields: [feeHeadId], references: [id], onDelete: SetNull)
+
+  @@index([challanId])
+  @@index([feeHeadId])
+  @@map("fee_challan_head")
 }
 
 model FeeStructure {
@@ -1172,7 +1114,6 @@ model FeeStructure {
   updatedAt     DateTime @updatedAt
 
   feeHeads      FeeStructureHead[]
-  challans      FeeChallan[]
   
   @@unique([programId, classId])
   @@map("feestructure")
@@ -1183,153 +1124,12 @@ model FeeStructureHead {
   feeStructureId Int
   feeStructure   FeeStructure @relation(fields: [feeStructureId], references: [id], onDelete: Cascade)
   feeHeadId      Int
-  feeHead        FeeHead      @relation(fields: [feeHeadId], references: [id])
+  feeHead        FeeHead      @relation(fields: [feeHeadId], references: [id], onDelete: Cascade)
   
   amount         Float        // Amount for this specific structure (if different from default)
   
   @@unique([feeStructureId, feeHeadId])
   @@map("feestructurehead")
-}
-
-enum ChallanStatus {
-  PENDING
-  PAID
-  OVERDUE
-  PARTIAL
-  VOID
-}
-
-enum InstallmentStatus {
-  PENDING
-  PARTIAL
-  PAID
-}
-
-enum ChallanType {
-  INSTALLMENT      // Regular installment payment
-  ARREARS_ONLY     // Only paying previous arrears
-  FEE_HEADS_ONLY   // Only paying additional fee heads (no tuition)
-  MIXED            // Combination of installment + arrears or multiple types
-}
-
-model FeeChallan {
-  id             Int           @id @default(autoincrement())
-  challanNumber  String        @unique @db.VarChar(50)
-  
-  studentId      Int
-  student        Student       @relation(fields: [studentId], references: [id])
-  
-  feeStructureId Int?
-  feeStructure   FeeStructure? @relation(fields: [feeStructureId], references: [id])
-  
-  // Legacy fields (deprecated - use frozen amount fields instead)
-  amount         Float
-  paidAmount     Float         @default(0)
-  totalAmount    Float         @default(0)  // amount + fineAmount + lateFeeFine (kept in sync)
-  remainingAmount Float        @default(0)
-  discount       Float         @default(0)
-  fineAmount     Float         @default(0)
-  lateFeeFine    Float?         @default(0)
-  settledAmount  Float?        @default(0)  // For VOID challans: amount settled via superseding challan payment
-  settlementSnapshot Json?      @default("null") // JSON snapshot of settlement details: { settledChallans: [{ challanId, challanNumber, amountSettled, settlementDate }], totalSettled, paymentDate }
-  
-  // Frozen amount fields (immutable after generation)
-  baseAmount            Decimal?  @db.Decimal(10, 2) // Face-value fee for current installment only
-  frozenArrearsAmount   Decimal   @default(0) @db.Decimal(10, 2) // Arrears principal frozen at generation
-  frozenArrearsFine     Decimal   @default(0) @db.Decimal(10, 2) // Late fee on arrears frozen at generation
-  frozenBaseFine        Decimal   @default(0) @db.Decimal(10, 2) // Late fee on current base frozen at generation
-  totalDiscount         Decimal   @default(0) @db.Decimal(10, 2) // Total discounts applied
-  computedTotalDue      Decimal?  @db.Decimal(10, 2) // Frozen total payable (replaces mutable totalAmount)
-  amountReceived        Decimal   @default(0) @db.Decimal(10, 2) // Cash/bank actually received (replaces paidAmount)
-  outstandingAmount     Decimal?  @db.Decimal(10, 2) // Computed as computedTotalDue - amountReceived (replaces remainingAmount)
-  
-  // Arrears tracking fields
-  arrearsBreakdown      Json? // JSON array of {installmentId, installmentNumber, month, principalOwed, lateFeeOwed}
-  arrearsFingerprint    String? // SHA-256 of arrearsBreakdown sorted by installmentId
-  coveredInstallmentIds Json? // JSON array of installment IDs covered by this challan
-  
-  isLocked       Boolean       @default(false) // Set to true after generation; provides defence-in-depth against direct DB mutations
-  
-  dueDate        DateTime      @db.Date
-  issueDate      DateTime      @default(now()) 
-  paidDate       DateTime?     @db.Date
-  
-  status         ChallanStatus @default(PENDING)
-  
-  installmentNumber Int        @default(1)
-  coveredInstallments String?  @db.VarChar(50) // Comma separated list of installment numbers
-  selectedHeads    String?      @db.Text // JSON array of selected fee head IDs
-  paymentHistory   Json?        @default("[]") // Array of { amount, date, method, remarks } for partial payments
-  remarks        String?       @db.Text
-
-  challanType     ChallanType?
-  
-  studentArrearId Int?
-  studentArrear   StudentArrear? @relation("StudentArrearChallans", fields: [studentArrearId], references: [id])
-
-  
-  // Session Tracking: Snapshot of student's class/program at challan creation
-  // This ensures challans are properly classified by session even after student promotion
-  studentClassId   Int?
-  studentProgramId Int?
-  studentSectionId Int? // New field for section snapshot
-  studentClass     Class?   @relation(name: "ChallanStudentClass", fields: [studentClassId], references: [id])
-  studentProgram   Program? @relation(name: "ChallanStudentProgram", fields: [studentProgramId], references: [id])
-  studentSection   Section? @relation(name: "ChallanStudentSection", fields: [studentSectionId], references: [id])
-  
-  studentFeeInstallmentId Int?
-  studentFeeInstallment   StudentFeeInstallment? @relation(fields: [studentFeeInstallmentId], references: [id])
-
-  month          String?       @db.VarChar(50)
-  session        String?       @db.VarChar(50)
-  
-  sessionId      Int?
-  sessionRel     AcademicSession? @relation("SessionChallans", fields: [sessionId], references: [id])
-
-  supersededById  Int?
-  supersededBy    FeeChallan? @relation("Supersession", fields: [supersededById], references: [id])
-  supersedes      FeeChallan[] @relation("Supersession")
-
-  previousChallans FeeChallan[] @relation("ArrearsChain")
-  nextChallans     FeeChallan[] @relation("ArrearsChain")
-  
-  // ChallanSettlement relations
-  payingSettlements    ChallanSettlement[] @relation("PayingChallan")
-  settledBySettlements ChallanSettlement[] @relation("SettledChallan")
-
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-
-  @@index([studentId])
-  @@index([status])
-  @@index([studentClassId])
-  @@index([studentProgramId])
-  @@index([studentSectionId])
-  @@index([isLocked])
-  @@index([arrearsFingerprint])
-  @@index([computedTotalDue])
-  @@index([outstandingAmount])
-  @@map("feechallan")
-}
-
-model ChallanSettlement {
-  id                   Int      @id @default(autoincrement())
-  payingChallanId      Int
-  settledChallanId     Int?
-  settledInstallmentId Int
-  amountApplied        Decimal  @db.Decimal(10, 2)
-  settlementDate       DateTime @default(now())
-  createdAt            DateTime @default(now())
-  
-  payingChallan        FeeChallan           @relation("PayingChallan", fields: [payingChallanId], references: [id], onDelete: Cascade)
-  settledChallan       FeeChallan?          @relation("SettledChallan", fields: [settledChallanId], references: [id], onDelete: Cascade)
-  settledInstallment   StudentFeeInstallment @relation(fields: [settledInstallmentId], references: [id], onDelete: Cascade)
-  
-  @@index([payingChallanId])
-  @@index([settledChallanId])
-  @@index([settledInstallmentId])
-  @@index([settlementDate])
-  @@map("challansettlement")
 }
 
 model Payroll {
@@ -1365,19 +1165,44 @@ model Payroll {
   totalAllowances   Float @default(0)
   
   netSalary       Float    @default(0)
+  paidAmount      Float    @default(0)
 
   // Arrears tracking (unpaid salaries from previous months + advance salaries)
   arrearsAmount   Float    @default(0)  // Accumulated unpaid salary arrears
   
   
-  status          String   @default("UNPAID") // PAID, UNPAID
+  status          String   @default("UNPAID") // PAID, PARTIAL_PAID, UNPAID
   paymentDate     DateTime?
+  generatedById   Int?
+  generatedByName String?
+  amountAudit     Json?    @default("{}")
+  actionAudit     Json?    @default("[]")
+  payments        PayrollPayment[]
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@unique([staffId, month])
   @@map("payroll")
+}
+
+model PayrollPayment {
+  id           Int      @id @default(autoincrement())
+  payrollId    Int
+  payroll      Payroll  @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  staffId      Int?
+  staff        Staff?   @relation("payroll_payment_staff", fields: [staffId], references: [id])
+  amount       Float
+  paidById     Int?
+  paidByName   String?
+  paymentMethod String?
+  remarks      String?  @db.Text
+  paidAt       DateTime @default(now())
+
+  @@index([payrollId])
+  @@index([staffId])
+  @@index([paidById])
+  @@map("payrollpayment")
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1418,11 +1243,13 @@ model StaffLeave {
   
   status          StaffLeaveStatus @default(PENDING)
   locked          Boolean          @default(false)
+  actionAudit     Json?            @default("[]")
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   
   @@index([staffId, month])
+  @@unique([staffId, leaveType, startDate, endDate])
   @@map("staffleave")
 }
 
@@ -1451,6 +1278,8 @@ model AdvanceSalary {
   month       String   @db.VarChar(7) // YYYY-MM
   remarks     String?  @db.Text
   adjusted    Boolean  @default(false)
+  adjustedSource String? @db.VarChar(20) // PAYROLL | MANUAL
+  actionAudit Json?    @default("[]")
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1483,6 +1312,7 @@ model FinanceExpense {
   id          Int      @id @default(autoincrement())
   date        DateTime @db.Date
   category    String   @db.VarChar(100)
+  subCategory String?  @db.VarChar(100)
   description String   @db.Text
   amount      Float
   
@@ -1491,6 +1321,7 @@ model FinanceExpense {
   
   @@index([date])
   @@index([category])
+  @@index([subCategory])
   @@map("financeexpense")
 }
 
@@ -1498,6 +1329,8 @@ model FinanceClosing {
   id           Int      @id @default(autoincrement())
   date         DateTime @db.Date
   type         String   @db.VarChar(50)
+  periodStart  DateTime @db.Date
+  periodEnd    DateTime @db.Date
   totalIncome  Float
   totalExpense Float
   netBalance   Float
@@ -1507,6 +1340,8 @@ model FinanceClosing {
   updatedAt    DateTime @updatedAt
   
   @@index([date])
+  @@index([periodStart, periodEnd])
+  @@unique([type, periodStart, periodEnd])
   @@map("financeclosing")
 }
 
@@ -1526,6 +1361,8 @@ model InstituteSettings {
   challanPrefix String?  @db.VarChar(20) @default("")
   lateFeeFine   Float?   @default(0)
   hostelLateFee Float?   @default(0)
+  lateFeeRatePerDay Decimal? @db.Decimal(12, 2) @default(0)  // Global default late fee rate per day
+  extraChallanLateFee Decimal? @db.Decimal(12, 2) @default(0)
   
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -1534,30 +1371,6 @@ model InstituteSettings {
 }
 
 
-
-model StudentArrear {
-  id             Int      @id @default(autoincrement())
-  student        Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  studentId      Int
-  
-  // The session where debt occurred
-  class          Class    @relation(fields: [classId], references: [id])
-  classId        Int
-  program        Program  @relation(fields: [programId], references: [id])
-  programId      Int
-  
-  // Financial details
-  arrearAmount          Float // Outstanding amount for this session
-  lastInstallmentNumber Int   @default(0) // Last paid installment number (0 if none paid)
-  
-  challans              FeeChallan[] @relation("StudentArrearChallans")
-  
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  
-  @@unique([studentId, classId, programId])
-  @@map("studentarrear")
-}
 
 model PayrollTemplate {
   id          Int      @id @default(autoincrement())
@@ -1571,13 +1384,20 @@ model PayrollTemplate {
   @@map("payrolltemplate")
 }
 
+enum ChallanTemplateType {
+  INSTALLMENT
+  EXTRA
+  HOSTEL
+}
+
 model FeeChallanTemplate {
-  id          Int      @id @default(autoincrement())
+  id          Int                 @id @default(autoincrement())
   name        String
-  htmlContent String   @db.Text
-  isDefault   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  htmlContent String              @db.Text
+  type        ChallanTemplateType @default(INSTALLMENT)
+  isDefault   Boolean             @default(false)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   @@map("feechallantemplate")
 }
@@ -1606,39 +1426,262 @@ model StudentIDCardTemplate {
   @@map("studentidcardtemplate")
 }
 
-model StudentFeeInstallment {
-  id                Int      @id @default(autoincrement())
-  studentId         Int
-  student           Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  classId           Int
-  class             Class    @relation(fields: [classId], references: [id])
-  installmentNumber Int
-  amount            Int                              // Base tuition amount (fixed at plan creation)
-  totalAmount       Float    @default(0)             // amount + lateFeeAccrued (recalculated by cron)
-  paidAmount        Float    @default(0)
-  outstandingPrincipal Float @default(0)             // Amount still owed on this installment (renamed from pendingAmount)
-  status            InstallmentStatus @default(PENDING)
-  dueDate           DateTime
-  paidDate          DateTime?
-  month             String?
-  session           String?
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FEE MANAGEMENT REDESIGN — NEW MODELS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  // Incremental late fee tracking
-  lateFeeAccrued          Float    @default(0)   // Total late fee accumulated so far
-  lateFeeLastCalculatedAt DateTime?              // Last time lateFeeAccrued was updated
-  lateFeeSnapshot         Decimal? @db.Decimal(10, 2) // Snapshot of late fee at last challan generation
-  lateFeeSnapshotAt       DateTime?              // Timestamp of late fee snapshot
+enum FeeInstallmentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  VOID
+  SUPERSEDED
+  SETTLED
+  OVERDUE
+}
+
+enum FeeInstallmentChallanType {
+  INSTALLMENT
+}
+
+enum FeeInstallmentChallanStatus {
+  PENDING
+  PARTIAL
+  PAID
+  VOID
+  SUPERSEDED
+  SETTLED
+  OVERDUE
+}
+
+// Single source of truth for all fee financial state
+model FeeInstallment {
+  id                   Int      @id @default(autoincrement())
+  studentId            Int
+  classId              Int
+  sessionId            Int?
+  installmentNumber    Int      // Sequential 1..N per student per session
+  month                String?  @db.VarChar(50)
+  basePayable          Decimal  @db.Decimal(12, 2)  // Fixed at admission
+  lateFeeRatePerDay    Decimal  @db.Decimal(12, 2) @default(0)
+  lateFeeFine          Decimal  @db.Decimal(12, 2) @default(0)  // Computed fresh on read
+  extraFine            Decimal  @db.Decimal(12, 2) @default(0)  // Manual extra fine input
+  discount             Decimal  @db.Decimal(12, 2) @default(0)
+  totalAmount          Decimal  @db.Decimal(12, 2)  // basePayable + arrears + lateFeeFine + extraFine - discount
+  pendingAmount        Decimal  @db.Decimal(12, 2)  // totalAmount - paidAmount
+  paidAmount           Decimal  @db.Decimal(12, 2) @default(0)
+  advancePaid          Decimal  @db.Decimal(12, 2) @default(0)
+  settledAmount        Decimal  @db.Decimal(12, 2) @default(0)
+  arrears              Decimal  @db.Decimal(12, 2) @default(0)  // pendingAmount of K-1
+  arrearsMonths        Json?    // ["October", "November"]
+  arrearsInstallments  Json?    // [id1, id2] — chain of prior installment IDs
+  isLocked             Boolean  @default(false)  // TRUE after challan is PAID
+  dueDate              DateTime @db.Date
+  lastPaymentDate      DateTime?
+  lastPaymentAmount    Decimal? @db.Decimal(12, 2)
+  settled              Boolean? // NULL = direct payment, TRUE = fully paid
+  supersededBy         Int?     // FK to another FeeInstallment (if voided)
+  challanGenerated     Boolean  @default(false)
+  status               FeeInstallmentStatus @default(PENDING)
+  settledByInstallmentId Int?   // FK to the installment whose challan settled this one (set when SETTLED via arrears chain)
+
+  student  Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class    Class            @relation("ClassFeeInstallments", fields: [classId], references: [id])
+  session  AcademicSession? @relation("SessionFeeInstallments", fields: [sessionId], references: [id])
+  heads    InstallmentHead[]
+  challans FeeChallanV2[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, installmentNumber, sessionId])
+  @@index([studentId, status])
+  @@index([classId, sessionId])
+  @@map("fee_installment")
+}
+
+// Per-head fee breakdown for an installment (1:M)
+model InstallmentHead {
+  id             Int            @id @default(autoincrement())
+  installmentId  Int
+  feeHeadId      Int?
+  headName       String         @db.VarChar(100)
+  amount         Decimal        @db.Decimal(12, 2)
+  discountAmount Decimal        @db.Decimal(12, 2) @default(0)
+
+  installment FeeInstallment @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+  feeHead     FeeHead?       @relation(fields: [feeHeadId], references: [id], onDelete: SetNull)
+
+  @@index([installmentId])
+  @@index([feeHeadId])
+  @@map("installment_head")
+}
+
+// Snapshot/document record — NOT the source of truth
+model FeeChallanV2 {
+  id                  Int      @id @default(autoincrement())
+  challanNumber       String   @unique @db.VarChar(8)
+  installmentId       Int      // Link to the installment source
+  installmentNo       Int?
+  generatedDate       DateTime @default(now())
+  dueDate             DateTime? @db.Date
+
+  // Frozen snapshot at generation time
+  snapshotBaseAmount    Decimal  @db.Decimal(12, 2) @default(0)
+  snapshotArrearsAmount Decimal  @db.Decimal(12, 2) @default(0)
+  snapshotLateFee       Decimal  @db.Decimal(12, 2) @default(0)
+  snapshotExtraFine     Decimal  @db.Decimal(12, 2) @default(0)
+  snapshotDiscount      Decimal  @db.Decimal(12, 2) @default(0)
+  snapshotTotalDue      Decimal  @db.Decimal(12, 2) @default(0)
+  advanceAmount         Decimal  @db.Decimal(12, 2) @default(0)
+  advanceFromChallanNo  String?  @db.VarChar(8)
+
+  amountReceived      Decimal  @db.Decimal(12, 2) @default(0)
+  paidAt              DateTime?
+  settledByChallanNumber String?   @db.VarChar(8)  // Challan number of the leading challan that settled this one
+  settledAmount       Decimal?  @db.Decimal(12, 2)  // Informational only — what was owed at settlement; NOT summed in financial totals
+  settledAt           DateTime?                      // When the leading challan was paid
+  status              FeeInstallmentChallanStatus @default(PENDING)
+  paymentInfo         Json?    // { paidBy, paidDate, remarks }
+  // heads               Json?    // Snapshot of InstallmentHead records at generation
+  challanHeads        FeeChallanHead[]
+  remarks             String?  @db.Text
+
+  installment FeeInstallment?  @relation(fields: [installmentId], references: [id])
+  payments    ChallanPayment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([installmentId])
+  @@map("fee_challan_v2")
+}
+
+// Audit trail for every payment transaction
+model ChallanPayment {
+  id          Int      @id @default(autoincrement())
+  challanId   Int
+  amount      Decimal  @db.Decimal(12, 2)
+  paymentDate DateTime @db.Date
+  paymentMode String   @db.VarChar(50)  // Cash, Bank, Online
+  remarks     String?  @db.Text
+
+  challan FeeChallanV2 @relation(fields: [challanId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([challanId])
+  @@map("challan_payment")
+}
+
+// Dedicated tables for EXTRA challans
+model ExtraChallan {
+  id                  Int      @id @default(autoincrement())
+  challanNumber       String   @unique @db.VarChar(50)
+  studentId           Int
+  generatedAt         DateTime @default(now())
+  dueDate             DateTime @db.Date
+  totalAmount         Decimal  @db.Decimal(12, 2) @default(0)
+  lateFeeFine         Decimal  @db.Decimal(12, 2) @default(0)
+  lateFeeRatePerDay   Decimal? @db.Decimal(12, 2) @default(0)
+  discount            Decimal  @db.Decimal(12, 2) @default(0)
+  paidAmount          Decimal  @db.Decimal(12, 2) @default(0)
+  status              FeeInstallmentChallanStatus @default(PENDING)
+  remarks             String?  @db.Text
   
-  sessionId         Int?
-  sessionRel        AcademicSession? @relation("SessionInstallments", fields: [sessionId], references: [id])
+  student             Student  @relation(fields: [studentId], references: [id])
+  heads               ExtraChallanHead[]
+  payments            ExtraChallanPayment[]
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("extra_challan")
+}
+
+model ExtraChallanHead {
+  id             Int          @id @default(autoincrement())
+  extraChallanId Int
+  headName       String       @db.VarChar(100)
+  amount         Decimal      @db.Decimal(12, 2)
   
-  challans          FeeChallan[]
-  settlements       ChallanSettlement[]
+  extraChallan   ExtraChallan @relation(fields: [extraChallanId], references: [id], onDelete: Cascade)
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  @@map("extra_challan_head")
+}
 
-  @@unique([studentId, classId, installmentNumber])
-  @@index([studentId, classId])
-  @@map("studentfeeinstallment")
+model ExtraChallanPayment {
+  id             Int          @id @default(autoincrement())
+  extraChallanId Int
+  amount         Decimal      @db.Decimal(12, 2)
+  paymentDate    DateTime     @db.Date
+  paymentMode    String       @db.VarChar(50)
+  remarks        String?      @db.Text
+  
+  extraChallan   ExtraChallan @relation(fields: [extraChallanId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@map("extra_challan_payment")
+}
+
+// Dedicated tables for HOSTEL challans
+model HostelChallan {
+  id                      Int      @id @default(autoincrement())
+  challanNumber           String   @unique @db.VarChar(50)
+  studentId               Int?
+  hostelRegNumber         String   @db.VarChar(50)
+  month                   String?  @db.VarChar(50) // "January 2026"
+  generatedAt             DateTime @default(now())
+  dueDate                 DateTime @db.Date
+  totalAmount             Decimal  @db.Decimal(12, 2) @default(0)
+  paidAmount              Decimal  @db.Decimal(12, 2) @default(0)
+  arrearsAmount           Decimal  @db.Decimal(12, 2) @default(0)
+  status                  FeeInstallmentChallanStatus @default(PENDING)
+  remarks                 String?  @db.Text
+  paidAt                  DateTime?
+
+  // Arrears chain fields (mirrors feeChallanV2 settlement pattern)
+  settledByChallanNumber  String?  @db.VarChar(50)
+  settledAmount           Decimal  @db.Decimal(12, 2) @default(0)
+  settledAt               DateTime?
+
+  // Link to previous/superseded challan (linked-list, kept for backward compat)
+  supersedesId            Int? @unique
+  supersedes              HostelChallan? @relation("HostelSupersede", fields: [supersedesId], references: [id])
+  supersededBy            HostelChallan? @relation("HostelSupersede")
+
+  student                 Student? @relation(fields: [studentId], references: [id])
+  hostelRegistration      HostelRegistration @relation(fields: [hostelRegNumber], references: [id])
+  heads                   HostelChallanHead[]
+  payments                HostelChallanPayment[]
+
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@map("hostel_challan")
+}
+
+model HostelChallanHead {
+  id              Int           @id @default(autoincrement())
+  hostelChallanId Int
+  headName        String        @db.VarChar(100)
+  amount          Decimal       @db.Decimal(12, 2)
+  
+  hostelChallan   HostelChallan @relation(fields: [hostelChallanId], references: [id], onDelete: Cascade)
+
+  @@map("hostel_challan_head")
+}
+
+model HostelChallanPayment {
+  id              Int           @id @default(autoincrement())
+  hostelChallanId Int
+  amount          Decimal       @db.Decimal(12, 2)
+  paymentDate     DateTime      @db.Date
+  paymentMode     String        @db.VarChar(50)
+  remarks         String?       @db.Text
+  
+  hostelChallan   HostelChallan @relation(fields: [hostelChallanId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+
+  @@map("hostel_challan_payment")
 }

@@ -471,10 +471,16 @@ export class AcademicsService {
   // Get subjects for a class with teacher assignment info
   // Returns SCM entries for the class, each with the teacher who teaches
   // that subject IN this class (teacher has both TSM for subject + TCM for class)
-  async getSubjectsForClassWithAssignments(classId: number, sessionId?: number) {
+  async getSubjectsForClassWithAssignments(classId: number, sessionId?: number, sectionId?: number) {
     // Get all teachers assigned to this class (scoped to session when provided)
     const classTcms = await this.prismaService.teacherClassSectionMapping.findMany({
-      where: { classId, ...(sessionId ? { sessionId } : {}) },
+      where: {
+        classId,
+        ...(sessionId ? { sessionId } : {}),
+        ...(sectionId
+          ? { OR: [{ sectionId: null }, { sectionId }] }
+          : {}),
+      },
       select: { teacherId: true },
     });
     const classTeacherIds = classTcms.map((t) => t.teacherId);

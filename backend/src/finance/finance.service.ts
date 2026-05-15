@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import { CreateIncomeDto } from './dto/create-income.dto';
 import { UpdateIncomeDto } from './dto/update-income.dto';
 import { CreateExpenseDto } from './dto/create-expense.dto';
@@ -9,6 +10,69 @@ import { CreateClosingDto } from './dto/create-closing.dto';
 @Injectable()
 export class FinanceService {
   constructor(private prisma: PrismaService) {}
+
+  private parseStartOfDay(dateStr: string) {
+    const raw = String(dateStr || '').trim();
+    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      const y = Number(m[1]);
+      const mo = Number(m[2]);
+      const d = Number(m[3]);
+      return new Date(y, mo - 1, d, 0, 0, 0, 0);
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) throw new BadRequestException('Invalid date');
+    parsed.setHours(0, 0, 0, 0);
+    return parsed;
+  }
+
+  private parseEndOfDay(dateStr: string) {
+    const raw = String(dateStr || '').trim();
+    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      const y = Number(m[1]);
+      const mo = Number(m[2]);
+      const d = Number(m[3]);
+      return new Date(y, mo - 1, d, 23, 59, 59, 999);
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) throw new BadRequestException('Invalid date');
+    parsed.setHours(23, 59, 59, 999);
+    return parsed;
+  }
+
+  private getClosingBounds(dateStr: string, type: string) {
+    const base = this.parseStartOfDay(dateStr);
+    const normalizedType = String(type || '').toLowerCase();
+    if (normalizedType === 'daily') {
+      const start = new Date(base);
+      const end = new Date(base);
+      end.setHours(23, 59, 59, 999);
+      return { start, end, normalizedType };
+    }
+    if (normalizedType === 'monthly') {
+      const start = new Date(base.getFullYear(), base.getMonth(), 1);
+      const end = new Date(base.getFullYear(), base.getMonth() + 1, 0, 23, 59, 59, 999);
+      return { start, end, normalizedType };
+    }
+    if (normalizedType === 'quarterly') {
+      const q = Math.floor(base.getMonth() / 3);
+      const start = new Date(base.getFullYear(), q * 3, 1);
+      const end = new Date(base.getFullYear(), q * 3 + 3, 0, 23, 59, 59, 999);
+      return { start, end, normalizedType };
+    }
+    throw new BadRequestException('type must be daily, monthly, or quarterly');
+  }
+
+  private async calculateClosingSnapshot(start: Date, end: Date) {
+    const [incomes, expenses] = await Promise.all([
+      this.getIncomes({ dateFrom: start.toISOString(), dateTo: end.toISOString() }),
+      this.getExpenses({ dateFrom: start.toISOString(), dateTo: end.toISOString() }),
+    ]);
+    const totalIncome = incomes.reduce((sum, item: any) => sum + Number(item.amount || 0), 0);
+    const totalExpense = expenses.reduce((sum, item: any) => sum + Number(item.amount || 0), 0);
+    return { totalIncome, totalExpense, netBalance: totalIncome - totalExpense };
+  }
 
   // ==================== INCOME ====================
   async createIncome(createIncomeDto: CreateIncomeDto) {
@@ -25,24 +89,26 @@ export class FinanceService {
     dateTo?: string;
     category?: string;
   }) {
+    const category = filters?.category;
+    const isAll = !category || category === 'all';
+    const wantsTuition = isAll || category === 'Tuition Fee' || category === 'Fee';
+    const wantsExtra = isAll || category === 'Extra Challan' || category === 'Extra Fee';
+    const wantsHostel = isAll || category === 'Hostel Challan' || category === 'Hostel Fee';
+    const isChallanCategory = wantsTuition || wantsExtra || wantsHostel;
     const where: any = {};
 
     if (filters?.dateFrom || filters?.dateTo) {
       where.date = {};
       if (filters.dateFrom) {
-        where.date.gte = new Date(filters.dateFrom);
+        where.date.gte = this.parseStartOfDay(filters.dateFrom);
       }
       if (filters.dateTo) {
-        where.date.lte = new Date(filters.dateTo);
+        where.date.lte = this.parseEndOfDay(filters.dateTo);
       }
     }
 
-    if (
-      filters?.category &&
-      filters.category !== 'all' &&
-      filters.category !== 'Fee'
-    ) {
-      where.category = filters.category;
+    if (category && category !== 'all' && !isChallanCategory) {
+      where.category = category;
     }
 
     // Fetch manual income records
@@ -51,56 +117,129 @@ export class FinanceService {
       orderBy: { date: 'desc' },
     });
 
-    // If category is 'Fee' or 'all', fetch PAID fee challans
+    // Fetch challan-derived incomes based on requested category
     let feeChallans: any[] = [];
-    if (
-      !filters?.category ||
-      filters.category === 'all' ||
-      filters.category === 'Fee'
-    ) {
-      const challanWhere: any = {
-        status: 'PAID',
-      };
+    if (isChallanCategory) {
+      const challanWhere: any = {};
 
       if (filters?.dateFrom || filters?.dateTo) {
-        challanWhere.paidDate = {};
+        challanWhere.paymentDate = {};
         if (filters.dateFrom) {
-          challanWhere.paidDate.gte = new Date(filters.dateFrom);
+          challanWhere.paymentDate.gte = this.parseStartOfDay(filters.dateFrom);
         }
         if (filters.dateTo) {
-          challanWhere.paidDate.lte = new Date(filters.dateTo);
+          challanWhere.paymentDate.lte = this.parseEndOfDay(filters.dateTo);
         }
       }
 
-      const challans = await this.prisma.feeChallan.findMany({
-        where: challanWhere,
-        include: {
-          student: true,
-        },
-        orderBy: { paidDate: 'desc' },
-      });
-
-      feeChallans = challans.map((c) => {
-        const billingMonth = c.issueDate.toLocaleString('en-US', {
-          month: 'short',
-          year: 'numeric',
+      let installmentFees: any[] = [];
+      if (wantsTuition) {
+        const challans = await this.prisma.challanPayment.findMany({
+          where: challanWhere,
+          include: {
+            challan: {
+              include: {
+                installment: {
+                  include: { student: true },
+                },
+              },
+            },
+          },
+          orderBy: { paymentDate: 'desc' },
         });
-        const studentName =
-          `${c.student.fName} ${c.student.lName || ''}`.trim();
-        return {
-          id: `fee-${c.id}`,
-          date: c.paidDate || c.createdAt,
-          category: 'Fee',
-          description: `Fee Payment: ${studentName} (${c.student.rollNumber}) - For ${billingMonth}`,
-          amount: Number(c.amountReceived?.toNumber() ?? c.paidAmount ?? 0),
-          createdAt: c.createdAt,
-          updatedAt: c.updatedAt,
-          source: 'fee-challan',
-          sourceId: c.id,
-          studentId: c.studentId,
-          billingMonth: billingMonth,
-        };
-      });
+
+        installmentFees = challans.map((p) => {
+          const student = p.challan.installment?.student;
+          const billingMonth = p.paymentDate.toLocaleString('en-US', {
+            month: 'short',
+            year: 'numeric',
+          });
+          const studentName = student
+            ? `${student.fName} ${student.lName || ''}`.trim()
+            : 'Unknown';
+          return {
+            id: `fee-${p.id}`,
+            date: p.paymentDate,
+            category: 'Tuition Fee',
+            description: `Tuition Fee: ${studentName}${student ? ` (${student.rollNumber})` : ''} - For ${billingMonth}`,
+            amount: Number(p.amount),
+            createdAt: p.createdAt,
+            updatedAt: p.createdAt,
+            source: 'fee-challan',
+            sourceId: p.challanId,
+            studentId: student?.id,
+            billingMonth: billingMonth,
+          };
+        });
+      }
+
+      // Fetch Extra Challan Payments
+      let extraFees: any[] = [];
+      if (wantsExtra) {
+        const extraPayments = await this.prisma.extraChallanPayment.findMany({
+          where: {
+            paymentDate: challanWhere.paymentDate,
+          },
+          include: {
+            extraChallan: {
+              include: { student: true },
+            },
+          },
+          orderBy: { paymentDate: 'desc' },
+        });
+
+        extraFees = extraPayments.map((p) => {
+          const student = p.extraChallan.student;
+          const studentName = student ? `${student.fName} ${student.lName || ''}`.trim() : 'Unknown';
+          return {
+            id: `extra-${p.id}`,
+            date: p.paymentDate,
+            category: 'Extra Challan',
+            description: `Extra Challan: ${studentName} (${student?.rollNumber || 'N/A'}) - ${p.remarks || 'Ad-hoc'}`,
+            amount: Number(p.amount),
+            createdAt: p.createdAt,
+            updatedAt: p.createdAt,
+            source: 'extra-challan',
+            sourceId: p.extraChallanId,
+            studentId: student?.id,
+          };
+        });
+      }
+
+      // Fetch Hostel Challan Payments
+      let hostelFees: any[] = [];
+      if (wantsHostel) {
+        const hostelPayments = await this.prisma.hostelChallanPayment.findMany({
+          where: {
+            paymentDate: challanWhere.paymentDate,
+          },
+          include: {
+            hostelChallan: {
+              include: { student: true },
+            },
+          },
+          orderBy: { paymentDate: 'desc' },
+        });
+
+        hostelFees = hostelPayments.map((p) => {
+          const student = p.hostelChallan.student;
+          const studentName = student ? `${student.fName} ${student.lName || ''}`.trim() : p.hostelChallan.hostelRegNumber;
+          return {
+            id: `hostel-${p.id}`,
+            date: p.paymentDate,
+            category: 'Hostel Challan',
+            description: `Hostel Challan: ${studentName} - Month: ${p.hostelChallan.month}`,
+            amount: Number(p.amount),
+            createdAt: p.createdAt,
+            updatedAt: p.createdAt,
+            source: 'hostel-challan',
+            sourceId: p.hostelChallanId,
+            studentId: student?.id,
+          };
+        });
+      }
+
+      feeChallans = [...installmentFees, ...extraFees, ...hostelFees];
     }
 
     // Combine and sort by date
@@ -143,16 +282,17 @@ export class FinanceService {
     dateFrom?: string;
     dateTo?: string;
     category?: string;
+    subCategory?: string;
   }) {
     const where: any = {};
 
     if (filters?.dateFrom || filters?.dateTo) {
       where.date = {};
       if (filters.dateFrom) {
-        where.date.gte = new Date(filters.dateFrom);
+        where.date.gte = this.parseStartOfDay(filters.dateFrom);
       }
       if (filters.dateTo) {
-        where.date.lte = new Date(filters.dateTo);
+        where.date.lte = this.parseEndOfDay(filters.dateTo);
       }
     }
 
@@ -162,6 +302,9 @@ export class FinanceService {
       filters.category !== 'Payroll'
     ) {
       where.category = filters.category;
+    }
+    if (filters?.subCategory && filters.subCategory !== 'all') {
+      where.subCategory = filters.subCategory;
     }
 
     // Fetch manual expense records
@@ -177,42 +320,41 @@ export class FinanceService {
       filters.category === 'all' ||
       filters.category === 'Payroll'
     ) {
-      const payrollWhere: any = {
-        status: 'PAID',
-      };
+      const payrollPaymentWhere: any = {};
 
       if (filters?.dateFrom || filters?.dateTo) {
-        payrollWhere.paymentDate = {};
+        payrollPaymentWhere.paidAt = {};
         if (filters.dateFrom) {
-          payrollWhere.paymentDate.gte = new Date(filters.dateFrom);
+          payrollPaymentWhere.paidAt.gte = this.parseStartOfDay(filters.dateFrom);
         }
         if (filters.dateTo) {
-          payrollWhere.paymentDate.lte = new Date(filters.dateTo);
+          payrollPaymentWhere.paidAt.lte = this.parseEndOfDay(filters.dateTo);
         }
       }
 
-      const paidPayrolls = await this.prisma.payroll.findMany({
-        where: payrollWhere,
+      const payrollPayments = await this.prisma.payrollPayment.findMany({
+        where: payrollPaymentWhere,
         include: {
-          staff: true,
+          payroll: { include: { staff: true } },
         },
-        orderBy: { paymentDate: 'desc' },
+        orderBy: { paidAt: 'desc' },
       });
 
-      payrolls = paidPayrolls.map((p) => {
-        const staffName = p.staff?.name || 'Unknown';
-        const staffType = p.staff?.isTeaching ? 'Teacher' : 'Staff';
+      payrolls = payrollPayments.map((payment) => {
+        const staffName = payment.payroll.staff?.name || 'Unknown';
+        const staffType = payment.payroll.staff?.isTeaching ? 'Teacher' : 'Staff';
 
         return {
-          id: `payroll-${p.id}`,
-          date: p.paymentDate || p.createdAt,
-          category: 'Salaries',
-          description: `Salary: ${staffName} (${staffType}) - Month: ${p.month}`,
-          amount: Number(p.netSalary),
-          createdAt: p.createdAt,
-          updatedAt: p.updatedAt,
+          id: `payroll-payment-${payment.id}`,
+          date: payment.paidAt,
+          category: 'Payroll',
+          subCategory: 'Salary Payment',
+          description: `Salary: ${staffName} (${staffType}) - Month: ${payment.payroll.month}`,
+          amount: Number(payment.amount),
+          createdAt: payment.paidAt,
+          updatedAt: payment.paidAt,
           source: 'payroll',
-          sourceId: p.id,
+          sourceId: payment.payrollId,
         };
       });
     }
@@ -227,8 +369,8 @@ export class FinanceService {
       const hostelWhere: any = {};
       if (filters?.dateFrom || filters?.dateTo) {
         hostelWhere.date = {};
-        if (filters.dateFrom) hostelWhere.date.gte = new Date(filters.dateFrom);
-        if (filters.dateTo) hostelWhere.date.lte = new Date(filters.dateTo);
+        if (filters.dateFrom) hostelWhere.date.gte = this.parseStartOfDay(filters.dateFrom);
+        if (filters.dateTo) hostelWhere.date.lte = this.parseEndOfDay(filters.dateTo);
       }
       const hostelRecs = await this.prisma.hostelExpense.findMany({
         where: hostelWhere,
@@ -238,6 +380,7 @@ export class FinanceService {
         id: `hostel-${h.id}`,
         date: h.date,
         category: 'Hostel',
+        subCategory: h.expenseTitle || 'Hostel Utilities',
         description: `${h.expenseTitle} (${h.remarks || ''})`,
         amount: Number(h.amount),
         createdAt: h.createdAt,
@@ -259,9 +402,9 @@ export class FinanceService {
       if (filters?.dateFrom || filters?.dateTo) {
         invPurchaseWhere.purchaseDate = {};
         if (filters.dateFrom)
-          invPurchaseWhere.purchaseDate.gte = new Date(filters.dateFrom);
+          invPurchaseWhere.purchaseDate.gte = this.parseStartOfDay(filters.dateFrom);
         if (filters.dateTo)
-          invPurchaseWhere.purchaseDate.lte = new Date(filters.dateTo);
+          invPurchaseWhere.purchaseDate.lte = this.parseEndOfDay(filters.dateTo);
       }
       const purchases = await this.prisma.schoolInventory.findMany({
         where: invPurchaseWhere,
@@ -273,8 +416,8 @@ export class FinanceService {
       if (filters?.dateFrom || filters?.dateTo) {
         invMaintWhere.date = {};
         if (filters.dateFrom)
-          invMaintWhere.date.gte = new Date(filters.dateFrom);
-        if (filters.dateTo) invMaintWhere.date.lte = new Date(filters.dateTo);
+          invMaintWhere.date.gte = this.parseStartOfDay(filters.dateFrom);
+        if (filters.dateTo) invMaintWhere.date.lte = this.parseEndOfDay(filters.dateTo);
       }
       const maintenances = await this.prisma.inventoryExpense.findMany({
         where: invMaintWhere,
@@ -286,6 +429,7 @@ export class FinanceService {
         id: `inv-buy-${p.id}`,
         date: p.purchaseDate,
         category: 'Inventory',
+        subCategory: 'Inventory Purchase',
         description: `Purchase: ${p.itemName} (${p.category})`,
         amount: Number(p.totalValue), // assuming totalValue is the cost
         createdAt: p.createdAt,
@@ -298,6 +442,7 @@ export class FinanceService {
         id: `inv-maint-${m.id}`,
         date: m.date,
         category: 'Inventory',
+        subCategory: 'Inventory Maintenance',
         description: `Maintenance: ${m.inventoryItem?.itemName || 'Item'} - ${m.expenseType}`,
         amount: Number(m.amount),
         createdAt: m.createdAt,
@@ -340,24 +485,47 @@ export class FinanceService {
 
   // ==================== CLOSING ====================
   async createClosing(createClosingDto: CreateClosingDto) {
-    return this.prisma.financeClosing.create({
-      data: {
-        ...createClosingDto,
-        date: new Date(createClosingDto.date),
-      },
+    const { start, end, normalizedType } = this.getClosingBounds(createClosingDto.date, createClosingDto.type);
+    const existing = await this.prisma.financeClosing.findFirst({
+      where: { type: normalizedType, periodStart: start, periodEnd: end },
     });
+    if (existing) {
+      throw new ConflictException('Closing already exists for this period and type');
+    }
+    const totals = await this.calculateClosingSnapshot(start, end);
+    try {
+      return await this.prisma.financeClosing.create({
+        data: {
+          date: start,
+          type: normalizedType,
+          periodStart: start,
+          periodEnd: end,
+          ...totals,
+          remarks: createClosingDto.remarks || null,
+        },
+      });
+    } catch (error: any) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('Closing already exists for this period and type');
+      }
+      throw error;
+    }
   }
 
-  async getClosings(filters?: { dateFrom?: string; dateTo?: string }) {
+  async getClosings(filters?: { dateFrom?: string; dateTo?: string; type?: string }) {
     const where: any = {};
+
+    if (filters?.type) {
+      where.type = String(filters.type).toLowerCase();
+    }
 
     if (filters?.dateFrom || filters?.dateTo) {
       where.date = {};
       if (filters.dateFrom) {
-        where.date.gte = new Date(filters.dateFrom);
+        where.date.gte = this.parseStartOfDay(filters.dateFrom);
       }
       if (filters.dateTo) {
-        where.date.lte = new Date(filters.dateTo);
+        where.date.lte = this.parseEndOfDay(filters.dateTo);
       }
     }
 
@@ -368,10 +536,21 @@ export class FinanceService {
   }
 
   async updateClosing(id: number, data: any) {
+    const existing = await this.prisma.financeClosing.findUnique({ where: { id } });
+    if (!existing) throw new BadRequestException('Closing not found');
+    const inputDate = data?.date ? String(data.date) : existing.date.toISOString();
+    const inputType = data?.type || existing.type;
+    const { start, end, normalizedType } = this.getClosingBounds(inputDate, inputType);
+    const totals = await this.calculateClosingSnapshot(start, end);
     return this.prisma.financeClosing.update({
       where: { id },
       data: {
-        ...data,
+        type: normalizedType,
+        date: start,
+        periodStart: start,
+        periodEnd: end,
+        ...totals,
+        remarks: data?.remarks ?? existing.remarks,
         updatedAt: new Date(),
       },
     });
@@ -390,10 +569,10 @@ export class FinanceService {
     if (dateFrom || dateTo) {
       where.date = {};
       if (dateFrom) {
-        where.date.gte = new Date(dateFrom);
+        where.date.gte = this.parseStartOfDay(dateFrom);
       }
       if (dateTo) {
-        where.date.lte = new Date(dateTo);
+        where.date.lte = this.parseEndOfDay(dateTo);
       }
     }
 
@@ -403,28 +582,27 @@ export class FinanceService {
       this.prisma.financeExpense.findMany({ where }),
     ]);
 
-    // Fetch paid fee challans
-    const challanWhere: any = { status: 'PAID' };
+    // Fetch paid fee payments
+    const paymentWhere: any = {};
     if (dateFrom || dateTo) {
-      challanWhere.paidDate = {};
-      if (dateFrom) challanWhere.paidDate.gte = new Date(dateFrom);
-      if (dateTo) challanWhere.paidDate.lte = new Date(dateTo);
+      paymentWhere.paymentDate = {};
+      if (dateFrom) paymentWhere.paymentDate.gte = this.parseStartOfDay(dateFrom);
+      if (dateTo) paymentWhere.paymentDate.lte = this.parseEndOfDay(dateTo);
     }
-    const paidChallans = await this.prisma.feeChallan.findMany({
-      where: challanWhere,
-      include: { student: true },
+    const feePayments = await this.prisma.challanPayment.findMany({
+      where: paymentWhere,
     });
 
-    // Fetch paid payrolls
-    const payrollWhere: any = { status: 'PAID' };
+    // Fetch payroll payment audit entries.
+    const payrollPaymentWhere: any = {};
     if (dateFrom || dateTo) {
-      payrollWhere.paymentDate = {};
-      if (dateFrom) payrollWhere.paymentDate.gte = new Date(dateFrom);
-      if (dateTo) payrollWhere.paymentDate.lte = new Date(dateTo);
+      payrollPaymentWhere.paidAt = {};
+      if (dateFrom) payrollPaymentWhere.paidAt.gte = this.parseStartOfDay(dateFrom);
+      if (dateTo) payrollPaymentWhere.paidAt.lte = this.parseEndOfDay(dateTo);
     }
-    const paidPayrolls = await this.prisma.payroll.findMany({
-      where: payrollWhere,
-      include: { staff: true },
+    const payrollPayments = await this.prisma.payrollPayment.findMany({
+      where: payrollPaymentWhere,
+      include: { payroll: { include: { staff: true } } },
     });
 
     // Calculate totals
@@ -432,18 +610,25 @@ export class FinanceService {
       (sum, item) => sum + item.amount,
       0,
     );
-    const feeIncome = paidChallans.reduce(
-      (sum, item) => sum + Number(item.amountReceived?.toNumber() ?? item.paidAmount ?? 0),
+    const feeIncome = feePayments.reduce(
+      (sum, item) => sum + Number(item.amount),
       0,
     );
-    const totalIncome = manualIncome + feeIncome;
+
+    const extraFeePayments = await this.prisma.extraChallanPayment.findMany({ where: paymentWhere });
+    const extraFeeIncome = extraFeePayments.reduce((sum, item) => sum + Number(item.amount), 0);
+
+    const hostelFeePayments = await this.prisma.hostelChallanPayment.findMany({ where: paymentWhere });
+    const hostelFeeIncome = hostelFeePayments.reduce((sum, item) => sum + Number(item.amount), 0);
+
+    const totalIncome = manualIncome + feeIncome + extraFeeIncome + hostelFeeIncome;
 
     const manualExpense = manualExpenses.reduce(
       (sum, item) => sum + item.amount,
       0,
     );
-    const payrollExpense = paidPayrolls.reduce(
-      (sum, item) => sum + Number(item.netSalary),
+    const payrollExpense = payrollPayments.reduce(
+      (sum, item) => sum + Number(item.amount),
       0,
     );
     const totalExpense = manualExpense + payrollExpense;
@@ -477,27 +662,27 @@ export class FinanceService {
     // Combine all into arrays
     const incomes = [
       ...manualIncomes,
-      ...paidChallans.map((c) => ({
-        id: `fee-${c.id}`,
-        date: c.paidDate || c.createdAt,
+      ...feePayments.map((p) => ({
+        id: `fee-${p.id}`,
+        date: p.paymentDate,
         category: 'Fee',
-        description: `Fee payment from ${c.student.fName} ${c.student.lName || ''}`,
-        amount: Number(c.amountReceived?.toNumber() ?? c.paidAmount ?? 0),
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
+        description: `Fee payment`,
+        amount: Number(p.amount),
+        createdAt: p.createdAt,
+        updatedAt: p.createdAt,
       })),
     ];
 
     const expenses = [
       ...manualExpenses,
-      ...paidPayrolls.map((p) => ({
-        id: `payroll-${p.id}`,
-        date: p.paymentDate || p.createdAt,
+      ...payrollPayments.map((p) => ({
+        id: `payroll-payment-${p.id}`,
+        date: p.paidAt,
         category: 'Salaries', // Mapped to Salaries
-        description: `Salary - ${p.month} - ${p.staff?.name || 'Staff'}`,
-        amount: Number(p.netSalary),
-        createdAt: p.createdAt,
-        updatedAt: p.updatedAt,
+        description: `Salary - ${p.payroll.month} - ${p.payroll.staff?.name || 'Staff'}`,
+        amount: Number(p.amount),
+        createdAt: p.paidAt,
+        updatedAt: p.paidAt,
       })),
     ];
 

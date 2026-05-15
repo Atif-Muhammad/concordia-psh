@@ -1,146 +1,123 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import * as cron from 'node-cron';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { ChallanService } from './challan.service';
+import { ExtraChallanService } from './extra-challan.service';
 
 /**
- * Incremental Late Fee Cron
+ * LateFeeCronService
  *
- * Runs daily at midnight. For every overdue, unpaid installment:
- *   newDays = days_between(today, lateFeeLastCalculatedAt ?? dueDate)
- *   lateFeeAccrued += newDays * globalFinePerDay
- *   lateFeeLastCalculatedAt = today
+ * Runs every 12 hours to persist up-to-date lateFeeFine values into the
+ * fee_installment table for all installments that are NOT locked (i.e. not
+ * fully paid / settled / superseded / void).
  *
- * The accrued value is then synced to the linked active (non-VOID, non-PAID) challan's
- * lateFeeFine field so the UI always reads a consistent stored value.
+ * "Locked" definition: isLocked = true  OR  status IN ('PAID','SETTLED','SUPERSEDED','VOID')
+ *
+ * For each unlocked installment it delegates to ChallanService.syncLateFee()
+ * which:
+ *   1. Recalculates lateFeeFine = floor(daysPastDue) × lateFeeRatePerDay
+ *   2. Persists lateFeeFine + totalAmount + pendingAmount to fee_installment
+ *   3. Flips the installment status to OVERDUE when past due and still pending
+ *   4. Updates snapshotLateFee + snapshotTotalDue on the active challan (if any)
  */
 @Injectable()
 export class LateFeeCronService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(LateFeeCronService.name);
   private task: cron.ScheduledTask | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly challanService: ChallanService,
+    private readonly extraChallanService: ExtraChallanService,
+  ) {}
 
   onModuleInit() {
-    // Run daily at 00:05 (5 minutes past midnight)
-    this.task = cron.schedule('5 0 * * *', () => this.runLateFeeAccrual(), {
-      timezone: 'Asia/Karachi',
+    // Run at 00:00 and 12:00 every day
+    this.task = cron.schedule('0 0,12 * * *', () => {
+      this.runLateFeeAccrual().catch((err) => {
+        this.logger.error('Late fee accrual cron failed', err?.stack ?? err);
+      });
     });
-    this.logger.log('Late fee cron scheduled (daily 00:05 PKT)');
+
+    this.logger.log(
+      'Late fee accrual cron scheduled: every 12 hours (00:00 & 12:00).',
+    );
+
+    // Run immediately on startup so the DB is consistent from the first request
+    this.runLateFeeAccrual().catch((err) => {
+      this.logger.error('Late fee accrual (startup) failed', err?.stack ?? err);
+    });
   }
 
   onModuleDestroy() {
     this.task?.stop();
   }
 
-  /** Can also be called manually via an admin endpoint for backfill */
+  /**
+   * Find all unlocked installments and sync their late fee to the DB.
+   *
+   * An installment is considered "locked" when it is fully paid / settled /
+   * superseded / voided, or has isLocked = true.  We skip those because their
+   * financials are frozen and should not change.
+   *
+   * @returns  Summary counts { updated, skipped }.
+   */
   async runLateFeeAccrual(): Promise<{ updated: number; skipped: number }> {
-    this.logger.log('Running incremental late fee accrual...');
+    this.logger.log('Starting late fee accrual run…');
 
-    const settings = await this.prisma.instituteSettings.findFirst();
-    const finePerDay = settings?.lateFeeFine ?? 0;
-
-    if (finePerDay <= 0) {
-      this.logger.log('Late fee per day is 0 — skipping accrual.');
-      return { updated: 0, skipped: 0 };
-    }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Fetch all overdue, unpaid installments (with or without a challan)
-    const installments = await (this.prisma.studentFeeInstallment.findMany as any)({
+    // ── 1. Standard Installments ───────────────────────────────────────────
+    const unlockedInst = await this.prisma.feeInstallment.findMany({
       where: {
-        status: { notIn: ['PAID'] },
-        dueDate: { lt: today },
+        isLocked: false,
+        status: { notIn: ['PAID', 'SETTLED', 'SUPERSEDED', 'VOID'] },
+        dueDate: { lte: new Date() },
       },
-      select: {
-        id: true,
-        amount: true,
-        totalAmount: true,
-        dueDate: true,
-        lateFeeAccrued: true,
-        lateFeeLastCalculatedAt: true,
-        // Active challan for this installment (if any) — used to sync lateFeeFine
-        challans: {
-          where: { status: { notIn: ['PAID', 'VOID'] } },
-          select: { id: true, status: true },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-      },
+      select: { id: true },
     });
+
+    const settings = await this.prisma.instituteSettings.findFirst({
+      select: { lateFeeRatePerDay: true, extraChallanLateFee: true },
+    });
+    const forcedRateInst = settings?.lateFeeRatePerDay ? Number(settings.lateFeeRatePerDay) : 0;
+    const forcedRateExtra = settings?.extraChallanLateFee ? Number(settings.extraChallanLateFee) : 0;
 
     let updated = 0;
     let skipped = 0;
 
-    for (const inst of installments) {
-      // Determine the baseline date for calculation
-      const baseline: Date = inst.lateFeeLastCalculatedAt
-        ? new Date(inst.lateFeeLastCalculatedAt)
-        : new Date(inst.dueDate);
-      baseline.setHours(0, 0, 0, 0);
-
-      const expectedTotal = (inst.amount ?? 0) + (inst.lateFeeAccrued ?? 0);
-
-      // Skip if already calculated today AND totalAmount is in sync
-      if (baseline.getTime() >= today.getTime()) {
-        // Still sync totalAmount if it's stale (e.g. field was just added via migration)
-        if (Math.abs((inst as any).totalAmount - expectedTotal) > 0.01) {
-          await (this.prisma.studentFeeInstallment.update as any)({
-            where: { id: inst.id },
-            data: { totalAmount: expectedTotal },
-          });
-          updated++;
-        } else {
-          skipped++;
-        }
-        continue;
-      }
-
-      const diffMs = today.getTime() - baseline.getTime();
-      const newDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-      if (newDays <= 0) {
+    for (const { id } of unlockedInst) {
+      try {
+        const result = await this.challanService.syncLateFee(id, forcedRateInst);
+        if (result) updated++;
+        else skipped++;
+      } catch (err) {
+        this.logger.warn(`syncLateFee failed for installment ${id}: ${err.message}`);
         skipped++;
-        continue;
       }
-
-      const additionalFee = newDays * finePerDay;
-      const newAccrued = (inst.lateFeeAccrued ?? 0) + additionalFee;
-      const newTotalAmount = (inst.amount ?? 0) + newAccrued;
-      // Update installment — totalAmount = base amount + all accrued late fee
-      await (this.prisma.studentFeeInstallment.update as any)({
-        where: { id: inst.id },
-        data: {
-          lateFeeAccrued: newAccrued,
-          lateFeeLastCalculatedAt: today,
-          totalAmount: newTotalAmount,
-        },
-      });
-
-      // Sync to the active challan if one exists.
-      // Update both lateFeeFine and totalAmount on the challan.
-      const activeChallan = inst.challans?.[0];
-      if (activeChallan) {
-        // Fetch current challan to get fineAmount (additional heads)
-        const challanRecord = await this.prisma.feeChallan.findUnique({
-          where: { id: activeChallan.id },
-          select: { amount: true, fineAmount: true },
-        });
-        const challanTotal = (challanRecord?.amount || 0) + (challanRecord?.fineAmount || 0) + newAccrued;
-        await this.prisma.feeChallan.update({
-          where: { id: activeChallan.id },
-          data: {
-            lateFeeFine: newAccrued,
-            totalAmount: challanTotal,
-          },
-        });
-      }
-
-      updated++;
     }
 
-    this.logger.log(`Late fee accrual done: ${updated} updated, ${skipped} skipped.`);
+    // ── 2. Extra Challans ──────────────────────────────────────────────────
+    const pendingExtra = await this.prisma.extraChallan.findMany({
+      where: {
+        status: { notIn: ['PAID', 'VOID', 'SETTLED'] },
+        dueDate: { lte: new Date() },
+      },
+      select: { id: true },
+    });
+
+    for (const { id } of pendingExtra) {
+      try {
+        const result = await this.extraChallanService.syncLateFee(id, forcedRateExtra);
+        if (result) updated++;
+        else skipped++;
+      } catch (err) {
+        this.logger.warn(`syncLateFee failed for extra challan ${id}: ${err.message}`);
+        skipped++;
+      }
+    }
+
+    this.logger.log(
+      `Late fee accrual complete — ${updated} updated, ${skipped} skipped. (Rates: ${forcedRateInst}/${forcedRateExtra} PKR/day)`,
+    );
     return { updated, skipped };
   }
 }

@@ -44,10 +44,14 @@ import {
   GraduationCap,
   MoreVertical,
   Check,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
 import { useData } from "@/contexts/DataContext";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
 import {
   getAdmins,
   createAdmin as createAdminAPI,
@@ -887,6 +891,7 @@ const Configuration = () => {
   const [challanForm, setChallanForm] = useState({
     name: "",
     htmlContent: "",
+    type: "INSTALLMENT",
     isDefault: false,
   });
   const [marksheetForm, setMarksheetForm] = useState({
@@ -915,6 +920,69 @@ const Configuration = () => {
   const [editingTeacherIdCard, setEditingTeacherIdCard] = useState(null);
   const [editingStudentIdCard, setEditingStudentIdCard] = useState(null);
   const [previewChallan, setPreviewChallan] = useState(null);
+
+  const renderChallanPreview = (html, type) => {
+    if (!html) return "";
+    let rendered = html;
+    
+    // Sample Data
+    const data = {
+      challanNumber: "CH-2026-0001",
+      studentName: "Sample Student Name",
+      fatherName: "Sample Father Name",
+      class: "Program / Class / Section",
+      rollNo: "ROLL-001",
+      month: "January 2026",
+      installmentNo: "1",
+      issueDate: new Date().toLocaleDateString(),
+      dueDate: new Date(Date.now() + 864000000).toLocaleDateString(),
+    };
+
+    // Standard Replacements
+    rendered = rendered.replace(/\{\{challanNumber\}\}/g, data.challanNumber);
+    rendered = rendered.replace(/\{\{challanNo\}\}/g, data.challanNumber);
+    rendered = rendered.replace(/\{\{studentName\}\}/g, data.studentName);
+    rendered = rendered.replace(/\{\{fatherName\}\}/g, data.fatherName);
+    rendered = rendered.replace(/\{\{class\}\}/g, data.class);
+    rendered = rendered.replace(/\{\{rollNo\}\}/g, data.rollNo);
+    rendered = rendered.replace(/\{\{issueDate\}\}/g, data.issueDate);
+    rendered = rendered.replace(/\{\{dueDate\}\}/g, data.dueDate);
+    rendered = rendered.replace(/\{\{session\}\}/g, "Session 2025-26");
+
+    if (type === 'EXTRA') {
+      rendered = rendered.replace(/Month \/ Installment/g, ''); 
+      rendered = rendered.replace(/\{\{month\}\}/g, '');
+      rendered = rendered.replace(/\{\{installmentNo\}\}/g, '');
+      rendered = rendered.replace(/\{\{feeHeadsRows\}\}/g, '<tr><td>Extra Activity Fee</td><td>0.00</td></tr>\n<tr><td>Library Fine</td><td>0.00</td></tr>');
+      rendered = rendered.replace(/\{\{totalPayable\}\}/g, '0.00');
+      rendered = rendered.replace(/\{\{lateFee\}\}/g, '0.00');
+    } else if (type === 'HOSTEL') {
+      rendered = rendered.replace(/\{\{month\}\}/g, data.month);
+      rendered = rendered.replace(/\{\{installmentNo\}\}/g, '');
+      rendered = rendered.replace(/\{\{feeHeadsRows\}\}/g, '<tr><td>Hostel Accommodation</td><td>0.00</td></tr>\n<tr><td>Mess Charges</td><td>0.00</td></tr>');
+      rendered = rendered.replace(/\{\{totalPayable\}\}/g, '0.00');
+      rendered = rendered.replace(/\{\{lateFee\}\}/g, '0.00');
+    } else {
+      rendered = rendered.replace(/\{\{month\}\}/g, data.month);
+      rendered = rendered.replace(/\{\{installmentNo\}\}/g, data.installmentNo);
+      rendered = rendered.replace(/\{\{Tuition Fee\}\}/g, '0.00');
+      rendered = rendered.replace(/\{\{feeHeadsRows\}\}/g, '<tr><td>Admission Fee</td><td>0.00</td></tr>');
+      rendered = rendered.replace(/\{\{totalPayable\}\}/g, '0.00');
+      rendered = rendered.replace(/\{\{lateFee\}\}/g, '0.00');
+    }
+
+    // Common Fallbacks
+    rendered = rendered.replace(/\{\{arrears\}\}/g, '0.00');
+    rendered = rendered.replace(/\{\{arrearsRows\}\}/g, '');
+    rendered = rendered.replace(/\{\{discount\}\}/g, '');
+    rendered = rendered.replace(/\{\{paidRow\}\}/g, '');
+    rendered = rendered.replace(/\{\{Tuition Fee\}\}/g, '');
+    rendered = rendered.replace(/\{\{paymentDetailsRow\}\}/g, '');
+    rendered = rendered.replace(/\{\{lateFeeRatePerDay\}\}/g, '150');
+    rendered = rendered.replace(/\{\{totalInWords\}\}/g, '<strong>Sample Total in Words Only</strong>');
+    
+    return rendered;
+  };
   const [previewMarksheet, setPreviewMarksheet] = useState(null);
   const [previewIdCard, setPreviewIdCard] = useState(null);
   const [previewTeacherIdCard, setPreviewTeacherIdCard] = useState(null);
@@ -1284,6 +1352,7 @@ const Configuration = () => {
     });
     setPasswordDialog(true);
   };
+  const { theme, setTheme } = useTheme();
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-full overflow-x-hidden">
@@ -1317,6 +1386,53 @@ const Configuration = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div>
+                  <Label>Appearance Mode</Label>
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setTheme("light")}
+                      className={cn(
+                        "rounded-lg border p-4 text-left transition-colors",
+                        theme === "light"
+                          ? "border-primary bg-primary/10 ring-1 ring-primary/40"
+                          : "border-border bg-card hover:bg-muted/50"
+                      )}
+                    >
+                      <Sun className="h-5 w-5 mb-2 text-amber-500" />
+                      <p className="text-sm font-semibold">Light</p>
+                      <p className="text-xs text-muted-foreground">Bright and clear</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTheme("dark")}
+                      className={cn(
+                        "rounded-lg border p-4 text-left transition-colors",
+                        theme === "dark"
+                          ? "border-primary bg-primary/10 ring-1 ring-primary/40"
+                          : "border-border bg-card hover:bg-muted/50"
+                      )}
+                    >
+                      <Moon className="h-5 w-5 mb-2 text-indigo-500" />
+                      <p className="text-sm font-semibold">Dark</p>
+                      <p className="text-xs text-muted-foreground">Comfortable at night</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTheme("system")}
+                      className={cn(
+                        "rounded-lg border p-4 text-left transition-colors",
+                        theme === "system"
+                          ? "border-primary bg-primary/10 ring-1 ring-primary/40"
+                          : "border-border bg-card hover:bg-muted/50"
+                      )}
+                    >
+                      <Monitor className="h-5 w-5 mb-2 text-emerald-500" />
+                      <p className="text-sm font-semibold">System</p>
+                      <p className="text-xs text-muted-foreground">Follow device setting</p>
+                    </button>
+                  </div>
+                </div>
                 <div>
                   <Label>Institute Name</Label>
                   <Input
@@ -1878,6 +1994,7 @@ const Configuration = () => {
                             setChallanForm({
                               name: "",
                               htmlContent: "",
+                              type: "INSTALLMENT",
                               isDefault: false,
                             });
                           }}
@@ -1904,6 +2021,22 @@ const Configuration = () => {
                                 })
                               }
                             />
+                          </div>
+                          <div>
+                            <Label>Template Type</Label>
+                            <Select 
+                              value={challanForm.type} 
+                              onValueChange={(val) => setChallanForm({ ...challanForm, type: val })}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select type" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="INSTALLMENT">Standard Installment</SelectItem>
+                                <SelectItem value="EXTRA">Extra Fee Challan</SelectItem>
+                                <SelectItem value="HOSTEL">Hostel Challan</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                           <div>
                             <div className="flex justify-between items-center mb-2">
@@ -1953,6 +2086,7 @@ const Configuration = () => {
                                 name: challanForm.name,
                                 htmlContent: challanForm.htmlContent,
                                 isDefault: challanForm.isDefault,
+                                type: challanForm.type,
                               };
 
                               if (editingChallan) {
@@ -2000,6 +2134,7 @@ const Configuration = () => {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="py-2 px-3 text-sm">Template Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Category</TableHead>
                         <TableHead className="py-2 px-3 text-sm">Default</TableHead>
                         <TableHead className="py-2 px-3 text-sm">Created Date</TableHead>
                         <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
@@ -2009,6 +2144,9 @@ const Configuration = () => {
                       {challanTemplates.map((template) => (
                         <TableRow key={template.id}>
                           <TableCell className="py-2 px-3 text-sm">{template.name}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm">
+                            <Badge variant="outline">{template.type}</Badge>
+                          </TableCell>
                           <TableCell className="py-2 px-3 text-sm">
                             {template.isDefault ? <Badge>Default</Badge> : "-"}
                           </TableCell>
@@ -2039,7 +2177,7 @@ const Configuration = () => {
                                     variant="outline"
                                     size="sm"
                                     onClick={() =>
-                                      setPreviewChallan(template.htmlContent)
+                                      setPreviewChallan(renderChallanPreview(template.htmlContent, template.type))
                                     }
                                   >
                                     <Eye className="w-4 h-4" />

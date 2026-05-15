@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { CheckCircle2, XCircle, Clock, FileText, ClipboardList, UserCheck, Printer, User, Lock, Search, AlertTriangle, Timer, LockKeyhole } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, FileText, ClipboardList, UserCheck, Printer, User, Lock, Search, AlertTriangle, Timer, LockKeyhole, SlidersHorizontal } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import AttendanceConfirmationDialog from "@/components/AttendanceConfirmationDialog";
@@ -20,18 +20,15 @@ import {
   getProgramNames,
   getSubjectsForClassWithAssignments,
   fetchStudentAttendance,
-  updateStudentAttendance,
   getLeaves,
   createLeave,
   updateLeave,
+  updateStudentAttendance,
   getAttendanceReport,
   getTeacherClasses,
   searchStudents,
-  generateStudentAttendance,
-  markDateAsHoliday,
   getAcademicSessions,
   undoGenerateAttendance,
-  undoMarkHoliday,
   getHolidays,
   createAttendanceSkip,
   deleteAttendanceSkip,
@@ -47,6 +44,8 @@ const Attendance = () => {
   const isTeacher = currentUser?.role === "TEACHER" || currentUser?.role === "Teacher";
   const isSuperAdmin = currentUser?.role === "SUPER_ADMIN";
   const hasAttendancePermission = currentUser?.permissions?.modules?.includes("Attendance");
+  const canUseAllClasses = isSuperAdmin || hasAttendancePermission;
+  const isTeacherScoped = isTeacher && !canUseAllClasses;
   const canMarkAttendance = isTeacher || isSuperAdmin || hasAttendancePermission;
   const canViewAllReports = isSuperAdmin || hasAttendancePermission;
 
@@ -55,6 +54,7 @@ const Attendance = () => {
   const [selectedSectionId, setSelectedSectionId] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [fetchedStudents, setFetchedStudents] = useState([]);
+  const [hasLoadedStudents, setHasLoadedStudents] = useState(false);
   const [attendanceChanges, setAttendanceChanges] = useState({});
 
   const [leaveOpen, setLeaveOpen] = useState(false);
@@ -82,8 +82,11 @@ const Attendance = () => {
   const [selectedIndividualStudent, setSelectedIndividualStudent] = useState(null);
   const [individualStartDate, setIndividualStartDate] = useState("");
   const [individualEndDate, setIndividualEndDate] = useState(new Date().toISOString().split("T")[0]);
-  const [reportSessionId, setReportSessionId] = useState("");
-  const [individualReportSessionId, setIndividualReportSessionId] = useState("");
+  const [reportSessionId, setReportSessionId] = useState("all");
+  const [individualReportSessionId, setIndividualReportSessionId] = useState("all");
+  const [showMarkFilters, setShowMarkFilters] = useState(false);
+  const [showReportFilters, setShowReportFilters] = useState(false);
+  const [showIndividualFilters, setShowIndividualFilters] = useState(false);
 
   // Undo confirmation dialog state (generate / holiday)
   const [confirmDialog, setConfirmDialog] = useState(null); // { type: 'generate'|'holiday', date: Date, holidayId?: number }
@@ -152,7 +155,7 @@ const Attendance = () => {
   const { data: teacherClassMappings = [] } = useQuery({
     queryKey: ["teacherClasses"],
     queryFn: getTeacherClasses,
-    enabled: isTeacher
+    enabled: isTeacherScoped
   });
 
   const { data: subjects = [], refetch: refetchSubjects } = useQuery({
@@ -164,19 +167,14 @@ const Attendance = () => {
     enabled: false
   });
 
-  const { data: attendanceData, refetch: refetchAttendance, isFetching } = useQuery({
-    queryKey: ["studentAttendance", selectedClassId, selectedSectionId, selectedSubjectId, markDate],
+  const { data: attendanceData, refetch: refetchAttendance, isFetching, error: attendanceError } = useQuery({
+    queryKey: ["studentAttendance", selectedClassId, selectedSectionId, selectedSubjectId, markDate, activeSessionId],
     queryFn: () => {
       const sectionParam = selectedSectionId === "*" ? "" : selectedSectionId;
       return fetchStudentAttendance(selectedClassId, sectionParam, selectedSubjectId, markDate, activeSessionId);
     },
     enabled: false
   });
-
-  useEffect(() => {
-    if (!isFetching && attendanceData) setFetchedStudents(attendanceData.attendance)
-
-  }, [isFetching])
 
   const { data: leavesData = { data: [], total: 0 }, refetch: refetchLeaves } = useQuery({
     queryKey: ["leaves"],
@@ -189,7 +187,8 @@ const Attendance = () => {
     queryFn: () => {
       const classParam = reportClassId === "*" ? "" : reportClassId;
       const sectionParam = reportSectionId === "*" ? "" : reportSectionId;
-      return getAttendanceReport(reportStartDate, reportEndDate, classParam, sectionParam, reportSessionId || undefined);
+      const sessionParam = reportSessionId === "all" ? undefined : reportSessionId;
+      return getAttendanceReport(reportStartDate, reportEndDate, classParam, sectionParam, sessionParam);
     },
     enabled: false
   });
@@ -200,7 +199,8 @@ const Attendance = () => {
       if (!selectedIndividualStudent) return [];
       const classParam = selectedIndividualStudent.class?.id || "";
       const sectionParam = selectedIndividualStudent.section?.id || "";
-      const allData = await getAttendanceReport(individualStartDate, individualEndDate, classParam, sectionParam, individualReportSessionId || undefined);
+      const sessionParam = individualReportSessionId === "all" ? undefined : individualReportSessionId;
+      const allData = await getAttendanceReport(individualStartDate, individualEndDate, classParam, sectionParam, sessionParam);
       // Filter for the selected student
       return allData.filter(student => student.id === selectedIndividualStudent.id);
     },
@@ -241,6 +241,7 @@ const Attendance = () => {
     onSuccess: () => {
       setConfirmDialog(null);
       setFetchedStudents([]);
+      setHasLoadedStudents(false);
       setAttendanceChanges({});
     },
     onError: (error) => {
@@ -271,7 +272,7 @@ const Attendance = () => {
     }))
   );
 
-  const teacherClasses = isTeacher
+  const teacherClasses = isTeacherScoped
     ? teacherClassMappings.map(mapping => ({
       ...mapping.class,
       programName: mapping.class?.program?.name || 'N/A'
@@ -282,35 +283,49 @@ const Attendance = () => {
     arr.findIndex(x => x.id === c.id) === idx
   );
 
-  const filteredClasses = isTeacher ? uniqueTeacherClasses : allClasses;
-  const reportFilteredClasses = isTeacher ? uniqueTeacherClasses : allClasses;
+  const filteredClasses = isTeacherScoped ? uniqueTeacherClasses : allClasses;
+  const reportFilteredClasses = isTeacherScoped ? uniqueTeacherClasses : allClasses;
 
   const filteredSubjects = useMemo(() => {
     if (!subjects.length) return [];
-    if (isTeacher) {
+    if (isTeacherScoped) {
       return subjects
         .filter(scm => scm.subject?.teachers?.some(t => t.teacherId === Number(currentUser?.id)))
         .map(scm => ({ id: scm.subject.id, name: scm.subject.name }));
     }
     return subjects.map(scm => ({ id: scm.subject.id, name: scm.subject.name }));
-  }, [subjects, isTeacher, currentUser?.id]);
+  }, [subjects, isTeacherScoped, currentUser?.id]);
 
-  const filteredSections = isTeacher
+  const filteredSections = isTeacherScoped
     ? teacherClassMappings
       .filter(mapping => mapping.class?.id === Number(selectedClassId))
       .map(mapping => mapping.section)
       .filter(Boolean)
+      .filter((section, idx, arr) => arr.findIndex(s => s.id === section.id) === idx)
     : allSections.filter(s => s.classId === Number(selectedClassId));
+
+  const selectedClassHasWideTeacherMapping = isTeacherScoped && teacherClassMappings.some(
+    mapping => mapping.class?.id === Number(selectedClassId) && !mapping.section
+  );
 
   useEffect(() => {
     if (selectedClassId) {
       setSelectedSubjectId("");
       setFetchedStudents([]);
+      setHasLoadedStudents(false);
       setAttendanceChanges({});
       refetchSubjects();
       refetchSkips();
     }
-  }, [selectedClassId, selectedSectionId, refetchSubjects]);
+  }, [selectedClassId, selectedSectionId, activeSessionId, refetchSubjects]);
+
+  useEffect(() => {
+    if (!isTeacherScoped || !selectedClassId || selectedClassHasWideTeacherMapping) return;
+    const allowedIds = filteredSections.map(s => String(s.id));
+    if (allowedIds.length > 0 && (!selectedSectionId || selectedSectionId === "*" || !allowedIds.includes(selectedSectionId))) {
+      setSelectedSectionId(allowedIds[0]);
+    }
+  }, [isTeacherScoped, selectedClassId, selectedSectionId, selectedClassHasWideTeacherMapping, filteredSections]);
 
   useEffect(() => {
     // Reset section when class changes in reports tab
@@ -376,28 +391,11 @@ const Attendance = () => {
     refetchIndividualReport();
   };
 
-  const handleStatusChange = async (studentId, status) => {
+  const handleStatusChange = (studentId, status) => {
     setAttendanceChanges(prev => ({ ...prev, [studentId]: status }));
-
-    const sectionParam = selectedSectionId === "*" ? null : Number(selectedSectionId);
-    const payload = {
-      classId: Number(selectedClassId),
-      sectionId: sectionParam,
-      subjectId: Number(selectedSubjectId),
-      teacherId: isTeacher ? (currentUser?.id || null) : null,
-      date: markDate,
-      sessionId: activeSessionId,
-      students: [{ studentId: String(studentId), status: status.toUpperCase() }]
-    };
-
     const icons = { present: "present", absent: "absent", leave: "leave", short_leave: "short_leave" };
     const labels = { present: "Present", absent: "Absent", leave: "Leave", short_leave: "Short Leave" };
-    try {
-      await updateStudentAttendance(payload);
-      showStatusAlert(labels[status] || status, icons[status] || "present");
-    } catch {
-      toast({ title: "Failed to save attendance", variant: "destructive" });
-    }
+    showStatusAlert(labels[status] || status, icons[status] || "present");
   };
 
   const isHolidayDisabled = useMemo(() => {
@@ -409,23 +407,24 @@ const Attendance = () => {
     return false;
   }, [markDate]);
 
-  const handleGenerateStudentAttendance = async () => {
+  const handleLoadStudents = async () => {
     const missing = [];
     if (!selectedClassId) missing.push("Class");
     if (!selectedSubjectId) missing.push("Subject");
     if (!markDate) missing.push("Date");
     if (missing.length > 0) {
-      toast({ title: `Missing fields: ${missing.join(", ")}`, variant: "destructive" });
+      toast({ title: `Select ${missing.join(", ")} before loading students`, variant: "destructive" });
       return;
     }
     try {
       setFetchedStudents([]);
+      setHasLoadedStudents(false);
       setAttendanceChanges({});
-      await generateStudentAttendance(selectedClassId, selectedSectionId, selectedSubjectId, markDate, activeSessionId);
-      refetchAttendance();
-      setConfirmDialog({ type: 'generate', date: new Date(markDate + 'T00:00:00') });
+      const result = await refetchAttendance({ throwOnError: true });
+      setFetchedStudents(result?.data?.attendance || []);
+      setHasLoadedStudents(true);
     } catch (error) {
-      toast({ title: error.message || "Failed to generate attendance", variant: "destructive" });
+      toast({ title: error?.message || "Failed to fetch students", variant: "destructive" });
     }
   };
 
@@ -444,42 +443,57 @@ const Attendance = () => {
     }
   };
 
-  const handleFetchAttendance = () => {
-    if (!selectedClassId || !selectedSubjectId || !markDate) {
-      toast({ title: "Please select all required fields", variant: "destructive" });
-      return;
-    }
-    refetchAttendance();
-  };
-
   const handleSaveAttendance = async () => {
-    if (Object.keys(attendanceChanges).length === 0) {
-      toast({ title: "No changes to save", variant: "default" });
+    if (!fetchedStudents.length) {
+      toast({ title: "Load students before saving attendance", variant: "destructive" });
       return;
     }
 
-    const sectionParam = selectedSectionId === "*" ? null : Number(selectedSectionId);
+    const editableStudents = fetchedStudents.filter((student) => {
+      const att = student.attendance?.[0];
+      const lockTimestamp = att?.generatedAt || att?.markedAt;
+      return !lockTimestamp || (Date.now() - new Date(lockTimestamp).getTime()) <= 24 * 60 * 60 * 1000;
+    });
+    const unmarkedStudents = editableStudents.filter((student) => {
+      const dbStatus = student.attendance?.[0]?.status?.toLowerCase();
+      return !(attendanceChanges[student.id] || dbStatus);
+    });
+
+    if (unmarkedStudents.length > 0) {
+      toast({ title: "Please mark attendance for every unlocked student before saving", variant: "destructive" });
+      return;
+    }
+
+    const studentsToSave = editableStudents
+      .map((student) => {
+        const status = attendanceChanges[student.id] || student.attendance?.[0]?.status?.toLowerCase();
+        return status ? { studentId: String(student.id), status: status.toUpperCase() } : null;
+      })
+      .filter(Boolean);
+
+    if (studentsToSave.length === 0) {
+      toast({ title: "No unlocked student statuses available to save", variant: "default" });
+      return;
+    }
 
     const payload = {
       classId: Number(selectedClassId),
-      sectionId: sectionParam,
+      sectionId: selectedSectionId === "*" || !selectedSectionId ? null : Number(selectedSectionId),
       subjectId: Number(selectedSubjectId),
-      teacherId: isTeacher ? (currentUser?.id || null) : null,
       date: markDate,
-      sessionId: activeSessionId,
-      students: Object.entries(attendanceChanges).map(([studentId, status]) => ({
-        studentId,
-        status: status.toUpperCase()
-      }))
+      teacherId: isTeacherScoped ? (currentUser?.id || null) : null,
+      students: studentsToSave,
     };
 
     try {
       await updateStudentAttendance(payload);
-      toast({ title: "Attendance saved successfully", variant: "success" });
-      refetchAttendance();
+      toast({ title: "Attendance saved", description: "Student statuses have been recorded successfully.", variant: "success" });
+      const result = await refetchAttendance({ throwOnError: true });
+      setFetchedStudents(result?.data?.attendance || []);
+      setHasLoadedStudents(true);
       setAttendanceChanges({});
     } catch (error) {
-      toast({ title: "Failed to save attendance", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to save attendance", description: error?.message, variant: "destructive" });
     }
   };
 
@@ -525,10 +539,18 @@ const Attendance = () => {
 
   const dailyStats = useMemo(() => {
     if (!reportData.length || !reportStartDate || !reportEndDate) {
-      return { totalStudents: 0, totalDays: 0, presentCount: 0, absentCount: 0, leaveCount: 0 };
+      return {
+        totalStudents: 0,
+        totalDays: 0,
+        recordedClasses: 0,
+        presentCount: 0,
+        absentCount: 0,
+        leaveCount: 0,
+        shortLeaveCount: 0,
+        attendanceRate: 0,
+      };
     }
 
-    // Calculate total days from date range
     const start = new Date(reportStartDate);
     const end = new Date(reportEndDate);
     const diffTime = Math.abs(end - start);
@@ -536,21 +558,32 @@ const Attendance = () => {
 
     const stats = {
       totalStudents: reportData.length,
-      totalDays: totalDays,
+      totalDays,
+      recordedClasses: 0,
       presentCount: 0,
       absentCount: 0,
-      leaveCount: 0
+      leaveCount: 0,
+      shortLeaveCount: 0,
+      attendanceRate: 0,
     };
 
-    reportData.forEach(student => {
-      student.subjects.forEach(subject => {
-        subject.attendance.forEach(att => {
-          if (att.status === 'present') stats.presentCount++;
-          else if (att.status === 'absent') stats.absentCount++;
-          else if (att.status === 'leave') stats.leaveCount++;
+    reportData.forEach((student) => {
+      student.subjects.forEach((subject) => {
+        subject.attendance.forEach((att) => {
+          const status = String(att.status || "").toLowerCase();
+          if (status === "present") stats.presentCount++;
+          else if (status === "absent") stats.absentCount++;
+          else if (status === "leave") stats.leaveCount++;
+          else if (status === "short_leave") stats.shortLeaveCount++;
         });
       });
     });
+
+    stats.recordedClasses =
+      stats.presentCount + stats.absentCount + stats.leaveCount + stats.shortLeaveCount;
+    stats.attendanceRate = stats.recordedClasses
+      ? Number((((stats.presentCount + stats.shortLeaveCount) / stats.recordedClasses) * 100).toFixed(1))
+      : 0;
 
     return stats;
   }, [reportData, reportStartDate, reportEndDate]);
@@ -568,6 +601,43 @@ const Attendance = () => {
 
     return dates;
   }, [reportStartDate, reportEndDate]);
+
+  const reportDailyTrend = useMemo(() => {
+    if (!reportDates.length || !reportData.length) return [];
+    const toDateKey = (value) => {
+      if (!value) return "";
+      if (typeof value === "string" && value.length >= 10) return value.slice(0, 10);
+      return new Date(value).toISOString().slice(0, 10);
+    };
+    return reportDates.map((date) => {
+      let present = 0;
+      let absent = 0;
+      let leave = 0;
+      let shortLeave = 0;
+      reportData.forEach((student) => {
+        student.subjects.forEach((subject) => {
+          subject.attendance.forEach((att) => {
+            if (toDateKey(att.date) !== date) return;
+            const status = String(att.status || "").toLowerCase();
+            if (status === "present") present++;
+            else if (status === "absent") absent++;
+            else if (status === "leave") leave++;
+            else if (status === "short_leave") shortLeave++;
+          });
+        });
+      });
+      const total = present + absent + leave + shortLeave;
+      return {
+        date,
+        total,
+        present,
+        absent,
+        leave,
+        shortLeave,
+        presentRate: total ? (present / total) * 100 : 0,
+      };
+    });
+  }, [reportDates, reportData]);
 
   const printAttendanceReport = () => {
     const printContent = document.querySelector('.attendance-register-table');
@@ -602,7 +672,7 @@ const Attendance = () => {
               Attendance Management
             </h1>
             <p className="text-muted-foreground mt-1">
-              Mark and track student attendance
+              Load students, set each status, and save attendance
             </p>
           </div>
         </div>
@@ -610,7 +680,7 @@ const Attendance = () => {
         <Tabs defaultValue="mark" className="w-full">
           <TabsList className="grid w-full grid-cols-1 sm:grid-cols-4">
             <TabsTrigger value="mark" className="gap-2">
-              <UserCheck className="w-4 h-4" />Mark Attendance
+              <UserCheck className="w-4 h-4" />Record Attendance
             </TabsTrigger>
             <TabsTrigger value="leave" className="gap-2">
               <ClipboardList className="w-4 h-4" />Leave
@@ -698,17 +768,34 @@ const Attendance = () => {
 
                 <Card className="shadow-sm">
                   <CardHeader>
-                    <CardTitle>Mark Attendance</CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle>Record Attendance</CardTitle>
+                      <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowMarkFilters((s) => !s)}>
+                        <SlidersHorizontal className="w-4 h-4" />
+                        {showMarkFilters ? "Hide Filters" : "Filters"}
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    <div className={`transition-all duration-300 ease-out overflow-hidden ${showMarkFilters ? "max-h-[420px] opacity-100" : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"}`}>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
                       <div className="space-y-2">
                         <Label>Date</Label>
-                        <Input type="date" value={markDate} onChange={e => { setMarkDate(e.target.value); setFetchedStudents([]); setAttendanceChanges({}); }} />
+                        <Input type="date" value={markDate} onChange={e => { setMarkDate(e.target.value); setFetchedStudents([]); setHasLoadedStudents(false); setAttendanceChanges({}); }} />
                       </div>
                       <div className="space-y-2">
                         <Label>Class</Label>
-                        <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                        <Select
+                          value={selectedClassId}
+                          onValueChange={(value) => {
+                            setSelectedClassId(value);
+                            setSelectedSectionId("*");
+                            setSelectedSubjectId("");
+                            setFetchedStudents([]);
+                            setHasLoadedStudents(false);
+                            setAttendanceChanges({});
+                          }}
+                        >
                           <SelectTrigger><SelectValue placeholder="Select Class" /></SelectTrigger>
                           <SelectContent>
                             {filteredClasses.map(c => (
@@ -721,17 +808,37 @@ const Attendance = () => {
                       </div>
                       <div className="space-y-2">
                         <Label>Section</Label>
-                        <Select value={selectedSectionId} onValueChange={setSelectedSectionId} disabled={!selectedClassId}>
-                          <SelectTrigger><SelectValue placeholder={selectedClassId ? "All Sections" : "Select Class First"} /></SelectTrigger>
+                        <Select
+                          value={selectedSectionId}
+                          onValueChange={(value) => {
+                            setSelectedSectionId(value);
+                            setFetchedStudents([]);
+                            setHasLoadedStudents(false);
+                            setAttendanceChanges({});
+                          }}
+                          disabled={!selectedClassId}
+                        >
+                          <SelectTrigger><SelectValue placeholder={selectedClassId ? "Select Section" : "Select Class First"} /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="*">All Sections</SelectItem>
+                            {(!isTeacherScoped || selectedClassHasWideTeacherMapping) && (
+                              <SelectItem value="*">All Sections</SelectItem>
+                            )}
                             {filteredSections.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-2">
                         <Label>Subject</Label>
-                        <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId} disabled={!selectedClassId}>
+                        <Select
+                          value={selectedSubjectId}
+                          onValueChange={(value) => {
+                            setSelectedSubjectId(value);
+                            setFetchedStudents([]);
+                            setHasLoadedStudents(false);
+                            setAttendanceChanges({});
+                          }}
+                          disabled={!selectedClassId}
+                        >
                           <SelectTrigger><SelectValue placeholder="Select Subject" /></SelectTrigger>
                           <SelectContent>
                             {filteredSubjects.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
@@ -739,15 +846,22 @@ const Attendance = () => {
                         </Select>
                       </div>
                     </div>
+                    </div>
 
                     <div className="flex gap-2 flex-wrap">
                         <Button
-                          onClick={handleGenerateStudentAttendance}
+                          onClick={handleLoadStudents}
                           disabled={!selectedClassId || !selectedSubjectId || !markDate || isFetching || isDateHoliday}
                           variant="outline"
-                          title={isDateHoliday ? "Cannot generate attendance on a school holiday" : undefined}
+                          title={isDateHoliday ? "Cannot load students on a school holiday" : undefined}
                         >
-                          Generate Attendance
+                          Load Students
+                        </Button>
+                        <Button
+                          onClick={handleSaveAttendance}
+                          disabled={!fetchedStudents.length || isFetching || isDateHoliday}
+                        >
+                          Save Attendance
                         </Button>
                         <Button
                           onClick={handleMarkHoliday}
@@ -763,13 +877,13 @@ const Attendance = () => {
                       <div className="flex flex-col items-center justify-center py-16 gap-3 text-amber-600">
                         <span className="text-6xl">🎌</span>
                         <p className="text-2xl font-bold">School Holiday</p>
-                        <p className="text-sm text-muted-foreground">This date is a school-wide holiday. No attendance can be generated.</p>
+                        <p className="text-sm text-muted-foreground">This date is a school-wide holiday. Attendance cannot be recorded.</p>
                       </div>
                     ) : isClassHoliday ? (
                       <div className="flex flex-col items-center justify-center py-8 gap-2 text-orange-500">
                         <span className="text-4xl">🎌</span>
                         <p className="text-lg font-semibold">Class Holiday</p>
-                        <p className="text-sm text-muted-foreground">This date is marked as a class holiday, but you can still generate attendance per subject if needed.</p>
+                        <p className="text-sm text-muted-foreground">This date is marked as a class holiday, but you can still load students and record attendance per subject if needed.</p>
                       </div>
                     ) : (
                     <div className="overflow-x-auto">
@@ -800,7 +914,15 @@ const Attendance = () => {
                             </TableRow>
                           ) : fetchedStudents.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Select filters and click Generate Attendance.</TableCell>
+                              <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                                {attendanceData?.isBlocked
+                                  ? attendanceData.blockReason || "Attendance cannot be recorded for this date."
+                                  : attendanceError?.message
+                                    ? attendanceError.message
+                                  : hasLoadedStudents
+                                    ? "No students were found for the selected class, section, subject, and date."
+                                    : "Select class, section, subject, and date, then load students. Set a status for each student before saving."}
+                              </TableCell>
                             </TableRow>
                           ) : (
                             fetchedStudents.map(student => {
@@ -978,19 +1100,26 @@ const Attendance = () => {
           <TabsContent value="reports" className="space-y-6">
             <Card className="shadow-sm">
               <CardHeader>
-                <CardTitle>Attendance Report</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Attendance Report</CardTitle>
+                  <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowReportFilters((s) => !s)}>
+                    <SlidersHorizontal className="w-4 h-4" />
+                    {showReportFilters ? "Hide Filters" : "Filters"}
+                  </Button>
+                </div>
                 {isTeacher && !canViewAllReports && (
                   <p className="text-sm text-muted-foreground">You can only view reports for your assigned classes.</p>
                 )}
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className={`transition-all duration-300 ease-out overflow-hidden ${showReportFilters ? "max-h-[520px] opacity-100" : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"}`}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
                   <div className="space-y-2">
                     <Label>Session</Label>
                     <Select value={reportSessionId} onValueChange={(val) => { setReportSessionId(val); refetchReport(); }}>
                       <SelectTrigger><SelectValue placeholder="All Sessions" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All Sessions</SelectItem>
+                        <SelectItem value="all">All Sessions</SelectItem>
                         {academicSessions.map(s => (
                           <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
                         ))}
@@ -1035,6 +1164,7 @@ const Attendance = () => {
                     </Select>
                   </div>
                 </div>
+                </div>
 
                 <div className="flex gap-4">
                   <Button onClick={() => refetchReport()} disabled={!reportStartDate || !reportEndDate || isFetchingReport}>
@@ -1047,7 +1177,7 @@ const Attendance = () => {
                 </div>
 
                 {reportData.length > 0 && (
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mt-6">
                     <Card>
                       <CardContent className="pt-6">
                         <p className="text-sm text-muted-foreground">Total Students</p>
@@ -1062,17 +1192,99 @@ const Attendance = () => {
                     </Card>
                     <Card>
                       <CardContent className="pt-6">
-                        <p className="text-sm text-muted-foreground">Present Records</p>
+                        <p className="text-sm text-muted-foreground">Recorded Classes</p>
+                        <p className="text-2xl font-bold">{dailyStats.recordedClasses}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-6">
+                        <p className="text-sm text-muted-foreground">Present</p>
                         <p className="text-2xl font-bold text-green-600">{dailyStats.presentCount}</p>
                       </CardContent>
                     </Card>
                     <Card>
                       <CardContent className="pt-6">
-                        <p className="text-sm text-muted-foreground">Absent Records</p>
+                        <p className="text-sm text-muted-foreground">Absent</p>
                         <p className="text-2xl font-bold text-red-600">{dailyStats.absentCount}</p>
                       </CardContent>
                     </Card>
+                    <Card>
+                      <CardContent className="pt-6">
+                        <p className="text-sm text-muted-foreground">Attendance Rate</p>
+                        <p className="text-2xl font-bold text-primary">{dailyStats.attendanceRate}%</p>
+                      </CardContent>
+                    </Card>
                   </div>
+                )}
+
+                {reportData.length > 0 && (
+                  <Card className="mt-6 border-dashed">
+                    <CardContent className="pt-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium">Status Distribution</p>
+                        <p className="text-xs text-muted-foreground">Based on recorded class entries</p>
+                      </div>
+                      <div className="w-full h-4 rounded-full bg-muted overflow-hidden flex">
+                        {dailyStats.recordedClasses > 0 && (
+                          <>
+                            <div className="bg-green-500" style={{ width: `${(dailyStats.presentCount / dailyStats.recordedClasses) * 100}%` }} />
+                            <div className="bg-red-500" style={{ width: `${(dailyStats.absentCount / dailyStats.recordedClasses) * 100}%` }} />
+                            <div className="bg-amber-500" style={{ width: `${(dailyStats.leaveCount / dailyStats.recordedClasses) * 100}%` }} />
+                            <div className="bg-blue-500" style={{ width: `${(dailyStats.shortLeaveCount / dailyStats.recordedClasses) * 100}%` }} />
+                          </>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                        <div className="rounded-md border p-2"><span className="text-green-600 font-semibold">Present:</span> {dailyStats.presentCount}</div>
+                        <div className="rounded-md border p-2"><span className="text-red-600 font-semibold">Absent:</span> {dailyStats.absentCount}</div>
+                        <div className="rounded-md border p-2"><span className="text-amber-600 font-semibold">Leave:</span> {dailyStats.leaveCount}</div>
+                        <div className="rounded-md border p-2"><span className="text-blue-600 font-semibold">Short Leave:</span> {dailyStats.shortLeaveCount}</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {reportDailyTrend.length > 0 && (
+                  <Card className="mt-4">
+                    <CardContent className="pt-6">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-medium">Daily Presence Trend</p>
+                        <p className="text-xs text-muted-foreground">Present ratio by date</p>
+                      </div>
+                      <div className="relative h-28">
+                        <div className="absolute inset-0 flex items-end gap-1">
+                          {reportDailyTrend.map((d) => (
+                            <div key={d.date} className="flex-1 min-w-[10px] h-full flex items-end group">
+                              <div
+                                className="w-full rounded-t bg-gradient-to-t from-primary/85 to-primary/40 transition-all"
+                                style={{ height: `${Math.max(6, d.presentRate)}%` }}
+                                title={`${d.date}: ${d.present}/${d.total || 0} present`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                          {reportDailyTrend.length > 1 && (
+                            <polyline
+                              points={reportDailyTrend
+                                .map((d, i) => {
+                                  const x = (i / (reportDailyTrend.length - 1)) * 100;
+                                  const y = 100 - Math.max(6, d.presentRate);
+                                  return `${x},${y}`;
+                                })
+                                .join(" ")}
+                              fill="none"
+                              stroke="hsl(var(--primary))"
+                              strokeWidth="1.8"
+                              vectorEffect="non-scaling-stroke"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          )}
+                        </svg>
+                      </div>
+                    </CardContent>
+                  </Card>
                 )}
 
                 {reportData.length > 0 && (
@@ -1109,9 +1321,9 @@ const Attendance = () => {
                               attendanceMap[att.date] = att.status;
                             });
 
-                            const present = subject.attendance.filter(a => a.status === 'present').length;
-                            const absent = subject.attendance.filter(a => a.status === 'absent').length;
-                            const leave = subject.attendance.filter(a => a.status === 'leave').length;
+                            const present = subject.attendance.filter(a => String(a.status || "").toLowerCase() === 'present').length;
+                            const absent = subject.attendance.filter(a => String(a.status || "").toLowerCase() === 'absent').length;
+                            const leave = subject.attendance.filter(a => String(a.status || "").toLowerCase() === 'leave').length;
 
                             return (
                               <TableRow key={`${student.id}-${subject.subjectId}`} className="hover:bg-muted/30">
@@ -1130,9 +1342,10 @@ const Attendance = () => {
                                   const status = attendanceMap[date];
                                   return (
                                     <TableCell key={date} className="text-center border-r p-2">
-                                      {status === 'present' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-green-50 text-green-700 font-semibold text-xs">P</span>}
-                                      {status === 'absent' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-red-50 text-red-700 font-semibold text-xs">A</span>}
-                                      {status === 'leave' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-amber-50 text-amber-700 font-semibold text-xs">L</span>}
+                                      {String(status || "").toLowerCase() === 'present' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-green-50 text-green-700 font-semibold text-xs">P</span>}
+                                      {String(status || "").toLowerCase() === 'absent' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-red-50 text-red-700 font-semibold text-xs">A</span>}
+                                      {String(status || "").toLowerCase() === 'leave' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-amber-50 text-amber-700 font-semibold text-xs">L</span>}
+                                      {String(status || "").toLowerCase() === 'short_leave' && <span className="inline-block w-7 h-7 leading-7 rounded-md bg-blue-50 text-blue-700 font-semibold text-[10px]">SL</span>}
                                       {!status && <span className="text-gray-300">-</span>}
                                     </TableCell>
                                   );
@@ -1154,18 +1367,26 @@ const Attendance = () => {
 
           <TabsContent value="individual-reports">
             <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
-                <div className="space-y-2">
-                  <Label>Session</Label>
-                  <Select value={individualReportSessionId} onValueChange={setIndividualReportSessionId}>
-                    <SelectTrigger><SelectValue placeholder="All Sessions" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">All Sessions</SelectItem>
-                      {academicSessions.map(s => (
-                        <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowIndividualFilters((s) => !s)}>
+                  <SlidersHorizontal className="w-4 h-4" />
+                  {showIndividualFilters ? "Hide Filters" : "Filters"}
+                </Button>
+              </div>
+              <div className={`transition-all duration-300 ease-out overflow-hidden ${showIndividualFilters ? "max-h-[220px] opacity-100" : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"}`}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
+                  <div className="space-y-2">
+                    <Label>Session</Label>
+                    <Select value={individualReportSessionId} onValueChange={setIndividualReportSessionId}>
+                      <SelectTrigger><SelectValue placeholder="All Sessions" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Sessions</SelectItem>
+                        {academicSessions.map(s => (
+                          <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
               <StudentAttendanceTab
@@ -1183,6 +1404,7 @@ const Attendance = () => {
               reportData={individualReportData}
               generateReport={handleGenerateIndividualReport}
               isFetchingReport={isFetchingIndividualReport}
+              showFilters={showIndividualFilters}
             />
             </div>
           </TabsContent>

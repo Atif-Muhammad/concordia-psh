@@ -171,6 +171,7 @@ const Login = () => {
                   id="email"
                   type="email"
                   placeholder="Enter your email"
+                  autoComplete="off"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="pl-10"
@@ -186,6 +187,7 @@ const Login = () => {
                 <PasswordInput
                   id="password"
                   placeholder="Enter your password"
+                  autoComplete="off"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="pl-10"

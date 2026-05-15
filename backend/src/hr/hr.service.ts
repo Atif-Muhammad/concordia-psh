@@ -10,6 +10,7 @@ import { EmployeeDto } from './dtos/employee.dot';
 import { StaffDto } from './dtos/staff.dto';
 import { CreateStaffLeaveDto, StaffLeaveFilterDto, UpdateStaffLeaveDto } from './dtos/staff-leave.dto';
 import {
+  AttendanceStatus,
   EmployeeDepartment,
   Prisma,
   StaffLeaveType,
@@ -21,6 +22,61 @@ import * as bcrypt from 'bcrypt';
 @Injectable()
 export class HrService {
   constructor(private prismService: PrismaService) { }
+
+  private getActor(user?: any) {
+    const name =
+      user?.name ||
+      user?.fullName ||
+      user?.username ||
+      user?.email ||
+      user?.user?.name ||
+      user?.user?.fullName ||
+      user?.user?.username ||
+      user?.user?.email ||
+      'System';
+    return {
+      byId: user?.id ? Number(user.id) : user?.user?.id ? Number(user.user.id) : null,
+      byName: name,
+      at: new Date().toISOString(),
+    };
+  }
+
+  private appendAuditTrail(existing: any, event: any) {
+    let trail: any[] = [];
+    if (Array.isArray(existing)) {
+      trail = existing;
+    } else if (typeof existing === 'string') {
+      try {
+        const parsed = JSON.parse(existing);
+        trail = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        trail = [];
+      }
+    }
+    return [...trail, event];
+  }
+
+  private normalizeMonth(value?: string) {
+    const v = String(value || '').trim();
+    const m = v.match(/^(\d{4})-(\d{1,2})$/);
+    if (!m) return v;
+    return `${m[1]}-${String(Number(m[2])).padStart(2, '0')}`;
+  }
+
+  private normalizeAttendanceStatus(value: unknown): AttendanceStatus {
+    const raw = String(value ?? '').trim().toUpperCase();
+    const allowed: AttendanceStatus[] = [
+      AttendanceStatus.PRESENT,
+      AttendanceStatus.ABSENT,
+      AttendanceStatus.LEAVE,
+      AttendanceStatus.SHORT_LEAVE,
+      AttendanceStatus.HALF_DAY,
+    ];
+    if ((allowed as string[]).includes(raw)) {
+      return raw as AttendanceStatus;
+    }
+    return AttendanceStatus.PRESENT;
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // UNIFIED STAFF MANAGEMENT (Teaching + Non-Teaching)
@@ -163,7 +219,7 @@ export class HrService {
           specialization: isTeaching ? payload.specialization : null,
           highestDegree: isTeaching ? payload.highestDegree : null,
           departmentId:
-            isTeaching && payload.departmentId && Number(payload.departmentId) > 0
+            payload.departmentId && Number(payload.departmentId) > 0
               ? Number(payload.departmentId)
               : null,
           documents: isTeaching
@@ -171,7 +227,7 @@ export class HrService {
             : Prisma.JsonNull,
 
           // Non-teaching specific fields
-          designation: isNonTeaching ? payload.designation : null,
+          designation: payload.designation || null,
           empDepartment: isNonTeaching
             ? (payload.empDepartment as unknown as EmployeeDepartment)
             : null,
@@ -308,11 +364,14 @@ export class HrService {
           // Teaching-specific fields
           specialization: isTeaching ? payload.specialization : null,
           highestDegree: isTeaching ? payload.highestDegree : null,
-          departmentId: isTeaching
-            ? payload.departmentId && Number(payload.departmentId) > 0
-              ? Number(payload.departmentId)
-              : payload.departmentId === '' || payload.departmentId === null ? null : undefined
-            : null,
+          departmentId:
+            payload.departmentId !== undefined
+              ? payload.departmentId && Number(payload.departmentId) > 0
+                ? Number(payload.departmentId)
+                : payload.departmentId === '' || payload.departmentId === null
+                  ? null
+                  : undefined
+              : undefined,
           documents: isTeaching
             ? documents !== undefined
               ? (documents as unknown as Prisma.JsonObject)
@@ -320,7 +379,7 @@ export class HrService {
             : Prisma.JsonNull,
 
           // Non-teaching specific fields
-          designation: isNonTeaching ? payload.designation : null,
+          designation: payload.designation || null,
           empDepartment: isNonTeaching
             ? (payload.empDepartment as unknown as EmployeeDepartment)
             : null,
@@ -631,14 +690,6 @@ export class HrService {
   }
 
   async getPayrollSheet(month: string, type?: 'teacher' | 'employee' | 'all') {
-    // Get payroll settings for deduction rates
-    const settings: any = await this.getPayrollSettings();
-
-    // Parse month to get date range (YYYY-MM)
-    const [year, monthNum] = month.split('-').map(Number);
-    const startDate = new Date(year, monthNum - 1, 1);
-    const endDate = new Date(year, monthNum, 0); // Last day of month
-
     const where: any = { status: 'ACTIVE' };
     if (type === 'teacher') {
       where.isTeaching = true;
@@ -648,166 +699,427 @@ export class HrService {
       // No filter
     }
 
-    const staffMembers = await this.prismService.staff.findMany({
-      where,
+    const payrolls = await this.prismService.payroll.findMany({
+      where: {
+        month,
+        staff: { is: where },
+      },
       include: {
-        payrolls: {
-          where: { month },
-        },
-        advanceSalaries: {
-          where: {
-            month,
-            adjusted: false,
-          },
-        },
-        department: true,
-        leaves: {
-          where: { month, status: 'APPROVED' },
-          select: { leaveType: true, days: true },
-        },
-        attendance: {
-          where: {
-            date: {
-              gte: startDate,
-              lte: endDate,
+        staff: {
+          include: {
+            department: true,
+            leaves: {
+              where: { month, status: 'APPROVED' },
+              select: { leaveType: true, days: true },
             },
           },
         },
       },
-      orderBy: { name: 'asc' },
+      orderBy: { id: 'asc' },
     });
 
-    return staffMembers.map((staff) => {
-      const payroll = staff.payrolls[0];
+    const paymentsByPayrollId = await this.getPayrollPaymentsByPayrollIds(
+      payrolls.map((payroll) => payroll.id),
+    );
 
-      // Count absents and leaves from attendance
-      const absentCount = staff.attendance.filter(
-        (a) => a.status === 'ABSENT',
-      ).length;
-      const leaveCount = staff.attendance.filter(
-        (a) => a.status === 'LEAVE',
-      ).length;
-
-      // Calculate advance salary deductions
-      const advanceSalaryTotal = staff.advanceSalaries.reduce(
-        (sum, advance) => sum + advance.amount,
+    return payrolls.sort((a, b) => (a.staff?.name || '').localeCompare(b.staff?.name || '')).map((payroll) => {
+      const staff = payroll.staff;
+      const payrollPayments = paymentsByPayrollId.get(payroll.id) || [];
+      const paidAmount = payrollPayments.reduce(
+        (sum, payment) => sum + Number(payment.amount || 0),
         0,
       );
-
-      // Calculate deductions for absents/leaves
-      const calculatedAbsentDeduction =
-        absentCount * (settings.absentDeduction || 0);
-      const calculatedLeaveDeduction =
-        leaveCount * (settings.leaveDeduction || 0);
-
-      // Use payroll values if they exist, otherwise use calculated values
-      const basicSalary = Number(staff.basicPay) || 0;
-      const securityDeduction = payroll?.securityDeduction || 0;
-
-      // CRITICAL FIX: If there are advance salaries, use their total
-      // Only use payroll.advanceDeduction if there are NO advance salaries
-      const advanceDeduction =
-        advanceSalaryTotal > 0
-          ? advanceSalaryTotal
-          : payroll?.advanceDeduction || 0;
-
-      const absentDeduction =
-        payroll?.absentDeduction ?? calculatedAbsentDeduction;
-      const leaveDeduction = payroll?.leaveDeduction ?? 0; // Stored when leave approved
-      const otherDeduction = payroll?.otherDeduction || 0;
-      const incomeTax = payroll?.incomeTax || 0;
-      const eobi = payroll?.eobi || 0;
-      const lateArrivalDeduction = payroll?.lateArrivalDeduction || 0;
-
-      // Recalculate total deductions
-      const totalDeductions =
-        securityDeduction +
-        advanceDeduction +
-        absentDeduction +
-        leaveDeduction +
-        otherDeduction +
-        incomeTax +
-        eobi +
-        lateArrivalDeduction;
-
-      const extraAllowance = payroll?.extraAllowance || 0;
-      const travelAllowance = payroll?.travelAllowance || 0;
-      const houseRentAllowance = payroll?.houseRentAllowance || 0;
-      const medicalAllowance = payroll?.medicalAllowance || 0;
-      const insuranceAllowance = payroll?.insuranceAllowance || 0;
-      const otherAllowance = payroll?.otherAllowance || 0;
-      const totalAllowances =
-        extraAllowance +
-        travelAllowance +
-        houseRentAllowance +
-        medicalAllowance +
-        insuranceAllowance +
-        otherAllowance;
-
-      const netSalary = basicSalary - totalDeductions + totalAllowances;
-
-      // Calculate excess for display purposes
-      const excessAbsents = Math.max(
-        0,
-        absentCount - (settings.absentsAllowed || 0),
-      );
-      const excessLeaves = Math.max(
-        0,
-        leaveCount - (settings.leavesAllowed || 0),
-      );
-
       return {
-        id: staff.id,
-        name: staff.name,
-        designation: staff.isTeaching
+        id: staff?.id,
+        name: staff?.name || 'N/A',
+        designation: staff?.isTeaching
           ? staff.specialization
             ? `Teacher - ${staff.specialization}`
             : 'Teacher'
-          : staff.designation || 'Staff',
-        department: staff.isTeaching
-          ? staff.department?.name || 'N/A'
-          : (staff.empDepartment as string) || 'N/A',
-        basicSalary,
-        payrollId: payroll?.id,
+          : staff?.designation || 'Staff',
+        department: staff?.isTeaching
+          ? staff?.department?.name || 'N/A'
+          : (staff?.empDepartment as string) || 'N/A',
+        basicSalary: payroll.basicSalary,
+        payrollId: payroll.id,
         month,
-        securityDeduction,
-        advanceDeduction,
-        absentDeduction,
-        leaveDeduction,
-        otherDeduction,
-        incomeTax,
-        eobi,
-        lateArrivalDeduction,
-        totalDeductions,
-        extraAllowance,
-        travelAllowance,
-        houseRentAllowance,
-        medicalAllowance,
-        insuranceAllowance,
-        otherAllowance,
-        totalAllowances,
-        netSalary,
-        status: payroll?.status || 'UNPAID',
-        // Additional info for UI
-        absentCount,
-        leaveCount,
-        excessAbsents,
-        excessLeaves,
-        advanceSalaryTotal,
-        hasAdvanceSalary: advanceSalaryTotal > 0,
+        securityDeduction: payroll.securityDeduction,
+        advanceDeduction: payroll.advanceDeduction,
+        absentDeduction: payroll.absentDeduction,
+        leaveDeduction: payroll.leaveDeduction,
+        otherDeduction: payroll.otherDeduction,
+        incomeTax: payroll.incomeTax,
+        eobi: payroll.eobi,
+        lateArrivalDeduction: payroll.lateArrivalDeduction,
+        totalDeductions: payroll.totalDeductions,
+        extraAllowance: payroll.extraAllowance,
+        travelAllowance: payroll.travelAllowance,
+        houseRentAllowance: payroll.houseRentAllowance,
+        medicalAllowance: payroll.medicalAllowance,
+        insuranceAllowance: payroll.insuranceAllowance,
+        otherAllowance: payroll.otherAllowance,
+        totalAllowances: payroll.totalAllowances,
+        netSalary: payroll.netSalary,
+        status: payroll.status || 'UNPAID',
+        amountAudit: (payroll as any).amountAudit || {},
+        actionAudit: (payroll as any).actionAudit || [],
+        auditFallbackByName: (payroll as any).generatedByName || null,
+        auditFallbackAt: (payroll as any).updatedAt || null,
+        paidAmount,
+        balanceAmount: Math.max(0, Number(payroll.netSalary || 0) - paidAmount),
+        isLocked: payroll.status === 'PAID' || payroll.status === 'PARTIAL_PAID',
         leaveBreakdown: {
-          casual: (staff as any).leaves?.filter((l: any) => l.leaveType === 'CASUAL').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
-          sick:   (staff as any).leaves?.filter((l: any) => l.leaveType === 'SICK').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
-          annual: (staff as any).leaves?.filter((l: any) => l.leaveType === 'ANNUAL').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
+          casual: (staff as any)?.leaves?.filter((l: any) => l.leaveType === 'CASUAL').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
+          sick:   (staff as any)?.leaves?.filter((l: any) => l.leaveType === 'SICK').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
+          annual: (staff as any)?.leaves?.filter((l: any) => l.leaveType === 'ANNUAL').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
         },
-        paymentDate: payroll?.paymentDate
+        payments: payrollPayments.map((payment) => ({
+          id: payment.id,
+          amount: payment.amount,
+          paidAt: payment.paidAt,
+          paidByName: payment.paidByName || 'N/A',
+          paymentMethod: payment.paymentMethod,
+          remarks: payment.remarks,
+        })),
+        paymentDate: payroll.paymentDate
           ? new Date(payroll.paymentDate).toLocaleDateString()
           : 'N/A',
       };
     });
   }
 
-  async upsertPayroll(dto: any) {
+  private async getPayrollPaymentsByPayrollIds(payrollIds: number[]) {
+    const grouped = new Map<number, any[]>();
+    const ids = payrollIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id));
+
+    if (!ids.length) return grouped;
+
+    let payments: any[] = [];
+    try {
+      const payrollPaymentDelegate = (this.prismService as any).payrollPayment;
+      if (payrollPaymentDelegate?.findMany) {
+        payments = await payrollPaymentDelegate.findMany({
+          where: { payrollId: { in: ids } },
+          orderBy: { paidAt: 'desc' },
+        });
+      } else {
+        payments = await this.prismService.$queryRawUnsafe(
+          `SELECT id, payrollId, staffId, amount, paidById, paidByName, paymentMethod, remarks, paidAt
+           FROM payrollpayment
+           WHERE payrollId IN (${ids.join(',')})
+           ORDER BY paidAt DESC`,
+        );
+      }
+    } catch {
+      return grouped;
+    }
+
+    for (const payment of payments) {
+      const payrollId = Number(payment.payrollId);
+      if (!grouped.has(payrollId)) grouped.set(payrollId, []);
+      grouped.get(payrollId)!.push(payment);
+    }
+
+    return grouped;
+  }
+
+  private getStaffWhere(type?: 'teacher' | 'employee' | 'all', staffIds?: number[]) {
+    const where: any = { status: 'ACTIVE' };
+    if (type === 'teacher') where.isTeaching = true;
+    if (type === 'employee') where.isNonTeaching = true;
+    if (staffIds?.length) where.id = { in: staffIds };
+    return where;
+  }
+
+  private async buildPayrollDataForStaff(staff: any, month: string) {
+    const settings: any = await this.getPayrollSettings();
+    const [year, monthNum] = month.split('-').map(Number);
+    const startDate = new Date(year, monthNum - 1, 1);
+    const endDate = new Date(year, monthNum, 0);
+
+    const [attendance, allAdvanceSalaries, leaves] = await Promise.all([
+      this.prismService.staffAttendance.findMany({
+        where: { staffId: staff.id, date: { gte: startDate, lte: endDate } },
+      }),
+      this.prismService.advanceSalary.findMany({
+        where: { staffId: staff.id, month },
+      }),
+      this.prismService.staffLeave.findMany({
+        where: { staffId: staff.id, month, status: 'APPROVED' },
+      }),
+    ]);
+
+    // Include advance entries that are either:
+    // 1) not adjusted yet, or
+    // 2) manually adjusted (adjusted=true without payroll-adjust event for this month).
+    // Ignore entries that were adjusted by payroll for this same month.
+    const advanceSalaries = (allAdvanceSalaries || []).filter((advance: any) => {
+      if (!advance?.adjusted) return true;
+      if (advance?.adjustedSource === 'PAYROLL' || advance?.adjustedSource === 'MANUAL') return true;
+      const normalizedMonth = this.normalizeMonth(month);
+      const rawEvents = advance?.actionAudit;
+      const events = Array.isArray(rawEvents)
+        ? rawEvents
+        : typeof rawEvents === 'string'
+          ? (() => {
+            try {
+              const parsed = JSON.parse(rawEvents);
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [];
+            }
+          })()
+          : [];
+
+      // Find the latest adjustment-source event for this payroll month.
+      // If latest source is payroll, ignore; if manual, include.
+      const monthEvents = events.filter(
+        (e: any) => this.normalizeMonth(e?.month) === normalizedMonth,
+      );
+      const latestSource = [...monthEvents]
+        .reverse()
+        .find((e: any) => e?.action === 'ADJUSTED_IN_PAYROLL' || e?.action === 'ADJUSTED_MANUALLY');
+
+      if (!latestSource) return true;
+      // Both payroll-adjusted and manually-adjusted advances should feed deduction on regenerate.
+      return latestSource.action === 'ADJUSTED_IN_PAYROLL' || latestSource.action === 'ADJUSTED_MANUALLY';
+    });
+
+    const absentCount = attendance.filter((a) => a.status === 'ABSENT').length;
+    const leaveCount = attendance.filter((a) => a.status === 'LEAVE').length;
+    const advanceDeduction = advanceSalaries.reduce((sum, advance) => sum + Number(advance.amount || 0), 0);
+    const absentDeduction = Math.max(0, absentCount - (settings.absentsAllowed || 0)) * (settings.absentDeduction || 0);
+    const leaveDeduction = leaves.reduce((sum, leave) => sum + Number((leave as any).deductionAmount || 0), 0)
+      || Math.max(0, leaveCount - (settings.leavesAllowed || 0)) * (settings.leaveDeduction || 0);
+    const basicSalary = Number(staff.basicPay) || 0;
+    const totalDeductions = advanceDeduction + absentDeduction + leaveDeduction;
+    const advanceSalaryIds = advanceSalaries
+      .map((advance: any) => Number(advance.id))
+      .filter((id: number) => Number.isFinite(id) && id > 0);
+
+    return {
+      month,
+      staffId: staff.id,
+      basicSalary,
+      securityDeduction: 0,
+      advanceDeduction,
+      absentDeduction,
+      leaveDeduction,
+      otherDeduction: 0,
+      incomeTax: 0,
+      eobi: 0,
+      lateArrivalDeduction: 0,
+      totalDeductions,
+      extraAllowance: 0,
+      travelAllowance: 0,
+      houseRentAllowance: 0,
+      medicalAllowance: 0,
+      insuranceAllowance: 0,
+      otherAllowance: 0,
+      totalAllowances: 0,
+      netSalary: Math.max(0, basicSalary - totalDeductions),
+      status: 'UNPAID',
+      paidAmount: 0,
+      advanceSalaryIds,
+    };
+  }
+
+  private async markAdvanceSalariesAdjusted(advanceSalaryIds: number[], month: string, actor?: { byId: number | null; byName: string }) {
+    const ids = (advanceSalaryIds || []).filter((id) => Number.isFinite(id) && id > 0);
+    if (!ids.length) return;
+    const rows = await (this.prismService.advanceSalary as any).findMany({
+      where: { id: { in: ids }, adjusted: false },
+      select: { id: true, actionAudit: true },
+    });
+    for (const row of rows) {
+      const nextAudit = this.appendAuditTrail(row?.actionAudit, {
+        action: 'ADJUSTED_IN_PAYROLL',
+        ...(actor || { byId: null, byName: 'System' }),
+        month,
+      });
+      try {
+        await (this.prismService.advanceSalary as any).update({
+          where: { id: row.id },
+          data: {
+            adjusted: true,
+            adjustedSource: 'PAYROLL',
+            actionAudit: nextAudit,
+          },
+        });
+      } catch (error: any) {
+        const msg = String(error?.message || '');
+        if (msg.includes('Unknown argument `actionAudit`') || msg.includes('Unknown argument `adjustedSource`')) {
+          await (this.prismService.advanceSalary as any).update({
+            where: { id: row.id },
+            data: { adjusted: true },
+          });
+        } else {
+          throw error;
+        }
+      }
+    }
+  }
+
+  async getMissingPayrollStaff(month: string, type?: 'teacher' | 'employee' | 'all') {
+    const staffMembers = await this.prismService.staff.findMany({
+      where: {
+        ...this.getStaffWhere(type),
+        payrolls: { none: { month } },
+      },
+      include: { department: true },
+      orderBy: { name: 'asc' },
+    });
+
+    return staffMembers.map((staff) => ({
+      id: staff.id,
+      name: staff.name,
+      designation: staff.isTeaching
+        ? staff.specialization ? `Teacher - ${staff.specialization}` : 'Teacher'
+        : staff.designation || 'Staff',
+      department: staff.isTeaching
+        ? staff.department?.name || 'N/A'
+        : (staff.empDepartment as string) || 'N/A',
+    }));
+  }
+
+  async generatePayroll(month: string, type: 'teacher' | 'employee' | 'all', user: any, staffIds?: number[]) {
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      throw new BadRequestException('month must be in YYYY-MM format');
+    }
+
+    const staffMembers = await this.prismService.staff.findMany({
+      where: {
+        ...this.getStaffWhere(type, staffIds),
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const generated: any[] = [];
+    const regenerated: any[] = [];
+    const skippedLocked: any[] = [];
+    const actor = this.getActor(user);
+
+    for (const staff of staffMembers) {
+      const computed = await this.buildPayrollDataForStaff(staff, month);
+      const { advanceSalaryIds = [], ...data } = computed as any;
+      const existingPayroll = await this.prismService.payroll.findFirst({
+        where: {
+          month,
+          staffId: staff.id,
+        },
+      });
+
+      if (!existingPayroll) {
+        try {
+          generated.push(await (this.prismService.payroll as any).create({
+            data: {
+              ...data,
+              generatedById: actor.byId,
+              generatedByName: actor.byName,
+              actionAudit: [
+                {
+                  action: 'GENERATED',
+                  ...actor,
+                  month,
+                  type,
+                },
+              ] as any,
+            },
+          }));
+          await this.markAdvanceSalariesAdjusted(advanceSalaryIds, month, actor);
+        } catch (error: any) {
+          const msg = String(error?.message || '');
+          if (msg.includes('Unknown argument `actionAudit`')) {
+            generated.push(await (this.prismService.payroll as any).create({
+              data: {
+                ...data,
+                generatedById: actor.byId,
+                generatedByName: actor.byName,
+              },
+            }));
+            await this.markAdvanceSalariesAdjusted(advanceSalaryIds, month, actor);
+          } else {
+            throw error;
+          }
+        }
+        continue;
+      }
+
+      if (existingPayroll.status && existingPayroll.status !== 'UNPAID') {
+        skippedLocked.push({
+          payrollId: existingPayroll.id,
+          staffId: staff.id,
+          staffName: staff.name,
+          status: existingPayroll.status,
+        });
+        continue;
+      }
+
+      const currentActionAudit = ((existingPayroll as any).actionAudit || []) as any[];
+      const nextActionAudit = this.appendAuditTrail(currentActionAudit, {
+        action: 'REGENERATED',
+        ...actor,
+        month,
+        type,
+      });
+
+      try {
+        regenerated.push(await (this.prismService.payroll as any).update({
+          where: { id: existingPayroll.id },
+          data: {
+            ...data,
+            generatedById: actor.byId,
+            generatedByName: actor.byName,
+            actionAudit: nextActionAudit,
+            // keep unpaid as-is; regenerated rows remain editable.
+            status: 'UNPAID',
+            paymentDate: null,
+          },
+        }));
+        await this.markAdvanceSalariesAdjusted(advanceSalaryIds, month, actor);
+      } catch (error: any) {
+        const msg = String(error?.message || '');
+        if (msg.includes('Unknown argument `actionAudit`')) {
+          regenerated.push(await (this.prismService.payroll as any).update({
+            where: { id: existingPayroll.id },
+            data: {
+              ...data,
+              generatedById: actor.byId,
+              generatedByName: actor.byName,
+              status: 'UNPAID',
+              paymentDate: null,
+            },
+          }));
+          await this.markAdvanceSalariesAdjusted(advanceSalaryIds, month, actor);
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    return {
+      generatedCount: generated.length,
+      regeneratedCount: regenerated.length,
+      skippedLockedCount: skippedLocked.length,
+      generated,
+      regenerated,
+      skippedLocked,
+      message: `Generated ${generated.length}, regenerated ${regenerated.length}, skipped locked ${skippedLocked.length}.`,
+    };
+  }
+
+  async upsertPayroll(dto: any, user?: any) {
+    if (dto.id) {
+      const existing = await this.prismService.payroll.findUnique({
+        where: { id: dto.id },
+      });
+      if (existing && existing.status !== 'UNPAID') {
+        throw new ForbiddenException('Cannot edit a paid or partially paid payroll.');
+      }
+    }
+
     // Calculate totals
     const totalDeductions =
       dto.securityDeduction +
@@ -847,29 +1159,200 @@ export class HrService {
       otherAllowance: dto.otherAllowance,
       totalAllowances,
       netSalary,
-      status: dto.status || 'UNPAID',
-      paymentDate: dto.status === 'PAID' ? new Date() : null,
+      status: 'UNPAID',
+      paymentDate: null,
     };
 
     if (dto.id) {
-      return await this.prismService.payroll.update({
+      const existing = await (this.prismService.payroll as any).findUnique({
         where: { id: dto.id },
-        data,
       });
+      const trackedFields = [
+        'securityDeduction',
+        'advanceDeduction',
+        'absentDeduction',
+        'leaveDeduction',
+        'otherDeduction',
+        'incomeTax',
+        'eobi',
+        'lateArrivalDeduction',
+        'extraAllowance',
+        'travelAllowance',
+        'houseRentAllowance',
+        'medicalAllowance',
+        'insuranceAllowance',
+        'otherAllowance',
+      ];
+      const actor = this.getActor(user);
+      const currentAmountAudit = (existing?.amountAudit || {}) as any;
+      const nextAmountAudit = { ...currentAmountAudit };
+      for (const field of trackedFields) {
+        const oldVal = Number(existing?.[field] || 0);
+        const newVal = Number((data as any)[field] || 0);
+        if (oldVal !== newVal) {
+          nextAmountAudit[field] = {
+            value: newVal,
+            changedFrom: oldVal,
+            ...actor,
+          };
+        }
+      }
+      const nextActionAudit = this.appendAuditTrail(existing?.actionAudit, {
+        action: 'UPDATED_AMOUNTS',
+        ...actor,
+      });
+
+      try {
+        return await (this.prismService.payroll as any).update({
+          where: { id: dto.id },
+          data: {
+            ...data,
+            amountAudit: nextAmountAudit,
+            actionAudit: nextActionAudit,
+          },
+        });
+      } catch (error: any) {
+        const msg = String(error?.message || '');
+        if (
+          msg.includes('Unknown argument `amountAudit`') ||
+          msg.includes('Unknown argument `actionAudit`')
+        ) {
+          // Backward-compat path when DB/client is not yet migrated for audit JSON fields.
+          return await (this.prismService.payroll as any).update({
+            where: { id: dto.id },
+            data: {
+              ...data,
+              generatedById: actor.byId,
+              generatedByName: actor.byName,
+            },
+          });
+        }
+        throw error;
+      }
     } else {
-      return await this.prismService.payroll.create({
-        data: {
-          ...data,
-          staffId: dto.staffId || dto.employeeId || dto.teacherId, // Unified staffId
-          employeeId: dto.employeeId, // Legacy
-          teacherId: dto.teacherId, // Legacy
-        },
-      });
+      const actor = this.getActor(user);
+      try {
+        return await (this.prismService.payroll as any).create({
+          data: {
+            ...data,
+            staffId: dto.staffId || dto.employeeId || dto.teacherId, // Unified staffId
+            employeeId: dto.employeeId, // Legacy
+            teacherId: dto.teacherId, // Legacy
+            actionAudit: [
+              {
+                action: 'CREATED',
+                ...actor,
+              },
+            ],
+          },
+        });
+      } catch (error: any) {
+        const msg = String(error?.message || '');
+        if (msg.includes('Unknown argument `actionAudit`')) {
+          return await (this.prismService.payroll as any).create({
+            data: {
+              ...data,
+              staffId: dto.staffId || dto.employeeId || dto.teacherId,
+              employeeId: dto.employeeId,
+              teacherId: dto.teacherId,
+              generatedById: actor.byId,
+              generatedByName: actor.byName,
+            },
+          });
+        }
+        throw error;
+      }
     }
   }
 
+  async recordPayrollPayment(payrollId: number, dto: any, user: any) {
+    const amount = Number(dto.amount || 0);
+    if (amount <= 0) {
+      throw new BadRequestException('Payment amount must be greater than zero.');
+    }
+
+    const payroll = await this.prismService.payroll.findUnique({
+      where: { id: payrollId },
+    });
+    if (!payroll) throw new NotFoundException('Payroll not found.');
+    if (payroll.status === 'PAID') {
+      throw new BadRequestException('Payroll is already fully paid.');
+    }
+
+    const paymentRows = (await this.getPayrollPaymentsByPayrollIds([payrollId])).get(payrollId) || [];
+    const alreadyPaid = paymentRows.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const remaining = Math.max(0, Number(payroll.netSalary || 0) - alreadyPaid);
+    if (amount > remaining) {
+      throw new BadRequestException(`Payment exceeds remaining balance of ${remaining}.`);
+    }
+
+    const paidById = user?.id ? Number(user.id) : null;
+    const paidByName = user?.name || user?.email || null;
+    let payment: any;
+    const payrollPaymentDelegate = (this.prismService as any).payrollPayment;
+    if (payrollPaymentDelegate?.create) {
+      payment = await payrollPaymentDelegate.create({
+        data: {
+          payrollId,
+          staffId: payroll.staffId,
+          amount,
+          paidById,
+          paidByName,
+          paymentMethod: dto.paymentMethod || null,
+          remarks: dto.remarks || null,
+        },
+      });
+    } else {
+      await this.prismService.$executeRawUnsafe(
+        `INSERT INTO payrollpayment (payrollId, staffId, amount, paidById, paidByName, paymentMethod, remarks, paidAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(3))`,
+        payrollId,
+        payroll.staffId,
+        amount,
+        paidById,
+        paidByName,
+        dto.paymentMethod || null,
+        dto.remarks || null,
+      );
+      const rows = await this.prismService.$queryRawUnsafe(
+        `SELECT id, payrollId, staffId, amount, paidById, paidByName, paymentMethod, remarks, paidAt
+         FROM payrollpayment
+         WHERE payrollId = ?
+         ORDER BY id DESC
+         LIMIT 1`,
+        payrollId,
+      );
+      payment = Array.isArray(rows) ? rows[0] : null;
+    }
+
+    const paidAmount = alreadyPaid + amount;
+    const status = paidAmount >= Number(payroll.netSalary || 0) ? 'PAID' : 'PARTIAL_PAID';
+    let updated: any;
+    try {
+      updated = await this.prismService.payroll.update({
+        where: { id: payrollId },
+        data: {
+          paidAmount,
+          status,
+          paymentDate: new Date(),
+        },
+      });
+    } catch (error: any) {
+      if (!String(error?.message || '').includes('paidAmount')) throw error;
+      updated = await this.prismService.payroll.update({
+        where: { id: payrollId },
+        data: {
+          status,
+          paymentDate: new Date(),
+        },
+      });
+    }
+
+    return { payroll: updated, payment };
+  }
+
   // Leave Management
-  async createStaffLeave(dto: CreateStaffLeaveDto) {
+  async createStaffLeave(dto: CreateStaffLeaveDto, user?: any) {
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
 
@@ -880,17 +1363,45 @@ export class HrService {
     const days = this.computeDays(startDate, endDate);
     const month = this.deriveMonth(startDate);
     const leaveType: StaffLeaveType = dto.leaveType ?? StaffLeaveType.CASUAL;
+    const staffId = Number(dto.staffId);
+
+    if (!staffId || Number.isNaN(staffId)) {
+      throw new BadRequestException('Valid staffId is required');
+    }
+
+    const overlapping = await this.prismService.staffLeave.findFirst({
+      where: {
+        staffId,
+        leaveType,
+        status: { in: ['PENDING', 'APPROVED'] as any },
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
+      select: { id: true, startDate: true, endDate: true, status: true },
+    });
+
+    if (overlapping) {
+      throw new BadRequestException(
+        `An existing ${String(overlapping.status).toLowerCase()} leave request already covers this date range. Please edit that request instead.`,
+      );
+    }
 
     try {
-      return await this.prismService.staffLeave.create({
+      return await (this.prismService.staffLeave as any).create({
         data: {
-          staffId: dto.staffId,
+          staffId,
           leaveType,
           startDate,
           endDate,
           days,
           month,
           reason: dto.reason,
+          actionAudit: [
+            {
+              action: 'CREATED',
+              ...this.getActor(user),
+            },
+          ],
         },
       });
     } catch (error: any) {
@@ -1024,22 +1535,39 @@ export class HrService {
     };
   }
 
-  async toggleLockStaffLeave(id: number, locked: boolean) {
+  async toggleLockStaffLeave(id: number, locked: boolean, user?: any) {
+    const existing = await (this.prismService.staffLeave as any).findUnique({
+      where: { id },
+      select: { actionAudit: true },
+    });
     return await (this.prismService.staffLeave as any).update({
       where: { id },
-      data: { locked },
+      data: {
+        locked,
+        actionAudit: this.appendAuditTrail(existing?.actionAudit, {
+          action: locked ? 'LOCKED' : 'UNLOCKED',
+          ...this.getActor(user),
+        }),
+      },
     });
   }
 
-  async updateStaffLeaveStatus(id: number, status: string) {
+  async updateStaffLeaveStatus(id: number, status: string, user?: any) {
     const existing = await this.prismService.staffLeave.findUnique({
       where: { id },
-      select: { id: true, locked: true } as any,
+      select: { id: true, locked: true, actionAudit: true } as any,
     });
     if ((existing as any)?.locked) throw new Error('This leave record is locked and cannot be edited.');
-    const leave = await this.prismService.staffLeave.update({
+    const leave = await (this.prismService.staffLeave as any).update({
       where: { id },
-      data: { status: status as any },
+      data: {
+        status: status as any,
+        actionAudit: this.appendAuditTrail((existing as any)?.actionAudit, {
+          action: 'STATUS_UPDATED',
+          status,
+          ...this.getActor(user),
+        }),
+      },
     });
     if (leave.status === 'APPROVED' || leave.status === 'REJECTED') {
       await this.markStaffLeaveAttendance(leave);
@@ -1252,12 +1780,13 @@ export class HrService {
           status: leave.status || 'PENDING',
           leaveType: leave.leaveType || 'CASUAL',
           locked: (leave as any).locked || false,
+          actionAudit: (leave as any).actionAudit || [],
         }));
       })
       .flat();
   }
 
-  async upsertLeave(dto: any) {
+  async upsertLeave(dto: any, user?: any) {
     // Block edits on locked leaves
     if (dto.leaveId) {
       const existing = await this.prismService.staffLeave.findUnique({
@@ -1267,29 +1796,91 @@ export class HrService {
       if ((existing as any)?.locked) throw new Error('This leave record is locked and cannot be edited.');
     }
 
+    const startDate = new Date(dto.startDate);
+    const endDate = new Date(dto.endDate);
+    if (startDate > endDate) {
+      throw new BadRequestException('startDate must not be after endDate');
+    }
+    const days = this.computeDays(startDate, endDate);
+    const month = this.deriveMonth(startDate);
+    const leaveType = dto.leaveType || 'CASUAL';
+    const staffId = Number(dto.staffId || dto.employeeId || dto.teacherId || 0);
+
+    if (!dto.leaveId && (!staffId || Number.isNaN(staffId))) {
+      throw new BadRequestException('Valid staffId is required');
+    }
+
     const data = {
-      month: dto.month,
-      startDate: new Date(dto.startDate),
-      endDate: new Date(dto.endDate),
-      days: dto.days || 0,
+      month,
+      startDate,
+      endDate,
+      days,
       reason: dto.reason || '',
       status: dto.status || 'PENDING',
-      leaveType: dto.leaveType || 'CASUAL',
+      leaveType,
     };
 
     let leave;
     if (dto.leaveId) {
-      leave = await this.prismService.staffLeave.update({
-        where: { id: dto.leaveId },
-        data,
+      const duplicate = await this.prismService.staffLeave.findFirst({
+        where: {
+          id: { not: Number(dto.leaveId) },
+          staffId: staffId || undefined,
+          leaveType,
+          startDate,
+          endDate,
+        },
+        select: { id: true },
       });
-    } else {
-      leave = await this.prismService.staffLeave.create({
+      if (duplicate) {
+        throw new BadRequestException(
+          'A leave request with the same staff, leave type, and date range already exists.',
+        );
+      }
+
+      const existing = await (this.prismService.staffLeave as any).findUnique({
+        where: { id: dto.leaveId },
+        select: { actionAudit: true },
+      });
+      leave = await (this.prismService.staffLeave as any).update({
+        where: { id: dto.leaveId },
         data: {
           ...data,
-          staffId: dto.staffId || dto.employeeId || dto.teacherId, // Handle legacy
+          actionAudit: this.appendAuditTrail(existing?.actionAudit, {
+            action: 'UPDATED',
+            ...this.getActor(user),
+          }),
+        },
+      });
+    } else {
+      const overlapping = await this.prismService.staffLeave.findFirst({
+        where: {
+          staffId,
+          leaveType,
+          status: { in: ['PENDING', 'APPROVED'] as any },
+          startDate: { lte: endDate },
+          endDate: { gte: startDate },
+        },
+        select: { id: true, status: true },
+      });
+      if (overlapping) {
+        throw new BadRequestException(
+          `An existing ${String(overlapping.status).toLowerCase()} leave request already covers this date range. Please edit that request instead.`,
+        );
+      }
+
+      leave = await (this.prismService.staffLeave as any).create({
+        data: {
+          ...data,
+          staffId, // Handle legacy sources by collapsing into staffId
           employeeId: dto.employeeId, // Keep for legacy if needed by existing frontend
           teacherId: dto.teacherId,
+          actionAudit: [
+            {
+              action: 'CREATED',
+              ...this.getActor(user),
+            },
+          ],
         },
       });
     }
@@ -1366,19 +1957,98 @@ export class HrService {
   }
 
   // Staff Attendance Management
-  async getStaffAttendance(date: Date) {
+  async getStaffAttendance(date: Date, role: 'teaching' | 'non-teaching' | 'all' = 'all') {
+    const formattedDate = date.toISOString().split('T')[0];
+    const targetDate = new Date(formattedDate);
+    const staffWhere: any = {
+      status: 'ACTIVE',
+      OR: [{ isTeaching: true }, { isNonTeaching: true }],
+    };
+    if (role === 'teaching') {
+      staffWhere.isTeaching = true;
+    } else if (role === 'non-teaching') {
+      staffWhere.isNonTeaching = true;
+    }
+
+    const staffList = await this.prismService.staff.findMany({
+      where: staffWhere,
+      select: {
+        id: true,
+        name: true,
+        designation: true,
+        specialization: true,
+        empDepartment: true,
+        department: { select: { name: true } },
+        isTeaching: true,
+        isNonTeaching: true,
+        photo_url: true,
+        attendance: {
+          where: { date: targetDate },
+          select: {
+            id: true,
+            staffId: true,
+            date: true,
+            status: true,
+            markedBy: true,
+            markedAt: true,
+            generatedAt: true,
+            generatedById: true,
+            generatedByName: true,
+            notes: true,
+            autoGenerated: true,
+            admin: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    // Return a flat, UI-friendly row per staff member.
+    // If no record exists for the date, expose default draft status as PRESENT
+    // so the client can review/change before first save.
+    return staffList.map((s) => {
+      const existing = s.attendance?.[0];
+      return {
+        id: existing?.id ?? null,
+        staffId: s.id,
+        staff: {
+          id: s.id,
+          name: s.name,
+          designation: s.designation,
+          specialization: s.specialization,
+          empDepartment: s.empDepartment,
+          department: s.department,
+          isTeaching: s.isTeaching,
+          isNonTeaching: s.isNonTeaching,
+          photo_url: s.photo_url,
+        },
+        date: existing?.date ?? targetDate,
+        status: existing?.status ?? 'PRESENT',
+        markedBy: existing?.markedBy ?? null,
+        markedAt: existing?.markedAt ?? null,
+        generatedAt: existing?.generatedAt ?? null,
+        generatedById: existing?.generatedById ?? null,
+        generatedByName: existing?.generatedByName ?? null,
+        notes: existing?.notes ?? null,
+        autoGenerated: existing?.autoGenerated ?? false,
+        admin: existing?.admin ?? null,
+      };
+    });
+  }
+
+  async getStaffAttendanceRecords(date: Date) {
     const formattedDate = date.toISOString().split('T')[0];
     return await this.prismService.staffAttendance.findMany({
-      where: { date: new Date(formattedDate) }, // Removed isNonTeaching filter to include ALL staff
+      where: { date: new Date(formattedDate) },
       include: {
         staff: {
           select: {
             name: true,
             id: true,
-            designation: true, // Employee
-            specialization: true, // Teacher
-            empDepartment: true, // Employee Dept
-            department: { select: { name: true } }, // Teacher Dept
+            designation: true,
+            specialization: true,
+            empDepartment: true,
+            department: { select: { name: true } },
             isTeaching: true,
             isNonTeaching: true,
             photo_url: true,
@@ -1405,7 +2075,11 @@ export class HrService {
       );
     }
 
-    const staffId = data.staffId || data.employeeId || data.teacherId;
+    const staffId = Number(data.staffId ?? data.employeeId ?? data.teacherId ?? 0);
+    if (!staffId || Number.isNaN(staffId)) {
+      throw new BadRequestException('Valid staffId is required for attendance.');
+    }
+    const status = this.normalizeAttendanceStatus(data.status);
 
     // Check if attendance already exists
     const existing = await this.prismService.staffAttendance.findUnique({
@@ -1431,7 +2105,7 @@ export class HrService {
       return await this.prismService.staffAttendance.update({
         where: { id: existing.id },
         data: {
-          status: data.status,
+          status,
           markedBy: data.markedBy,
           markedAt: new Date(),
           notes: data.notes,
@@ -1444,7 +2118,7 @@ export class HrService {
         data: {
           staffId,
           date: new Date(formattedDate),
-          status: data.status,
+          status,
           markedBy: data.markedBy,
           markedAt: new Date(),
           notes: data.notes,
@@ -1551,16 +2225,156 @@ export class HrService {
   }
 
   // Advance Salary Management
-  async createAdvanceSalary(data: any) {
-    return await this.prismService.advanceSalary.create({
-      data: {
-        staffId: data.staffId || data.employeeId || data.teacherId,
-        amount: data.amount,
-        month: data.month,
-        remarks: data.remarks,
-        adjusted: false,
-      },
+  async createAdvanceSalary(data: any, user?: any) {
+    const resolvedStaffId = Number(data.staffId || data.employeeId || data.teacherId || 0);
+    const baseData: any = {
+      ...(resolvedStaffId > 0
+        ? { staff: { connect: { id: resolvedStaffId } } }
+        : {}),
+      employeeId: data.employeeId ? Number(data.employeeId) : null,
+      teacherId: data.teacherId ? Number(data.teacherId) : null,
+      amount: data.amount,
+      month: data.month,
+      remarks: data.remarks,
+      adjusted: false,
+      adjustedSource: null,
+    };
+    const withAuditData: any = {
+      ...baseData,
+      actionAudit: [
+        {
+          action: 'CREATED',
+          ...this.getActor(user),
+        },
+      ],
+    };
+
+    try {
+      return await (this.prismService.advanceSalary as any).create({
+        data: withAuditData,
+      });
+    } catch (error: any) {
+      const msg = String(error?.message || '');
+      if (msg.includes('Unknown argument `actionAudit`') || msg.includes('Unknown argument `adjustedSource`')) {
+        return await (this.prismService.advanceSalary as any).create({
+          data: {
+            ...baseData,
+            adjustedSource: undefined,
+          },
+        });
+      }
+      throw error;
+    }
+  }
+
+  async bulkMarkStaffAttendance(data: {
+    date: string;
+    markedBy: number;
+    role?: 'teaching' | 'non-teaching' | 'all';
+    rows: Array<{
+      staffId?: number;
+      employeeId?: number;
+      teacherId?: number;
+      status: string;
+      notes?: string;
+    }>;
+  }) {
+    const formattedDate = new Date(data.date).toISOString().split('T')[0];
+    const targetDate = new Date(formattedDate);
+    targetDate.setUTCHours(0, 0, 0, 0);
+
+    const dateCheck = await this.isNonWorkingDay(targetDate);
+    if (dateCheck.isBlocked) {
+      throw new BadRequestException(
+        `Cannot mark attendance: ${dateCheck.reason}`,
+      );
+    }
+
+    const role = data.role || 'all';
+    const staffWhere: any = {
+      status: 'ACTIVE',
+      OR: [{ isTeaching: true }, { isNonTeaching: true }],
+    };
+    if (role === 'teaching') staffWhere.isTeaching = true;
+    else if (role === 'non-teaching') staffWhere.isNonTeaching = true;
+
+    const eligible = await this.prismService.staff.findMany({
+      where: staffWhere,
+      select: { id: true },
     });
+    const allowedIds = new Set(eligible.map((s) => s.id));
+
+    const rows = (data.rows || [])
+      .map((r) => ({
+        staffId: Number(r.staffId ?? r.employeeId ?? r.teacherId),
+        status: this.normalizeAttendanceStatus(r.status),
+        notes: r.notes ?? null,
+      }))
+      .filter((r) => Number.isFinite(r.staffId) && r.staffId > 0 && allowedIds.has(r.staffId));
+
+    if (!rows.length) {
+      return { success: true, count: 0, message: 'No eligible staff rows to save.' };
+    }
+
+    let created = 0;
+    let updated = 0;
+
+    await this.prismService.$transaction(async (tx) => {
+      for (const row of rows) {
+        const existing = await tx.staffAttendance.findUnique({
+          where: {
+            staffId_date: {
+              staffId: row.staffId,
+              date: new Date(formattedDate),
+            },
+          },
+        });
+
+        if (existing) {
+          const lockedAt = existing.generatedAt || existing.markedAt;
+          const hoursSince =
+            (Date.now() - new Date(lockedAt).getTime()) / (1000 * 60 * 60);
+          if (hoursSince > 24) {
+            throw new BadRequestException(
+              `Attendance for ${formattedDate} is locked. Records can only be modified within 24 hours of generation.`,
+            );
+          }
+
+          await tx.staffAttendance.update({
+            where: { id: existing.id },
+            data: {
+              status: row.status,
+              notes: row.notes,
+              markedBy: data.markedBy,
+              markedAt: new Date(),
+              autoGenerated: false,
+            },
+          });
+          updated++;
+        } else {
+          await tx.staffAttendance.create({
+            data: {
+              staffId: row.staffId,
+              date: new Date(formattedDate),
+              status: row.status,
+              notes: row.notes,
+              markedBy: data.markedBy,
+              markedAt: new Date(),
+              autoGenerated: false,
+            },
+          });
+          created++;
+        }
+      }
+    });
+
+    return {
+      success: true,
+      count: created + updated,
+      created,
+      updated,
+      message: `Saved attendance for ${created + updated} staff (${created} created, ${updated} updated).`,
+    };
   }
 
   async getAdvanceSalaries(
@@ -1598,16 +2412,56 @@ export class HrService {
     });
   }
 
-  async updateAdvanceSalary(id: number, data: any) {
-    return await this.prismService.advanceSalary.update({
+  async updateAdvanceSalary(id: number, data: any, user?: any) {
+    const existing = await (this.prismService.advanceSalary as any).findUnique({
       where: { id },
-      data: {
-        amount: data.amount,
-        month: data.month,
-        remarks: data.remarks,
-        adjusted: data.adjusted,
-      },
+      select: { actionAudit: true, adjusted: true, month: true },
     });
+    const requestedAdjusted = typeof data.adjusted === 'boolean' ? data.adjusted : existing?.adjusted;
+    const adjustmentAction =
+      requestedAdjusted === true && existing?.adjusted !== true
+        ? 'ADJUSTED_MANUALLY'
+        : requestedAdjusted === false && existing?.adjusted !== false
+          ? 'UNADJUSTED_MANUALLY'
+          : 'UPDATED';
+    const baseData: any = {
+      amount: data.amount,
+      month: data.month,
+      remarks: data.remarks,
+      adjusted: data.adjusted,
+      adjustedSource:
+        requestedAdjusted === true
+          ? 'MANUAL'
+          : requestedAdjusted === false
+            ? null
+            : null,
+    };
+    const withAuditData: any = {
+      ...baseData,
+      actionAudit: this.appendAuditTrail(existing?.actionAudit, {
+        action: adjustmentAction,
+        ...this.getActor(user),
+        month: data.month || existing?.month,
+      }),
+    };
+    try {
+      return await (this.prismService.advanceSalary as any).update({
+        where: { id },
+        data: withAuditData,
+      });
+    } catch (error: any) {
+      const msg = String(error?.message || '');
+      if (msg.includes('Unknown argument `actionAudit`') || msg.includes('Unknown argument `adjustedSource`')) {
+        return await (this.prismService.advanceSalary as any).update({
+          where: { id },
+          data: {
+            ...baseData,
+            adjustedSource: undefined,
+          },
+        });
+      }
+      throw error;
+    }
   }
 
   async deleteAdvanceSalary(id: number) {

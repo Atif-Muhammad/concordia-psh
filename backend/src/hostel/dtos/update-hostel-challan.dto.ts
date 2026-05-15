@@ -1,27 +1,41 @@
-import { IsOptional, IsString, IsNumber, IsDateString, Min } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { HostelChallanHeadDto } from './create-hostel-challan.dto';
 
 export class UpdateHostelChallanDto {
-  @IsOptional() @IsString()
-  status?: string;
-
-  @IsOptional() @IsNumber() @Min(0)
-  paidAmount?: number;
-
-  @IsOptional() @IsDateString()
-  paidDate?: string;
-
-  @IsOptional() @IsDateString()
+  @IsOptional()
+  @IsDateString()
   dueDate?: string;
 
-  @IsOptional() @IsNumber() @Min(0)
-  fineAmount?: number;
+  @IsOptional()
+  @IsString()
+  remarks?: string;
 
-  @IsOptional() @IsNumber() @Min(0)
-  lateFeeFine?: number;
+  @IsOptional()
+  @IsString()
+  status?: string;
 
-  @IsOptional() @IsNumber() @Min(0)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
   discount?: number;
 
-  @IsOptional() @IsString()
-  remarks?: string;
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  lateFeeFine?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => HostelChallanHeadDto)
+  heads?: HostelChallanHeadDto[];
 }

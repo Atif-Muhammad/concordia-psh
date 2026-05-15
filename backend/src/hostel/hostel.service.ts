@@ -459,8 +459,19 @@ export class HostelService implements OnModuleInit {
     });
   }
 
-  async findAllExpenses() {
+  async findAllExpenses(startDate?: string, endDate?: string) {
+    const where: any = {};
+    if (startDate || endDate) {
+      where.date = {};
+      if (startDate) where.date.gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        where.date.lte = end;
+      }
+    }
     return this.prisma.hostelExpense.findMany({
+      where,
       orderBy: { date: 'desc' },
     });
   }
@@ -592,396 +603,502 @@ export class HostelService implements OnModuleInit {
   // EXTERNAL CHALLAN CRUD
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  async createExternalChallan(data: any) {
-    const count = await this.prisma.hostelExternalChallan.count();
-    const challanNumber = `HEC-${String(count + 1).padStart(6, '0')}`;
 
-    return this.prisma.hostelExternalChallan.create({
-      data: {
-        registrationId: data.registrationId,
-        challanNumber,
-        amount: Number(data.amount),
-        paidAmount: 0,
-        discount: Number(data.discount || 0),
-        fineAmount: Number(data.fineAmount || 0),
-        dueDate: new Date(data.dueDate),
-        status: 'PENDING',
-        month: data.month,
-        selectedHeads: data.selectedHeads ? JSON.stringify(data.selectedHeads) : null,
-        remarks: data.remarks,
-      },
-      include: { registration: true }
-    });
-  }
 
-  async findExternalChallansByRegistration(registrationId: string) {
-    return this.prisma.hostelExternalChallan.findMany({
-      where: { registrationId },
-      orderBy: { createdAt: 'desc' }
-    });
-  }
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // HOSTEL CHALLAN CRUD (Modular Architecture)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  async updateExternalChallan(id: number, data: any) {
-    return this.prisma.hostelExternalChallan.update({
-      where: { id },
-      data: {
-        ...(data.status && { status: data.status }),
-        ...(data.paidAmount !== undefined && { paidAmount: Number(data.paidAmount) }),
-        ...(data.paidDate && { paidDate: new Date(data.paidDate) }),
-        ...(data.remarks !== undefined && { remarks: data.remarks }),
-        ...(data.discount !== undefined && { discount: Number(data.discount) }),
-        ...(data.fineAmount !== undefined && { fineAmount: Number(data.fineAmount) }),
-        ...(data.dueDate && { dueDate: new Date(data.dueDate) }),
-        ...(data.selectedHeads && { selectedHeads: JSON.stringify(data.selectedHeads) }),
+  /**
+   * Generate a globally unique 8-digit challan number.
+   */
+  private async generateUniqueHostelChallanNumber(): Promise<string> {
+    let challanNumber = '';
+    let isUnique = false;
+    let attempts = 0;
+    
+    while (!isUnique && attempts < 10) {
+      const num = Math.floor(10000000 + Math.random() * 90000000);
+      challanNumber = num.toString();
+      
+      const [existsInExtra, existsInFee, existsInHostel] = await Promise.all([
+        this.prisma.extraChallan.findUnique({ where: { challanNumber } }),
+        this.prisma.feeChallanV2.findUnique({ where: { challanNumber } }),
+        this.prisma.hostelChallan.findUnique({ where: { challanNumber } }),
+      ]);
+
+      if (!existsInExtra && !existsInFee && !existsInHostel) {
+        isUnique = true;
       }
-    });
-  }
-
-  async deleteExternalChallan(id: number) {
-    return this.prisma.hostelExternalChallan.delete({ where: { id } });
-  }
-
-  async findAllExternalChallans() {
-    return this.prisma.hostelExternalChallan.findMany({
-      include: { registration: true },
-      orderBy: { createdAt: 'desc' }
-    });
-  }
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // FEE PAYMENTS CRUD
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  async createFeePayment(registrationId: string, dto: CreateFeePaymentDto) {
-    const registration = await this.prisma.hostelRegistration.findUnique({
-      where: { id: registrationId },
-    });
-    if (!registration) {
-      throw new NotFoundException(`Registration with ID ${registrationId} not found`);
+      attempts++;
     }
-    return this.prisma.hostelFeePayment.create({
-      data: {
-        registrationId,
-        month: dto.month,
-        paidDate: new Date(dto.paidDate),
-        amount: dto.amount,
-      },
-    });
-  }
-
-  async getFeePayments(registrationId: string) {
-    return this.prisma.hostelFeePayment.findMany({
-      where: { registrationId },
-      orderBy: { paidDate: 'desc' },
-    });
-  }
-
-  async deleteFeePayment(registrationId: string, paymentId: number) {
-    const payment = await this.prisma.hostelFeePayment.findUnique({
-      where: { id: paymentId },
-    });
-    if (!payment || payment.registrationId !== registrationId) {
-      throw new NotFoundException(`Payment with ID ${paymentId} not found for this registration`);
-    }
-    return this.prisma.hostelFeePayment.delete({ where: { id: paymentId } });
-  }
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // HOSTEL CHALLAN CRUD (with supersede / arrears support)
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  private async generateHostelChallanNumber(): Promise<string> {
-    const year = new Date().getFullYear().toString().slice(-2);
-    const prefix = `HC${year}`;
-
-    // Find the highest existing sequence number for this prefix to avoid collisions
-    const last = await this.prisma.hostelChallan.findFirst({
-      where: { challanNumber: { startsWith: prefix } },
-      orderBy: { challanNumber: 'desc' },
-      select: { challanNumber: true },
-    });
-
-    let next = 1;
-    if (last) {
-      const seq = parseInt(last.challanNumber.slice(prefix.length), 10);
-      if (!isNaN(seq)) next = seq + 1;
-    }
-
-    // Verify the candidate doesn't already exist (handles gaps from deletions)
-    let candidate = `${prefix}${String(next).padStart(3, '0')}`;
-    while (await this.prisma.hostelChallan.findUnique({ where: { challanNumber: candidate } })) {
-      next++;
-      candidate = `${prefix}${String(next).padStart(3, '0')}`;
-    }
-
-    return candidate;
-  }
-
-  private calculateLateFee(dueDate: Date, ratePerDay: number): number {
-    if (!ratePerDay || ratePerDay <= 0) return 0;
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const due = new Date(dueDate);
-    due.setHours(0, 0, 0, 0);
-    if (now <= due) return 0;
-    const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays * ratePerDay;
+    
+    if (!isUnique) throw new BadRequestException('Could not generate unique challan number');
+    return challanNumber;
   }
 
   async createHostelChallan(dto: CreateHostelChallanDto) {
-    const registration = await this.prisma.hostelRegistration.findUnique({
-      where: { id: dto.registrationId },
-    });
-    if (!registration) {
-      throw new NotFoundException(`Registration ${dto.registrationId} not found`);
-    }
+    const { hostelRegNumber, month, feeHeadIds, heads, dueDate, remarks } = dto;
 
-    // Validate: challan month must not be before the registration month
-    // dto.month is like "March 2026" — parse it to a Date for comparison
-    const challanMonthDate = new Date(dto.month);
-    if (!isNaN(challanMonthDate.getTime())) {
-      const regDate = new Date(registration.registrationDate);
-      // Normalize both to first of month
-      const challanYM = new Date(challanMonthDate.getFullYear(), challanMonthDate.getMonth(), 1);
-      const regYM = new Date(regDate.getFullYear(), regDate.getMonth(), 1);
-      if (challanYM < regYM) {
-        throw new BadRequestException(
-          `Cannot generate challan for ${dto.month}: student was registered in ${regDate.toLocaleString('default', { month: 'long', year: 'numeric' })}. Challans can only be generated from the registration month onwards.`,
-        );
+    // 1. Verify registration
+    const reg = await this.prisma.hostelRegistration.findUnique({
+      where: { id: hostelRegNumber },
+      include: { student: true },
+    });
+    if (!reg) throw new NotFoundException(`Hostel Registration #${hostelRegNumber} not found`);
+
+    // 2. Aggregate fee heads (base hostel fee + predefined heads + custom heads)
+    let feeHeadsList: { headName: string; amount: number }[] = [];
+
+    if (reg.decidedFeePerMonth && Number(reg.decidedFeePerMonth) > 0) {
+      feeHeadsList.push({ headName: 'Hostel Fee', amount: Number(reg.decidedFeePerMonth) });
+    }
+    if (feeHeadIds && feeHeadIds.length > 0) {
+      const predefined = await this.prisma.feeHead.findMany({ where: { id: { in: feeHeadIds } } });
+      feeHeadsList = [...feeHeadsList, ...predefined.map(h => ({ headName: h.name, amount: Number(h.amount) }))];
+    }
+    if (heads && heads.length > 0) {
+      feeHeadsList = [...feeHeadsList, ...heads];
+    }
+    const baseFeeTotal = feeHeadsList.reduce((sum, h) => sum + h.amount, 0);
+
+    // 3. Compute arrears from ALL PENDING or PARTIAL challans for this registration
+    const unpaidChallans = await this.prisma.hostelChallan.findMany({
+      where: {
+        hostelRegNumber,
+        status: { in: ['PENDING', 'PARTIAL'] },
+      },
+      orderBy: { generatedAt: 'asc' },
+    });
+
+    const arrearsAmount = unpaidChallans.reduce(
+      (sum, c) => sum + Math.max(0, Number(c.totalAmount) - Number(c.paidAmount)),
+      0,
+    );
+
+    // 4. Build final heads list — append Arrears head if needed
+    const finalHeads = [...feeHeadsList];
+    if (arrearsAmount > 0) {
+      finalHeads.push({ headName: 'Arrears', amount: arrearsAmount });
+    }
+    const totalAmount = baseFeeTotal + arrearsAmount;
+
+    const challanNumber = await this.generateUniqueHostelChallanNumber();
+
+    return await this.prisma.$transaction(async (tx) => {
+      // 5. Create the new challan (paidAmount = 0, fresh start)
+      const newChallan = await tx.hostelChallan.create({
+        data: {
+          challanNumber,
+          hostelRegNumber,
+          studentId: reg.studentId ?? undefined,
+          month,
+          dueDate: new Date(dueDate),
+          totalAmount,
+          paidAmount: 0,
+          arrearsAmount,
+          status: 'PENDING',
+          remarks,
+        } as any,
+      });
+
+      // 6. Create challan heads
+      if (finalHeads.length > 0) {
+        await tx.hostelChallanHead.createMany({
+          data: finalHeads.map(h => ({
+            hostelChallanId: newChallan.id,
+            headName: h.headName,
+            amount: h.amount,
+          })),
+        });
       }
-    }
 
-    // Get hostel late fee rate from settings
-    const settings = await this.prisma.instituteSettings.findFirst();
-    const lateFeeRate = settings?.hostelLateFee ?? 0;
+      // 7. Mark all absorbed ancestors as SUPERSEDED, pointing to the new leading challan
+      if (unpaidChallans.length > 0) {
+        await tx.hostelChallan.updateMany({
+          where: { id: { in: unpaidChallans.map(c => c.id) } },
+          data: {
+            status: 'SUPERSEDED',
+            settledByChallanNumber: challanNumber,
+          } as any,
+        });
+      }
 
-    // Check for existing unpaid challan for the same month — supersede it
-    const existingUnpaid = await this.prisma.hostelChallan.findFirst({
-      where: {
-        registrationId: dto.registrationId,
-        month: dto.month,
-        status: { not: 'PAID' },
-      },
+      return { ...newChallan, heads: finalHeads };
     });
-
-    // Find ALL unpaid previous-month challans to roll into arrears chain
-    // These are PENDING/PARTIAL/OVERDUE challans for OTHER months (not the current month)
-    const unpaidPrevChallans = await this.prisma.hostelChallan.findMany({
-      where: {
-        registrationId: dto.registrationId,
-        month: { not: dto.month },
-        status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    // Compute total arrears from unpaid previous challans
-    const arrearsAmount = unpaidPrevChallans.reduce((sum, c) => {
-      const due = c.hostelFee + c.fineAmount + c.lateFeeFine + c.arrearsAmount - c.discount;
-      return sum + Math.max(0, due - c.paidAmount);
-    }, 0);
-
-    const dueDate = new Date(dto.dueDate);
-    const lateFeeFine = this.calculateLateFee(dueDate, lateFeeRate);
-    const challanNumber = await this.generateHostelChallanNumber();
-
-    // Void the existing unpaid challan for this same month if any (supersede)
-    if (existingUnpaid) {
-      const settledAmount = existingUnpaid.paidAmount;
-      await this.prisma.hostelChallan.update({
-        where: { id: existingUnpaid.id },
-        data: { status: 'VOID', settledAmount },
-      });
-    }
-
-    // Void all unpaid previous-month challans (their balance is now in arrearsAmount)
-    if (unpaidPrevChallans.length > 0) {
-      await this.prisma.hostelChallan.updateMany({
-        where: { id: { in: unpaidPrevChallans.map(c => c.id) } },
-        data: { status: 'VOID' },
-      });
-    }
-
-    // Link to the most recent previous unpaid challan for the arrears chain
-    const previousChallanId = unpaidPrevChallans.length > 0
-      ? unpaidPrevChallans[unpaidPrevChallans.length - 1].id
-      : null;
-
-    const challan = await this.prisma.hostelChallan.create({
-      data: {
-        challanNumber,
-        registrationId: dto.registrationId,
-        month: dto.month,
-        dueDate,
-        hostelFee: registration.decidedFeePerMonth ?? 0,
-        fineAmount: dto.fineAmount ?? 0,
-        lateFeeFine,
-        arrearsAmount,
-        discount: dto.discount ?? 0,
-        remarks: dto.remarks,
-        status: 'PENDING',
-        ...(existingUnpaid ? { supersededById: existingUnpaid.id } : {}),
-        ...(previousChallanId ? { previousChallanId } : {}),
-      },
-      include: {
-        registration: { include: { student: { select: { id: true, fName: true, lName: true, rollNumber: true } } } },
-        supersededBy: true,
-        previousChallan: true,
-      },
-    });
-
-    return challan;
   }
 
-  async getHostelChallans(registrationId: string) {
-    // Fetch with nested previousChallan chain (up to 5 levels deep) for payment history
-    return this.prisma.hostelChallan.findMany({
-      where: { registrationId },
-      include: {
-        supersededBy: true,
-        supersedes: true,
-        previousChallan: {
-          include: {
-            previousChallan: {
-              include: {
-                previousChallan: {
-                  include: {
-                    previousChallan: {
-                      include: {
-                        previousChallan: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
+  async getHostelChallans(query: any) {
+    const { registrationId, status, search } = query;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 10;
+
+    const where: any = {};
+    if (registrationId) where.hostelRegNumber = registrationId;
+    if (status && status !== 'all') where.status = status.toUpperCase();
+
+    if (search) {
+      const q = search.trim();
+      where.OR = [
+        { challanNumber: { contains: q } },
+        { hostelRegNumber: { contains: q } },
+        { student: { fName: { contains: q } } },
+        { student: { rollNumber: { contains: q } } },
+      ];
+    }
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.hostelChallan.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          student: { select: { fName: true, lName: true, rollNumber: true } },
+          hostelRegistration: { select: { externalName: true, decidedFeePerMonth: true } },
+          heads: true,
+          payments: { orderBy: { paymentDate: 'desc' } },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { generatedAt: 'desc' },
+      }),
+      this.prisma.hostelChallan.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: { total, page, lastPage: Math.ceil(total / limit), limit },
+    };
   }
 
   async updateHostelChallan(id: number, dto: UpdateHostelChallanDto) {
+    const { heads, dueDate, remarks, status, discount, lateFeeFine } = dto;
+
     const challan = await this.prisma.hostelChallan.findUnique({
       where: { id },
-      include: { supersedes: true },
+      include: { heads: true },
     });
-    if (!challan) throw new NotFoundException(`Hostel challan ${id} not found`);
+    if (!challan) throw new NotFoundException('Hostel challan not found');
+    if (challan.status === 'PAID') throw new BadRequestException('Cannot edit a paid challan');
 
-    // Lock PAID challans — no edits allowed
-    if (challan.status === 'PAID') {
-      throw new Error('This challan is fully paid and cannot be modified.');
-    }
+    return await this.prisma.$transaction(async (tx) => {
+      const data: any = {};
+      if (dueDate) data.dueDate = new Date(dueDate);
+      if (remarks !== undefined) data.remarks = remarks;
+      if (status) data.status = status;
+      if (discount !== undefined) (data as any).discount = discount;
+      if (lateFeeFine !== undefined) (data as any).lateFeeFine = lateFeeFine;
 
-    const data: any = {};
-    if (dto.status !== undefined) data.status = dto.status;
-    if (dto.fineAmount !== undefined) data.fineAmount = dto.fineAmount;
-    if (dto.discount !== undefined) data.discount = dto.discount;
-    if (dto.remarks !== undefined) data.remarks = dto.remarks;
-    if (dto.paidDate !== undefined) data.paidDate = new Date(dto.paidDate);
+      const systemHeadNames = ['Hostel Fee', 'Arrears'];
 
-    // When dueDate changes, recompute late fee automatically
-    if (dto.dueDate !== undefined) {
-      data.dueDate = new Date(dto.dueDate);
-      const settings = await this.prisma.instituteSettings.findFirst();
-      const lateFeeRate = settings?.hostelLateFee ?? 0;
-      // Only recompute if caller didn't explicitly supply lateFeeFine
-      if (dto.lateFeeFine === undefined) {
-        data.lateFeeFine = this.calculateLateFee(data.dueDate, lateFeeRate);
-      }
-    }
-    if (dto.lateFeeFine !== undefined) data.lateFeeFine = dto.lateFeeFine;
+      if (heads !== undefined) {
+        // Preserve system heads (Hostel Fee, Arrears) — only replace custom/additional heads
+        const systemHeads = challan.heads.filter(h => systemHeadNames.includes(h.headName));
 
-    if (dto.paidAmount !== undefined) {
-      const newPaid = (challan.paidAmount || 0) + dto.paidAmount;
-      data.paidAmount = newPaid;
-      const effectiveDiscount = dto.discount ?? challan.discount;
-      const effectiveLateFee = data.lateFeeFine ?? challan.lateFeeFine;
-      const totalDue = challan.hostelFee + challan.fineAmount + effectiveLateFee + challan.arrearsAmount - effectiveDiscount;
-      const newStatus = newPaid >= totalDue ? 'PAID' : newPaid > 0 ? 'PARTIAL' : challan.status;
-      data.status = newStatus;
-      if (!data.paidDate) data.paidDate = new Date();
-
-      // When fully paid, lock all VOID predecessors in the supersede chain
-      if (newStatus === 'PAID') {
-        await this.lockSupersededChain(id);
-      }
-    }
-
-    const updated = await this.prisma.hostelChallan.update({
-      where: { id },
-      data,
-      include: { supersededBy: true, supersedes: true },
-    });
-
-    // If this is a VOID challan and its amounts changed, recalculate arrearsAmount
-    // on the active challan that superseded it (linked via previousChallanId chain)
-    if (challan.status === 'VOID' && (
-      dto.fineAmount !== undefined || dto.lateFeeFine !== undefined ||
-      dto.discount !== undefined || dto.dueDate !== undefined
-    )) {
-      await this.recalculateArrearsForSuccessor(challan.registrationId);
-    }
-
-    return updated;
-  }
-
-  /** Recursively lock all VOID challans superseded by the given challan (and its ancestors). */
-  private async lockSupersededChain(challanId: number): Promise<void> {
-    const challan = await this.prisma.hostelChallan.findUnique({
-      where: { id: challanId },
-      include: { supersedes: true },
-    });
-    if (!challan) return;
-
-    for (const voided of challan.supersedes) {
-      if (voided.status === 'VOID') {
-        const totalDue = voided.hostelFee + voided.fineAmount + voided.lateFeeFine + voided.arrearsAmount - voided.discount;
-        await this.prisma.hostelChallan.update({
-          where: { id: voided.id },
-          data: { settledAmount: totalDue },
+        // Delete only non-system heads
+        await tx.hostelChallanHead.deleteMany({
+          where: {
+            hostelChallanId: id,
+            headName: { notIn: systemHeadNames },
+          },
         });
-        // Recurse into deeper chain
-        await this.lockSupersededChain(voided.id);
+
+        // Create the new custom heads
+        if (heads.length > 0) {
+          await tx.hostelChallanHead.createMany({
+            data: heads.map(h => ({
+              hostelChallanId: id,
+              headName: h.headName,
+              amount: h.amount,
+            })),
+          });
+        }
+
+        // Recalculate totalAmount = system heads + new custom heads - discount
+        const systemTotal = systemHeads.reduce((sum, h) => sum + Number(h.amount), 0);
+        const customTotal = heads.reduce((sum, h) => sum + Number(h.amount), 0);
+        const effectiveDiscount = discount !== undefined ? discount : Number((challan as any).discount ?? 0);
+        const effectiveLateFee = lateFeeFine !== undefined ? lateFeeFine : Number((challan as any).lateFeeFine ?? 0);
+        data.totalAmount = Math.max(0, systemTotal + customTotal + effectiveLateFee - effectiveDiscount);
+      } else if (discount !== undefined || lateFeeFine !== undefined) {
+        // Only discount/lateFee changed — recalculate from existing heads
+        const systemTotal = challan.heads
+          .filter(h => systemHeadNames.includes(h.headName))
+          .reduce((sum, h) => sum + Number(h.amount), 0);
+        const customTotal = challan.heads
+          .filter(h => !systemHeadNames.includes(h.headName))
+          .reduce((sum, h) => sum + Number(h.amount), 0);
+        const effectiveDiscount = discount !== undefined ? discount : Number((challan as any).discount ?? 0);
+        const effectiveLateFee = lateFeeFine !== undefined ? lateFeeFine : Number((challan as any).lateFeeFine ?? 0);
+        data.totalAmount = Math.max(0, systemTotal + customTotal + effectiveLateFee - effectiveDiscount);
       }
-    }
-  }
 
-  /** When a VOID challan's amounts change, recompute arrearsAmount on the active successor. */
-  private async recalculateArrearsForSuccessor(registrationId: string): Promise<void> {
-    // Find the active (non-VOID, non-PAID) challan for this registration
-    const activeChallan = await this.prisma.hostelChallan.findFirst({
-      where: {
-        registrationId,
-        status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] },
-      },
-    });
-    if (!activeChallan) return;
+      // Update pendingAmount to reflect new totalAmount
+      if (data.totalAmount !== undefined) {
+        const currentPaid = Number(challan.paidAmount ?? 0);
+        data.pendingAmount = Math.max(0, data.totalAmount - currentPaid);
+      }
 
-    // Recompute arrears: sum of all VOID challans' remaining balances
-    const voidChallans = await this.prisma.hostelChallan.findMany({
-      where: {
-        registrationId,
-        status: 'VOID',
-      },
-    });
-
-    const newArrears = voidChallans.reduce((sum, c) => {
-      const due = c.hostelFee + c.fineAmount + c.lateFeeFine + c.arrearsAmount - c.discount;
-      return sum + Math.max(0, due - c.paidAmount);
-    }, 0);
-
-    await this.prisma.hostelChallan.update({
-      where: { id: activeChallan.id },
-      data: { arrearsAmount: newArrears },
+      return await tx.hostelChallan.update({
+        where: { id },
+        data,
+        include: { heads: true, student: true },
+      });
     });
   }
 
   async deleteHostelChallan(id: number) {
-    const challan = await this.prisma.hostelChallan.findUnique({ where: { id } });
-    if (!challan) throw new NotFoundException(`Hostel challan ${id} not found`);
-    return this.prisma.hostelChallan.delete({ where: { id } });
+    const challan = await this.prisma.hostelChallan.findUnique({
+      where: { id },
+      include: { heads: true },
+    });
+    if (!challan) throw new NotFoundException('Hostel challan not found');
+    if (challan.status === 'PAID') throw new BadRequestException('Cannot delete a paid challan');
+    if (challan.status === 'SETTLED') throw new BadRequestException('Cannot delete a settled challan. Delete the leading challan instead.');
+
+    await this.prisma.$transaction(async (tx) => {
+      // Step 1: Find all SUPERSEDED ancestors that point to this challan
+      const ancestors = await tx.hostelChallan.findMany({
+        where: {
+          settledByChallanNumber: challan.challanNumber,
+        } as any,
+        orderBy: { generatedAt: 'desc' }, // newest first → highest installmentNo = direct predecessor
+      });
+
+      if (ancestors.length > 0) {
+        // The direct predecessor is the ancestor with the highest generatedAt (newest)
+        const newLeader = ancestors[0];
+        const deeperAncestors = ancestors.slice(1);
+
+        // Restore the direct predecessor to PENDING/PARTIAL/OVERDUE
+        const leaderStatus = Number((newLeader as any).paidAmount ?? 0) > 0
+          ? 'PARTIAL'
+          : (newLeader.dueDate && new Date() > new Date(newLeader.dueDate) ? 'OVERDUE' : 'PENDING');
+
+        await tx.hostelChallan.update({
+          where: { id: newLeader.id },
+          data: {
+            status: leaderStatus,
+            settledByChallanNumber: null,
+            settledAmount: 0,
+            settledAt: null,
+            paidAt: null,
+          } as any,
+        });
+
+        // Re-point all deeper ancestors to the new leader
+        if (deeperAncestors.length > 0) {
+          await tx.hostelChallan.updateMany({
+            where: { id: { in: deeperAncestors.map(a => a.id) } },
+            data: {
+              settledByChallanNumber: (newLeader as any).challanNumber,
+            } as any,
+          });
+        }
+      }
+
+      // Step 2: Delete payment audit records
+      await tx.hostelChallanPayment.deleteMany({ where: { hostelChallanId: id } });
+
+      // Step 3: Delete the challan itself
+      await tx.hostelChallan.delete({ where: { id } });
+    });
+
+    return { success: true };
+  }
+
+  // ── Payment recording with settlement propagation ─────────────────────────
+
+  async recordHostelPayment(
+    challanId: number,
+    amount: number,
+    paymentMode: string,
+    paidDate: Date,
+    remarks?: string,
+  ) {
+    const challan = await this.prisma.hostelChallan.findUnique({ where: { id: challanId } });
+    if (!challan) throw new NotFoundException(`Hostel challan ${challanId} not found`);
+
+    if (['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(challan.status)) {
+      throw new BadRequestException(
+        `Cannot record payment on challan ${challan.challanNumber}: status is ${challan.status}.`,
+      );
+    }
+
+    return await this.prisma.$transaction(async (tx) => {
+      const currentPaid = Number(challan.paidAmount);
+      const newPaidAmount = currentPaid + amount;
+      const totalAmount = Number(challan.totalAmount);
+      const isFullyPaid = newPaidAmount >= totalAmount;
+
+      // 1. Update the leading challan
+      const updatedChallan = await tx.hostelChallan.update({
+        where: { id: challanId },
+        data: {
+          paidAmount: newPaidAmount,
+          status: isFullyPaid ? 'PAID' : 'PARTIAL',
+          ...(isFullyPaid ? { paidAt: paidDate } : {}),
+        },
+      });
+
+      // 2. Create payment audit record
+      await tx.hostelChallanPayment.create({
+        data: {
+          hostelChallanId: challanId,
+          amount,
+          paymentDate: paidDate,
+          paymentMode,
+          remarks: remarks ?? null,
+        },
+      });
+
+      // 3. Settlement propagation — find all SUPERSEDED ancestors pointing to this challan
+      const ancestors = await tx.hostelChallan.findMany({
+        where: {
+          settledByChallanNumber: challan.challanNumber,
+          status: 'SUPERSEDED',
+        } as any,
+        orderBy: { generatedAt: 'asc' },
+      });
+
+      if (isFullyPaid) {
+        // Full payment — unconditionally settle ALL ancestors
+        for (const sc of ancestors) {
+          await tx.hostelChallan.update({
+            where: { id: sc.id },
+            data: {
+              status: 'SETTLED',
+              settledAmount: (sc as any).totalAmount,
+              settledAt: paidDate,
+              paidAt: paidDate,
+            } as any,
+          });
+        }
+      } else {
+        // Partial payment — distribute incrementally oldest-first
+        let remaining = amount;
+        for (const sc of ancestors) {
+          if (remaining <= 0) break;
+          const scTotal = Number(sc.totalAmount);
+          const scPaid = Number(sc.paidAmount);
+          const scSettled = Number((sc as any).settledAmount ?? 0);
+          const needed = Math.max(0, scTotal - scPaid - scSettled);
+          if (needed <= 0) continue;
+
+          const apply = Math.min(remaining, needed);
+          const newSettled = scSettled + apply;
+          const isNowFullySettled = (scPaid + newSettled) >= scTotal;
+
+          await tx.hostelChallan.update({
+            where: { id: sc.id },
+            data: {
+              settledAmount: newSettled,
+              settledAt: paidDate,
+              ...(isNowFullySettled ? { status: 'SETTLED', paidAt: paidDate } : {}),
+            } as any,
+          });
+          remaining -= apply;
+        }
+      }
+
+      return updatedChallan;
+    });
+  }
+
+  // ── Revenue aggregation ───────────────────────────────────────────────────
+
+  async getHostelRevenue(startDate?: string, endDate?: string) {
+    const dateFilter: any = {};
+    if (startDate) dateFilter.gte = new Date(startDate);
+    if (endDate) dateFilter.lte = new Date(endDate);
+    const where: any = Object.keys(dateFilter).length > 0 ? { generatedAt: dateFilter } : {};
+
+    // Total collected (PAID + PARTIAL only)
+    const collectedAggr = await this.prisma.hostelChallan.aggregate({
+      where: { ...where, status: { in: ['PAID', 'PARTIAL'] } },
+      _sum: { paidAmount: true },
+    });
+
+    // Total outstanding (PENDING + PARTIAL only)
+    const outstandingChallans = await this.prisma.hostelChallan.findMany({
+      where: { ...where, status: { in: ['PENDING', 'PARTIAL'] } },
+      select: { totalAmount: true, paidAmount: true },
+    });
+    const totalOutstanding = outstandingChallans.reduce(
+      (sum, c) => sum + Math.max(0, Number(c.totalAmount) - Number(c.paidAmount)),
+      0,
+    );
+
+    // Monthly breakdown — group by calendar month of generatedAt
+    const paidChallans = await this.prisma.hostelChallan.findMany({
+      where: { ...where, status: { in: ['PAID', 'PARTIAL'] } },
+      select: { generatedAt: true, paidAmount: true },
+      orderBy: { generatedAt: 'asc' },
+    });
+
+    const monthMap: Record<string, number> = {};
+    for (const c of paidChallans) {
+      const d = new Date(c.generatedAt);
+      const key = `${d.toLocaleString('default', { month: 'short' })} ${d.getFullYear()}`;
+      monthMap[key] = (monthMap[key] ?? 0) + Number(c.paidAmount);
+    }
+    const monthlyBreakdown = Object.entries(monthMap).map(([month, collected]) => ({ month, collected }));
+
+    // Per-student breakdown — query registrations and their challans separately
+    const registrations = await this.prisma.hostelRegistration.findMany({
+      select: {
+        id: true,
+        studentId: true,
+        externalName: true,
+      },
+    });
+
+    // Fetch all non-VOID, non-SUPERSEDED challans grouped by registration
+    const allChallans = await this.prisma.hostelChallan.findMany({
+      where: { ...where, status: { notIn: ['VOID', 'SUPERSEDED'] } },
+      select: { hostelRegNumber: true, totalAmount: true, paidAmount: true, status: true },
+    });
+
+    // Fetch student names for internal registrations
+    const studentIds = registrations.map(r => r.studentId).filter((id): id is number => id !== null);
+    const students = studentIds.length > 0
+      ? await this.prisma.student.findMany({
+          where: { id: { in: studentIds } },
+          select: { id: true, fName: true, lName: true },
+        })
+      : [];
+    const studentMap = new Map(students.map(s => [s.id, s]));
+
+    const challansByReg = new Map<string, typeof allChallans>();
+    for (const c of allChallans) {
+      const arr = challansByReg.get(c.hostelRegNumber) ?? [];
+      arr.push(c);
+      challansByReg.set(c.hostelRegNumber, arr);
+    }
+
+    const perStudent = registrations.map(reg => {
+      const student = reg.studentId ? studentMap.get(reg.studentId) : null;
+      const name = student
+        ? `${student.fName} ${student.lName || ''}`.trim()
+        : reg.externalName || reg.id;
+      const regChallans = challansByReg.get(reg.id) ?? [];
+      const totalBilled = regChallans.reduce((s, c) => s + Number(c.totalAmount), 0);
+      const totalPaid = regChallans
+        .filter(c => ['PAID', 'PARTIAL'].includes(c.status))
+        .reduce((s, c) => s + Number(c.paidAmount), 0);
+      return {
+        registrationId: reg.id,
+        name,
+        totalBilled,
+        totalPaid,
+        outstanding: Math.max(0, totalBilled - totalPaid),
+      };
+    });
+
+    return {
+      totalCollected: Number(collectedAggr._sum.paidAmount ?? 0),
+      totalOutstanding,
+      monthlyBreakdown,
+      perStudent,
+    };
   }
 
   async searchRegistrations(query: string) {
@@ -1003,5 +1120,165 @@ export class HostelService implements OnModuleInit {
       take: 10,
     });
   }
-}
 
+  async getPaymentsByRegistration(registrationId: string) {
+    return this.prisma.hostelChallanPayment.findMany({
+      where: { 
+        hostelChallan: { 
+          hostelRegNumber: registrationId 
+        } 
+      },
+      include: { 
+        hostelChallan: {
+          select: { challanNumber: true, month: true }
+        } 
+      },
+      orderBy: { paymentDate: 'desc' },
+    });
+  }
+
+  async getHostelChallanHtml(id: number) {
+    const challan = await this.prisma.hostelChallan.findUnique({
+      where: { id },
+      include: {
+        student: {
+          include: {
+            class: { include: { program: true } },
+            section: true,
+            program: true,
+          },
+        },
+        hostelRegistration: true,
+        heads: true,
+        payments: { orderBy: { paymentDate: 'desc' } },
+      },
+    });
+
+    if (!challan) throw new NotFoundException(`HostelChallan #${id} not found`);
+
+    // Fetch HOSTEL type template, or fall back to default
+    let template = await this.prisma.feeChallanTemplate.findFirst({
+      where: { type: 'HOSTEL', isDefault: true },
+    });
+    
+    if (!template) {
+      template = await this.prisma.feeChallanTemplate.findFirst({
+        where: { isDefault: true },
+      });
+    }
+
+    if (!template) throw new BadRequestException('No suitable fee challan template found. Please configure a HOSTEL or default template.');
+
+    const s = challan.student;
+    const programName = s?.class?.program?.name || s?.program?.name || '';
+    const className = s?.class?.name || '';
+    const sectionName = s?.section?.name || '';
+    const fullClassPath = s ? [programName, className, sectionName].filter(Boolean).join(' / ') : 'External Student';
+    
+    const name = s ? `${s.fName} ${s.lName || ''}`.trim() : (challan.hostelRegistration?.externalName || challan.hostelRegNumber || 'N/A');
+    const guardian = s?.fatherOrguardian || challan.hostelRegistration?.externalGuardianName || '-';
+    const studentOrRegNo = s?.rollNumber || challan.hostelRegNumber || '';
+
+    let html = template.htmlContent;
+
+    // Inject print styles
+    html = html.replace('</head>', '<style>body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }</style></head>');
+
+    // Basic replacements
+    html = html.replace(/\{\{challanNumber\}\}/g, challan.challanNumber);
+    html = html.replace(/\{\{issueDate\}\}/g, this.formatDate(challan.generatedAt));
+    html = html.replace(/\{\{dueDate\}\}/g, this.formatDate(challan.dueDate));
+    html = html.replace(/\{\{studentName\}\}/g, name);
+    html = html.replace(/\{\{fatherName\}\}/g, guardian);
+    html = html.replace(/\{\{class\}\}/g, fullClassPath);
+    html = html.replace(/\{\{rollNo\}\}/g, studentOrRegNo);
+    html = html.replace(/Student Id/g, 'Student Id / Registration Number');
+    
+    // Settings for late fee
+    const settings = await this.prisma.instituteSettings.findFirst({ 
+      select: { extraChallanLateFee: true } 
+    });
+    const lateFeeRate = Number(settings?.extraChallanLateFee ?? 0);
+
+    // Remove Month / Installment row (optional for hostel, but usually cleaner)
+    html = html.replace(/<tr[^>]*>\s*<td[^>]*>Month \/ Installment<\/td>[\s\S]*?<\/tr>/gi, '');
+    html = html.replace(/Month \/ Installment/g, ''); 
+    html = html.replace(/\{\{month\}\}/g, challan.month || '');
+    html = html.replace(/\{\{installmentNo\}\}/g, '');
+
+    // Replace hardcoded 150 with dynamic late fee rate
+    html = html.replace(/Rs\.\s*150\s*Per\s*Day/gi, `Rs. ${lateFeeRate} Per Day`);
+    html = html.replace(/150\s*Per\s*Day/gi, `${lateFeeRate} Per Day`);
+
+    // Fee table
+    const headsTotal = challan.heads.reduce((sum, h) => sum + Number(h.amount || 0), 0);
+    const totalDue = headsTotal > 0 ? headsTotal : Number(challan.totalAmount || 0);
+    const paidAmount = Number(challan.paidAmount || 0);
+    const remainingBalance = Math.max(0, totalDue - paidAmount);
+    const feeHeadsRows = challan.heads.map(h =>
+      `<tr><td>${h.headName}</td><td>${Number(h.amount).toLocaleString()}</td></tr>`
+    ).join('\n');
+
+    html = html.replace(/\{\{Tuition Fee\}\}/g, '0');
+    html = html.replace(/\{\{feeHeadsRows\}\}/g, feeHeadsRows);
+    html = html.replace(/\{\{arrearsRows\}\}/g, '');
+    html = html.replace(/\{\{arrears\}\}/g, '0');
+    html = html.replace(/\{\{discount\}\}/g, '0');
+    html = html.replace(/\{\{lateFee\}\}/g, '0');
+    html = html.replace(/\{\{totalPayable\}\}/g, remainingBalance.toLocaleString());
+    html = html.replace(/\{\{totalInWords\}\}/g, `<strong>${remainingBalance.toLocaleString()} Rupees Only</strong>`);
+
+    const paidDisplay = paidAmount > 0 ? `- ${paidAmount.toLocaleString()}` : '0';
+    const paidRowHtml = `
+      <tr style="color: #166534; background-color: #f0fdf4; font-weight: 600; font-size: 11px;">
+        <td>Paid Amount / Advance Credits</td>
+        <td>${paidDisplay}</td>
+      </tr>
+      <tr style="font-weight: 700; border-top: 1px solid #e2e8f0;">
+        <td>Remaining Balance</td>
+        <td>${remainingBalance.toLocaleString()}</td>
+      </tr>
+    `;
+    html = html.replace(/\{\{paidRow\}\}/g, paidRowHtml);
+
+    const isFullyPaid = challan.status === 'PAID' || challan.status === 'SETTLED' || remainingBalance <= 0;
+    if (isFullyPaid) {
+      const latestPayment = challan.payments?.[0];
+      const paidRemarksStyle = 'background-color: #dcfce7; color: #14532d; font-weight: bold;';
+      const remarks = latestPayment?.remarks || challan.remarks || 'FULLY PAID / SETTLED';
+      const paidAt = latestPayment?.paymentDate ? this.formatDate(latestPayment.paymentDate) : this.formatDate(challan.paidAt || challan.generatedAt);
+      const paidRowsHtml = `
+        <tr class="paid-at-row"><td style="${paidRemarksStyle}">Paid At</td><td style="${paidRemarksStyle}">${paidAt}</td></tr>
+        <tr class="paid-remarks-row">
+          <td style="${paidRemarksStyle}; vertical-align: top;">Remarks</td>
+          <td style="${paidRemarksStyle}; white-space: normal; text-align: left; line-height: 1.35;">${remarks}</td>
+        </tr>
+      `;
+      const hideTotalRowStyle = '<style>.total-row { display: none !important; }</style>';
+      html = html.includes('</head>') ? html.replace('</head>', `${hideTotalRowStyle}</head>`) : hideTotalRowStyle + html;
+      html = html.replace(/<tr class="late-fee-row">[\s\S]*?<\/tr>/gi, paidRowsHtml);
+      html = html.replace(
+        /<tr[^>]*>\s*<td[^>]*>\s*Late Fee Fine after due date\s*<\/td>\s*<td[^>]*>\s*Rs\.?\s*\d+[\s\S]*?Per\s+Day\s*<\/td>\s*<\/tr>/gi,
+        paidRowsHtml,
+      );
+      html = html.replace(
+        /<div class="signatures">[\s\S]*?<div class="sig-label">Depositor Signature<\/div>\s*<\/div>\s*<\/div>/gi,
+        `<div class="paid-system-note" style="padding: 8px 10px 5px 10px; margin-top: 4px; font-size: 8px; line-height: 1.35; color: #475569; font-style: italic;">* This paid challan is system generated and does not require bank/account officer or depositor signatures.</div>`
+      );
+    }
+
+    // History (Empty for hostel challans)
+    html = html.replace(/\{\{paymentHistoryMonths\}\}/g, '');
+    html = html.replace(/\{\{paymentHistoryTotals\}\}/g, '');
+    html = html.replace(/\{\{paymentHistoryPaid\}\}/g, '');
+    html = html.replace(/\{\{paymentDetailsRow\}\}/g, '');
+
+    return html;
+  }
+
+  private formatDate(date: Date): string {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const d = new Date(date);
+    return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  }
+}

@@ -35,21 +35,16 @@ import {
   updateInventoryItem,
   deleteInventoryItem,
   searchStudents,
-  getExternalChallansByRegistration,
-  createExternalChallan,
-  updateExternalChallan,
-  deleteExternalChallan,
   getFeeHeads,
-  getHostelFeePayments,
-  createHostelFeePayment,
-  deleteHostelFeePayment,
-  searchHostelRegistrations,
-  createHostelChallan,
-  getHostelChallansByRegistration,
-  updateHostelChallan,
-  deleteHostelChallan,
+  searchHostelRegistrationsDedicated,
+  createHostelChallanDedicated,
+  getHostelChallansDedicated,
+  updateHostelChallanDedicated,
+  deleteHostelChallanDedicated,
   getInstituteSettings,
   getDefaultFeeChallanTemplate,
+  recordHostelPayment,
+  getHostelRevenue,
 } from "../../config/apis";
 import { computeOutstandingBalance } from "@/lib/hostelUtils";
 import { Home, Bed, UtensilsCrossed, DollarSign, Edit, Trash2, UserPlus, Package, Search, X, Receipt, Plus, Eye, ExternalLink, Printer, AlertCircle, ArrowRight, UserX, LogOut, Loader2, RotateCcw } from "lucide-react";
@@ -132,7 +127,7 @@ function RegistrationHistoryTab({ regId }) {
   );
 }
 
-const Hostel = () => {
+const Boarding = () => {
   const {
     students,
     messAllocations,
@@ -281,11 +276,6 @@ const Hostel = () => {
   const [challanOpen, setChallanOpen] = useState(false);
   const [editingChallan, setEditingChallan] = useState(null);
 
-  // Fee tracking state (legacy simple payments)
-  const [feeTrackingReg, setFeeTrackingReg] = useState(null);
-  const [paymentOpen, setPaymentOpen] = useState(false);
-  const [paymentFormData, setPaymentFormData] = useState({ month: "", paidDate: "", amount: "" });
-
   // Hostel challan state
   const [challanRegSearch, setChallanRegSearch] = useState("");
   const [challanRegResults, setChallanRegResults] = useState([]);
@@ -294,12 +284,13 @@ const Hostel = () => {
   const [generateChallanForm, setGenerateChallanForm] = useState({
     monthValue: new Date().toISOString().slice(0, 7), // "YYYY-MM" for the picker
     dueDate: new Date().toISOString().split('T')[0],
-    fineAmount: "",
-    discount: "",
     remarks: "",
+    selectedFeeHeadIds: [],
+    customHeads: [{ headName: "", amount: "" }]
   });
   const [bulkGenSearch, setBulkGenSearch] = useState("");
-  const [bulkGenSelected, setBulkGenSelected] = useState([]); // array of registration IDs
+  const [bulkGenSelected, setBulkGenSelected] = useState([]);
+  const [isBulkGenerating, setIsBulkGenerating] = useState(false); // array of registration IDs
   const [bulkGenResults, setBulkGenResults] = useState([]);
   const [bulkChallanMap, setBulkChallanMap] = useState({}); // registrationId -> challan[]
   const [payHostelChallanOpen, setPayHostelChallanOpen] = useState(false);
@@ -309,35 +300,52 @@ const Hostel = () => {
   const [challanPreviewOpen, setChallanPreviewOpen] = useState(false);
   const [challanPreviewHtml, setChallanPreviewHtml] = useState("");
   const [editingHostelChallan, setEditingHostelChallan] = useState(null);
-  const [editHostelChallanForm, setEditHostelChallanForm] = useState({ fineAmount: "", discount: "", remarks: "", dueDate: "" });
+  const [editHostelChallanForm, setEditHostelChallanForm] = useState({ fineAmount: "", discount: "", remarks: "", dueDate: "", heads: [] });
   const [challanDeleteConfirmOpen, setChallanDeleteConfirmOpen] = useState(false);
   const [challanToDelete, setChallanToDelete] = useState(null);
 
-  const { data: externalChallans = [], refetch: refetchExternalChallans } = useQuery({
-    queryKey: ['externalChallans', selectedExternalReg],
-    queryFn: () => getExternalChallansByRegistration(selectedExternalReg),
-    enabled: !!selectedExternalReg,
-  });
+  // Revenue tab state
+  const [revenueSearch, setRevenueSearch] = useState("");
+  const [revenueSort, setRevenueSort] = useState({ col: 'name', dir: 'asc' });
+  const [revenueFromDate, setRevenueFromDate] = useState("");
+  const [revenueToDate, setRevenueToDate] = useState("");
 
-  const { data: feePayments = [] } = useQuery({
-    queryKey: ['hostelFeePayments', feeTrackingReg],
-    queryFn: () => getHostelFeePayments(feeTrackingReg),
-    enabled: !!feeTrackingReg,
+  // All-challans pagination state (fees tab default view)
+  const [allChallansPage, setAllChallansPage] = useState(1);
+  const [allChallansSearch, setAllChallansSearch] = useState("");
+  const [allChallansStatus, setAllChallansStatus] = useState("all");
+  const allChallansLimit = 15;
+
+  // All challans query — paginated, no registration filter
+  const { data: allChallansResponse, isLoading: allChallansLoading } = useQuery({
+    queryKey: ['hostelChallansAll', allChallansPage, allChallansSearch, allChallansStatus],
+    queryFn: () => getHostelChallansDedicated({
+      page: allChallansPage,
+      limit: allChallansLimit,
+      search: allChallansSearch || undefined,
+      status: allChallansStatus !== 'all' ? allChallansStatus : undefined,
+    }),
+    keepPreviousData: true,
+    staleTime: 30000,
   });
+  const allChallans = allChallansResponse?.data || [];
+  const allChallansMeta = allChallansResponse?.meta || { total: 0, lastPage: 1 };
 
   // Hostel challan queries
-  const { data: hostelChallans = [], refetch: refetchHostelChallans } = useQuery({
+  const { data: hostelChallansResponse, refetch: refetchHostelChallans } = useQuery({
     queryKey: ['hostelChallans', selectedChallanReg?.id],
-    queryFn: () => getHostelChallansByRegistration(selectedChallanReg.id),
+    queryFn: () => getHostelChallansDedicated({ registrationId: selectedChallanReg.id }),
     enabled: !!selectedChallanReg?.id,
   });
+  const hostelChallans = hostelChallansResponse?.data || [];
 
   // Challans for the profile dialog (both internal and external)
-  const { data: profileChallans = [] } = useQuery({
+  const { data: profileChallansResponse } = useQuery({
     queryKey: ['hostelChallans', profileReg?.id],
-    queryFn: () => getHostelChallansByRegistration(profileReg.id),
+    queryFn: () => getHostelChallansDedicated({ registrationId: profileReg.id }),
     enabled: !!profileReg?.id,
   });
+  const profileChallans = profileChallansResponse?.data || [];
 
   const { data: instituteSettings } = useQuery({
     queryKey: ['instituteSettings'],
@@ -346,43 +354,53 @@ const Hostel = () => {
   });
   const hostelLateFee = instituteSettings?.hostelLateFee ?? 0;
 
-  const createPaymentMutation = useMutation({
-    mutationFn: (data) => createHostelFeePayment(feeTrackingReg, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['hostelFeePayments', feeTrackingReg] });
-      setPaymentOpen(false);
-      setPaymentFormData({ month: "", paidDate: "", amount: "" });
-      toast({ title: "Payment recorded" });
+  const { data: revenueData, isLoading: revenueLoading } = useQuery({
+    queryKey: ['hostelRevenue', revenueFromDate, revenueToDate],
+    queryFn: () => {
+      if (!revenueFromDate && !revenueToDate) return getHostelRevenue();
+      return getHostelRevenue({
+        ...(revenueFromDate ? { startDate: revenueFromDate } : {}),
+        ...(revenueToDate ? { endDate: revenueToDate } : {}),
+      });
     },
-    onError: (error) => {
-      toast({ title: error.message || "Failed to record payment", variant: "destructive" });
-    },
+    enabled: activeTab === 'revenue',
+    staleTime: 60000,
   });
 
-  const deletePaymentMutation = useMutation({
-    mutationFn: (paymentId) => deleteHostelFeePayment(feeTrackingReg, paymentId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['hostelFeePayments', feeTrackingReg] });
-      toast({ title: "Payment deleted" });
+  const { data: reportExpenses = [] } = useQuery({
+    queryKey: ['hostelReportExpenses', revenueFromDate, revenueToDate],
+    queryFn: () => {
+      if (!revenueFromDate && !revenueToDate) return getHostelExpenses();
+      return getHostelExpenses({
+        ...(revenueFromDate ? { startDate: revenueFromDate } : {}),
+        ...(revenueToDate ? { endDate: revenueToDate } : {}),
+      });
     },
-    onError: (error) => {
-      toast({ title: error.message || "Failed to delete payment", variant: "destructive" });
-    },
+    enabled: activeTab === 'revenue',
+    staleTime: 60000,
   });
+
+  // Helper: invalidate all hostel challan queries at once
+  const invalidateAllChallanQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ['hostelChallans'] });
+    queryClient.invalidateQueries({ queryKey: ['hostelChallansAll'] });
+    queryClient.invalidateQueries({ queryKey: ['hostelRevenue'] });
+  };
 
   // Hostel challan mutations
   const createChallanMutation = useMutation({
-    mutationFn: createHostelChallan,
+    mutationFn: createHostelChallanDedicated,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['hostelChallans', selectedChallanReg?.id] });
+      invalidateAllChallanQueries();
+      toast({ title: "Challan generated" });
     },
     onError: (e) => toast({ title: e.message || "Failed to generate challan", variant: "destructive" }),
   });
 
   const updateChallanMutation = useMutation({
-    mutationFn: ({ id, dto }) => updateHostelChallan(id, dto),
+    mutationFn: ({ id, dto }) => updateHostelChallanDedicated(id, dto),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['hostelChallans', selectedChallanReg?.id] });
+      invalidateAllChallanQueries();
       setPayHostelChallanOpen(false);
       setPayingChallan(null);
       setEditingHostelChallan(null);
@@ -392,9 +410,9 @@ const Hostel = () => {
   });
 
   const deleteChallanMutation = useMutation({
-    mutationFn: deleteHostelChallan,
+    mutationFn: deleteHostelChallanDedicated,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['hostelChallans', selectedChallanReg?.id] });
+      invalidateAllChallanQueries();
       toast({ title: "Challan deleted" });
     },
     onError: (e) => toast({ title: e.message || "Failed to delete challan", variant: "destructive" }),
@@ -449,17 +467,31 @@ const Hostel = () => {
   }, [challanRegSearch, hostelRegistrations]);
 
   // Hostel challan helpers
-  const getChallanTotal = (c) =>
-    (c.hostelFee || 0) + (c.fineAmount || 0) + (c.lateFeeFine || 0) + (c.arrearsAmount || 0) - (c.discount || 0);
+  const toHostelAmount = (value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    const n = Number(String(value).replace(/,/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
 
-  const getChallanBalance = (c) => Math.max(0, getChallanTotal(c) - (c.paidAmount || 0));
+  const getHostelHeadsTotal = (c) => Array.isArray(c?.heads)
+    ? c.heads.reduce((sum, h) => sum + toHostelAmount(h.amount), 0)
+    : 0;
+
+  const getHostelBaseFee = (c) => {
+    const headsTotal = getHostelHeadsTotal(c);
+    return headsTotal > 0 ? headsTotal : toHostelAmount(c?.hostelFee || c?.totalAmount);
+  };
+
+  const getChallanTotal = (c) =>
+    getHostelBaseFee(c) + toHostelAmount(c.fineAmount) + toHostelAmount(c.lateFeeFine) + toHostelAmount(c.arrearsAmount) - toHostelAmount(c.discount);
+
+  const getChallanBalance = (c) => Math.max(0, getChallanTotal(c) - toHostelAmount(c.paidAmount));
 
   // Effective total including client-computed late fee for overdue challans not yet updated
   const getChallanTotalEffective = (c) => {
-    const lateFee = getEffectiveLateFee ? getEffectiveLateFee(c) : (c.lateFeeFine || 0);
-    return (c.hostelFee || 0) + (c.fineAmount || 0) + lateFee + (c.arrearsAmount || 0) - (c.discount || 0);
+    const lateFee = getEffectiveLateFee ? getEffectiveLateFee(c) : toHostelAmount(c.lateFeeFine);
+    return getHostelBaseFee(c) + toHostelAmount(c.fineAmount) + lateFee + toHostelAmount(c.arrearsAmount) - toHostelAmount(c.discount);
   };
-
   const getChallanBalanceEffective = (c) => Math.max(0, getChallanTotalEffective(c) - (c.paidAmount || 0));
 
   // Convert "YYYY-MM" picker value to "Month YYYY" display string
@@ -500,11 +532,54 @@ const Hostel = () => {
     return calculateHostelLateFee(challan.dueDate);
   };
 
+  const formatHostelChallanDate = (d) => {
+    if (!d) return "N/A";
+    const date = new Date(d);
+    if (Number.isNaN(date.getTime())) return "N/A";
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  const getLatestHostelPayment = (challan) => {
+    if (!Array.isArray(challan?.payments) || challan.payments.length === 0) return null;
+    return [...challan.payments].sort((a, b) => new Date(b.paymentDate || b.date || 0) - new Date(a.paymentDate || a.date || 0))[0];
+  };
+
+  const getHostelPaidAtText = (challan) => {
+    const latestPayment = getLatestHostelPayment(challan);
+    const rawPaidAt = challan?.paidAt || challan?.paidDate || latestPayment?.paymentDate || latestPayment?.date;
+    if (!rawPaidAt) return "";
+    const paidAt = new Date(rawPaidAt);
+    return Number.isNaN(paidAt.getTime()) ? "" : formatHostelChallanDate(paidAt);
+  };
+
+  const getHostelPaidRemarks = (challan) => {
+    const latestPayment = getLatestHostelPayment(challan);
+    return latestPayment?.remarks || challan?.paymentRemarks || challan?.remarks || 'FULLY PAID / SETTLED';
+  };
+
+  const getHostelPaidRowsHtml = (challan) => {
+    const paidRemarksStyle = 'background-color: #dcfce7; color: #14532d; font-weight: bold;';
+    const paidAtText = getHostelPaidAtText(challan);
+    return `
+      ${paidAtText ? `<tr class="paid-at-row"><td style="${paidRemarksStyle}">Paid At</td><td style="${paidRemarksStyle}">${paidAtText}</td></tr>` : ''}
+      <tr class="paid-remarks-row">
+        <td style="${paidRemarksStyle}; vertical-align: top;">Remarks</td>
+        <td style="${paidRemarksStyle}; white-space: normal; text-align: left; line-height: 1.35;">${getHostelPaidRemarks(challan)}</td>
+      </tr>
+    `;
+  };
+
+  const getHostelPaidSystemNote = () => `
+    <div class="paid-system-note" style="padding: 8px 10px 5px 10px; margin-top: 4px; font-size: 8px; line-height: 1.35; color: #475569; font-style: italic;">
+      * This paid challan is system generated and does not require bank/account officer or depositor signatures.
+    </div>
+  `;
   const generateHostelChallanHtml = async (challan, reg) => {
     const template = await getDefaultFeeChallanTemplate();
     const name = reg.student ? `${reg.student.fName} ${reg.student.lName || ''}`.trim() : reg.externalName;
-    const rollNo = reg.student?.rollNumber || reg.id;
-    const guardian = reg.student?.fatherOrguardian || reg.externalGuardianName || "—";
+    const registrationNo = challan.hostelRegNumber || reg.id;
+    const rollNo = reg.student?.rollNumber || registrationNo;
+    const guardian = reg.student?.fatherOrguardian || challan.student?.fatherOrguardian || reg.externalGuardianName || "-";
     const effectiveLateFee = getEffectiveLateFee(challan);
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric' }) : "N/A";
 
@@ -522,21 +597,28 @@ const Hostel = () => {
 
     // Arrears rows: one row per previous challan in the chain
     const arrearsRowsHtml = prevChainChallans.map(pc => {
-      const pcTotal = (pc.hostelFee||0) + (pc.fineAmount||0) + (pc.lateFeeFine||0) + (pc.arrearsAmount||0) - (pc.discount||0);
+      const pcTotal = getChallanTotal(pc);
       const pcBalance = Math.max(0, pcTotal - (pc.paidAmount||0));
       return `<tr><td>Arrears - ${pc.month}</td><td>${pcBalance.toLocaleString()}</td></tr>`;
     }).join('');
 
-    // Total arrears = stored arrearsAmount (snapshot at creation)
-    const arrearsAmount = challan.arrearsAmount || 0;
+    // Only include arrears when the rendered challan actually has an arrears chain.
+    const arrearsAmount = prevChainChallans.length > 0 ? toHostelAmount(challan.arrearsAmount) : 0;
 
-    // Fee heads rows — fine + late fee only (NOT arrears — those go in arrearsRows)
+    const headsTotal = getHostelHeadsTotal(challan);
+    const baseHostelFee = getHostelBaseFee(challan);
+
+    // Fee heads rows - prefer stored heads for newer hostel challans.
     const feeHeadsRowsHtml = [
+      ...(Array.isArray(challan.heads) && challan.heads.length > 0
+        ? challan.heads.map(h => `<tr><td>${h.headName || 'Hostel Fee'}</td><td>${toHostelAmount(h.amount).toLocaleString()}</td></tr>`)
+        : [baseHostelFee > 0 ? `<tr><td>Boarding Fee</td><td>${baseHostelFee.toLocaleString()}</td></tr>` : '']),
       challan.fineAmount > 0 ? `<tr><td>Fine / Additional</td><td>${challan.fineAmount.toLocaleString()}</td></tr>` : '',
+      challan.discount > 0 ? `<tr><td>Discount</td><td>- ${challan.discount.toLocaleString()}</td></tr>` : '',
       effectiveLateFee > 0 ? `<tr><td>Late Fee (Overdue)</td><td>${effectiveLateFee.toLocaleString()}</td></tr>` : '',
     ].join('');
 
-    const total = (challan.hostelFee||0) + (challan.fineAmount||0) + effectiveLateFee + arrearsAmount - (challan.discount||0);
+    const total = baseHostelFee + (challan.fineAmount||0) + effectiveLateFee + arrearsAmount - (challan.discount||0);
     const balance = Math.max(0, total - (challan.paidAmount||0));
 
     // Payment history: last 5 months from the chain (oldest first)
@@ -549,13 +631,21 @@ const Hostel = () => {
     const paymentHistoryPaid = historyChallans.map(h => `<td>${(h.paidAmount||0).toLocaleString()}</td>`).join('');
 
     if (!template?.htmlContent) {
-      return `<!DOCTYPE html><html><head><title>Hostel Fee Challan</title>
-      <style>body{font-family:Arial,sans-serif;font-size:11px;margin:0;padding:20px}.challan{border:2px solid #333;padding:16px;max-width:420px;margin:auto}.header{text-align:center;border-bottom:1px solid #333;padding-bottom:8px;margin-bottom:10px}.header h2{margin:0;font-size:14px}.header p{margin:2px 0;font-size:10px}table{width:100%;border-collapse:collapse;margin:8px 0}td{padding:4px 6px}.info td:first-child{font-weight:bold;width:40%}.amounts td{border:1px solid #ccc}.amounts td:last-child{text-align:right;font-weight:bold}.total-row td{background:#f0f0f0;font-weight:bold;border:1px solid #333}.paid-row td{background:#d4edda;font-weight:bold;border:1px solid #28a745}.words{font-style:italic;font-size:10px;margin:6px 0;border-top:1px dashed #ccc;padding-top:6px}.status{text-align:center;margin-top:8px;font-size:12px;font-weight:bold;padding:4px;border:1px solid #333}.void{background:#fee2e2;color:#991b1b}.paid{background:#d1fae5;color:#065f46}.pending{background:#fef3c7;color:#92400e}@media print{body{padding:0}}</style>
-      </head><body><div class="challan"><div class="header"><h2>HOSTEL FEE CHALLAN</h2><p>Concordia College Peshawar</p></div>
-      <table class="info"><tr><td>Challan No</td><td>${challan.challanNumber}</td></tr><tr><td>Student</td><td>${name}</td></tr><tr><td>Roll / Reg No</td><td>${rollNo}</td></tr><tr><td>Guardian</td><td>${guardian}</td></tr><tr><td>Month</td><td>${challan.month}</td></tr><tr><td>Issue Date</td><td>${formatDate(challan.createdAt)}</td></tr><tr><td>Due Date</td><td>${formatDate(challan.dueDate)}</td></tr></table>
-      <table class="amounts"><tr><td>Hostel Fee</td><td>PKR ${(challan.hostelFee||0).toLocaleString()}</td></tr>${feeHeadsRowsHtml}${arrearsRowsHtml}${challan.discount > 0 ? `<tr><td>Discount</td><td>- PKR ${challan.discount.toLocaleString()}</td></tr>` : ''}<tr class="total-row"><td>Total Payable</td><td>PKR ${total.toLocaleString()}</td></tr>${challan.paidAmount > 0 ? `<tr class="paid-row"><td>Paid</td><td>PKR ${challan.paidAmount.toLocaleString()}</td></tr>` : ''}${balance > 0 ? `<tr><td>Balance Due</td><td>PKR ${balance.toLocaleString()}</td></tr>` : ''}</table>
-      <div class="words">In Words: ${numberToWords(balance > 0 ? balance : total)}</div>
-      ${challan.remarks ? `<div style="font-size:10px;margin-top:4px"><b>Remarks:</b> ${challan.remarks}</div>` : ''}
+      const paidRowHtml = ['PAID', 'SETTLED', 'PARTIAL', 'PENDING', 'OVERDUE'].includes(challan.status) || (challan.paidAmount || 0) > 0 ? `
+        <tr style="color:#166534;background:#f0fdf4;font-weight:600">
+          <td>Paid Amount / Advance Credits</td><td>${(challan.paidAmount || 0) > 0 ? `- PKR ${(challan.paidAmount||0).toLocaleString()}` : 'PKR 0'}</td>
+        </tr>
+        <tr style="font-weight:700">
+          <td>Remaining Balance</td><td>PKR ${balance.toLocaleString()}</td>
+        </tr>` : '';
+      const isFullyPaidFallback = challan.status === 'PAID' || challan.status === 'SETTLED' || balance <= 0;
+      return `<!DOCTYPE html><html><head><title>Boarding Fee Challan</title>
+      <style>body{font-family:Arial,sans-serif;font-size:11px;margin:0;padding:20px}.challan{border:2px solid #333;padding:16px;max-width:420px;margin:auto}.header{text-align:center;border-bottom:1px solid #333;padding-bottom:8px;margin-bottom:10px}.header h2{margin:0;font-size:14px}.header p{margin:2px 0;font-size:10px}table{width:100%;border-collapse:collapse;margin:8px 0}td{padding:4px 6px}.info td:first-child{font-weight:bold;width:40%}.amounts td{border:1px solid #ccc}.amounts td:last-child{text-align:right;font-weight:bold}.total-row td{background:#f0f0f0;font-weight:bold;border:1px solid #333}.words{font-style:italic;font-size:10px;margin:6px 0;border-top:1px dashed #ccc;padding-top:6px}.status{text-align:center;margin-top:8px;font-size:12px;font-weight:bold;padding:4px;border:1px solid #333}.void{background:#fee2e2;color:#991b1b}.paid{background:#d1fae5;color:#065f46}.pending{background:#fef3c7;color:#92400e}@media print{body{padding:0}}</style>
+      </head><body><div class="challan"><div class="header"><h2>BOARDING FEE CHALLAN</h2><p>Concordia College Peshawar</p></div>
+      <table class="info"><tr><td>Challan No</td><td>${challan.challanNumber}</td></tr><tr><td>Student</td><td>${name}</td></tr><tr><td>Student Id / Registration Number</td><td>${rollNo}</td></tr><tr><td>Father Name</td><td>${guardian}</td></tr><tr><td>Month</td><td>${challan.month}</td></tr><tr><td>Issue Date</td><td>${formatDate(challan.createdAt)}</td></tr><tr><td>Due Date</td><td>${formatDate(challan.dueDate)}</td></tr></table>
+      <table class="amounts">${feeHeadsRowsHtml}${arrearsRowsHtml}${paidRowHtml}${!isFullyPaidFallback ? `<tr class="total-row"><td>Total Payable</td><td>PKR ${balance.toLocaleString()}</td></tr><tr><td>Late Fee Fine after due date</td><td>Rs. ${hostelLateFee || 150}/- per day</td></tr>` : getHostelPaidRowsHtml(challan)}</table>
+      <div class="words">In Words: ${numberToWords(isFullyPaidFallback ? Math.round(total) : Math.round(balance))}</div>
+      ${isFullyPaidFallback ? getHostelPaidSystemNote() : (challan.remarks ? `<div style="font-size:10px;margin-top:4px"><b>Remarks:</b> ${challan.remarks}</div>` : '')}
       <div class="status ${challan.status==='PAID'?'paid':challan.status==='VOID'?'void':'pending'}">${challan.status==='VOID'?'SUPERSEDED':challan.status}</div>
       </div></body></html>`;
     }
@@ -564,7 +654,7 @@ const Hostel = () => {
       '{{INSTITUTE_NAME}}': 'Concordia College Peshawar',
       '{{INSTITUTE_ADDRESS}}': '60-C, Near NCS School, University Town Peshawar',
       '{{INSTITUTE_PHONE}}': '091-5619915 | 0332-8581222',
-      '{{CHALLAN_TITLE}}': 'Hostel Fee Challan',
+      '{{CHALLAN_TITLE}}': 'Boarding Fee Challan',
       '{{challanNumber}}': challan.challanNumber,
       '{{CHALLAN_NO}}': challan.challanNumber,
       '{{challanNo}}': challan.challanNumber,
@@ -575,15 +665,15 @@ const Hostel = () => {
       '{{rollNumber}}': rollNo,
       '{{rollNo}}': rollNo,
       '{{ROLL_NO}}': rollNo,
-      '{{className}}': reg.student?.program?.name || 'Hostel',
-      '{{CLASS}}': reg.student?.program?.name || 'Hostel',
-      '{{class}}': reg.student?.program?.name || 'Hostel',
-      '{{programName}}': 'Hostel',
-      '{{PROGRAM}}': 'Hostel',
-      '{{program}}': 'Hostel',
+      '{{className}}': reg.student?.program?.name || 'Boarding',
+      '{{CLASS}}': reg.student?.program?.name || 'Boarding',
+      '{{class}}': reg.student?.program?.name || 'Boarding',
+      '{{programName}}': 'Boarding',
+      '{{PROGRAM}}': 'Boarding',
+      '{{program}}': 'Boarding',
       '{{section}}': '',
       '{{SECTION}}': '',
-      '{{FULL_CLASS}}': reg.student?.program?.name || 'Hostel',
+      '{{FULL_CLASS}}': reg.student?.program?.name || 'Boarding',
       '{{issueDate}}': formatDate(challan.createdAt),
       '{{ISSUE_DATE}}': formatDate(new Date()),
       '{{dueDate}}': formatDate(challan.dueDate),
@@ -591,24 +681,32 @@ const Hostel = () => {
       '{{VALID_DATE}}': formatDate(challan.dueDate),
       '{{month}}': challan.month || '',
       '{{session}}': '',
-      '{{installmentNo}}': `Hostel Fee - ${challan.month}`,
-      '{{installmentNumber}}': 'Hostel Fee',
-      '{{Tuition Fee}}': (challan.hostelFee||0).toLocaleString(),
+      '{{installmentNo}}': `Boarding Fee - ${challan.month}`,
+      '{{installmentNumber}}': 'Boarding Fee',
+      '{{Tuition Fee}}': '',  // hostel fee is now included in {{feeHeadsRows}} as first row
       '{{TUITION_ORIGINAL}}': (challan.hostelFee||0).toLocaleString(),
       '{{feeHeadsRows}}': feeHeadsRowsHtml,
       '{{FEE_HEADS_TABLE}}': feeHeadsRowsHtml,
       '{{arrears}}': arrearsAmount > 0 ? arrearsAmount.toLocaleString() : '',
       '{{arrearsRows}}': arrearsRowsHtml,
-      '{{discount}}': (challan.discount||0).toLocaleString(),
+      '{{discount}}': '',  // discount is now included in {{feeHeadsRows}}
       '{{SCHOLARSHIP}}': (challan.discount||0).toLocaleString(),
       '{{amount}}': total.toLocaleString(),
       '{{TOTAL_AMOUNT}}': total.toLocaleString(),
-      '{{totalPayable}}': balance.toLocaleString(),
-      '{{netPayable}}': balance.toLocaleString(),
-      '{{NET_PAYABLE}}': balance.toLocaleString(),
+      // Note: {{totalPayable}} and {{netPayable}} are handled after replacements loop
+      //       based on paid/partial state — do not set them here to avoid double replacement
       '{{rupeesInWords}}': numberToWords(balance > 0 ? balance : total),
       '{{AMOUNT_IN_WORDS}}': numberToWords(balance > 0 ? balance : total),
-      '{{paidRow}}': challan.paidAmount > 0 ? `<tr style="background:#d4edda"><td style="font-weight:bold">Paid</td><td>${challan.paidAmount.toLocaleString()}</td></tr>` : '',
+      '{{paidRow}}': ['PAID', 'SETTLED', 'PARTIAL', 'PENDING', 'OVERDUE'].includes(challan.status) || (challan.paidAmount || 0) > 0 ? `
+        <tr style="color: #166534; background-color: #f0fdf4; font-weight: 600; font-size: 11px;">
+          <td>Paid Amount / Advance Credits</td>
+          <td>${(challan.paidAmount || 0) > 0 ? `- ${(challan.paidAmount||0).toLocaleString()}` : '0'}</td>
+        </tr>
+        <tr style="font-weight: 700; border-top: 1px solid #e2e8f0;">
+          <td>Remaining Balance</td>
+          <td>${balance.toLocaleString()}</td>
+        </tr>
+      ` : '',
       '{{paymentDetailsRow}}': '',
       '{{paymentHistoryMonths}}': paymentHistoryMonths,
       '{{paymentHistoryTotals}}': paymentHistoryTotals,
@@ -630,8 +728,10 @@ const Hostel = () => {
     };
 
     let html = template.htmlContent;
-    html = html.replace(/\{\{program\}\}\s*\/\s*\{\{class\}\}\s*\/\s*\{\{section\}\}/g, reg.student?.program?.name || 'Hostel');
-    html = html.replace(/\{\{class\}\}\s*\/\s*\{\{section\}\}/g, reg.student?.program?.name || 'Hostel');
+    html = html.replace(/\{\{program\}\}\s*\/\s*\{\{class\}\}\s*\/\s*\{\{section\}\}/g, reg.student?.program?.name || 'Boarding');
+    html = html.replace(/\{\{class\}\}\s*\/\s*\{\{section\}\}/g, reg.student?.program?.name || 'Boarding');
+
+    html = html.replace(/Student Id/g, 'Student Id / Registration Number');
 
     Object.entries(replacements).forEach(([key, value]) => {
       try {
@@ -644,6 +744,43 @@ const Hostel = () => {
       html = html.replace(/Rs\.?\s*150\s*\/?\s*-?\s*[Pp]er\s+[Dd]ay/g, `Rs. ${hostelLateFee}/- per day`);
       html = html.replace(/Rs\.?\s*150\s*[Pp]er\s+[Dd]ay/g, `Rs. ${hostelLateFee} Per Day`);
       html = html.replace(/150\s*\/?\s*-?\s*per\s+day/gi, `${hostelLateFee}/- per day`);
+    }
+    // Replace {{lateFeeRatePerDay}} placeholder (used in the installment template)
+    html = html.replace(/\{\{lateFeeRatePerDay\}\}/g, hostelLateFee > 0 ? String(hostelLateFee) : '150');
+
+    // ── Paid / Partial state handling ─────────────────────────────────────────
+    const isFullyPaid = challan.status === 'PAID' || challan.status === 'SETTLED' || balance <= 0;
+    const cellStyle = 'background-color: #e0e0e0; font-weight: bold;';
+
+    if (isFullyPaid) {
+      const paidRowsHtml = getHostelPaidRowsHtml(challan);
+
+      // Remove "Total Payable within due date" row
+      html = html.replace(/<tr[^>]*>\s*<td[^>]*>\s*Total Payable within due date\s*<\/td>\s*<td[^>]*>[\s\S]*?<\/td>\s*<\/tr>/gi, '');
+      html = html.replace(/<tr[^>]*>\s*<td[^>]*>[\s\S]*?<\/td>\s*<td[^>]*>\s*\{\{totalPayable\}\}\s*<\/td>\s*<\/tr>/gi, '');
+      html = html.replace(/\{\{totalPayable\}\}/g, '');
+      html = html.replace(/\{\{netPayable\}\}/g, '');
+      html = html.replace(/\{\{NET_PAYABLE\}\}/g, '');
+      html = html.replace(/\{\{amountInWords\}\}/g, numberToWords(Math.round(total)));
+      html = html.replace(/\{\{totalInWords\}\}/g, `<strong>${numberToWords(Math.round(total))}</strong>`);
+
+      // Replace late fee row with paid date and remarks.
+      html = html.replace(/<tr class="late-fee-row">[\s\S]*?<\/tr>/gi, paidRowsHtml);
+      html = html.replace(/<tr[^>]*>\s*<td[^>]*>\s*Late Fee Fine after due date\s*<\/td>\s*<td[^>]*>\s*Rs\.?\s*\d+[\s\S]*?Per\s+Day\s*<\/td>\s*<\/tr>/gi, paidRowsHtml);
+      html = html.replace(/\{\{lateFee\}\}/g, getHostelPaidRemarks(challan));
+      html = html.replace(
+        /<div class="signatures">[\s\S]*?<div class="sig-label">Depositor Signature<\/div>\s*<\/div>\s*<\/div>/gi,
+        getHostelPaidSystemNote()
+      );
+    } else {
+      html = html.replace(/<td>Total Payable within due date<\/td>/gi, `<td style="${cellStyle}">Total Payable within due date</td>`);
+      html = html.replace(/<td>\{\{totalPayable\}\}<\/td>/gi, `<td style="${cellStyle}">${balance.toLocaleString()}</td>`);
+      html = html.replace(/\{\{totalPayable\}\}/g, balance.toLocaleString());
+      html = html.replace(/\{\{netPayable\}\}/g, balance.toLocaleString());
+      html = html.replace(/\{\{NET_PAYABLE\}\}/g, balance.toLocaleString());
+      html = html.replace(/\{\{amountInWords\}\}/g, numberToWords(Math.round(balance)));
+      html = html.replace(/\{\{totalInWords\}\}/g, `<strong>${numberToWords(Math.round(balance))}</strong>`);
+      html = html.replace(/\{\{lateFee\}\}/g, effectiveLateFee.toLocaleString());
     }
 
     html = html.replace(
@@ -679,7 +816,10 @@ const Hostel = () => {
   };
 
   const handleStudentSelect = (student) => {
-    const isRegistered = hostelRegistrations.some(reg => reg.studentId === student.id);
+    // When editing, allow re-selecting the same student (their own registration)
+    const isRegistered = hostelRegistrations.some(reg =>
+      reg.studentId === student.id && reg.id !== editMode.reg
+    );
     if (isRegistered) {
       toast({ title: "Student is already registered", variant: "destructive" });
       return;
@@ -1035,14 +1175,14 @@ const Hostel = () => {
   // Expenses Over Time Data
   const expensesOverTimeData = useMemo(() => {
     const data = {};
-    hostelExpenses.forEach(expense => {
+    reportExpenses.forEach((expense) => {
       const date = new Date(expense.date);
       const monthYear = `${date.toLocaleString('default', { month: 'short' })} ${date.getFullYear()}`;
       if (!data[monthYear]) data[monthYear] = 0;
       data[monthYear] += expense.amount;
     });
     return Object.entries(data).map(([name, amount]) => ({ name, amount }));
-  }, [hostelExpenses]);
+  }, [reportExpenses]);
 
   const messPlansData = [{
     name: "Basic",
@@ -1063,10 +1203,10 @@ const Hostel = () => {
           <div>
             <h1 className="text-xl font-semibold flex items-center gap-2">
               <Home className="w-8 h-8 text-primary" />
-              Hostel Management
+              Boarding Management
             </h1>
             <p className="text-muted-foreground mt-1">
-              Manage rooms, students, mess, and hostel finances
+              Manage rooms, students, mess, and boarding finances
             </p>
           </div>
         </div>
@@ -1112,12 +1252,13 @@ const Hostel = () => {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 h-auto gap-1">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 h-auto gap-1">
             <TabsTrigger value="registration">Registration</TabsTrigger>
             <TabsTrigger value="rooms">Rooms</TabsTrigger>
             <TabsTrigger value="fees">Fees</TabsTrigger>
             <TabsTrigger value="expenses">Expenses</TabsTrigger>
             <TabsTrigger value="inventory">Inventory</TabsTrigger>
+            <TabsTrigger value="revenue">Reports</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
 
@@ -1125,7 +1266,7 @@ const Hostel = () => {
             <Card>
               <CardHeader>
                 <div className="flex justify-between items-center">
-                  <CardTitle>Hostel Registration</CardTitle>
+                  <CardTitle>Boarding Registration</CardTitle>
                   <Button onClick={() => {
                     setRegOpen(true);
                     clearStudentSelection();
@@ -1250,7 +1391,7 @@ const Hostel = () => {
                                   studentCnic: reg.studentCnic || "",
                                   address: reg.address || "",
                                   decidedFeePerMonth: reg.decidedFeePerMonth != null ? String(reg.decidedFeePerMonth) : "",
-                                  registrationDate: reg.registrationDate,
+                                  registrationDate: reg.registrationDate ? reg.registrationDate.split("T")[0] : new Date().toISOString().split("T")[0],
                                   roomId: studentRoom?.id ? String(studentRoom.id) : ""
                                 });
                                 if (reg.student) {
@@ -1310,41 +1451,6 @@ const Hostel = () => {
                   </div>                </div>
               </CardContent>
             </Card>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Room Occupancy (Seats)</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie data={roomOccupancyData} cx="50%" cy="50%" labelLine={false} label={entry => `${entry.name}: ${entry.value}`} outerRadius={80} fill="hsl(var(--primary))" dataKey="value">
-                        {roomOccupancyData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
-                      </Pie>
-                      <RechartsTooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Expenses Over Time</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={expensesOverTimeData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <RechartsTooltip />
-                      <Bar dataKey="amount" fill="hsl(var(--primary))" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            </div>
           </TabsContent>
 
           <TabsContent value="rooms" className="space-y-4">
@@ -1544,20 +1650,75 @@ const Hostel = () => {
           </TabsContent>
 
           <TabsContent value="fees" className="space-y-4">
-            {/* Header with bulk generate button */}
-            <div className="flex items-center justify-between">
-              <div />
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 flex-1 flex-wrap">
+                {/* Global search */}
+                <div className="relative min-w-[220px] flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search challan #, student name, roll..."
+                    value={allChallansSearch}
+                    onChange={e => { setAllChallansSearch(e.target.value); setAllChallansPage(1); setSelectedChallanReg(null); setChallanRegSearch(""); }}
+                    className="pl-9 h-9"
+                  />
+                </div>
+                {/* Status filter */}
+                <Select value={allChallansStatus} onValueChange={v => { setAllChallansStatus(v); setAllChallansPage(1); }}>
+                  <SelectTrigger className="w-[140px] h-9">
+                    <SelectValue placeholder="All Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="PENDING">Pending</SelectItem>
+                    <SelectItem value="PARTIAL">Partial</SelectItem>
+                    <SelectItem value="PAID">Paid</SelectItem>
+                    <SelectItem value="OVERDUE">Overdue</SelectItem>
+                    <SelectItem value="SUPERSEDED">Superseded</SelectItem>
+                    <SelectItem value="SETTLED">Settled</SelectItem>
+                  </SelectContent>
+                </Select>
+                {/* Student drill-down search */}
+                <div className="relative min-w-[200px]">
+                  
+                  {challanRegSearch && (
+                    <button className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => { setChallanRegSearch(""); setSelectedChallanReg(null); setChallanRegResults([]); }}>
+                      <X className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                  )}
+                  {/* Student search dropdown */}
+                  {challanRegResults.length > 0 && !selectedChallanReg && (
+                    <div className="absolute z-50 top-full mt-1 left-0 w-72 border rounded-md shadow-md bg-popover max-h-60 overflow-auto">
+                      {challanRegResults.map(reg => {
+                        const name = reg.student ? `${reg.student.fName} ${reg.student.lName || ''}`.trim() : reg.externalName;
+                        const sub = reg.student ? reg.student.rollNumber : `External · ${reg.id}`;
+                        return (
+                          <div key={reg.id} className="px-3 py-2 hover:bg-accent cursor-pointer border-b last:border-b-0"
+                            onClick={() => { setSelectedChallanReg(reg); setChallanRegSearch(name); setChallanRegResults([]); }}>
+                            <div className="font-medium text-sm">{name}</div>
+                            <div className="text-xs text-muted-foreground">{sub}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                {selectedChallanReg && (
+                  <Button size="sm" variant="outline" className="h-9" onClick={() => { setChallanRegSearch(""); setSelectedChallanReg(null); }}>
+                    <X className="mr-1 h-3 w-3" /> Clear filter
+                  </Button>
+                )}
+              </div>
               <Button onClick={async () => {
                 setBulkGenSearch("");
-                setBulkGenSelected(hostelRegistrations.map(r => r.id)); // select all by default
+                setBulkGenSelected(hostelRegistrations.map(r => r.id));
                 setBulkGenResults(hostelRegistrations);
                 setGenerateChallanOpen(true);
-                // Fetch challans for all registrations to show status in the list
                 const map = {};
                 await Promise.all(hostelRegistrations.map(async reg => {
                   try {
-                    const challans = await getHostelChallansByRegistration(reg.id);
-                    map[reg.id] = challans;
+                    const response = await getHostelChallansDedicated({ registrationId: reg.id });
+                    map[reg.id] = response.data;
                   } catch {}
                 }));
                 setBulkChallanMap(map);
@@ -1566,134 +1727,93 @@ const Hostel = () => {
               </Button>
             </div>
 
-            {/* Search bar */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Hostel Fee Challans</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by student name, roll number, or registration ID..."
-                    value={challanRegSearch}
-                    onChange={e => { setChallanRegSearch(e.target.value); if (!e.target.value) setSelectedChallanReg(null); }}
-                    className="pl-9"
-                  />
-                  {challanRegSearch && (
-                    <button className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => { setChallanRegSearch(""); setSelectedChallanReg(null); setChallanRegResults([]); }}>
-                      <X className="h-4 w-4 text-muted-foreground" />
-                    </button>
-                  )}
-                </div>
-                {/* Search results dropdown */}
-                {challanRegResults.length > 0 && !selectedChallanReg && (
-                  <div className="mt-1 border rounded-md shadow-md bg-popover max-h-60 overflow-auto">
-                    {challanRegResults.map(reg => {
-                      const name = reg.student ? `${reg.student.fName} ${reg.student.lName || ''}`.trim() : reg.externalName;
-                      const sub = reg.student ? reg.student.rollNumber : `External · ${reg.id}`;
-                      return (
-                        <div key={reg.id} className="px-3 py-2 hover:bg-accent cursor-pointer border-b last:border-b-0"
-                          onClick={() => { setSelectedChallanReg(reg); setChallanRegSearch(name); setChallanRegResults([]); }}>
-                          <div className="font-medium text-sm">{name}</div>
-                          <div className="text-xs text-muted-foreground">{sub} · {reg.student ? 'Internal' : 'External'} · PKR {Number(reg.decidedFeePerMonth||0).toLocaleString()}/mo</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {challanRegSearch.length >= 2 && challanRegResults.length === 0 && !selectedChallanReg && (
-                  <div className="mt-1 border rounded-md px-3 py-2 text-sm text-muted-foreground">No registrations found</div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Challan panel — shown after selection */}
+            {/* Per-student summary strip when filtered */}
             {selectedChallanReg && (() => {
               const reg = selectedChallanReg;
               const name = reg.student ? `${reg.student.fName} ${reg.student.lName || ''}`.trim() : reg.externalName;
-              const activeChallan = hostelChallans.find(c => c.status !== 'VOID' && c.status !== 'PAID');
               return (
-                <>
-                  {/* Registration summary */}
-                  <Card>
-                    <CardContent className="pt-4 pb-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-semibold">{name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {reg.student ? `Roll: ${reg.student.rollNumber}` : `Reg: ${reg.id}`} · Decided Fee: PKR {Number(reg.decidedFeePerMonth||0).toLocaleString()}/mo
-                          </div>
-                        </div>
-                        <Button size="sm" variant="outline" onClick={() => { setChallanRegSearch(""); setSelectedChallanReg(null); }}>
-                          <X className="mr-1 h-3 w-3" /> Clear
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                <div className="flex items-center gap-3 px-3 py-2 bg-primary/5 border border-primary/20 rounded-lg text-sm">
+                  <span className="font-semibold">{name}</span>
+                  <span className="text-muted-foreground">{reg.student ? `Roll: ${reg.student.rollNumber}` : `Reg: ${reg.id}`}</span>
+                  <span className="text-muted-foreground">· PKR {Number(reg.decidedFeePerMonth||0).toLocaleString()}/mo</span>
+                </div>
+              );
+            })()}
 
-                  {/* Challan table */}
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base">Challans</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="py-2 px-3 text-sm">Challan No</TableHead>
-                            <TableHead className="py-2 px-3 text-sm">Month</TableHead>
-                            <TableHead className="py-2 px-3 text-sm">Hostel Fee</TableHead>
-                            <TableHead className="py-2 px-3 text-sm">Fine</TableHead>
-                            <TableHead className="py-2 px-3 text-sm">Late Fee</TableHead>
-                            <TableHead className="py-2 px-3 text-sm">Arrears</TableHead>
-                            <TableHead className="py-2 px-3 text-sm">Total</TableHead>
-                            <TableHead className="py-2 px-3 text-sm">Paid</TableHead>
-                            <TableHead className="py-2 px-3 text-sm">Due Date</TableHead>
-                            <TableHead className="py-2 px-3 text-sm">Status</TableHead>
-                            <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {hostelChallans.length === 0 ? (
-                            <TableRow><TableCell colSpan={11} className="py-2 px-3 text-sm text-center text-muted-foreground">No challans generated yet.</TableCell></TableRow>
-                          ) : hostelChallans.map(c => {
-                            const effectiveLateFee = getEffectiveLateFee(c);
-                            const total = (c.hostelFee||0) + (c.fineAmount||0) + effectiveLateFee + (c.arrearsAmount||0) - (c.discount||0);
-                            const balance = Math.max(0, total - (c.paidAmount||0));
-                            const hasNewLateFee = effectiveLateFee > (c.lateFeeFine||0) && c.status !== 'PAID' && c.status !== 'VOID';
+            {/* Main challans table — all challans (paginated) or filtered by student */}
+            <Card>
+              <CardContent className="pt-4">
+                {(selectedChallanReg ? false : allChallansLoading) ? (
+                  <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+                ) : (
+                  <>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/50 hover:bg-muted/50">
+                          <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Challan No</TableHead>
+                          <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Student</TableHead>
+                          <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Month</TableHead>
+                          <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Heads</TableHead>
+                          <TableHead className="py-2 px-3 text-xs font-semibold text-foreground bg-slate-100">Total</TableHead>
+                          <TableHead className="py-2 px-3 text-xs font-semibold text-green-700 bg-green-50">Paid</TableHead>
+                          <TableHead className="py-2 px-3 text-xs font-semibold text-orange-700 bg-orange-50">Balance</TableHead>
+                          <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Due Date</TableHead>
+                          <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Status</TableHead>
+                          <TableHead className="py-2 px-3 text-xs font-semibold text-muted-foreground">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(() => {
+                          // Use per-student challans if a student is selected, otherwise use paginated all-challans
+                          const rows = selectedChallanReg ? hostelChallans : allChallans;
+                          const reg = selectedChallanReg;
+                          if (rows.length === 0) return (
+                            <TableRow><TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
+                              {selectedChallanReg ? "No challans for this student yet." : "No challans found."}
+                            </TableCell></TableRow>
+                          );
+                          return rows.map((c, idx) => {
+                            const total = getChallanTotalEffective(c);
+                            const paid = Number(c.paidAmount || 0);
+                            const balance = Math.max(0, total - paid);
+                            // Resolve student name for all-challans view
+                            const studentName = c.student
+                              ? `${c.student.fName} ${c.student.lName || ''}`.trim()
+                              : c.hostelRegistration?.externalName || c.hostelRegNumber;
+                            const rollNo = c.student?.rollNumber || '';
+                            // For actions, we need the registration object — use selectedChallanReg if available
+                            const challanReg = reg || { id: c.hostelRegNumber, student: c.student, externalName: c.hostelRegistration?.externalName, decidedFeePerMonth: c.hostelRegistration?.decidedFeePerMonth };
                             return (
-                              <TableRow key={c.id} className={c.status === 'VOID' ? 'opacity-50' : ''}>
+                              <TableRow key={c.id} className={`${idx % 2 === 1 ? 'bg-muted/20' : ''} ${c.status === 'VOID' || c.status === 'SUPERSEDED' ? 'opacity-50' : ''}`}>
                                 <TableCell className="py-2 px-3 text-sm font-medium">{c.challanNumber}</TableCell>
-                                <TableCell className="py-2 px-3 text-sm">{c.month}</TableCell>
-                                <TableCell className="py-2 px-3 text-sm">PKR {(c.hostelFee||0).toLocaleString()}</TableCell>
-                                <TableCell className="py-2 px-3 text-sm">{c.fineAmount > 0 ? `PKR ${c.fineAmount.toLocaleString()}` : '—'}</TableCell>
-                                <TableCell className={`py-2 px-3 text-sm ${effectiveLateFee > 0 ? 'text-red-600' : ''}`}>
-                                  {effectiveLateFee > 0 ? (
-                                    <div>
-                                      PKR {effectiveLateFee.toLocaleString()}
-                                      {hasNewLateFee && <div className="text-[9px] text-amber-600">accruing</div>}
-                                    </div>
-                                  ) : '—'}
+                                <TableCell className="py-2 px-3 text-sm">
+                                  <div className="font-medium text-sm">{studentName}</div>
+                                  {rollNo && <div className="text-xs text-muted-foreground">{rollNo}</div>}
                                 </TableCell>
-                                <TableCell className="py-2 px-3 text-sm">{c.arrearsAmount > 0 ? `PKR ${c.arrearsAmount.toLocaleString()}` : '—'}</TableCell>
-                                <TableCell className="py-2 px-3 text-sm font-bold">PKR {total.toLocaleString()}</TableCell>
-                                <TableCell className="py-2 px-3 text-sm text-green-600">PKR {(c.paidAmount||0).toLocaleString()}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">{c.month}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">
+                                  <div className="flex flex-col gap-0.5 max-w-[140px]">
+                                    {c.heads?.map((h, i) => (
+                                      <div key={i} className="flex justify-between text-[10px] text-muted-foreground gap-2">
+                                        <span className="truncate">{h.headName}</span>
+                                        <span>{Number(h.amount).toLocaleString()}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="py-2 px-3 text-sm font-bold bg-slate-50">PKR {total.toLocaleString()}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm text-green-600 font-semibold bg-green-50/50">PKR {paid.toLocaleString()}</TableCell>
+                                <TableCell className={`py-2 px-3 text-sm font-semibold bg-orange-50/50 ${balance > 0 ? 'text-orange-600' : 'text-green-600'}`}>PKR {balance.toLocaleString()}</TableCell>
                                 <TableCell className="py-2 px-3 text-sm">{c.dueDate ? new Date(c.dueDate).toLocaleDateString() : '—'}</TableCell>
                                 <TableCell className="py-2 px-3 text-sm">
                                   <div className="flex flex-col gap-0.5">
-                                    <Badge variant={c.status === 'PAID' ? 'default' : c.status === 'VOID' ? 'outline' : c.status === 'PARTIAL' ? 'warning' : 'secondary'}>
-                                      {c.status === 'VOID' ? 'Superseded' : c.status}
+                                    <Badge variant={c.status === 'PAID' ? 'default' : (c.status === 'VOID' || c.status === 'SUPERSEDED') ? 'outline' : c.status === 'PARTIAL' ? 'warning' : 'secondary'}>
+                                      {c.status}
                                     </Badge>
-                                    {c.status === 'VOID' && c.supersededBy && (
+                                    {c.status === 'SUPERSEDED' && c.supersededBy && (
                                       <div className="flex items-center gap-0.5 text-[9px] text-muted-foreground">
                                         <ArrowRight className="w-2.5 h-2.5" />
                                         <span>#{c.supersededBy.challanNumber}</span>
-                                      </div>
-                                    )}
-                                    {(c.status === 'PAID' || (c.status === 'VOID' && (c.settledAmount || 0) > 0)) && (
-                                      <div className="text-[9px] text-muted-foreground flex items-center gap-0.5">
-                                        <AlertCircle className="w-2.5 h-2.5" /> Locked
                                       </div>
                                     )}
                                   </div>
@@ -1702,7 +1822,7 @@ const Hostel = () => {
                                   <div className="flex gap-1">
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <Button size="sm" variant="outline" onClick={() => previewHostelChallan(c, reg)}>
+                                        <Button size="sm" variant="outline" onClick={() => previewHostelChallan(c, challanReg)}>
                                           <Eye className="h-4 w-4" />
                                         </Button>
                                       </TooltipTrigger>
@@ -1710,13 +1830,13 @@ const Hostel = () => {
                                     </Tooltip>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <Button size="sm" variant="outline" onClick={() => printHostelChallan(c, reg)}>
+                                        <Button size="sm" variant="outline" onClick={() => printHostelChallan(c, challanReg)}>
                                           <Printer className="h-4 w-4" />
                                         </Button>
                                       </TooltipTrigger>
                                       <TooltipContent>Print</TooltipContent>
                                     </Tooltip>
-                                    {c.status !== 'PAID' && c.status !== 'VOID' && (
+                                    {c.status !== 'PAID' && c.status !== 'VOID' && c.status !== 'SUPERSEDED' && c.status !== 'SETTLED' && (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <Button size="sm" variant="outline" className="text-green-600 border-green-300 hover:bg-green-50"
@@ -1727,16 +1847,22 @@ const Hostel = () => {
                                         <TooltipContent>Record Payment</TooltipContent>
                                       </Tooltip>
                                     )}
-                                    {c.status !== 'PAID' && (
+                                    {c.status !== 'PAID' && c.status !== 'SUPERSEDED' && c.status !== 'SETTLED' && (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <Button size="sm" variant="outline" onClick={() => {
                                             setEditingHostelChallan(c);
+                                            // Load existing heads — separate predefined (have feeHeadId) from custom
+                                            const existingHeads = c.heads || [];
+                                            const loadedCustomHeads = existingHeads
+                                              .filter(h => !h.feeHeadId && h.headName !== 'Hostel Fee' && h.headName !== 'Arrears')
+                                              .map(h => ({ headName: h.headName, amount: String(h.amount) }));
                                             setEditHostelChallanForm({
                                               fineAmount: String(c.fineAmount || ""),
                                               discount: String(c.discount || ""),
                                               remarks: c.remarks || "",
                                               dueDate: c.dueDate ? new Date(c.dueDate).toISOString().split('T')[0] : "",
+                                              heads: loadedCustomHeads.length > 0 ? loadedCustomHeads : [{ headName: "", amount: "" }],
                                             });
                                           }}>
                                             <Edit className="h-4 w-4" />
@@ -1757,23 +1883,32 @@ const Hostel = () => {
                                 </TableCell>
                               </TableRow>
                             );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                  </Card>
-                </>
-              );
-            })()}
+                          });
+                        })()}
+                      </TableBody>
+                    </Table>
 
-            {!selectedChallanReg && challanRegSearch.length < 2 && (
-              <Card>
-                <CardContent className="text-center py-16 text-muted-foreground">
-                  <Receipt className="w-12 h-12 mx-auto mb-4 opacity-30" />
-                  <p>Search for a student or registration to view and manage hostel fee challans</p>
-                </CardContent>
-              </Card>
-            )}
+                    {/* Pagination — only shown in all-challans mode */}
+                    {!selectedChallanReg && allChallansMeta.lastPage > 1 && (
+                      <div className="flex items-center justify-between mt-4 pt-3 border-t">
+                        <span className="text-xs text-muted-foreground">
+                          {allChallansMeta.total} total · page {allChallansPage} of {allChallansMeta.lastPage}
+                        </span>
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={allChallansPage <= 1} onClick={() => setAllChallansPage(p => p - 1)}>← Prev</Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={allChallansPage >= allChallansMeta.lastPage} onClick={() => setAllChallansPage(p => p + 1)}>Next →</Button>
+                        </div>
+                      </div>
+                    )}
+                    {!selectedChallanReg && (
+                      <div className="mt-2 text-xs text-muted-foreground text-right">
+                        Showing {allChallans.length} of {allChallansMeta.total} challans
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="inventory" className="space-y-4">
@@ -1847,10 +1982,190 @@ const Hostel = () => {
             </Card>
           </TabsContent>
 
+          <TabsContent value="revenue" className="space-y-4">
+            <div className="flex flex-col md:flex-row md:items-end gap-3 md:gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:ml-auto">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">From</Label>
+                  <Input
+                    type="date"
+                    value={revenueFromDate}
+                    onChange={(e) => setRevenueFromDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">To</Label>
+                  <Input
+                    type="date"
+                    value={revenueToDate}
+                    onChange={(e) => setRevenueToDate(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {revenueLoading ? (
+              <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+            ) : (
+              <>
+                {/* Summary cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader><CardTitle className="text-sm">Total Collected</CardTitle></CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold text-green-600">
+                        PKR {Math.round(revenueData?.totalCollected ?? 0).toLocaleString()}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader><CardTitle className="text-sm">Total Outstanding</CardTitle></CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold text-orange-600">
+                        PKR {Math.round(revenueData?.totalOutstanding ?? 0).toLocaleString()}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Occupancy + Expenses charts */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader><CardTitle>Room Occupancy (Seats)</CardTitle></CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={260}>
+                        <PieChart>
+                          <Pie data={roomOccupancyData} cx="50%" cy="50%" labelLine={false} label={entry => `${entry.name}: ${entry.value}`} outerRadius={80} fill="hsl(var(--primary))" dataKey="value">
+                            {roomOccupancyData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                          </Pie>
+                          <RechartsTooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader><CardTitle>Expenses Over Time</CardTitle></CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart data={expensesOverTimeData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <RechartsTooltip />
+                          <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[4,4,0,0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Monthly bar chart — zero-filled */}
+                <Card>
+                  <CardHeader><CardTitle>Monthly Collection</CardTitle></CardHeader>                  <CardContent>
+                    {(() => {
+                      const chartData = (revenueData?.monthlyBreakdown || []).map(m => ({
+                        month: m.month,
+                        collected: m.collected,
+                      }));
+
+                      return (
+                        <ResponsiveContainer width="100%" height={280}>
+                          <BarChart data={chartData} margin={{ bottom: 40 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <XAxis dataKey="month" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
+                            <YAxis tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} tick={{ fontSize: 11 }} />
+                            <RechartsTooltip formatter={(v) => [`PKR ${Number(v).toLocaleString()}`, 'Collected']} />
+                            <Bar dataKey="collected" fill="hsl(var(--primary))" radius={[4,4,0,0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+
+                {/* Per-student breakdown table */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Per-Student Breakdown</CardTitle>
+                    <div className="relative mt-2">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search by name or registration ID..."
+                        value={revenueSearch}
+                        onChange={e => setRevenueSearch(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/50 hover:bg-muted/50">
+                          {[
+                            { col: 'name', label: 'Student Name' },
+                            { col: 'registrationId', label: 'Registration ID' },
+                            { col: 'totalBilled', label: 'Total Billed' },
+                            { col: 'totalPaid', label: 'Total Paid' },
+                            { col: 'outstanding', label: 'Outstanding' },
+                          ].map(({ col, label }) => (
+                            <TableHead
+                              key={col}
+                              className="py-2 px-3 text-xs font-semibold cursor-pointer select-none hover:bg-accent"
+                              onClick={() => setRevenueSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' })}
+                            >
+                              {label} {revenueSort.col === col ? (revenueSort.dir === 'asc' ? '↑' : '↓') : ''}
+                            </TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(() => {
+                          const rows = (revenueData?.perStudent || [])
+                            .filter(row => {
+                              if (!revenueSearch) return true;
+                              const q = revenueSearch.toLowerCase();
+                              return (row.name || '').toLowerCase().includes(q) || (row.registrationId || '').toLowerCase().includes(q);
+                            })
+                            .sort((a, b) => {
+                              const { col, dir } = revenueSort;
+                              let av = a[col] ?? '';
+                              let bv = b[col] ?? '';
+                              if (typeof av === 'string') av = av.toLowerCase();
+                              if (typeof bv === 'string') bv = bv.toLowerCase();
+                              if (av < bv) return dir === 'asc' ? -1 : 1;
+                              if (av > bv) return dir === 'asc' ? 1 : -1;
+                              return 0;
+                            });
+                          if (rows.length === 0) return (
+                            <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No data available.</TableCell></TableRow>
+                          );
+                          return rows.map((row, idx) => {
+                            const outstanding = Math.round(row.outstanding ?? 0);
+                            return (
+                              <TableRow key={row.registrationId} className={idx % 2 === 1 ? 'bg-muted/20' : ''}>
+                                <TableCell className="py-2 px-3 text-sm font-medium">{row.name}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm font-mono text-xs">{row.registrationId}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm">PKR {Math.round(row.totalBilled ?? 0).toLocaleString()}</TableCell>
+                                <TableCell className="py-2 px-3 text-sm text-green-600 font-semibold">PKR {Math.round(row.totalPaid ?? 0).toLocaleString()}</TableCell>
+                                <TableCell className={`py-2 px-3 text-sm font-semibold ${outstanding > 0 ? "text-orange-600" : "text-green-600"}`}>
+                                  PKR {outstanding.toLocaleString()}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          });
+                        })()}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </TabsContent>
+
           <TabsContent value="settings" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Hostel Fee Settings</CardTitle>
+                <CardTitle>Boarding Fee Settings</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 max-w-sm">
                 <div className="space-y-1.5">
@@ -1893,10 +2208,11 @@ const Hostel = () => {
         }}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>{editMode.reg ? "Edit Hostel Registration" : "New Hostel Registration"}</DialogTitle>
+              <DialogTitle>{editMode.reg ? "Edit Boarding Registration" : "New Boarding Registration"}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              {/* Type toggle */}
+              {/* Type toggle — only shown when creating, not editing */}
+              {!editMode.reg && (
               <div className="flex bg-muted p-1 rounded-lg">
                 <button
                   className={cn(
@@ -1917,12 +2233,34 @@ const Hostel = () => {
                   External Student
                 </button>
               </div>
+              )}
+              {editMode.reg && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span className="px-2 py-1 rounded bg-muted font-medium text-foreground">
+                    {registrationType === "internal" ? "Internal Student" : "External Student"}
+                  </span>
+                  <span className="text-xs">— type cannot be changed after registration</span>
+                </div>
+              )}
 
               {/* Student identity section */}
               {registrationType === "internal" ? (
-                <div className="relative">
-                  <Label>Search Student (by name or roll number)</Label>
-                  <div className="relative">
+                editMode.reg && selectedStudent ? (
+                  // Edit mode — show read-only student info
+                  <div className="space-y-1.5">
+                    <Label>Student</Label>
+                    <div className="flex items-center gap-3 px-3 py-2.5 rounded-md border bg-muted/40">
+                      <div className="flex-1">
+                        <div className="font-medium text-sm">{selectedStudent.fName} {selectedStudent.lName || ''}</div>
+                        <div className="text-xs text-muted-foreground">Roll: {selectedStudent.rollNumber}{selectedStudent.program?.name ? ` · ${selectedStudent.program.name}` : ''}</div>
+                      </div>
+                      <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">Locked</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="relative space-y-0">
+                    <Label>Search Student (by name or roll number)</Label>
+                    <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       placeholder="Type to search..."
@@ -1944,7 +2282,10 @@ const Hostel = () => {
                     <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-60 overflow-auto">
                       {searchLoading && <div className="px-3 py-2 text-sm text-muted-foreground">Searching...</div>}
                       {!searchLoading && searchResults.map(student => {
-                        const isRegistered = hostelRegistrations.some(reg => reg.studentId === student.id);
+                        // When editing, the student's own registration should not be blocked
+                        const isRegistered = hostelRegistrations.some(reg =>
+                          reg.studentId === student.id && reg.id !== editMode.reg
+                        );
                         return (
                           <div
                             key={student.id}
@@ -1966,7 +2307,8 @@ const Hostel = () => {
                       No students found
                     </div>
                   )}
-                </div>
+                  </div>
+                )
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
@@ -1999,11 +2341,14 @@ const Hostel = () => {
                     <SelectContent>
                       {rooms.map(room => {
                         const isFull = room.currentOccupancy >= room.capacity;
-                        const isCurrentRoom = room.allocations?.some(a => a.studentId === Number(regFormData.studentId));
+                        // A room is the "current room" if the student/external is already allocated there
+                        const isCurrentRoom = registrationType === "internal"
+                          ? room.allocations?.some(a => a.studentId === Number(regFormData.studentId))
+                          : room.allocations?.some(a => a.externalName === regFormData.externalName);
                         const isDisabled = isFull && !isCurrentRoom;
                         return (
                           <SelectItem key={room.id} value={String(room.id)} disabled={isDisabled}>
-                            Room {room.roomNumber} ({room.roomType}) - {isFull ? "Full" : `${room.capacity - room.currentOccupancy} Available`}
+                            Room {room.roomNumber} ({room.roomType}) - {isCurrentRoom ? "Current Room" : isFull ? "Full" : `${room.capacity - room.currentOccupancy} Available`}
                           </SelectItem>
                         );
                       })}
@@ -2163,7 +2508,7 @@ const Hostel = () => {
         }}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{editMode.expense ? "Edit" : "Add"} Hostel Expense</DialogTitle>
+              <DialogTitle>{editMode.expense ? "Edit" : "Add"} Boarding Expense</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div>
@@ -2255,132 +2600,13 @@ const Hostel = () => {
           </DialogContent>
         </Dialog>
 
-        {/* External Challan Dialog */}
-        <Dialog open={challanOpen} onOpenChange={open => { setChallanOpen(open); if (!open) setEditingChallan(null); }}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{editingChallan ? "Edit" : "Create"} Fee Challan</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Amount (PKR) *</Label>
-                  <Input type="number" value={challanFormData.amount} onChange={e => setChallanFormData({ ...challanFormData, amount: e.target.value })} placeholder="0" />
-                </div>
-                <div>
-                  <Label>Month</Label>
-                  <Input value={challanFormData.month} onChange={e => setChallanFormData({ ...challanFormData, month: e.target.value })} placeholder="e.g. January 2026" />
-                </div>
-                <div>
-                  <Label>Due Date *</Label>
-                  <Input type="date" value={challanFormData.dueDate} onChange={e => setChallanFormData({ ...challanFormData, dueDate: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Discount (PKR)</Label>
-                  <Input type="number" value={challanFormData.discount} onChange={e => setChallanFormData({ ...challanFormData, discount: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Fine Amount (PKR)</Label>
-                  <Input type="number" value={challanFormData.fineAmount} onChange={e => setChallanFormData({ ...challanFormData, fineAmount: e.target.value })} />
-                </div>
-              </div>
-              <div>
-                <Label>Fee Heads (optional)</Label>
-                <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2 mt-1">
-                  {feeHeads.map(head => {
-                    const isSelected = challanFormData.selectedHeads.some(h => h.id === head.id);
-                    return (
-                      <label key={head.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={e => {
-                            if (e.target.checked) {
-                              setChallanFormData({ ...challanFormData, selectedHeads: [...challanFormData.selectedHeads, { id: head.id, name: head.name, amount: head.amount, isSelected: true, type: 'additional' }] });
-                            } else {
-                              setChallanFormData({ ...challanFormData, selectedHeads: challanFormData.selectedHeads.filter(h => h.id !== head.id) });
-                            }
-                          }}
-                        />
-                        {head.name} — PKR {head.amount}
-                      </label>
-                    );
-                  })}
-                  {feeHeads.length === 0 && <p className="text-xs text-muted-foreground">No fee heads configured</p>}
-                </div>
-              </div>
-              <div>
-                <Label>Remarks</Label>
-                <Textarea value={challanFormData.remarks} onChange={e => setChallanFormData({ ...challanFormData, remarks: e.target.value })} rows={2} />
-              </div>
-              {editingChallan && (
-                <div>
-                  <Label>Status</Label>
-                  <Select value={editingChallan.status} onValueChange={val => setEditingChallan({ ...editingChallan, status: val })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="PENDING">Pending</SelectItem>
-                      <SelectItem value="PAID">Paid</SelectItem>
-                      <SelectItem value="PARTIAL">Partial</SelectItem>
-                      <SelectItem value="OVERDUE">Overdue</SelectItem>
-                      <SelectItem value="VOID">Void</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <Button variant="outline" onClick={() => setChallanOpen(false)}>Cancel</Button>
-              <Button onClick={async () => {
-                if (!challanFormData.amount || !challanFormData.dueDate) {
-                  toast({ title: "Amount and due date are required", variant: "destructive" });
-                  return;
-                }
-                try {
-                  if (editingChallan) {
-                    await updateExternalChallan(editingChallan.id, {
-                      amount: Number(challanFormData.amount),
-                      discount: Number(challanFormData.discount),
-                      fineAmount: Number(challanFormData.fineAmount),
-                      dueDate: challanFormData.dueDate,
-                      month: challanFormData.month,
-                      remarks: challanFormData.remarks,
-                      selectedHeads: challanFormData.selectedHeads,
-                      status: editingChallan.status,
-                    });
-                    toast({ title: "Challan updated" });
-                  } else {
-                    await createExternalChallan({
-                      registrationId: selectedExternalReg,
-                      amount: Number(challanFormData.amount),
-                      discount: Number(challanFormData.discount),
-                      fineAmount: Number(challanFormData.fineAmount),
-                      dueDate: challanFormData.dueDate,
-                      month: challanFormData.month,
-                      remarks: challanFormData.remarks,
-                      selectedHeads: challanFormData.selectedHeads,
-                    });
-                    toast({ title: "Challan created" });
-                  }
-                  refetchExternalChallans();
-                  setChallanOpen(false);
-                  setEditingChallan(null);
-                } catch (error) {
-                  toast({ title: error.message || "Failed to save challan", variant: "destructive" });
-                }
-              }}>
-                {editingChallan ? "Update" : "Create"} Challan
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
 
       {/* Generate Hostel Challans — Bulk Dialog */}
       <Dialog open={generateChallanOpen} onOpenChange={open => { setGenerateChallanOpen(open); if (!open) setBulkGenSearch(""); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Generate Hostel Fee Challans</DialogTitle>
+            <DialogTitle>Generate Boarding Fee Challans</DialogTitle>
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-4 flex-shrink-0">
@@ -2402,23 +2628,86 @@ const Hostel = () => {
               <Input type="date" value={generateChallanForm.dueDate}
                 onChange={e => setGenerateChallanForm(f => ({ ...f, dueDate: e.target.value }))} />
             </div>
-            {/* Fine */}
-            <div className="space-y-1.5">
-              <Label>Fine / Additional (PKR) <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input type="number" min={0} placeholder="0" value={generateChallanForm.fineAmount}
-                onChange={e => setGenerateChallanForm(f => ({ ...f, fineAmount: e.target.value }))} />
+          </div>
+
+          <div className="space-y-3 flex-shrink-0">
+            <div>
+              <Label className="text-xs">Predefined Fee Heads</Label>
+              <div className="grid grid-cols-2 gap-2 mt-1 border rounded p-2 max-h-32 overflow-y-auto">
+                {feeHeads.map(head => (
+                  <label key={head.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={generateChallanForm.selectedFeeHeadIds.includes(head.id)}
+                      onChange={e => {
+                        const ids = e.target.checked
+                          ? [...generateChallanForm.selectedFeeHeadIds, head.id]
+                          : generateChallanForm.selectedFeeHeadIds.filter(id => id !== head.id);
+                        setGenerateChallanForm({ ...generateChallanForm, selectedFeeHeadIds: ids });
+                      }}
+                    />
+                    <span className="truncate">{head.name} (PKR {head.amount})</span>
+                  </label>
+                ))}
+              </div>
             </div>
-            {/* Discount */}
+
+            <div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Custom / Ad-hoc Heads</Label>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => setGenerateChallanForm({ ...generateChallanForm, customHeads: [...generateChallanForm.customHeads, { headName: "", amount: "" }] })}>
+                  <Plus className="w-3 h-3 mr-1" /> Add Head
+                </Button>
+              </div>
+              <div className="space-y-2 mt-1 max-h-32 overflow-y-auto pr-1">
+                {generateChallanForm.customHeads.map((ch, idx) => (
+                  <div key={idx} className="flex gap-2 items-start">
+                    <Input
+                      placeholder="Head Name"
+                      className="h-8 text-xs"
+                      value={ch.headName}
+                      onChange={e => {
+                        const newHeads = [...generateChallanForm.customHeads];
+                        newHeads[idx].headName = e.target.value;
+                        setGenerateChallanForm({ ...generateChallanForm, customHeads: newHeads });
+                      }}
+                    />
+                    <Input
+                      placeholder="Amount"
+                      type="number"
+                      className="h-8 text-xs w-24"
+                      value={ch.amount}
+                      onChange={e => {
+                        const newHeads = [...generateChallanForm.customHeads];
+                        newHeads[idx].amount = e.target.value;
+                        setGenerateChallanForm({ ...generateChallanForm, customHeads: newHeads });
+                      }}
+                    />
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive" onClick={() => {
+                      const newHeads = generateChallanForm.customHeads.filter((_, i) => i !== idx);
+                      setGenerateChallanForm({ ...generateChallanForm, customHeads: newHeads });
+                    }}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="space-y-1.5">
-              <Label>Discount (PKR) <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input type="number" min={0} placeholder="0" value={generateChallanForm.discount}
-                onChange={e => setGenerateChallanForm(f => ({ ...f, discount: e.target.value }))} />
+              <Label className="text-xs">Remarks</Label>
+              <Textarea
+                placeholder="Optional remarks..."
+                className="h-16 text-xs"
+                value={generateChallanForm.remarks}
+                onChange={e => setGenerateChallanForm({ ...generateChallanForm, remarks: e.target.value })}
+              />
             </div>
           </div>
 
           {hostelLateFee > 0 && (
             <div className="text-xs text-muted-foreground bg-muted rounded p-2 flex-shrink-0">
-              Late fee: PKR {hostelLateFee}/day — au if due date has passed
+              Late fee: PKR {hostelLateFee}/day — applied automatically if due date has passed
             </div>
           )}
 
@@ -2501,25 +2790,84 @@ const Hostel = () => {
                   ? new Date(reg.registrationDate).toLocaleString('default', { month: 'long', year: 'numeric' })
                   : '';
 
+                // Last Challan: most recent non-VOID challan
+                const lastChallan = [...regChallans]
+                  .filter(c => c.status !== 'VOID')
+                  .sort((a, b) => new Date(b.generatedAt || b.createdAt) - new Date(a.generatedAt || a.createdAt))[0] || null;
+
+                // Arrears: Σ(totalAmount - paidAmount) for PENDING/PARTIAL challans
+                const arrearsTotal = regChallans
+                  .filter(c => c.status === 'PENDING' || c.status === 'PARTIAL')
+                  .reduce((sum, c) => sum + Math.max(0, getChallanTotalEffective(c) - Number(c.paidAmount || 0)), 0);
+
+                // Duplicate check: non-VOID challan already exists for this month → block generation
+                const isDuplicate = !!monthChallan && monthChallan.status !== 'SUPERSEDED';
+
+                // Expected total for this student
+                const predefinedHeadsTotal = generateChallanForm.selectedFeeHeadIds.reduce((sum, id) => {
+                  const h = feeHeads.find(fh => fh.id === id);
+                  return sum + (h ? Number(h.amount) : 0);
+                }, 0);
+                const customHeadsTotal = generateChallanForm.customHeads
+                  .filter(h => h.headName && h.amount)
+                  .reduce((sum, h) => sum + Number(h.amount), 0);
+                const baseFee = Number(reg.decidedFeePerMonth || 0);
+                const expectedTotal = baseFee + predefinedHeadsTotal + customHeadsTotal + arrearsTotal;
+
                 return (
-                  <label key={reg.id} className={`flex items-center gap-3 px-3 py-2 border-b last:border-b-0 ${isBeforeRegistration ? 'opacity-50 cursor-not-allowed bg-muted/30' : 'hover:bg-accent cursor-pointer'}`}>
+                  <label key={reg.id} className={`flex items-start gap-3 px-3 py-2 border-b last:border-b-0 ${isBeforeRegistration || isDuplicate ? 'opacity-50 cursor-not-allowed bg-muted/30' : 'hover:bg-accent cursor-pointer'}`}>
                     <input
                       type="checkbox"
-                      checked={checked && !isBeforeRegistration}
-                      disabled={isBeforeRegistration}
-                      onChange={e => !isBeforeRegistration && setBulkGenSelected(prev =>
+                      checked={checked && !isBeforeRegistration && !isDuplicate}
+                      disabled={isBeforeRegistration || isDuplicate}
+                      onChange={e => !isBeforeRegistration && !isDuplicate && setBulkGenSelected(prev =>
                         e.target.checked ? [...prev, reg.id] : prev.filter(id => id !== reg.id)
                       )}
-                      className="h-4 w-4"
+                      className="h-4 w-4 mt-1"
                     />
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm truncate">{name}</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-medium text-sm truncate">{name}</div>
+                        {/* Expected total */}
+                        {!isDuplicate && !isBeforeRegistration && (
+                          <span className="text-xs font-semibold text-foreground shrink-0">
+                            PKR {Math.round(expectedTotal).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-muted-foreground">{sub} · {reg.student ? 'Internal' : 'External'} · PKR {Number(reg.decidedFeePerMonth||0).toLocaleString()}/mo</span>
                         {challanStatusBadge}
+                        {isDuplicate && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded leading-none bg-orange-100 text-orange-700">
+                            Already generated · {selectedMonthLabel}
+                          </span>
+                        )}
                         {isBeforeRegistration && (
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded leading-none bg-red-100 text-red-700">
                             Registered {regMonthLabel}
+                          </span>
+                        )}
+                      </div>
+                      {/* Last Challan + Arrears info */}
+                      <div className="flex items-center gap-3 mt-1 flex-wrap">
+                        {lastChallan ? (
+                          <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                            Last: {lastChallan.month} ·{' '}
+                            <span className={`font-semibold px-1 py-0.5 rounded leading-none ${
+                              lastChallan.status === 'PAID' ? 'bg-green-100 text-green-700' :
+                              lastChallan.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
+                              lastChallan.status === 'SUPERSEDED' ? 'bg-gray-100 text-gray-500' :
+                              'bg-blue-100 text-blue-700'
+                            }`}>{lastChallan.status}</span>
+                            {' '}· {new Date(lastChallan.generatedAt || lastChallan.createdAt).toLocaleDateString()}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground italic">No previous challan</span>
+                        )}
+                        {arrearsTotal > 0 && (
+                          <span className="text-[10px] font-semibold text-amber-600">
+                            Arrears: PKR {Math.round(arrearsTotal).toLocaleString()}
                           </span>
                         )}
                       </div>
@@ -2537,40 +2885,42 @@ const Hostel = () => {
           <div className="flex justify-end gap-2 flex-shrink-0 pt-2 border-t">
             <Button variant="outline" onClick={() => setGenerateChallanOpen(false)}>Cancel</Button>
             <Button
-              disabled={createChallanMutation.isPending || bulkGenSelected.length === 0}
+              disabled={isBulkGenerating || bulkGenSelected.length === 0}
               onClick={async () => {
                 if (!generateChallanForm.monthValue || !generateChallanForm.dueDate) {
                   toast({ title: "Month and due date are required", variant: "destructive" }); return;
                 }
+                setIsBulkGenerating(true);
                 const monthLabel = monthValueToLabel(generateChallanForm.monthValue);
                 let success = 0, failed = 0;
                 for (const regId of bulkGenSelected) {
                   try {
-                    await createHostelChallan({
-                      registrationId: regId,
+                    await createHostelChallanDedicated({
+                      hostelRegNumber: regId,
                       month: monthLabel,
                       dueDate: generateChallanForm.dueDate,
-                      fineAmount: generateChallanForm.fineAmount ? Number(generateChallanForm.fineAmount) : 0,
-                      discount: generateChallanForm.discount ? Number(generateChallanForm.discount) : 0,
+                      feeHeadIds: generateChallanForm.selectedFeeHeadIds,
+                      heads: generateChallanForm.customHeads.filter(h => h.headName && h.amount).map(h => ({ headName: h.headName, amount: Number(h.amount) })),
                       remarks: generateChallanForm.remarks || undefined,
                     });
                     success++;
                   } catch { failed++; }
                 }
-                queryClient.invalidateQueries({ queryKey: ['hostelChallans'] });
+                setIsBulkGenerating(false);
+                invalidateAllChallanQueries();
                 if (selectedChallanReg) queryClient.invalidateQueries({ queryKey: ['hostelChallans', selectedChallanReg.id] });
                 setGenerateChallanOpen(false);
                 setBulkGenSearch("");
                 toast({ title: `${success} challan(s) generated${failed > 0 ? `, ${failed} failed` : ''}`, variant: failed > 0 ? 'destructive' : 'default' });
               }}
             >
-              Generate {bulkGenSelected.length > 0 ? `(${bulkGenSelected.length})` : ''}
+              {isBulkGenerating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating...</> : `Generate${bulkGenSelected.length > 0 ? ` (${bulkGenSelected.length})` : ''}`}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Pay Hostel Challan Dialog */}
+      {/* Pay Boarding Challan Dialog */}
       <Dialog open={payHostelChallanOpen} onOpenChange={setPayHostelChallanOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -2603,21 +2953,27 @@ const Hostel = () => {
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setPayHostelChallanOpen(false)}>Cancel</Button>
-            <Button disabled={updateChallanMutation.isPending} onClick={() => {
+            <Button disabled={updateChallanMutation.isPending} onClick={async () => {
               if (!payHostelAmount) { toast({ title: "Amount is required", variant: "destructive" }); return; }
-              const effectiveLF = getEffectiveLateFee(payingChallan);
-              updateChallanMutation.mutate({ id: payingChallan.id, dto: {
-                paidAmount: Number(payHostelAmount),
-                paidDate: payHostelDate,
-                // Lock in the accrued late fee at payment time
-                ...(effectiveLF > (payingChallan.lateFeeFine || 0) ? { lateFeeFine: effectiveLF } : {}),
-              }});
+              try {
+                await recordHostelPayment(payingChallan.id, {
+                  amount: Number(payHostelAmount),
+                  paymentMode: 'Cash',
+                  paidDate: payHostelDate,
+                });
+                invalidateAllChallanQueries();
+                setPayHostelChallanOpen(false);
+                setPayingChallan(null);
+                toast({ title: "Payment recorded" });
+              } catch (e) {
+                toast({ title: e.message || "Failed to record payment", variant: "destructive" });
+              }
             }}>Record Payment</Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Hostel Challan Preview Dialog */}
+      {/* Boarding Challan Preview Dialog */}
       <Dialog open={challanPreviewOpen} onOpenChange={setChallanPreviewOpen}>
         <DialogContent className="max-w-3xl h-[90vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-3 flex-shrink-0">
@@ -2648,9 +3004,9 @@ const Hostel = () => {
 
       {/* Edit Hostel Challan Dialog */}
       <Dialog open={!!editingHostelChallan} onOpenChange={open => { if (!open) setEditingHostelChallan(null); }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Hostel Challan</DialogTitle>
+            <DialogTitle>Edit Boarding Challan</DialogTitle>
           </DialogHeader>
           {editingHostelChallan && (
             <div className="text-sm text-muted-foreground mb-2">
@@ -2664,15 +3020,53 @@ const Hostel = () => {
                 onChange={e => setEditHostelChallanForm(f => ({ ...f, dueDate: e.target.value }))} />
             </div>
             <div>
-              <Label>Fine / Additional Amount (PKR)</Label>
-              <Input type="number" min={0} placeholder="0" value={editHostelChallanForm.fineAmount}
-                onChange={e => setEditHostelChallanForm(f => ({ ...f, fineAmount: e.target.value }))} />
-            </div>
-            <div>
               <Label>Discount (PKR)</Label>
               <Input type="number" min={0} placeholder="0" value={editHostelChallanForm.discount}
                 onChange={e => setEditHostelChallanForm(f => ({ ...f, discount: e.target.value }))} />
             </div>
+
+            {/* Custom / additional heads */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <Label className="text-xs">Additional Heads</Label>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]"
+                  onClick={() => setEditHostelChallanForm(f => ({ ...f, heads: [...(f.heads || []), { headName: "", amount: "" }] }))}>
+                  <Plus className="w-3 h-3 mr-1" /> Add Head
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {(editHostelChallanForm.heads || []).map((h, idx) => (
+                  <div key={idx} className="flex gap-2 items-center">
+                    <Input
+                      placeholder="Head Name"
+                      className="h-8 text-xs flex-1"
+                      value={h.headName}
+                      onChange={e => {
+                        const updated = [...editHostelChallanForm.heads];
+                        updated[idx] = { ...updated[idx], headName: e.target.value };
+                        setEditHostelChallanForm(f => ({ ...f, heads: updated }));
+                      }}
+                    />
+                    <Input
+                      placeholder="Amount"
+                      type="number"
+                      className="h-8 text-xs w-24"
+                      value={h.amount}
+                      onChange={e => {
+                        const updated = [...editHostelChallanForm.heads];
+                        updated[idx] = { ...updated[idx], amount: e.target.value };
+                        setEditHostelChallanForm(f => ({ ...f, heads: updated }));
+                      }}
+                    />
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive shrink-0"
+                      onClick={() => setEditHostelChallanForm(f => ({ ...f, heads: f.heads.filter((_, i) => i !== idx) }))}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div>
               <Label>Remarks</Label>
               <Input placeholder="Optional remarks" value={editHostelChallanForm.remarks}
@@ -2693,14 +3087,17 @@ const Hostel = () => {
               disabled={updateChallanMutation.isPending}
               onClick={() => {
                 const newLateFee = calculateHostelLateFee(editHostelChallanForm.dueDate);
+                const validHeads = (editHostelChallanForm.heads || [])
+                  .filter(h => h.headName && h.amount)
+                  .map(h => ({ headName: h.headName, amount: Number(h.amount) }));
                 updateChallanMutation.mutate({
                   id: editingHostelChallan.id,
                   dto: {
                     dueDate: editHostelChallanForm.dueDate || undefined,
-                    fineAmount: editHostelChallanForm.fineAmount !== "" ? Number(editHostelChallanForm.fineAmount) : undefined,
                     discount: editHostelChallanForm.discount !== "" ? Number(editHostelChallanForm.discount) : undefined,
                     remarks: editHostelChallanForm.remarks || undefined,
                     ...(newLateFee > 0 ? { lateFeeFine: newLateFee } : {}),
+                    ...(validHeads.length > 0 ? { heads: validHeads } : {}),
                   },
                 });
                 setEditingHostelChallan(null);
@@ -2712,7 +3109,7 @@ const Hostel = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Hostel Challan Confirmation */}
+      {/* Delete Boarding Challan Confirmation */}
       <AlertDialog open={challanDeleteConfirmOpen} onOpenChange={setChallanDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -2886,14 +3283,14 @@ const Hostel = () => {
           {terminateReg && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                You are terminating the hostel registration for <span className="font-semibold text-foreground">
+                You are terminating the boarding registration for <span className="font-semibold text-foreground">
                   {terminateReg.student ? `${terminateReg.student.fName} ${terminateReg.student.lName || ''}`.trim() : terminateReg.externalName}
                 </span>. This marks them as expelled. Please state the reason.
               </p>
               <div className="space-y-1.5">
                 <Label>Reason for Termination <span className="text-destructive">*</span></Label>
                 <Textarea
-                  placeholder="e.g. Violation of hostel rules, disciplinary action..."
+                  placeholder="e.g. Violation of boarding rules, disciplinary action..."
                   value={terminateReason}
                   onChange={e => setTerminateReason(e.target.value)}
                   rows={3}
@@ -2966,7 +3363,7 @@ const Hostel = () => {
               <span>
                 You are readmitting <span className="font-semibold text-foreground">
                   {readmitReg?.student ? `${readmitReg.student.fName} ${readmitReg.student.lName || ''}`.trim() : readmitReg?.externalName}
-                </span> back to the hostel.
+                </span> back to boarding.
               </span>
               {readmitReg?.status === 'terminated' && readmitReg?.terminationReason && getLastTerminationReason(readmitReg.terminationReason) && (
                 <span className="block text-xs text-red-600 mt-1">
@@ -2999,4 +3396,4 @@ const Hostel = () => {
   );
 };
 
-export default Hostel;
+export default Boarding;

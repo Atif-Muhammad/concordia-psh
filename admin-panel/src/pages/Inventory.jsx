@@ -1,6 +1,5 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { useData } from "@/contexts/DataContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     getSchoolInventoryItems,
@@ -29,7 +28,6 @@ import { Badge } from "../components/ui/badge";
 
 const Inventory = () => {
     const queryClient = useQueryClient();
-    const { addFinanceExpense } = useData();
 
     // Queries
     const { data: schoolInventory = [], isLoading: isLoadingInventory } = useQuery({
@@ -190,12 +188,6 @@ const Inventory = () => {
 
         createItemMutation.mutate(newItem);
 
-        addFinanceExpense({
-            date: formData.purchaseDate,
-            category: "Inventory Purchase",
-            description: `${formData.itemName} - ${formData.quantity} units from ${formData.supplier}`,
-            amount: totalValue
-        });
     };
 
     const handleEditItem = () => {
@@ -247,12 +239,6 @@ const Inventory = () => {
 
         createExpenseMutation.mutate(newExpense);
 
-        addFinanceExpense({
-            date: expenseData.date,
-            category: `Inventory ${expenseData.expenseType}`,
-            description: `${selectedItem.itemName} - ${expenseData.description}`,
-            amount: expenseData.amount
-        });
     };
 
     const handleDeleteItem = id => {

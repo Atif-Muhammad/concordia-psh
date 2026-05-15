@@ -62,8 +62,9 @@ export class FinanceController {
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
     @Query('category') category?: string,
+    @Query('subCategory') subCategory?: string,
   ) {
-    return this.financeService.getExpenses({ dateFrom, dateTo, category });
+    return this.financeService.getExpenses({ dateFrom, dateTo, category, subCategory });
   }
 
   @Patch('expense/:id')
@@ -89,8 +90,9 @@ export class FinanceController {
   getClosings(
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('type') type?: string,
   ) {
-    return this.financeService.getClosings({ dateFrom, dateTo });
+    return this.financeService.getClosings({ dateFrom, dateTo, type });
   }
 
   @Patch('closing/:id')

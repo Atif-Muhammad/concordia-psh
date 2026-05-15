@@ -17,6 +17,9 @@ export function validateCurrentTab(tab, formData, isEditing) {
     if (!formData.email || !String(formData.email).trim()) {
       errors.email = "Email is required";
     }
+    if (!formData.designation || !String(formData.designation).trim()) {
+      errors.designation = "Designation is required";
+    }
     if (!isEditing && (!formData.password || !String(formData.password).trim())) {
       errors.password = "Password is required";
     }

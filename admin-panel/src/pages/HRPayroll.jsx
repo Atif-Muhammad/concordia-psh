@@ -1,4 +1,4 @@
-import DashboardLayout from "@/components/DashboardLayout";
+﻿import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import PayrollManagementDialog from "@/components/PayrollManagementDialog";
 import LeavesManagementDialog from "@/components/LeavesManagementDialog";
@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useState, useMemo } from "react";
-import { UserPlus, Edit, Trash2, DollarSign, Calendar as CalendarIcon, CheckCircle2, XCircle, TrendingUp, Users, IdCard, Settings, UserCheck, Clock, Eye, Wallet } from "lucide-react";
+import { UserPlus, Edit, Trash2, DollarSign, Calendar as CalendarIcon, CheckCircle2, XCircle, TrendingUp, Users, IdCard, Settings, UserCheck, Clock, Eye, Wallet, LockKeyhole } from "lucide-react";
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -20,7 +20,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff, getProgramNames, getAttendanceSkips, deleteAttendanceSkip } from "../../config/apis";
+import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff, getProgramNames, getAttendanceSkips, deleteAttendanceSkip, getStaffAttendance, markStaffAttendance, markDateAsHoliday, getHrLeavesReport, getHrPayrollReport, getHrAdvanceReport, getHrStaffAttendanceReport, getHrDepartmentsReport } from "../../config/apis";
 import { Loader2, ChevronsUpDown } from "lucide-react";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { calculateDuration } from "../lib/dateUtils";
@@ -42,6 +42,9 @@ const HRPayroll = () => {
   const [idCardOpen, setIdCardOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [staffAttendanceDate, setStaffAttendanceDate] = useState(new Date().toISOString().split("T")[0]);
+  const [staffAttendanceRole, setStaffAttendanceRole] = useState("all");
+  const [staffAttendanceChanges, setStaffAttendanceChanges] = useState({});
   const [editingAdvance, setEditingAdvance] = useState(null);
   const [idCardTemplate, setIdCardTemplate] = useState("");
   const [viewEmployeeOpen, setViewEmployeeOpen] = useState(false);
@@ -50,6 +53,7 @@ const HRPayroll = () => {
   const [advanceRoleFilter, setAdvanceRoleFilter] = useState("all");
   const [advanceStaffSearch, setAdvanceStaffSearch] = useState("");
   const [advanceComboOpen, setAdvanceComboOpen] = useState(false);
+  
 
   const handleIDCardPreview = async (employee) => {
     try {
@@ -89,12 +93,32 @@ const HRPayroll = () => {
   const [payrollMonth, setPayrollMonth] = useState(new Date().toISOString().slice(0, 7));
   const [payrollType, setPayrollType] = useState("employee");
   const [payrollData, setPayrollData] = useState([]);
+  const [reportsMonth, setReportsMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [reportsDate, setReportsDate] = useState(new Date().toISOString().split("T")[0]);
 
   // All staff for the stats card
   const { data: allStaffData = [] } = useQuery({
     queryKey: ["allStaffStats"],
     queryFn: () => getAllStaff({ status: "ACTIVE" }),
   });
+
+  const advanceStaffOptions = useMemo(() => {
+    const unique = new Map();
+    (allStaffData || []).forEach((s) => {
+      if (!s?.id || unique.has(s.id)) return;
+      const name = String(s.name || "").trim();
+      if (!name) return;
+      const role = s.isTeaching && s.isNonTeaching ? "Dual" : s.isTeaching ? "Teaching" : "Non-Teaching";
+      const roleDetail = s.designation || "Staff";
+      unique.set(s.id, {
+        id: s.id,
+        label: `${name} - ${role} - ${roleDetail}`,
+        searchText: `${name} ${role} ${roleDetail}`.toLowerCase(),
+      });
+    });
+    return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [allStaffData]);
+
 
   const staffStats = (() => {
     const total = allStaffData.length;
@@ -121,6 +145,149 @@ const HRPayroll = () => {
   })();
 
   const queryClient = useQueryClient();
+
+  const { data: staffAttendanceRows = [], isFetching: staffAttendanceLoading, refetch: refetchStaffAttendance } = useQuery({
+    queryKey: ["staffAttendance", staffAttendanceDate, staffAttendanceRole],
+    queryFn: () => getStaffAttendance(staffAttendanceDate, staffAttendanceRole),
+    enabled: activeTab === "attendance",
+  });
+
+  const { data: reportsLeaves = [], isFetching: reportsLeavesLoading } = useQuery({
+    queryKey: ["hrReportsLeaves", reportsMonth],
+    queryFn: () => getHrLeavesReport(reportsMonth),
+    enabled: activeTab === "reports",
+  });
+
+  const { data: reportsPayroll = [], isFetching: reportsPayrollLoading } = useQuery({
+    queryKey: ["hrReportsPayroll", reportsMonth],
+    queryFn: () => getHrPayrollReport(reportsMonth),
+    enabled: activeTab === "reports",
+  });
+
+  const { data: reportsAdvance = [], isFetching: reportsAdvanceLoading } = useQuery({
+    queryKey: ["hrReportsAdvance", reportsMonth],
+    queryFn: () => getHrAdvanceReport(reportsMonth),
+    enabled: activeTab === "reports",
+  });
+
+  const { data: reportsStaffAttendance = [], isFetching: reportsStaffAttendanceLoading } = useQuery({
+    queryKey: ["hrReportsStaffAttendance", reportsDate],
+    queryFn: () => getHrStaffAttendanceReport(reportsDate),
+    enabled: activeTab === "reports",
+  });
+
+  const { data: reportsDepartments = [], isFetching: reportsDepartmentsLoading } = useQuery({
+    queryKey: ["hrReportsDepartments"],
+    queryFn: getHrDepartmentsReport,
+    enabled: activeTab === "reports",
+  });
+
+  const setStaffAttendanceStatus = (staffId, status) => {
+    setStaffAttendanceChanges(prev => ({ ...prev, [staffId]: status }));
+  };
+
+  const isStaffAttendanceLocked = (record) => {
+    const lockTimestamp = record?.generatedAt || record?.markedAt;
+    return lockTimestamp ? (Date.now() - new Date(lockTimestamp).getTime()) > 24 * 60 * 60 * 1000 : false;
+  };
+
+  const handleSaveStaffAttendance = async () => {
+    const editableRows = staffAttendanceRows.filter((staff) => !isStaffAttendanceLocked(staff.attendance?.[0]));
+    const unmarkedRows = editableRows.filter((staff) => {
+      const existingStatus = staff.attendance?.[0]?.status?.toLowerCase();
+      return !(staffAttendanceChanges[staff.id] || existingStatus);
+    });
+
+    if (unmarkedRows.length > 0) {
+      toast({ title: "Please mark attendance for every unlocked staff member before saving", variant: "destructive" });
+      return;
+    }
+
+    const payloads = editableRows
+      .map((staff) => {
+        const status = staffAttendanceChanges[staff.id] || staff.attendance?.[0]?.status?.toLowerCase();
+        return status ? {
+          staffId: staff.id,
+          date: staffAttendanceDate,
+          status: status.toUpperCase(),
+        } : null;
+      })
+      .filter(Boolean);
+
+    if (payloads.length === 0) {
+      toast({ title: "No attendance to save", variant: "default" });
+      return;
+    }
+
+    try {
+      await Promise.all(payloads.map((payload) => markStaffAttendance(payload)));
+      toast({ title: "Staff attendance saved successfully", variant: "success" });
+      setStaffAttendanceChanges({});
+      refetchStaffAttendance();
+    } catch (error) {
+      toast({ title: "Failed to save staff attendance", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleMarkAllStaff = (status) => {
+    const next = {};
+    staffAttendanceRows.forEach((staff) => {
+      if (!isStaffAttendanceLocked(staff.attendance?.[0])) next[staff.id] = status;
+    });
+    setStaffAttendanceChanges(next);
+  };
+
+  const handleMarkStaffHoliday = async () => {
+    if (!staffAttendanceDate) {
+      toast({ title: "Please select a date first", variant: "destructive" });
+      return;
+    }
+    try {
+      await markDateAsHoliday(staffAttendanceDate, "Holiday");
+      toast({ title: "Holiday marked successfully", variant: "success" });
+      setStaffAttendanceChanges({});
+      refetchStaffAttendance();
+    } catch (error) {
+      toast({ title: "Failed to mark holiday", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const reportsSummary = useMemo(() => {
+    const leavesPending = reportsLeaves.filter((l) => l.status === "PENDING").length;
+    const payrollPaid = reportsPayroll.filter((p) => p.status === "PAID").length;
+    const payrollTotal = reportsPayroll.length;
+    const advancePending = reportsAdvance.filter((a) => !a.adjusted).length;
+    const attendanceMarked = reportsStaffAttendance.filter((s) => !!s.attendance?.[0]?.markedAt).length;
+    return { leavesPending, payrollPaid, payrollTotal, advancePending, attendanceMarked };
+  }, [reportsLeaves, reportsPayroll, reportsAdvance, reportsStaffAttendance]);
+
+  const formatPayrollMonthLabel = (value) => {
+    if (!value || typeof value !== "string") return "";
+    const [y, m] = value.split("-").map(Number);
+    if (!y || !m) return value;
+    return format(new Date(y, m - 1, 1), "MMM yyyy");
+  };
+
+  const getPayrollAdjustedMeta = (advance) => {
+    if (advance?.adjustedSource === "PAYROLL") {
+      const events = Array.isArray(advance?.actionAudit) ? advance.actionAudit : [];
+      const payrollEvent = [...events].reverse().find((e) => e?.action === "ADJUSTED_IN_PAYROLL");
+      return {
+        by: payrollEvent?.byName || "System",
+        month: payrollEvent?.month || advance?.month,
+        at: payrollEvent?.at ? new Date(payrollEvent.at).toLocaleString() : "",
+      };
+    }
+    if (advance?.adjustedSource === "MANUAL") return null;
+    const events = Array.isArray(advance?.actionAudit) ? advance.actionAudit : [];
+    const payrollEvent = [...events].reverse().find((e) => e?.action === "ADJUSTED_IN_PAYROLL");
+    if (!payrollEvent) return null;
+    return {
+      by: payrollEvent.byName || "System",
+      month: payrollEvent.month || advance?.month,
+      at: payrollEvent.at ? new Date(payrollEvent.at).toLocaleString() : "",
+    };
+  };
 
 
   // Employee Detail Data Queries
@@ -362,7 +529,7 @@ const HRPayroll = () => {
 
 
 
-  // 🔹 Fetch departments
+  // ðŸ”¹ Fetch departments
   const { data: departments = [] } = useQuery({
     queryKey: ["departments"],
     queryFn: getDepartments,
@@ -402,7 +569,7 @@ const HRPayroll = () => {
     updateSettingsMutation.mutate(data);
   };
 
-  // 🔹 Add department
+  // ðŸ”¹ Add department
   const addDeptMutation = useMutation({
     mutationFn: createDepartment,
     onSuccess: () => {
@@ -419,7 +586,7 @@ const HRPayroll = () => {
     onError: (err) => toast({ title: err.message })
   });
 
-  // 🔹 Update department
+  // ðŸ”¹ Update department
   const updateDeptMutation = useMutation({
     mutationFn: updateDepartment,
     onSuccess: () => {
@@ -429,7 +596,7 @@ const HRPayroll = () => {
     },
   });
 
-  // 🔹 Delete department
+  // ðŸ”¹ Delete department
   const deleteDeptMutation = useMutation({
     mutationFn: deleteDepartment,
     onSuccess: () => {
@@ -701,86 +868,15 @@ const HRPayroll = () => {
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total Staff</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{staffStats.total}</div>
-              <div className="text-xs text-muted-foreground mt-0.5 space-x-2">
-                {staffStats.teaching > 0 && <span>{staffStats.teaching} teaching</span>}
-                {staffStats.nonTeaching > 0 && <span>{staffStats.nonTeaching} non-teaching</span>}
-                {staffStats.dual > 0 && <span>{staffStats.dual} dual</span>}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Departments</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{departments.length}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Monthly Payroll</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-start gap-1.5">
-                <div>
-                  <div className="text-2xl font-bold">PKR {Math.round(payrollSummary.total).toLocaleString()}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{format(new Date(payrollMonth + "-01"), "MMMM yyyy")}</div>
-                </div>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="mt-1 cursor-help text-muted-foreground hover:text-foreground transition-colors">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs min-w-[200px] space-y-1.5 p-3">
-                    <div className="font-semibold text-foreground mb-1 border-b pb-1">Payroll Breakdown</div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Basic</span>
-                      <span>PKR {Math.round(payrollSummary.totalBasic).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-green-400">+ Allowances</span>
-                      <span>PKR {Math.round(payrollSummary.totalAllowances).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-red-400">− Deductions</span>
-                      <span>PKR {Math.round(payrollSummary.totalDeductions).toLocaleString()}</span>
-                    </div>
-                    <div className="border-t pt-1 mt-1 space-y-1">
-                      <div className="flex justify-between gap-4">
-                        <span className="text-green-400">Paid</span>
-                        <span className="font-medium">PKR {Math.round(payrollSummary.paid).toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-amber-400">Unpaid</span>
-                        <span className="font-medium">PKR {Math.round(payrollSummary.unpaid).toLocaleString()}</span>
-                      </div>
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 lg:grid-cols-5 h-auto gap-1">
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-7 lg:grid-cols-7 h-auto gap-1">
             <TabsTrigger value="leaves">Leaves</TabsTrigger>
             <TabsTrigger value="payroll">Payroll</TabsTrigger>
+            <TabsTrigger value="attendance">Attendance</TabsTrigger>
             <TabsTrigger value="advance">Advance Salary</TabsTrigger>
             <TabsTrigger value="departments">Departments</TabsTrigger>
             <TabsTrigger value="holidays">Holidays</TabsTrigger>
+            <TabsTrigger value="reports">Reports</TabsTrigger>
           </TabsList>
 
           <TabsContent value="leaves" className="space-y-4">
@@ -805,6 +901,168 @@ const HRPayroll = () => {
               </CardHeader>
               <CardContent>
                 <PayrollManagementDialog open={true} onOpenChange={() => { }} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="attendance" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <CardTitle>Staff Attendance</CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">Load staff, mark each status, then save attendance for the selected date.</p>
+                  </div>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="space-y-1">
+                      <Label>Date</Label>
+                      <Input
+                        type="date"
+                        className="w-[160px]"
+                        value={staffAttendanceDate}
+                        onChange={(e) => {
+                          setStaffAttendanceDate(e.target.value);
+                          setStaffAttendanceChanges({});
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Role</Label>
+                      <Select value={staffAttendanceRole} onValueChange={(value) => {
+                        setStaffAttendanceRole(value);
+                        setStaffAttendanceChanges({});
+                      }}>
+                        <SelectTrigger className="w-[160px]">
+                          <SelectValue placeholder="All Staff" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Staff</SelectItem>
+                          <SelectItem value="teaching">Teaching</SelectItem>
+                          <SelectItem value="non-teaching">Non-Teaching</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button variant="outline" onClick={() => refetchStaffAttendance()} disabled={staffAttendanceLoading}>
+                      {staffAttendanceLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Fetch Staff
+                    </Button>
+                    <Button onClick={handleSaveStaffAttendance} disabled={!staffAttendanceRows.length || staffAttendanceLoading}>
+                      Save Attendance
+                    </Button>
+                    <Button variant="outline" onClick={handleMarkStaffHoliday} disabled={!staffAttendanceDate || staffAttendanceLoading}>
+                      Mark as Holiday
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => handleMarkAllStaff("present")} disabled={!staffAttendanceRows.length}>Mark All Present</Button>
+                  <Button size="sm" variant="outline" onClick={() => handleMarkAllStaff("absent")} disabled={!staffAttendanceRows.length}>Mark All Absent</Button>
+                  <Button size="sm" variant="outline" onClick={() => handleMarkAllStaff("leave")} disabled={!staffAttendanceRows.length}>Mark All Leave</Button>
+                </div>
+                <div className="overflow-x-auto border rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="py-2 px-3 text-sm">Staff Name</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Role / Department</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Marked At</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Marked By</TableHead>
+                        <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {staffAttendanceLoading ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-8">Loading staff...</TableCell>
+                        </TableRow>
+                      ) : staffAttendanceRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Select filters to load staff, mark attendance, then save.</TableCell>
+                        </TableRow>
+                      ) : (
+                        staffAttendanceRows.map((staff) => {
+                          const attendance = staff.attendance?.[0];
+                          const currentStatus = staffAttendanceChanges[staff.id] || attendance?.status?.toLowerCase();
+                          const isLocked = isStaffAttendanceLocked(attendance);
+                          const auditLines = [];
+                          if (attendance?.generatedAt) auditLines.push(`Generated: ${new Date(attendance.generatedAt).toLocaleString()}`);
+                          if (attendance?.markedAt) {
+                            const markerName = attendance?.admin?.name || (attendance?.markedBy ? `User #${attendance.markedBy}` : "Unknown");
+                            auditLines.push(`Marked: ${new Date(attendance.markedAt).toLocaleString()}`);
+                            auditLines.push(`Marked by: ${markerName}`);
+                          }
+                          const markedByName = attendance?.admin?.name || (attendance?.markedBy ? `User #${attendance.markedBy}` : "-");
+                          const roleLabel = staff.isTeaching ? "Teaching" : "Non-Teaching";
+                          const deptLabel = staff.department?.name || staff.empDepartment || staff.designation || staff.specialization || "-";
+
+                          return (
+                            <TableRow key={staff.id} className={isLocked ? "opacity-80" : ""}>
+                              <TableCell className="py-2 px-3 text-sm font-medium">{staff.name}</TableCell>
+                              <TableCell className="py-2 px-3 text-sm">
+                                <div>{roleLabel}</div>
+                                <div className="text-xs text-muted-foreground">{deptLabel}</div>
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-sm">
+                                <div className="flex items-center gap-1.5">
+                                  {currentStatus ? (
+                                    <Badge variant={currentStatus === "present" ? "default" : currentStatus === "absent" ? "destructive" : "secondary"}>
+                                      {currentStatus.replace("_", " ").toUpperCase()}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-muted-foreground">Not Marked</span>
+                                  )}
+                                  {isLocked && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild><LockKeyhole className="w-3.5 h-3.5 text-amber-500 cursor-help" /></TooltipTrigger>
+                                      <TooltipContent className="text-xs max-w-[240px] whitespace-pre-line">Locked - attendance can only be modified within 24 hours.{auditLines.length ? `\n${auditLines.join('\n')}` : ""}</TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-sm text-muted-foreground">
+                                {attendance?.markedAt ? new Date(attendance.markedAt).toLocaleString() : "-"}
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-sm text-muted-foreground">
+                                {attendance?.markedAt ? markedByName : "-"}
+                              </TableCell>
+                              <TableCell className="py-2 px-3 text-sm">
+                                <div className="flex gap-1">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button size="sm" variant={currentStatus === "present" ? "default" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(staff.id, "present")}><CheckCircle2 className="w-4 h-4" /></Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Present"}</TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button size="sm" variant={currentStatus === "absent" ? "destructive" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(staff.id, "absent")}><XCircle className="w-4 h-4" /></Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Absent"}</TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button size="sm" variant={currentStatus === "leave" ? "secondary" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(staff.id, "leave")}><Clock className="w-4 h-4" /></Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Leave"}</TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button size="sm" variant={currentStatus === "half_day" ? "secondary" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(staff.id, "half_day")}>1/2</Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Half Day"}</TooltipContent>
+                                  </Tooltip>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -865,10 +1123,44 @@ const HRPayroll = () => {
                           </TableCell>
                           <TableCell className="py-2 px-3 text-sm">{advance.month}</TableCell>
                           <TableCell className="py-2 px-3 text-sm font-semibold text-primary">PKR {Number(advance.amount || 0).toLocaleString()}</TableCell>
-                          <TableCell className="py-2 px-3 text-sm max-w-[200px] truncate">{advance.remarks || "-"}</TableCell>
+                          <TableCell className="py-2 px-3 text-sm max-w-[200px]">
+                            <div className="truncate">{advance.remarks || "-"}</div>
+                            <div className="mt-1">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Clock className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                                </TooltipTrigger>
+                                <TooltipContent className="text-xs whitespace-pre-line max-w-[320px]">
+                                  {(() => {
+                                    const events = Array.isArray(advance.actionAudit) ? advance.actionAudit : [];
+                                    if (!events.length) return "No audit yet";
+                                    return events
+                                      .slice(-4)
+                                      .reverse()
+                                      .map((e) => `${e.action || "UPDATED"} - ${e.byName || "System"} - ${e.at ? new Date(e.at).toLocaleString() : ""}`)
+                                      .join("\n");
+                                  })()}
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TableCell>
                           <TableCell className="py-2 px-3 text-sm">
                             {advance.adjusted ? (
-                              <Badge variant="default" className="bg-green-600">Adjusted</Badge>
+                              <div className="space-y-1">
+                                <Badge variant="default" className="bg-green-600">Adjusted</Badge>
+                                {getPayrollAdjustedMeta(advance) && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge variant="outline" className="cursor-help">
+                                        Adjusted via payroll ({formatPayrollMonthLabel(getPayrollAdjustedMeta(advance).month)})
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="text-xs">
+                                      {`By ${getPayrollAdjustedMeta(advance).by}${getPayrollAdjustedMeta(advance).at ? ` on ${getPayrollAdjustedMeta(advance).at}` : ""}`}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </div>
                             ) : (
                               <Badge variant="secondary">Pending</Badge>
                             )}
@@ -1058,7 +1350,7 @@ const HRPayroll = () => {
                             ? "bg-red-100 border-red-300 text-red-700 cursor-pointer hover:bg-red-200 font-semibold"
                             : "border-muted text-foreground"
                           }`}
-                        title={isHoliday ? `${holiday.title} — click to remove` : undefined}
+                        title={isHoliday ? `${holiday.title} â€” click to remove` : undefined}
                       >
                         <span>{day}</span>
                         {isHoliday && (
@@ -1082,6 +1374,180 @@ const HRPayroll = () => {
                   )}
                   <span className="text-muted-foreground/60">Click a highlighted day to remove</span>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="reports" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <CardTitle>HR Reports</CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">Unified reports for leaves, payroll, advance salary, attendance, and departments.</p>
+                  </div>
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <div className="space-y-1">
+                      <Label>Report Month</Label>
+                      <Input type="month" className="w-[160px]" value={reportsMonth} onChange={(e) => setReportsMonth(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Attendance Date</Label>
+                      <Input type="date" className="w-[160px]" value={reportsDate} onChange={(e) => setReportsDate(e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Pending Leaves</p><p className="text-2xl font-bold">{reportsSummary.leavesPending}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Payroll Paid</p><p className="text-2xl font-bold">{reportsSummary.payrollPaid}/{reportsSummary.payrollTotal}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Pending Advances</p><p className="text-2xl font-bold">{reportsSummary.advancePending}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Attendance Marked</p><p className="text-2xl font-bold">{reportsSummary.attendanceMarked}</p></CardContent></Card>
+                  <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Departments</p><p className="text-2xl font-bold">{reportsDepartments.length}</p></CardContent></Card>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-base">Leaves Report</CardTitle></CardHeader>
+                    <CardContent>
+                      <div className="overflow-x-auto border rounded-md">
+                        <Table>
+                          <TableHeader><TableRow><TableHead>Staff</TableHead><TableHead>Type</TableHead><TableHead>Days</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                          <TableBody>
+                            {reportsLeavesLoading ? <TableRow><TableCell colSpan={4} className="text-center py-6">Loading...</TableCell></TableRow> : reportsLeaves.slice(0, 8).map((row, idx) => (
+                              <TableRow key={`${row.leaveId ?? row.id}-${idx}`}>
+                                <TableCell className="text-sm">{row.name}</TableCell>
+                                <TableCell className="text-sm">{row.leaveType || "-"}</TableCell>
+                                <TableCell className="text-sm">{row.days ?? "-"}</TableCell>
+                                <TableCell className="text-sm"><Badge variant={row.status === "APPROVED" ? "default" : row.status === "REJECTED" ? "destructive" : "secondary"}>{row.status}</Badge></TableCell>
+                              </TableRow>
+                            ))}
+                            {!reportsLeavesLoading && reportsLeaves.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-6 text-muted-foreground">No leave records for selected month</TableCell></TableRow>}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-base">Payroll Report</CardTitle></CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Monthly Payroll</p><p className="text-lg font-semibold">PKR {Math.round(payrollSummary.total).toLocaleString()}</p></CardContent></Card>
+                        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Basic</p><p className="text-lg font-semibold">PKR {Math.round(payrollSummary.totalBasic).toLocaleString()}</p></CardContent></Card>
+                        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Allowances</p><p className="text-lg font-semibold text-green-600">PKR {Math.round(payrollSummary.totalAllowances).toLocaleString()}</p></CardContent></Card>
+                        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Deductions</p><p className="text-lg font-semibold text-red-600">PKR {Math.round(payrollSummary.totalDeductions).toLocaleString()}</p></CardContent></Card>
+                        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Paid / Unpaid</p><p className="text-lg font-semibold">{Math.round(payrollSummary.paid).toLocaleString()} / {Math.round(payrollSummary.unpaid).toLocaleString()}</p></CardContent></Card>
+                      </div>
+                      <div className="overflow-x-auto border rounded-md">
+                        <Table>
+                          <TableHeader><TableRow><TableHead>Staff</TableHead><TableHead>Net Salary</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                          <TableBody>
+                            {reportsPayrollLoading ? <TableRow><TableCell colSpan={3} className="text-center py-6">Loading...</TableCell></TableRow> : reportsPayroll.slice(0, 8).map((row, idx) => (
+                              <TableRow key={`${row.id}-${idx}`}>
+                                <TableCell className="text-sm">{row.name || row.staffName || "N/A"}</TableCell>
+                                <TableCell className="text-sm font-medium">PKR {Number(row.netSalary || 0).toLocaleString()}</TableCell>
+                                <TableCell className="text-sm"><Badge variant={row.status === "PAID" ? "default" : "outline"}>{row.status || "UNPAID"}</Badge></TableCell>
+                              </TableRow>
+                            ))}
+                            {!reportsPayrollLoading && reportsPayroll.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-6 text-muted-foreground">No payroll records for selected month</TableCell></TableRow>}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-base">Advance Salary Report</CardTitle></CardHeader>
+                    <CardContent>
+                      <div className="overflow-x-auto border rounded-md">
+                        <Table>
+                          <TableHeader><TableRow><TableHead>Staff</TableHead><TableHead>Amount</TableHead><TableHead>Adjusted</TableHead></TableRow></TableHeader>
+                          <TableBody>
+                            {reportsAdvanceLoading ? <TableRow><TableCell colSpan={3} className="text-center py-6">Loading...</TableCell></TableRow> : reportsAdvance.slice(0, 8).map((row) => (
+                              <TableRow key={row.id}>
+                                <TableCell className="text-sm">{row.staff?.name || "N/A"}</TableCell>
+                                <TableCell className="text-sm font-medium">PKR {Number(row.amount || 0).toLocaleString()}</TableCell>
+                                <TableCell className="text-sm">
+                                  {row.adjusted ? (
+                                    <div className="space-y-1">
+                                      <Badge variant="default">Adjusted</Badge>
+                                      {getPayrollAdjustedMeta(row) && (
+                                        <Badge variant="outline">Via payroll ({formatPayrollMonthLabel(getPayrollAdjustedMeta(row).month)})</Badge>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <Badge variant="secondary">Pending</Badge>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                            {!reportsAdvanceLoading && reportsAdvance.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-6 text-muted-foreground">No advance records for selected month</TableCell></TableRow>}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-base">Staff Attendance Report</CardTitle></CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total Staff</p><p className="text-xl font-semibold">{staffStats.total}</p></CardContent></Card>
+                        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Teaching</p><p className="text-xl font-semibold">{staffStats.teaching}</p></CardContent></Card>
+                        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Non-Teaching</p><p className="text-xl font-semibold">{staffStats.nonTeaching}</p></CardContent></Card>
+                      </div>
+                      <div className="overflow-x-auto border rounded-md">
+                        <Table>
+                          <TableHeader><TableRow><TableHead>Staff</TableHead><TableHead>Status</TableHead><TableHead>Marked At</TableHead></TableRow></TableHeader>
+                          <TableBody>
+                            {reportsStaffAttendanceLoading ? <TableRow><TableCell colSpan={3} className="text-center py-6">Loading...</TableCell></TableRow> : reportsStaffAttendance.slice(0, 8).map((row) => {
+                              const att = row.attendance?.[0];
+                              const status = att?.status?.toLowerCase();
+                              return (
+                                <TableRow key={row.id}>
+                                  <TableCell className="text-sm">{row.name}</TableCell>
+                                  <TableCell className="text-sm">
+                                    {status ? <Badge variant={status === "present" ? "default" : status === "absent" ? "destructive" : "secondary"}>{status.toUpperCase()}</Badge> : <span className="text-muted-foreground">Not Marked</span>}
+                                  </TableCell>
+                                  <TableCell className="text-sm text-muted-foreground">{att?.markedAt ? new Date(att.markedAt).toLocaleString() : "-"}</TableCell>
+                                </TableRow>
+                              );
+                            })}
+                            {!reportsStaffAttendanceLoading && reportsStaffAttendance.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-6 text-muted-foreground">No staff records for selected date</TableCell></TableRow>}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-base">Departments Report</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="mb-4">
+                      <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Total Departments</p><p className="text-xl font-semibold">{departments.length}</p></CardContent></Card>
+                    </div>
+                    <div className="overflow-x-auto border rounded-md">
+                      <Table>
+                        <TableHeader><TableRow><TableHead>Department</TableHead><TableHead>Head</TableHead><TableHead>Staff Count</TableHead></TableRow></TableHeader>
+                        <TableBody>
+                          {reportsDepartmentsLoading ? (
+                            <TableRow><TableCell colSpan={3} className="text-center py-6">Loading...</TableCell></TableRow>
+                          ) : reportsDepartments.map((dept) => (
+                            <TableRow key={dept.id}>
+                              <TableCell className="text-sm font-medium">{dept.name}</TableCell>
+                              <TableCell className="text-sm">{dept.hodName}</TableCell>
+                              <TableCell className="text-sm">{dept.staffCount}</TableCell>
+                            </TableRow>
+                          ))}
+                          {!reportsDepartmentsLoading && reportsDepartments.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-6 text-muted-foreground">No departments found</TableCell></TableRow>}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1172,16 +1638,7 @@ const HRPayroll = () => {
                     className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className={advanceFormData.staffId ? "" : "text-muted-foreground"}>
-                      {advanceFormData.staffId
-                        ? (() => {
-                            const allStaff = [
-                              ...(employees || []).map(e => ({ id: e.id, name: e.name, isTeaching: false, specialization: null, designation: e.designation })),
-                              ...(teachers || []).map(t => ({ id: t.id, name: t.name, isTeaching: true, specialization: t.specialization, designation: null }))
-                            ];
-                            const found = allStaff.find(s => s.id.toString() === advanceFormData.staffId);
-                            return found ? `${found.name} — ${found.isTeaching ? (found.specialization || "Teacher") : (found.designation || "Staff")}` : "Select staff member";
-                          })()
-                        : "Select staff member"}
+                      {advanceFormData.staffId ? (() => { const found = advanceStaffOptions.find(s => s.id.toString() === advanceFormData.staffId); return found ? found.label : "Select staff member"; })() : "Select staff member"}
                     </span>
                     <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                   </button>
@@ -1195,23 +1652,18 @@ const HRPayroll = () => {
                     />
                     <CommandEmpty>No staff found</CommandEmpty>
                     <CommandList>
-                      {[
-                        ...(employees || []).map(e => ({ id: e.id, name: e.name, isTeaching: false, specialization: null, designation: e.designation })),
-                        ...(teachers || []).map(t => ({ id: t.id, name: t.name, isTeaching: true, specialization: t.specialization, designation: null }))
-                      ]
-                        .sort((a, b) => a.name.localeCompare(b.name))
-                        .filter(s => s.name.toLowerCase().includes(advanceStaffSearch.toLowerCase()))
-                        .map(staff => (
+                      {advanceStaffOptions.filter(s => s.searchText.includes((advanceStaffSearch || "").toLowerCase())).map(staff => (
                           <CommandItem
                             key={staff.id}
                             value={staff.id.toString()}
+                            className="cursor-pointer data-[selected=true]:bg-primary/10 data-[selected=true]:text-foreground"
                             onSelect={() => {
                               setAdvanceFormData({ ...advanceFormData, staffId: staff.id.toString() });
                               setAdvanceStaffSearch("");
                               setAdvanceComboOpen(false);
                             }}
                           >
-                            {staff.name} — {staff.isTeaching ? (staff.specialization || "Teacher") : (staff.designation || "Staff")}
+                            {staff.label}
                           </CommandItem>
                         ))}
                     </CommandList>
@@ -1809,3 +2261,6 @@ const HRPayroll = () => {
 };
 
 export default HRPayroll;
+
+
+

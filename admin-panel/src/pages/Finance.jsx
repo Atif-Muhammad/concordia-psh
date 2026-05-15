@@ -47,6 +47,31 @@ const getMonthDateRange = (month) => {
   return { dateFrom: firstDay, dateTo: lastDayStr };
 };
 
+const getCurrentMonthRange = () => {
+  const now = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return getMonthDateRange(month);
+};
+
+const EXPENSE_CATEGORY_MAP = {
+  Bills: ["Electricity Bill", "Gas Bill", "Water Bill", "Internet Bill", "Telephone Bill", "Generator Fuel"],
+  Payroll: ["Teaching Salaries", "Non-Teaching Salaries", "Contract Wages", "Bonuses", "Payroll Taxes"],
+  Operations: ["Office Supplies", "Printing & Stationery", "Software Subscription", "Bank Charges", "Courier"],
+  Maintenance: ["Building Repair", "Equipment Repair", "Vehicle Maintenance", "Cleaning", "Security Services"],
+  Academic: ["Books & Library", "Lab Consumables", "Exam Material", "Training & Workshops", "Sports Material"],
+  StudentWelfare: ["Scholarships", "Events", "Medical Support", "Transport Support", "Meal Support"],
+  Hostel: ["Hostel Food", "Hostel Utilities", "Hostel Maintenance", "Hostel Supplies"],
+  Compliance: ["Tax Payment", "Legal Fee", "Licensing & NOC", "Audit Fee", "Insurance"],
+  Miscellaneous: ["Donation", "Emergency", "Petty Cash", "Other"],
+  Inventory: ["Inventory Purchase", "Inventory Maintenance"],
+  Salaries: ["Salary Payment"],
+  "Utility Bills": ["Electricity Bill", "Gas Bill", "Water Bill", "Internet Bill", "Telephone Bill"],
+  Supplies: ["General Supplies"],
+  Other: ["Other"],
+};
+
+const EXPENSE_CATEGORIES = Object.keys(EXPENSE_CATEGORY_MAP);
+
 const Finance = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -58,13 +83,21 @@ const Finance = () => {
 
   // Separate filters for income and expense - using month picker
   const [incomeFilterCategory, setIncomeFilterCategory] = useState("all");
-  const [incomeFilterMonth, setIncomeFilterMonth] = useState("");
+  const [incomeDateFrom, setIncomeDateFrom] = useState(() => getCurrentMonthRange().dateFrom);
+  const [incomeDateTo, setIncomeDateTo] = useState(() => getCurrentMonthRange().dateTo);
+  const [appliedIncomeFilter, setAppliedIncomeFilter] = useState(() => getCurrentMonthRange());
 
   const [expenseFilterCategory, setExpenseFilterCategory] = useState("all");
-  const [expenseFilterMonth, setExpenseFilterMonth] = useState("");
+  const [expenseFilterSubCategory, setExpenseFilterSubCategory] = useState("all");
+  const [expenseDateFrom, setExpenseDateFrom] = useState(() => getCurrentMonthRange().dateFrom);
+  const [expenseDateTo, setExpenseDateTo] = useState(() => getCurrentMonthRange().dateTo);
+  const [appliedExpenseFilter, setAppliedExpenseFilter] = useState(() => getCurrentMonthRange());
 
   // Dashboard filter for period
   const [dashboardPeriod, setDashboardPeriod] = useState("monthly"); // weekly, monthly, yearly
+  const [dashboardDateFrom, setDashboardDateFrom] = useState("");
+  const [dashboardDateTo, setDashboardDateTo] = useState("");
+  const [appliedDashboardFilter, setAppliedDashboardFilter] = useState({ dateFrom: "", dateTo: "" });
 
   const [incomeFormData, setIncomeFormData] = useState({
     date: new Date().toISOString().split("T")[0],
@@ -75,7 +108,8 @@ const Finance = () => {
 
   const [expenseFormData, setExpenseFormData] = useState({
     date: new Date().toISOString().split("T")[0],
-    category: "Utility Bills",
+    category: "Bills",
+    subCategory: "Electricity Bill",
     description: "",
     amount: 0
   });
@@ -98,8 +132,9 @@ const Finance = () => {
   // Edit closing state
   const [editClosingData, setEditClosingData] = useState(null);
 
-  // Closing filter
-  const [closingFilterMonth, setClosingFilterMonth] = useState(() => {
+  const [closingSubTab, setClosingSubTab] = useState("daily");
+  const [dailyClosingFilterDate, setDailyClosingFilterDate] = useState(toLocalDateString(new Date()));
+  const [monthlyClosingFilterMonth, setMonthlyClosingFilterMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
@@ -113,6 +148,12 @@ const Finance = () => {
 
   // Helper to get date range based on dashboard period
   const getDashboardDateRange = () => {
+    if (appliedDashboardFilter.dateFrom || appliedDashboardFilter.dateTo) {
+      return {
+        dateFrom: appliedDashboardFilter.dateFrom || "",
+        dateTo: appliedDashboardFilter.dateTo || "",
+      };
+    }
     const now = new Date();
     let dateFrom, dateTo;
 
@@ -152,29 +193,39 @@ const Finance = () => {
     queryFn: () => getFinanceExpenses({ dateFrom: dashboardDateRange.dateFrom, dateTo: dashboardDateRange.dateTo })
   });
 
-  // Queries for tabs (only fetch when month selected)
-  const incomeMonthRange = getMonthDateRange(incomeFilterMonth);
+  // Queries for tabs
   const { data: incomeData = [], isLoading: incomeLoading } = useQuery({
-    queryKey: ['financeIncome', incomeMonthRange.dateFrom, incomeMonthRange.dateTo, incomeFilterCategory],
-    queryFn: () => getFinanceIncomes({ dateFrom: incomeMonthRange.dateFrom, dateTo: incomeMonthRange.dateTo, category: incomeFilterCategory }),
-    enabled: !!incomeFilterMonth // Only fetch when a month is selected
+    queryKey: ['financeIncome', appliedIncomeFilter.dateFrom, appliedIncomeFilter.dateTo, incomeFilterCategory],
+    queryFn: () => getFinanceIncomes({ dateFrom: appliedIncomeFilter.dateFrom, dateTo: appliedIncomeFilter.dateTo, category: incomeFilterCategory }),
+    enabled: !!appliedIncomeFilter.dateFrom && !!appliedIncomeFilter.dateTo
   });
 
-  const expenseMonthRange = getMonthDateRange(expenseFilterMonth);
   const { data: expenseData = [], isLoading: expenseLoading } = useQuery({
-    queryKey: ['financeExpense', expenseMonthRange.dateFrom, expenseMonthRange.dateTo, expenseFilterCategory],
-    queryFn: () => getFinanceExpenses({ dateFrom: expenseMonthRange.dateFrom, dateTo: expenseMonthRange.dateTo, category: expenseFilterCategory }),
-    enabled: !!expenseFilterMonth // Only fetch when a month is selected
+    queryKey: ['financeExpense', appliedExpenseFilter.dateFrom, appliedExpenseFilter.dateTo, expenseFilterCategory, expenseFilterSubCategory],
+    queryFn: () => getFinanceExpenses({ dateFrom: appliedExpenseFilter.dateFrom, dateTo: appliedExpenseFilter.dateTo, category: expenseFilterCategory, subCategory: expenseFilterSubCategory }),
+    enabled: !!appliedExpenseFilter.dateFrom && !!appliedExpenseFilter.dateTo
   });
 
   const { data: closingData = [], isLoading: closingLoading } = useQuery({
-    queryKey: ['financeClosing', closingFilterMonth],
+    queryKey: ['financeClosing', closingSubTab, dailyClosingFilterDate, monthlyClosingFilterMonth],
     queryFn: () => {
-      if (!closingFilterMonth) return [];
-      const range = getMonthDateRange(closingFilterMonth);
-      return getFinanceClosings({ dateFrom: range.dateFrom, dateTo: range.dateTo });
+      if (closingSubTab === "daily") {
+        if (!dailyClosingFilterDate) return [];
+        return getFinanceClosings({
+          type: "daily",
+          dateFrom: dailyClosingFilterDate,
+          dateTo: dailyClosingFilterDate,
+        });
+      }
+      if (!monthlyClosingFilterMonth) return [];
+      const range = getMonthDateRange(monthlyClosingFilterMonth);
+      return getFinanceClosings({
+        type: "monthly",
+        dateFrom: range.dateFrom,
+        dateTo: range.dateTo,
+      });
     },
-    enabled: !!closingFilterMonth // Only fetch when a month is selected
+    enabled: closingSubTab === "daily" ? !!dailyClosingFilterDate : !!monthlyClosingFilterMonth,
   });
 
   // Queries for Reports tab - separate data fetch
@@ -229,7 +280,8 @@ const Finance = () => {
       setExpenseOpen(false);
       setExpenseFormData({
         date: new Date().toISOString().split("T")[0],
-        category: "Utility Bills",
+        category: "Bills",
+        subCategory: "Electricity Bill",
         description: "",
         amount: 0
       });
@@ -256,6 +308,14 @@ const Finance = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['financeClosing'] });
       toast({ title: `${closingType} closing completed` });
+      if (closingType === "daily") {
+        setDailyClosingFilterDate(closingDate);
+      } else if (closingType === "monthly") {
+        const d = new Date(closingDate);
+        if (!Number.isNaN(d.getTime())) {
+          setMonthlyClosingFilterMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+        }
+      }
       setClosingOpen(false);
     },
     onError: (error) => {
@@ -310,15 +370,12 @@ const Finance = () => {
   };
 
   const handleClosing = () => {
-    const closingData = {
+    const payload = {
       date: closingDate,
       type: closingType,
-      totalIncome: closingFormData.totalIncome,
-      totalExpense: closingFormData.totalExpense,
-      netBalance: closingFormData.totalIncome - closingFormData.totalExpense,
       remarks: closingFormData.remarks
     };
-    addClosingMutation.mutate(closingData);
+    addClosingMutation.mutate(payload);
   };
 
   // Calculate amounts based on closing type
@@ -370,21 +427,31 @@ const Finance = () => {
   }, [closingType, closingOpen, closingDate]);
 
   // Chart data - dynamic based on selected period
+  const getDateOnly = (value) => {
+    if (!value) return "";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+    return toLocalDateString(d);
+  };
+
   const monthlyData = useMemo(() => {
+    const rangeStart = dashboardDateRange.dateFrom ? new Date(dashboardDateRange.dateFrom) : null;
+    const rangeEnd = dashboardDateRange.dateTo ? new Date(dashboardDateRange.dateTo) : null;
+    const now = new Date();
+
     if (dashboardPeriod === 'weekly') {
-      // Last 7 days
       const days = [];
-      const now = new Date();
+      const end = rangeEnd || now;
       for (let i = 6; i >= 0; i--) {
-        const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-        const dateStr = date.toISOString().split('T')[0];
+        const date = new Date(end.getTime() - i * 24 * 60 * 60 * 1000);
+        const dateStr = toLocalDateString(date);
         const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
 
         const dayIncome = dashboardIncomeData
-          .filter(item => item.date.toString().split('T')[0] === dateStr)
+          .filter(item => getDateOnly(item.date) === dateStr)
           .reduce((sum, item) => sum + Number(item.amount), 0);
         const dayExpense = dashboardExpenseData
-          .filter(item => item.date.toString().split('T')[0] === dateStr)
+          .filter(item => getDateOnly(item.date) === dateStr)
           .reduce((sum, item) => sum + Number(item.amount), 0);
 
         days.push({
@@ -396,16 +463,15 @@ const Finance = () => {
       }
       return days;
     } else if (dashboardPeriod === 'overall') {
-      // Last 5 years
       const years = [];
-      const currentYear = new Date().getFullYear();
+      const currentYear = (rangeEnd || now).getFullYear();
       for (let i = 4; i >= 0; i--) {
         const year = currentYear - i;
         const yearIncome = dashboardIncomeData
-          .filter(item => item.date.startsWith(`${year}-`))
+          .filter(item => getDateOnly(item.date).startsWith(`${year}-`))
           .reduce((sum, item) => sum + Number(item.amount), 0);
         const yearExpense = dashboardExpenseData
-          .filter(item => item.date.startsWith(`${year}-`))
+          .filter(item => getDateOnly(item.date).startsWith(`${year}-`))
           .reduce((sum, item) => sum + Number(item.amount), 0);
 
         years.push({
@@ -418,20 +484,19 @@ const Finance = () => {
       return years;
 
     } else if (dashboardPeriod === 'monthly') {
-      // Daily breakdown for current month
       const days = [];
-      const now = new Date();
-      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-
-      for (let i = 1; i <= daysInMonth; i++) {
-        const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-        const dayLabel = String(i);
+      const start = rangeStart || new Date(now.getFullYear(), now.getMonth(), 1);
+      const end = rangeEnd || new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        const dateStr = toLocalDateString(cursor);
+        const dayLabel = String(cursor.getDate());
 
         const dayIncome = dashboardIncomeData
-          .filter(item => item.date.toString().split('T')[0] === dateStr)
+          .filter(item => getDateOnly(item.date) === dateStr)
           .reduce((sum, item) => sum + Number(item.amount), 0);
         const dayExpense = dashboardExpenseData
-          .filter(item => item.date.toString().split('T')[0] === dateStr)
+          .filter(item => getDateOnly(item.date) === dateStr)
           .reduce((sum, item) => sum + Number(item.amount), 0);
 
         days.push({
@@ -440,20 +505,20 @@ const Finance = () => {
           expense: dayExpense,
           balance: dayIncome - dayExpense
         });
+        cursor.setDate(cursor.getDate() + 1);
       }
       return days;
 
     } else {
-      // Yearly (12 months of current year)
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const currentYear = new Date().getFullYear();
+      const currentYear = (rangeStart || now).getFullYear();
       return months.map((month, index) => {
         const monthNum = (index + 1).toString().padStart(2, "0");
         const monthIncome = dashboardIncomeData
-          .filter(i => i.date.startsWith(`${currentYear}-${monthNum}`))
+          .filter(i => getDateOnly(i.date).startsWith(`${currentYear}-${monthNum}`))
           .reduce((sum, i) => sum + Number(i.amount), 0);
         const monthExpense = dashboardExpenseData
-          .filter(e => e.date.startsWith(`${currentYear}-${monthNum}`))
+          .filter(e => getDateOnly(e.date).startsWith(`${currentYear}-${monthNum}`))
           .reduce((sum, e) => sum + Number(e.amount), 0);
         return {
           month,
@@ -463,14 +528,14 @@ const Finance = () => {
         };
       });
     }
-  }, [dashboardIncomeData, dashboardExpenseData, dashboardPeriod]);
+  }, [dashboardIncomeData, dashboardExpenseData, dashboardPeriod, dashboardDateRange.dateFrom, dashboardDateRange.dateTo]);
 
 
   // Stacked Chart Data - Aggregates by Date AND Category
   const stackedChartData = useMemo(() => {
     const getDateKey = (date, period) => {
       const d = new Date(date);
-      if (period === 'weekly' || period === 'monthly') return d.toISOString().split('T')[0];
+      if (period === 'weekly' || period === 'monthly') return toLocalDateString(d);
       if (period === 'yearly') return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       return d.getFullYear().toString();
     };
@@ -497,23 +562,30 @@ const Finance = () => {
     // Helper to generate periods (Days/Months/Years) similar to monthlyData
     let periods = [];
     const now = new Date();
+    const rangeStart = dashboardDateRange.dateFrom ? new Date(dashboardDateRange.dateFrom) : null;
+    const rangeEnd = dashboardDateRange.dateTo ? new Date(dashboardDateRange.dateTo) : null;
 
     if (dashboardPeriod === 'weekly') {
+      const end = rangeEnd || now;
       for (let i = 6; i >= 0; i--) {
-        const d = new Date(now.getTime() - i * 86400000);
+        const d = new Date(end.getTime() - i * 86400000);
         periods.push(getDateKey(d, 'weekly'));
       }
     } else if (dashboardPeriod === 'monthly') {
-      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-      for (let i = 1; i <= daysInMonth; i++) {
-        periods.push(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`);
+      const start = rangeStart || new Date(now.getFullYear(), now.getMonth(), 1);
+      const end = rangeEnd || new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        periods.push(toLocalDateString(cursor));
+        cursor.setDate(cursor.getDate() + 1);
       }
     } else if (dashboardPeriod === 'yearly') {
+      const baseYear = (rangeStart || now).getFullYear();
       for (let i = 0; i < 12; i++) {
-        periods.push(`${now.getFullYear()}-${String(i + 1).padStart(2, '0')}`);
+        periods.push(`${baseYear}-${String(i + 1).padStart(2, '0')}`);
       }
     } else { // overall
-      const currentYear = now.getFullYear();
+      const currentYear = (rangeEnd || now).getFullYear();
       for (let i = 4; i >= 0; i--) {
         periods.push((currentYear - i).toString());
       }
@@ -523,9 +595,9 @@ const Finance = () => {
     const data = periods.map(p => ({
       name: getLabel(p, dashboardPeriod),
       // Incomes
-      Fee: 0, Donation: 0, Funding: 0, Revenue: 0, Investments: 0,
+      "Tuition Fee": 0, "Extra Challan": 0, "Hostel Challan": 0, Donation: 0, Funding: 0, Revenue: 0, Investments: 0,
       // Expenses
-      Inventory: 0, 'Utility Bills': 0, Salaries: 0, Hostel: 0, Maintenance: 0, Supplies: 0, Other: 0
+      Bills: 0, Payroll: 0, Operations: 0, Maintenance: 0, Academic: 0, StudentWelfare: 0, Hostel: 0, Compliance: 0, Miscellaneous: 0, Inventory: 0, Salaries: 0, "Utility Bills": 0, Supplies: 0, Other: 0
     }));
 
     // Fill Data
@@ -537,11 +609,11 @@ const Finance = () => {
         try {
           // We need to match the period generated keys
           if (dashboardPeriod === 'weekly' || dashboardPeriod === 'monthly') {
-            itemKey = item.date.toString().split('T')[0];
+            itemKey = getDateOnly(item.date);
           } else if (dashboardPeriod === 'yearly') {
-            itemKey = item.date.toString().slice(0, 7); // YYYY-MM
+            itemKey = getDateOnly(item.date).slice(0, 7); // YYYY-MM
           } else {
-            itemKey = item.date.toString().slice(0, 4); // YYYY
+            itemKey = getDateOnly(item.date).slice(0, 4); // YYYY
           }
         } catch (e) { return; }
 
@@ -558,10 +630,12 @@ const Finance = () => {
     fillData(dashboardExpenseData, 'expense');
 
     return data;
-  }, [dashboardIncomeData, dashboardExpenseData, dashboardPeriod]);
+  }, [dashboardIncomeData, dashboardExpenseData, dashboardPeriod, dashboardDateRange.dateFrom, dashboardDateRange.dateTo]);
 
   const incomeColors = {
-    Fee: "hsl(var(--primary))",
+    "Tuition Fee": "hsl(var(--primary))",
+    "Extra Challan": "#22c55e",
+    "Hostel Challan": "#06b6d4",
     Donation: "#10b981", // emerald-500
     Funding: "#3b82f6", // blue-500
     Revenue: "#f59e0b", // amber-500
@@ -569,6 +643,13 @@ const Finance = () => {
   };
 
   const expenseColors = {
+    Bills: "#ef4444",
+    Payroll: "#3b82f6",
+    Operations: "#0ea5e9",
+    Academic: "#22c55e",
+    StudentWelfare: "#a855f7",
+    Compliance: "#f59e0b",
+    Miscellaneous: "#6b7280",
     Inventory: "#f97316", // orange-500
     "Utility Bills": "#ef4444", // red-500
     Salaries: "#3b82f6", // blue-500
@@ -584,21 +665,27 @@ const Finance = () => {
   const reportsNetBalance = reportsTotalIncome - reportsTotalExpense;
 
   const reportsCategoryIncomeData = [
-    { name: "Fee", amount: reportsIncomeData.filter(i => i.category === "Fee").reduce((sum, i) => sum + Number(i.amount), 0) },
+    { name: "Tuition Fee", amount: reportsIncomeData.filter(i => i.category === "Tuition Fee" || i.category === "Fee").reduce((sum, i) => sum + Number(i.amount), 0) },
+    { name: "Extra Challan", amount: reportsIncomeData.filter(i => i.category === "Extra Challan" || i.category === "Extra Fee").reduce((sum, i) => sum + Number(i.amount), 0) },
+    { name: "Hostel Challan", amount: reportsIncomeData.filter(i => i.category === "Hostel Challan" || i.category === "Hostel Fee").reduce((sum, i) => sum + Number(i.amount), 0) },
     { name: "Donation", amount: reportsIncomeData.filter(i => i.category === "Donation").reduce((sum, i) => sum + Number(i.amount), 0) },
     { name: "Funding", amount: reportsIncomeData.filter(i => i.category === "Funding").reduce((sum, i) => sum + Number(i.amount), 0) },
     { name: "Revenue", amount: reportsIncomeData.filter(i => i.category === "Revenue").reduce((sum, i) => sum + Number(i.amount), 0) },
     { name: "Investments", amount: reportsIncomeData.filter(i => i.category === "Investments").reduce((sum, i) => sum + Number(i.amount), 0) }
   ];
 
-  const reportsCategoryExpenseData = [
-    { name: "Inventory", amount: reportsExpenseData.filter(e => e.category === "Inventory").reduce((sum, e) => sum + Number(e.amount), 0) },
-    { name: "Utility Bills", amount: reportsExpenseData.filter(e => e.category === "Utility Bills").reduce((sum, e) => sum + Number(e.amount), 0) },
-    { name: "Salaries", amount: reportsExpenseData.filter(e => e.category === "Salaries").reduce((sum, e) => sum + Number(e.amount), 0) },
-    { name: "Maintenance", amount: reportsExpenseData.filter(e => e.category === "Maintenance").reduce((sum, e) => sum + Number(e.amount), 0) },
-    { name: "Supplies", amount: reportsExpenseData.filter(e => e.category === "Supplies").reduce((sum, e) => sum + Number(e.amount), 0) },
-    { name: "Other", amount: reportsExpenseData.filter(e => e.category === "Other").reduce((sum, e) => sum + Number(e.amount), 0) }
-  ];
+  const reportsCategoryExpenseData = useMemo(() => {
+    const grouped = reportsExpenseData.reduce((acc, item) => {
+      const category = item?.category || "Other";
+      const subCategory = item?.subCategory || "General";
+      const key = `${category} > ${subCategory}`;
+      acc[key] = (acc[key] || 0) + Number(item?.amount || 0);
+      return acc;
+    }, {});
+    return Object.entries(grouped)
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [reportsExpenseData]);
 
   return <DashboardLayout>
     <div className="space-y-6 max-w-full overflow-x-hidden">
@@ -612,21 +699,7 @@ const Finance = () => {
               Track income, expenses, and financial reports
             </p>
           </div>
-          <div>
-            <Select value={dashboardPeriod} onValueChange={setDashboardPeriod}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="weekly">Weekly</SelectItem>
-                <SelectItem value="monthly">Monthly</SelectItem>
-                <SelectItem value="yearly">Yearly</SelectItem>
-                <SelectItem value="overall">Overall</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
         </div>
-
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
@@ -670,6 +743,41 @@ const Finance = () => {
         </TabsList>
 
         <TabsContent value="dashboard" className="space-y-4">
+          <Card>
+            <CardContent className="pt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                <div>
+                  <Label>From</Label>
+                  <Input type="date" value={dashboardDateFrom} onChange={(e) => setDashboardDateFrom(e.target.value)} />
+                </div>
+                <div>
+                  <Label>To</Label>
+                  <Input type="date" value={dashboardDateTo} onChange={(e) => setDashboardDateTo(e.target.value)} />
+                </div>
+                <div>
+                  <Button
+                    onClick={() => setAppliedDashboardFilter({ dateFrom: dashboardDateFrom, dateTo: dashboardDateTo })}
+                    className="w-full"
+                  >
+                    Apply
+                  </Button>
+                </div>
+                <div>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setDashboardDateFrom("");
+                      setDashboardDateTo("");
+                      setAppliedDashboardFilter({ dateFrom: "", dateTo: "" });
+                    }}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card>
               <CardHeader>
@@ -772,14 +880,21 @@ const Finance = () => {
                   Add Income
                 </Button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 mt-4">
                 <div>
-                  <Label>Month</Label>
+                  <Label>From</Label>
                   <Input
-                    type="month"
-                    value={incomeFilterMonth}
-                    onChange={e => setIncomeFilterMonth(e.target.value)}
-                    placeholder="Select month"
+                    type="date"
+                    value={incomeDateFrom}
+                    onChange={e => setIncomeDateFrom(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label>To</Label>
+                  <Input
+                    type="date"
+                    value={incomeDateTo}
+                    onChange={e => setIncomeDateTo(e.target.value)}
                   />
                 </div>
                 <div>
@@ -790,7 +905,9 @@ const Finance = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Categories</SelectItem>
-                      <SelectItem value="Fee">Fee</SelectItem>
+                      <SelectItem value="Tuition Fee">Tuition Fee</SelectItem>
+                      <SelectItem value="Extra Challan">Extra Challan</SelectItem>
+                      <SelectItem value="Hostel Challan">Hostel Challan</SelectItem>
                       <SelectItem value="Donation">Donation</SelectItem>
                       <SelectItem value="Funding">Funding</SelectItem>
                       <SelectItem value="Revenue">Revenue</SelectItem>
@@ -800,9 +917,19 @@ const Finance = () => {
                 </div>
                 <div className="flex items-end">
                   <Button
+                    onClick={() => setAppliedIncomeFilter({ dateFrom: incomeDateFrom, dateTo: incomeDateTo })}
+                  >
+                    Apply
+                  </Button>
+                </div>
+                <div className="flex items-end">
+                  <Button
                     variant="outline"
                     onClick={() => {
-                      setIncomeFilterMonth("");
+                      const current = getCurrentMonthRange();
+                      setIncomeDateFrom(current.dateFrom);
+                      setIncomeDateTo(current.dateTo);
+                      setAppliedIncomeFilter(current);
                       setIncomeFilterCategory("all");
                     }}
                   >
@@ -833,10 +960,10 @@ const Finance = () => {
                     ) : incomeData.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                          No income records found. Select a month to view data.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
+                        No income records found for selected filters.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
                       incomeData.map(item => <TableRow key={item.id}>
                         <TableCell className="py-2 px-3 text-sm">{new Date(item.date).toLocaleDateString()}</TableCell>
                         <TableCell className="py-2 px-3 text-sm">
@@ -879,40 +1006,77 @@ const Finance = () => {
                   Add Expense
                 </Button>
               </div>
-              <div className="flex gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-6 gap-4 mt-4">
                 <div className="flex-1">
-                  <Label>Month</Label>
+                  <Label>From</Label>
                   <Input
-                    type="month"
-                    value={expenseFilterMonth}
-                    onChange={e => setExpenseFilterMonth(e.target.value)}
-                    placeholder="Select month"
+                    type="date"
+                    value={expenseDateFrom}
+                    onChange={e => setExpenseDateFrom(e.target.value)}
+                  />
+                </div>
+                <div className="flex-1">
+                  <Label>To</Label>
+                  <Input
+                    type="date"
+                    value={expenseDateTo}
+                    onChange={e => setExpenseDateTo(e.target.value)}
                   />
                 </div>
                 <div className="flex-1">
                   <Label>Category</Label>
-                  <Select value={expenseFilterCategory} onValueChange={setExpenseFilterCategory}>
+                  <Select value={expenseFilterCategory} onValueChange={(value) => {
+                    setExpenseFilterCategory(value);
+                    setExpenseFilterSubCategory("all");
+                  }}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Categories</SelectItem>
-                      <SelectItem value="Inventory">Inventory</SelectItem>
-                      <SelectItem value="Utility Bills">Utility Bills</SelectItem>
-                      <SelectItem value="Salaries">Salaries</SelectItem>
-                      <SelectItem value="Hostel">Hostel</SelectItem>
-                      <SelectItem value="Maintenance">Maintenance</SelectItem>
-                      <SelectItem value="Supplies">Supplies</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
+                      {EXPENSE_CATEGORIES.map((category) => (
+                        <SelectItem key={category} value={category}>{category}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1">
+                  <Label>Sub Category</Label>
+                  <Select
+                    value={expenseFilterSubCategory}
+                    onValueChange={setExpenseFilterSubCategory}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Sub Categories</SelectItem>
+                      {(expenseFilterCategory === "all"
+                        ? Array.from(new Set(Object.values(EXPENSE_CATEGORY_MAP).flat()))
+                        : (EXPENSE_CATEGORY_MAP[expenseFilterCategory] || [])
+                      ).map((sub) => (
+                        <SelectItem key={sub} value={sub}>{sub}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="flex items-end">
                   <Button
+                    onClick={() => setAppliedExpenseFilter({ dateFrom: expenseDateFrom, dateTo: expenseDateTo })}
+                  >
+                    Apply
+                  </Button>
+                </div>
+                <div className="flex items-end">
+                  <Button
                     variant="outline"
                     onClick={() => {
-                      setExpenseFilterMonth("");
+                      const current = getCurrentMonthRange();
+                      setExpenseDateFrom(current.dateFrom);
+                      setExpenseDateTo(current.dateTo);
+                      setAppliedExpenseFilter(current);
                       setExpenseFilterCategory("all");
+                      setExpenseFilterSubCategory("all");
                     }}
                   >
                     Clear
@@ -923,25 +1087,26 @@ const Finance = () => {
             <CardContent>
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead className="py-2 px-3 text-sm">Date</TableHead>
-                    <TableHead className="py-2 px-3 text-sm">Category</TableHead>
-                    <TableHead className="py-2 px-3 text-sm">Description</TableHead>
-                    <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
-                    <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
+                    <TableRow>
+                      <TableHead className="py-2 px-3 text-sm">Date</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Category</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Sub Category</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Description</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {expenseLoading ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                         Loading expense data...
                       </TableCell>
                     </TableRow>
                   ) : expenseData.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                        No expense records found. Select a month to view data.
+                      <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                        No expense records found for selected filters.
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -950,6 +1115,7 @@ const Finance = () => {
                       <TableCell className="py-2 px-3 text-sm">
                         <Badge variant="destructive">{item.category}</Badge>
                       </TableCell>
+                      <TableCell className="py-2 px-3 text-sm">{item.subCategory || "-"}</TableCell>
                       <TableCell className="py-2 px-3 text-sm">{item.description}</TableCell>
                       <TableCell className="text-sm px-3 py-2 font-bold text-destructive">PKR {Number(item.amount).toLocaleString()}</TableCell>
                       <TableCell className="py-2 px-3 text-sm">
@@ -1072,33 +1238,71 @@ const Finance = () => {
         <TabsContent value="closing" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex justify-between items-center">
-                <CardTitle>Financial Closing</CardTitle>
-                <div className="flex gap-2">
-                  <div className="flex gap-2 items-center">
-                    <Label className="whitespace-nowrap">Month</Label>
-                    <Input
-                      type="month"
-                      value={closingFilterMonth}
-                      onChange={(e) => setClosingFilterMonth(e.target.value)}
-                      className="w-[180px]"
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setClosingFilterMonth("")}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                  <Button onClick={() => setClosingOpen(true)}>
-                    <FileText className="mr-2 h-4 w-4" />
-                    New Closing
-                  </Button>
-                </div>
-              </div>
+              <CardTitle>Financial Closing</CardTitle>
             </CardHeader>
             <CardContent>
+              <Tabs value={closingSubTab} onValueChange={setClosingSubTab} className="space-y-4">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="daily">Daily Close</TabsTrigger>
+                  <TabsTrigger value="monthly">Monthly Close</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="daily" className="space-y-4">
+                  <div className="flex justify-between items-end gap-3 flex-wrap">
+                    <div className="flex items-end gap-2">
+                      <div>
+                        <Label>Date</Label>
+                        <Input type="date" value={dailyClosingFilterDate} onChange={(e) => setDailyClosingFilterDate(e.target.value)} className="w-[180px]" />
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() => setDailyClosingFilterDate(toLocalDateString(new Date()))}
+                      >
+                        Today
+                      </Button>
+                    </div>
+                    <Button onClick={() => {
+                      setClosingType("daily");
+                      setClosingDate(dailyClosingFilterDate || toLocalDateString(new Date()));
+                      setClosingOpen(true);
+                    }}>
+                      <FileText className="mr-2 h-4 w-4" />
+                      New Daily Close
+                    </Button>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="monthly" className="space-y-4">
+                  <div className="flex justify-between items-end gap-3 flex-wrap">
+                    <div className="flex items-end gap-2">
+                      <div>
+                        <Label>Month</Label>
+                        <Input type="month" value={monthlyClosingFilterMonth} onChange={(e) => setMonthlyClosingFilterMonth(e.target.value)} className="w-[180px]" />
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          const now = new Date();
+                          setMonthlyClosingFilterMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+                        }}
+                      >
+                        Current Month
+                      </Button>
+                    </div>
+                    <Button onClick={() => {
+                      setClosingType("monthly");
+                      if (monthlyClosingFilterMonth) {
+                        setClosingDate(`${monthlyClosingFilterMonth}-01`);
+                      }
+                      setClosingOpen(true);
+                    }}>
+                      <FileText className="mr-2 h-4 w-4" />
+                      New Monthly Close
+                    </Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
+
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1121,7 +1325,7 @@ const Finance = () => {
                   ) : closingData.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
-                        No closing records found. Select a month to view data.
+                        No closing records found for selected filters.
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -1225,16 +1429,31 @@ const Finance = () => {
             </div>
             <div>
               <Label>Category</Label>
-              <Select value={expenseFormData.category} onValueChange={value => setExpenseFormData({ ...expenseFormData, category: value })}>
+              <Select value={expenseFormData.category} onValueChange={value => setExpenseFormData({
+                ...expenseFormData,
+                category: value,
+                subCategory: (EXPENSE_CATEGORY_MAP[value] || [])[0] || ""
+              })}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Utility Bills">Utility Bills</SelectItem>
-                  <SelectItem value="Salaries">Salaries</SelectItem>
-                  <SelectItem value="Maintenance">Maintenance</SelectItem>
-                  <SelectItem value="Supplies">Supplies</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
+                  {EXPENSE_CATEGORIES.map((category) => (
+                    <SelectItem key={category} value={category}>{category}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Sub Category</Label>
+              <Select value={expenseFormData.subCategory} onValueChange={value => setExpenseFormData({ ...expenseFormData, subCategory: value })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(EXPENSE_CATEGORY_MAP[expenseFormData.category] || []).map((sub) => (
+                    <SelectItem key={sub} value={sub}>{sub}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -1259,28 +1478,13 @@ const Finance = () => {
             <DialogTitle>Financial Closing</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Closing Type</Label>
-                <Select value={closingType} onValueChange={value => setClosingType(value)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="daily">Daily</SelectItem>
-                    <SelectItem value="monthly">Monthly</SelectItem>
-                    <SelectItem value="quarterly">Quarterly</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>{closingType === 'daily' ? 'Date' : 'Selection Date'}</Label>
-                <Input
-                  type="date"
-                  value={closingDate}
-                  onChange={(e) => setClosingDate(e.target.value)}
-                />
-              </div>
+            <div>
+              <Label>{closingType === 'daily' ? 'Date' : 'Selection Date'}</Label>
+              <Input
+                type="date"
+                value={closingDate}
+                onChange={(e) => setClosingDate(e.target.value)}
+              />
             </div>
             <div>
               <Label>Total Income</Label>

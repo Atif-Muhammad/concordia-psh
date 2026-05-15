@@ -8,22 +8,19 @@ import {
   Query,
 } from '@nestjs/common';
 import { FeeManagementService } from './fee-management.service';
+import { ExtraChallanService } from './extra-challan.service';
 import { CreateFeeHeadDto } from './dtos/create-fee-head.dto';
 import { UpdateFeeHeadDto } from './dtos/update-fee-head.dto';
 import { CreateFeeStructureDto } from './dtos/create-fee-structure.dto';
 import { UpdateFeeStructureDto } from './dtos/update-fee-structure.dto';
-import { CreateFeeChallanDto } from './dtos/create-fee-challan.dto';
-import { UpdateFeeChallanDto } from './dtos/update-fee-challan.dto';
 import { FeeReportQueryDto } from './dtos/fee-report-query.dto';
-
-import { LateFeeCronService } from './late-fee.cron';
 
 @Controller('fee-management')
 export class FeeManagementController {
   constructor(
     private readonly feeService: FeeManagementService,
-    private readonly lateFeeCron: LateFeeCronService,
-  ) { }
+    private readonly extraChallanService: ExtraChallanService,
+  ) {}
 
   // Fee Heads
   @Post('head/create')
@@ -74,7 +71,6 @@ export class FeeManagementController {
   }
 
   // Reports
-
   @Get('reports/revenue-over-time')
   async getRevenueOverTime(@Query() query: FeeReportQueryDto) {
     return await this.feeService.getRevenueOverTime(query.period as any);
@@ -87,15 +83,13 @@ export class FeeManagementController {
 
   @Get('reports/collection-summary')
   async getFeeCollectionSummary(@Query() query: FeeReportQueryDto) {
-    return await this.feeService.getFeeCollectionSummary(query.period as any, query.sessionId ? Number(query.sessionId) : undefined);
+    return await this.feeService.getFeeCollectionSummary(
+      query.period as any,
+      query.sessionId ? Number(query.sessionId) : undefined,
+    );
   }
 
-  // Fee Challans
-  @Post('challan/create')
-  async createFeeChallan(@Body() payload: CreateFeeChallanDto) {
-    return await this.feeService.createFeeChallan(payload);
-  }
-
+  // Fee Challans (new model)
   @Get('challan/get/all')
   async getFeeChallans(@Query() query: any) {
     return await this.feeService.getFeeChallans(query);
@@ -106,22 +100,25 @@ export class FeeManagementController {
     return await this.feeService.getBulkChallans(query);
   }
 
-  @Patch('challan/update')
-  async updateFeeChallan(
-    @Query('id') id: string,
-    @Body() payload: UpdateFeeChallanDto,
-  ) {
-    return await this.feeService.updateFeeChallan(Number(id), payload);
-  }
-
   @Delete('challan/delete')
   async deleteFeeChallan(@Query('id') id: string) {
     return await this.feeService.deleteFeeChallan(Number(id));
   }
 
+  @Patch('challan/update')
+  async updateFeeChallan(
+    @Query('id') id: string,
+    @Body() payload: any,
+  ) {
+    return await this.feeService.updateFeeChallan(Number(id), payload);
+  }
+
   @Get('challan/history')
-  async getStudentFeeHistory(@Query('studentId') studentId: string) {
-    return await this.feeService.getStudentFeeHistory(Number(studentId));
+  async getStudentFeeHistory(
+    @Query('studentId') studentId: string,
+    @Query('type') type?: string,
+  ) {
+    return await this.feeService.getStudentFeeHistory(Number(studentId), type);
   }
 
   @Get('student/summary')
@@ -137,11 +134,6 @@ export class FeeManagementController {
   @Get('installment-plans')
   async getInstallmentPlans(@Query() query: any) {
     return await this.feeService.getInstallmentPlans(query);
-  }
-
-  @Post('challan/generate-from-plan')
-  async generateChallansFromPlan(@Body() payload: any) {
-    return await this.feeService.generateChallansFromPlan(payload);
   }
 
   // Fee Challan Templates
@@ -178,9 +170,24 @@ export class FeeManagementController {
     return await this.feeService.deleteFeeChallanTemplate(Number(id));
   }
 
-  /** Manual trigger for late fee accrual (admin use / backfill) */
-  @Post('late-fee/accrue')
-  async triggerLateFeeAccrual() {
-    return await this.lateFeeCron.runLateFeeAccrual();
+  // Extra Challans (dedicated table)
+  @Post('extra-challan/create')
+  async createExtraChallan(@Body() payload: any) {
+    return await this.extraChallanService.createExtraChallan(payload);
+  }
+
+  @Get('extra-challan/get/all')
+  async getExtraChallans(@Query() query: any) {
+    return await this.extraChallanService.getExtraChallans(query);
+  }
+
+  @Delete('extra-challan/delete')
+  async deleteExtraChallan(@Query('id') id: string) {
+    return await this.extraChallanService.deleteExtraChallan(Number(id));
+  }
+
+  @Patch('extra-challan/update')
+  async updateExtraChallan(@Query('id') id: string, @Body() payload: any) {
+    return await this.extraChallanService.updateExtraChallan(Number(id), payload);
   }
 }

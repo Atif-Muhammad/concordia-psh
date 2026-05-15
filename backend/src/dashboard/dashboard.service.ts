@@ -100,6 +100,8 @@ export class DashboardService {
       exams,
       paidHistoryData,
       issuedHistoryData,
+      extraHistoryData,
+      hostelHistoryData,
       receivablesAgg,
       weeklyAttendanceRaw,
     ] = await Promise.all([
@@ -117,14 +119,14 @@ export class DashboardService {
         },
       }),
 
-      // Fee Challan — filter by sessionId if available, otherwise by issueDate
-      this.prisma.feeChallan.findMany({
+      // Fee Installments — filter by sessionId if available
+      this.prisma.feeInstallment.findMany({
         where: sessionIdNum
           ? { sessionId: sessionIdNum }
-          : { issueDate: { gte: monthStart, lte: monthEnd } },
+          : { createdAt: { gte: monthStart, lte: monthEnd } },
         select: {
           status: true,
-          amount: true,
+          basePayable: true,
           paidAmount: true,
         },
       }),
@@ -187,46 +189,65 @@ export class DashboardService {
         },
       }),
 
-      // Fee History - Collected (Based on Paid Date - Cash Flow)
-      this.prisma.feeChallan.findMany({
+      // Fee History - Collected (Based on Payment Date - Cash Flow)
+      this.prisma.challanPayment.findMany({
         where: {
-          ...(sessionIdNum ? { sessionId: sessionIdNum } : {
-            paidDate: { gte: chartStart, lte: chartEnd },
-          }),
-          paidAmount: { gt: 0 },
-          status: { in: ['PAID', 'PARTIAL', 'VOID'] },
+          ...(sessionIdNum
+            ? { challan: { installment: { sessionId: sessionIdNum } } }
+            : { paymentDate: { gte: chartStart, lte: chartEnd } }),
         },
         select: {
-          paidDate: true,
-          paidAmount: true,
-          issueDate: true,
+          paymentDate: true,
+          amount: true,
         },
-        orderBy: { paidDate: 'asc' },
+        orderBy: { paymentDate: 'asc' },
       }),
 
-      // Fee History - Issued/Pending (Based on Issue Date)
-      this.prisma.feeChallan.findMany({
+      // Fee History - Issued/Pending (Based on Generated Date)
+      this.prisma.feeChallanV2.findMany({
         where: sessionIdNum
-          ? { sessionId: sessionIdNum }
-          : { issueDate: { gte: chartStart, lte: chartEnd } },
+          ? { installment: { sessionId: sessionIdNum } }
+          : { generatedDate: { gte: chartStart, lte: chartEnd } },
         select: {
-          issueDate: true,
+          generatedDate: true,
           status: true,
-          amount: true,
+          snapshotTotalDue: true,
+          amountReceived: true,
+        },
+        orderBy: { generatedDate: 'asc' },
+      }),
+
+      // Fee History - Extra Challans
+      this.prisma.extraChallan.findMany({
+        where: { generatedAt: { gte: chartStart, lte: chartEnd } },
+        select: {
+          generatedAt: true,
+          status: true,
+          totalAmount: true,
           paidAmount: true,
         },
-        orderBy: { issueDate: 'asc' },
+      }),
+
+      // Fee History - Hostel Challans
+      this.prisma.hostelChallan.findMany({
+        where: { generatedAt: { gte: chartStart, lte: chartEnd } },
+        select: {
+          generatedAt: true,
+          status: true,
+          totalAmount: true,
+          paidAmount: true,
+        },
       }),
 
       // Total Receivables (All time pending)
-      this.prisma.feeChallan.aggregate({
+      this.prisma.feeInstallment.aggregate({
         _sum: {
-          amount: true,
+          basePayable: true,
           paidAmount: true,
         },
         where: {
           status: {
-            in: ['PENDING', 'PARTIAL', 'OVERDUE'],
+            in: ['PENDING', 'PARTIAL'],
           },
         },
       }),
@@ -290,21 +311,21 @@ export class DashboardService {
 
     // 2. Collected: Sum of paidAmount for Paid/Partial Challans in period
     const collectionWhere: any = {
-      status: { in: ['PAID', 'PARTIAL', 'VOID'] },
+      status: { in: ['PAID', 'PARTIAL'] },
     };
     if (sessionIdNum) {
       collectionWhere.sessionId = sessionIdNum;
     } else if (!isOverall) {
-      collectionWhere.paidDate = { gte: monthStart, lte: monthEnd };
+      collectionWhere.lastPaymentDate = { gte: monthStart, lte: monthEnd };
     }
 
-    const collectedChallans = await this.prisma.feeChallan.findMany({
+    const collectedInstallments = await this.prisma.feeInstallment.findMany({
       where: collectionWhere,
-      select: { paidAmount: true, amount: true, discount: true },
+      select: { paidAmount: true, basePayable: true, discount: true },
     });
 
-    const totalCollectedTuition = collectedChallans.reduce(
-      (sum, c) => sum + Math.min(c.paidAmount || 0, Math.max(0, (c.amount || 0) - (c.discount || 0))),
+    const totalCollectedTuition = collectedInstallments.reduce(
+      (sum, c) => sum + Number(c.paidAmount),
       0,
     );
 
@@ -328,9 +349,13 @@ export class DashboardService {
     const totalFeeAmount = paidFees + pendingFees;
 
     const feesByStatus = {
-      paid: feeChallan.filter((f) => ['PAID', 'VOID'].includes(f.status)).length,
-      pending: feeChallan.filter((f) => f.status === 'PENDING').length,
-      overdue: feeChallan.filter((f) => f.status === 'OVERDUE').length,
+      paid: feeChallan.filter((f: any) => f.status === 'PAID').length,
+      pending: feeChallan.filter((f: any) => f.status === 'PENDING').length,
+      overdue: feeChallan.filter((f: any) => {
+        if (f.status !== 'PENDING') return false;
+        // Check if dueDate is in the past — not available in this query, so skip
+        return false;
+      }).length,
       collectionRate: feeCollectionRate,
     };
 
@@ -361,26 +386,48 @@ export class DashboardService {
       }
     }
 
-    // Process Collected (by Paid Date, fallback to issueDate)
-    paidHistoryData?.forEach((record) => {
-      const dateRef = record.paidDate || record.issueDate;
+    // Process Collected (by Payment Date)
+    paidHistoryData?.forEach((record: any) => {
+      const dateRef = record.paymentDate;
       if (!dateRef) return;
       const d = new Date(dateRef);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (feeHistoryMap.has(key)) {
         const entry: any = feeHistoryMap.get(key);
-        entry.collected += Number(record.paidAmount);
+        entry.collected += Number(record.amount);
       }
     });
 
-    // Process Pending (by Issue Date)
-    issuedHistoryData?.forEach((record) => {
-      if (['PAID', 'VOID', 'CANCELLED'].includes(record.status)) return;
-      const d = new Date(record.issueDate);
+    // Process Pending (by Generated Date)
+    issuedHistoryData?.forEach((record: any) => {
+      if (['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(record.status)) return;
+      const d = new Date(record.generatedDate);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (feeHistoryMap.has(key)) {
         const entry: any = feeHistoryMap.get(key);
-        entry.pending += Number(record.amount) - Number(record.paidAmount);
+        entry.pending += Number(record.snapshotTotalDue) - Number(record.amountReceived);
+      }
+    });
+
+    // Process Extra Pending
+    extraHistoryData?.forEach((record: any) => {
+      if (['PAID', 'VOID'].includes(record.status)) return;
+      const d = new Date(record.generatedAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (feeHistoryMap.has(key)) {
+        const entry: any = feeHistoryMap.get(key);
+        entry.pending += Number(record.totalAmount) - Number(record.paidAmount);
+      }
+    });
+
+    // Process Hostel Pending
+    hostelHistoryData?.forEach((record: any) => {
+      if (['PAID', 'VOID', 'SUPERSEDED'].includes(record.status)) return;
+      const d = new Date(record.generatedAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (feeHistoryMap.has(key)) {
+        const entry: any = feeHistoryMap.get(key);
+        entry.pending += Number(record.totalAmount) - Number(record.paidAmount);
       }
     });
 
@@ -394,7 +441,7 @@ export class DashboardService {
 
     // Calculate receivables
     const totalReceivable =
-      (receivablesAgg._sum.amount || 0) - (receivablesAgg._sum.paidAmount || 0);
+      Number(receivablesAgg._sum.basePayable ?? 0) - Number(receivablesAgg._sum.paidAmount ?? 0);
 
     // Calculate attendance statistics
     const totalAttendanceToday = attendance.length;
@@ -491,8 +538,6 @@ export class DashboardService {
       fees: {
         totalAmount: totalFeeAmount,
         paidAmount: paidFees,
-        regularRevenue: feeCollectionSummary.regularRevenue || 0,
-        extraRevenue: feeCollectionSummary.extraRevenue || 0,
         pendingAmount: pendingFees,
         collectionRate: feeCollectionRate,
         byStatus: feesByStatus,
@@ -542,5 +587,365 @@ export class DashboardService {
         weeklyAttendance: weeklyAttendanceTrend,
       },
     };
+  }
+
+  // ─── Section helpers ────────────────────────────────────────────────────────
+
+  private resolveSessionFilter(sessionId?: string) {
+    return sessionId && sessionId !== 'all' ? Number(sessionId) : null;
+  }
+
+  async getStudentsSection(filters?: { sessionId?: string }) {
+    const students = await this.prisma.student.findMany({
+      select: {
+        id: true,
+        passedOut: true,
+        program: { select: { level: true } },
+      },
+    });
+
+    const countByLevel = (level: string) =>
+      students.filter((s) => s.program?.level === level).length;
+
+    return {
+      total: students.length,
+      active: students.filter((s) => !s.passedOut).length,
+      byProgram: {
+        intermediate: countByLevel('INTERMEDIATE'),
+        diploma: countByLevel('DIPLOMA'),
+        bs: countByLevel('UNDERGRADUATE'),
+        shortCourse: countByLevel('SHORT_COURSE'),
+        coaching: countByLevel('COACHING'),
+      },
+      byStatus: {
+        active: students.filter((s) => !s.passedOut).length,
+        expelled: 0,
+        passedOut: students.filter((s) => s.passedOut).length,
+      },
+    };
+  }
+
+  async getFeesSection(filters?: { sessionId?: string }) {
+    const sessionIdNum = this.resolveSessionFilter(filters?.sessionId);
+    let periodDateFilter: any = {};
+    if (sessionIdNum) {
+      const session = await this.prisma.academicSession.findUnique({ where: { id: sessionIdNum } });
+      if (session) {
+        periodDateFilter = { gte: new Date(session.startDate), lte: new Date(session.endDate) };
+      }
+    }
+
+    // Only count installments that have a challan generated (billed) and are not frozen
+    const baseWhere = sessionIdNum ? { sessionId: sessionIdNum } : {};
+    const [
+      feeChallan,
+      installmentCollected,
+      installmentOutstanding,
+      extraCollected,
+      extraOutstanding,
+      hostelCollected,
+      hostelOutstanding,
+    ] = await Promise.all([
+      this.prisma.feeInstallment.findMany({
+        where: {
+          ...baseWhere,
+          challanGenerated: true,
+          status: { notIn: ['SUPERSEDED', 'SETTLED', 'VOID'] },
+        },
+        select: { status: true },
+      }),
+      this.prisma.feeInstallment.aggregate({
+        where: {
+          ...baseWhere,
+          settled: null,
+          paidAmount: { gt: 0 },
+        },
+        _sum: { paidAmount: true },
+      }),
+      this.prisma.feeInstallment.aggregate({
+        where: {
+          ...baseWhere,
+          challanGenerated: true,
+          pendingAmount: { gt: 0 },
+          status: { notIn: ['PAID', 'SUPERSEDED', 'VOID', 'SETTLED'] },
+        },
+        _sum: { pendingAmount: true },
+      }),
+      this.prisma.extraChallan.aggregate({
+        where: {
+          paidAmount: { gt: 0 },
+          ...(periodDateFilter.gte ? { generatedAt: periodDateFilter } : {}),
+        },
+        _sum: { paidAmount: true },
+      }),
+      this.prisma.extraChallan.findMany({
+        where: {
+          status: { notIn: ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'] },
+          ...(periodDateFilter.gte ? { generatedAt: periodDateFilter } : {}),
+        },
+        select: { totalAmount: true, paidAmount: true },
+      }),
+      this.prisma.hostelChallan.aggregate({
+        where: {
+          paidAmount: { gt: 0 },
+          ...(periodDateFilter.gte ? { generatedAt: periodDateFilter } : {}),
+        },
+        _sum: { paidAmount: true },
+      }),
+      this.prisma.hostelChallan.findMany({
+        where: {
+          status: { notIn: ['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'] },
+          ...(periodDateFilter.gte ? { generatedAt: periodDateFilter } : {}),
+        },
+        select: { totalAmount: true, paidAmount: true },
+      }),
+    ]);
+
+    const breakdown = {
+      installment: {
+        collected: Number(installmentCollected._sum.paidAmount ?? 0),
+        outstanding: Number(installmentOutstanding._sum.pendingAmount ?? 0),
+      },
+      extraChallans: {
+        collected: Number(extraCollected._sum.paidAmount ?? 0),
+        outstanding: extraOutstanding.reduce(
+          (sum, challan) => sum + Math.max(0, Number(challan.totalAmount) - Number(challan.paidAmount)),
+          0,
+        ),
+      },
+      hostel: {
+        collected: Number(hostelCollected._sum.paidAmount ?? 0),
+        outstanding: hostelOutstanding.reduce(
+          (sum, challan) => sum + Math.max(0, Number(challan.totalAmount) - Number(challan.paidAmount)),
+          0,
+        ),
+      },
+    };
+
+    const totalCollected =
+      breakdown.installment.collected +
+      breakdown.extraChallans.collected +
+      breakdown.hostel.collected;
+    const totalOutstanding =
+      breakdown.installment.outstanding +
+      breakdown.extraChallans.outstanding +
+      breakdown.hostel.outstanding;
+
+    return {
+      paidAmount: totalCollected,
+      regularRevenue: breakdown.installment.collected,
+      extraRevenue: breakdown.extraChallans.collected,
+      hostelRevenue: breakdown.hostel.collected,
+      pendingAmount: totalOutstanding,
+      installmentPendingAmount: breakdown.installment.outstanding,
+      extraPendingAmount: breakdown.extraChallans.outstanding,
+      hostelPendingAmount: breakdown.hostel.outstanding,
+      breakdown,
+      byStatus: {
+        paid: feeChallan.filter((f) => f.status === 'PAID').length,
+        // PENDING + PARTIAL + OVERDUE are all "unpaid" — group them as pending for the chart
+        pending: feeChallan.filter((f) => ['PENDING', 'PARTIAL'].includes(f.status)).length,
+        overdue: feeChallan.filter((f) => f.status === 'OVERDUE').length,
+      },
+    };
+  }
+
+  async getAttendanceSection(filters?: { sessionId?: string }) {
+    const sessionIdNum = this.resolveSessionFilter(filters?.sessionId);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    let dateFilter: any = {};
+    if (sessionIdNum) {
+      const session = await this.prisma.academicSession.findUnique({ where: { id: sessionIdNum } });
+      if (session) dateFilter = { gte: new Date(session.startDate), lte: new Date(session.endDate) };
+    } else {
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+      dateFilter = { gte: monthStart, lte: monthEnd };
+    }
+
+    const attendance = await this.prisma.attendance.findMany({
+      where: { date: dateFilter },
+      select: { status: true },
+    });
+
+    const present = attendance.filter((a) => a.status === 'PRESENT').length;
+    const total = attendance.length;
+
+    return {
+      today: {
+        total,
+        present,
+        rate: total > 0 ? Math.round((present / total) * 1000) / 10 : 0,
+      },
+      byStatus: {
+        present,
+        absent: attendance.filter((a) => a.status === 'ABSENT').length,
+        leave: attendance.filter((a) => a.status === 'LEAVE').length,
+      },
+    };
+  }
+
+  async getStaffSection() {
+    // Query all staff once to avoid double-counting dual-role staff
+    const allStaff = await this.prisma.staff.findMany({
+      select: { isTeaching: true, isNonTeaching: true, empDepartment: true },
+    });
+
+    // Unique staff count (each person counted once regardless of dual role)
+    const total = allStaff.length;
+    // Teaching: has teaching role (may also be non-teaching)
+    const teaching = allStaff.filter((s) => s.isTeaching).length;
+    // Non-teaching only: has non-teaching role but NOT teaching
+    const nonTeachingOnly = allStaff.filter((s) => s.isNonTeaching && !s.isTeaching);
+    const admin = nonTeachingOnly.filter((s) => ['ADMIN', 'FINANCE', 'HR'].includes(s.empDepartment!)).length;
+    const support = nonTeachingOnly.filter((s) => !['ADMIN', 'FINANCE', 'HR'].includes(s.empDepartment!)).length;
+
+    return { total, teaching, admin, support };
+  }
+
+  async getFinanceSection(filters?: { sessionId?: string }) {
+    const sessionIdNum = this.resolveSessionFilter(filters?.sessionId);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    let dateFrom: string;
+    let dateTo: string;
+    if (filters?.sessionId === 'all') {
+      dateFrom = new Date(2000, 0, 1).toISOString().split('T')[0];
+      dateTo = new Date(today.getFullYear() + 5, 11, 31).toISOString().split('T')[0];
+    } else if (sessionIdNum) {
+      const session = await this.prisma.academicSession.findUnique({ where: { id: sessionIdNum } });
+      dateFrom = session ? session.startDate.toISOString().split('T')[0] : new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+      dateTo = session ? session.endDate.toISOString().split('T')[0] : new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+    } else {
+      dateFrom = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+      dateTo = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+    }
+
+    const [incomes, expenses, installmentPending, extraPending, hostelPending] = await Promise.all([
+      this.financeService.getIncomes({ dateFrom, dateTo }),
+      this.financeService.getExpenses({ dateFrom, dateTo }),
+      this.prisma.feeInstallment.aggregate({
+        _sum: { pendingAmount: true },
+        where: {
+          ...(sessionIdNum ? { sessionId: sessionIdNum } : {}),
+          challanGenerated: true,
+          pendingAmount: { gt: 0 },
+          status: { notIn: ['PAID', 'SUPERSEDED', 'VOID', 'SETTLED'] },
+        },
+      }),
+      this.prisma.extraChallan.aggregate({
+        _sum: { totalAmount: true, paidAmount: true },
+        where: { status: { notIn: ['PAID', 'SUPERSEDED', 'VOID', 'SETTLED'] } },
+      }),
+      this.prisma.hostelChallan.aggregate({
+        _sum: { totalAmount: true, paidAmount: true },
+        where: { status: { notIn: ['PAID', 'SUPERSEDED', 'VOID', 'SETTLED'] } },
+      }),
+    ]);
+
+    const monthlyIncome = incomes.reduce((s: number, i: any) => s + Number(i.amount), 0);
+    const monthlyExpense = expenses.reduce((s: number, e: any) => s + Number(e.amount), 0);
+    const installmentPendingAmount = Number(installmentPending._sum.pendingAmount ?? 0);
+    const extraPendingAmount = Math.max(0, Number(extraPending._sum.totalAmount ?? 0) - Number(extraPending._sum.paidAmount ?? 0));
+    const hostelPendingAmount = Math.max(0, Number(hostelPending._sum.totalAmount ?? 0) - Number(hostelPending._sum.paidAmount ?? 0));
+    const totalPending = installmentPendingAmount + extraPendingAmount + hostelPendingAmount;
+
+    return {
+      monthlyIncome,
+      monthlyExpense,
+      netBalance: monthlyIncome - monthlyExpense,
+      totalInflow: monthlyIncome,
+      totalOutflow: monthlyExpense,
+      totalPending,
+      totalReceivable: totalPending,
+      pendingBreakdown: {
+        installment: installmentPendingAmount,
+        extraChallans: extraPendingAmount,
+        hostel: hostelPendingAmount,
+      },
+    };
+  }
+
+  async getChartsSection(filters?: { sessionId?: string }) {
+    const sessionIdNum = this.resolveSessionFilter(filters?.sessionId);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    let monthStart: Date;
+    let monthEnd: Date;
+    if (sessionIdNum) {
+      const session = await this.prisma.academicSession.findUnique({ where: { id: sessionIdNum } });
+      monthStart = session ? new Date(session.startDate) : new Date(today.getFullYear(), today.getMonth(), 1);
+      monthEnd = session ? new Date(session.endDate) : new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else {
+      monthStart = new Date(today.getFullYear(), today.getMonth() - 11, 1);
+      monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+    }
+
+    const weeklyStart = new Date(today); weeklyStart.setDate(today.getDate() - 6); weeklyStart.setHours(0,0,0,0);
+
+    const [paidHistory, issuedHistory, weeklyRaw] = await Promise.all([
+      this.prisma.challanPayment.findMany({
+        where: sessionIdNum
+          ? { challan: { installment: { sessionId: sessionIdNum } } }
+          : { paymentDate: { gte: monthStart, lte: monthEnd } },
+        select: { paymentDate: true, amount: true },
+        orderBy: { paymentDate: 'asc' },
+      }),
+      this.prisma.feeChallanV2.findMany({
+        where: sessionIdNum
+          ? { installment: { sessionId: sessionIdNum } }
+          : { generatedDate: { gte: monthStart, lte: monthEnd } },
+        select: { generatedDate: true, status: true, snapshotTotalDue: true, amountReceived: true },
+      }),
+      this.prisma.attendance.findMany({
+        where: { date: { gte: weeklyStart, lte: today } },
+        select: { date: true, status: true },
+      }),
+    ]);
+
+    // Build monthly fee chart
+    const feeMap = new Map<string, { collected: number; pending: number; label: string }>();
+    const cursor = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
+    const end = new Date(monthEnd.getFullYear(), monthEnd.getMonth(), 1);
+    while (cursor <= end) {
+      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`;
+      feeMap.set(key, { collected: 0, pending: 0, label: cursor.toLocaleString('default', { month: 'short' }) });
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    paidHistory.forEach((r) => {
+      const d = new Date(r.paymentDate);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (feeMap.has(key)) feeMap.get(key)!.collected += Number(r.amount);
+    });
+    issuedHistory.forEach((r) => {
+      if (['PAID', 'VOID', 'SUPERSEDED', 'SETTLED'].includes(r.status)) return;
+      const d = new Date(r.generatedDate);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (feeMap.has(key)) feeMap.get(key)!.pending += Number(r.snapshotTotalDue) - Number(r.amountReceived);
+    });
+
+    const monthlyFeeCollection = Array.from(feeMap.values()).map((v) => ({
+      month: v.label,
+      collected: Math.round(v.collected),
+      pending: Math.round(v.pending),
+    }));
+
+    // Build weekly attendance trend
+    const weeklyAttendance: any[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today); d.setDate(today.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const dayStats = weeklyRaw.filter((a) => new Date(a.date).toISOString().split('T')[0] === dateStr);
+      const total = dayStats.length;
+      const present = dayStats.filter((a) => a.status === 'PRESENT').length;
+      weeklyAttendance.push({ day: d.toLocaleString('default', { weekday: 'short' }), rate: total > 0 ? Math.round((present / total) * 100) : 0 });
+    }
+
+    return { monthlyFeeCollection, weeklyAttendance };
   }
 }

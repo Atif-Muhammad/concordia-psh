@@ -22,13 +22,12 @@ import FrontOffice from "./pages/FrontOffice";
 import Examination from "./pages/Examination";
 import Academics from "./pages/Academics";
 import HRPayroll from "./pages/HRPayroll";
-import Hostel from "./pages/Hostel";
+import Boarding from "./pages/Hostel";
 import Finance from "./pages/Finance";
 import Configuration from "./pages/Configuration";
 import Inventory from "./pages/Inventory";
+import Complaints from "./pages/Complaints";
 import NotFound from "./pages/NotFound";
-import { lazy, Suspense } from "react";
-const Complaints = lazy(() => import("./pages/Complaints"));
 import { refreshTokens, userWho } from "../config/apis";
 
 // Menu order for default landing
@@ -179,7 +178,6 @@ function App() {
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div></div>}>
               <Routes>
                 <Route path="/" element={<RootRoutes />} />
 
@@ -275,7 +273,7 @@ function App() {
                   path="/hostel"
                   element={
                     <PermissionRoute moduleName="Hostel">
-                      <Hostel />
+                      <Boarding />
                     </PermissionRoute>
                   }
                 />
@@ -306,7 +304,6 @@ function App() {
 
                 <Route path="*" element={<NotFound />} />
               </Routes>
-            </Suspense>
           </BrowserRouter>
         </TooltipProvider>
       </DataProvider>

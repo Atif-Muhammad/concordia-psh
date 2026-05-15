@@ -1,41 +1,45 @@
-import { PartialType } from '@nestjs/mapped-types';
-import { CreateFeeChallanDto } from './create-fee-challan.dto';
 import { IsArray, IsNumber, IsOptional, IsString } from 'class-validator';
 
-export class UpdateFeeChallanDto extends PartialType(CreateFeeChallanDto) {
-  @IsString()
+export class UpdateFeeChallanDto {
+  @IsArray()
   @IsOptional()
-  status?: 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIAL';
+  feeHeadIds?: number[];
 
+  /**
+   * Manual fine amount - maps to extraFine on the installment
+   */
   @IsNumber()
   @IsOptional()
-  paidAmount?: number;
+  fineAmount?: number;
+
+  /**
+   * Discount amount - stored as negative
+   */
+  @IsNumber()
+  @IsOptional()
+  discount?: number;
 
   @IsString()
   @IsOptional()
-  paidDate?: string;
+  dueDate?: string;
+
+  @IsString()
+  @IsOptional()
+  remarks?: string;
 
   @IsArray()
   @IsOptional()
-  selectedHeads?: any[]; // Accept full fee head objects from frontend
-
-  @IsNumber()
-  @IsOptional()
-  customArrearsAmount?: number;
+  arrearsSelections?: {
+    id: number;
+    installmentNumber: number;
+    amount: number;
+    lateFee: number;
+  }[];
 
   @IsArray()
   @IsOptional()
-  arrearsSelections?: any[];
-
-  @IsNumber()
-  @IsOptional()
-  arrearsLateFee?: number;
-
-  @IsNumber()
-  @IsOptional()
-  receivingAmount?: number;
-
-  @IsString()
-  @IsOptional()
-  paidBy?: string;
+  heads?: {
+    headName: string;
+    amount: number;
+  }[];
 }

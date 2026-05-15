@@ -294,6 +294,9 @@ const Academics = () => {
   const [classForm, setClassForm] = useState({ name: "", programId: "", year: "", semester: "", isSemester: false });
   const [sectionForm, setSectionForm] = useState({ sectionLetter: "A", shift: "Morning", classId: "", capacity: "", room: "" });
   const [subjectForm, setSubjectForm] = useState({ name: "" });
+  const [newSubjectName, setNewSubjectName] = useState("");
+  const [editingSubjectId, setEditingSubjectId] = useState(null);
+  const [editingSubjectName, setEditingSubjectName] = useState("");
   const [scmDialogFilter, setScmDialogFilter] = useState({ programId: "all", classId: "" });
   const [bulkSubjectSelection, setBulkSubjectSelection] = useState(new Map());
   const [scmEditForm, setScmEditForm] = useState({ code: "", creditHours: "" });
@@ -585,6 +588,58 @@ const Academics = () => {
         setDeleteTarget(null);
       },
     });
+  };
+
+  const handleCreateSubjectInline = () => {
+    const name = newSubjectName.trim();
+    if (!name) {
+      toast({ title: "Subject name is required", variant: "destructive" });
+      return;
+    }
+
+    subjectMutation.mutate(
+      { data: { name } },
+      {
+        onSuccess: () => {
+          setNewSubjectName("");
+          toast({ title: "Subject created successfully" });
+        },
+        onError: (err) => {
+          toast({ title: "Error", description: err.message || "Something went wrong", variant: "destructive" });
+        },
+      },
+    );
+  };
+
+  const handleStartSubjectEdit = (subject) => {
+    setEditingSubjectId(subject.id);
+    setEditingSubjectName(subject.name || "");
+  };
+
+  const handleCancelSubjectEdit = () => {
+    setEditingSubjectId(null);
+    setEditingSubjectName("");
+  };
+
+  const handleUpdateSubjectInline = (subjectId) => {
+    const name = editingSubjectName.trim();
+    if (!name) {
+      toast({ title: "Subject name is required", variant: "destructive" });
+      return;
+    }
+
+    subjectMutation.mutate(
+      { id: subjectId, data: { name } },
+      {
+        onSuccess: () => {
+          handleCancelSubjectEdit();
+          toast({ title: "Subject updated successfully" });
+        },
+        onError: (err) => {
+          toast({ title: "Error", description: err.message || "Something went wrong", variant: "destructive" });
+        },
+      },
+    );
   };
 
   const [bulkScmPending, setBulkScmPending] = useState(false);
@@ -2178,42 +2233,26 @@ const Academics = () => {
                 <CardTitle className="flex items-center gap-2">
                   <BookOpen className="w-5 h-5" /> Subjects
                 </CardTitle>
-                <Dialog open={dialog.type === "subject" && dialog.open} onOpenChange={(open) => setDialog({ type: "subject", open })}>
-                  <DialogTrigger asChild>
-                    <Button onClick={() => openDialog("subject")}>
-                      <PlusCircle className="w-4 h-4 mr-2" /> Add Subject
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>{editing ? "Edit" : "Add"} Subject</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      {/* NAME */}
-                      <div>
-                        <Label>Name *</Label>
-                        <Input
-                          value={subjectForm.name}
-                          onChange={(e) => setSubjectForm({ ...subjectForm, name: e.target.value })}
-                          placeholder="e.g. Physics, Calculus"
-                        />
-                      </div>
-
-                      {/* SUBMIT */}
-                      <Button
-                        onClick={() => handleSubmit("subject")}
-                        className="w-full"
-                        disabled={!subjectForm.name.trim()}
-                      >
-                        {editing ? "Update" : "Add"} Subject
-                      </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
               </CardHeader>
 
               <CardContent>
-                {/* TABLE */}
+                <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                  <Input
+                    value={newSubjectName}
+                    onChange={(e) => setNewSubjectName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleCreateSubjectInline();
+                    }}
+                    placeholder="Enter subject name, e.g. Physics, Calculus"
+                  />
+                  <Button
+                    onClick={handleCreateSubjectInline}
+                    disabled={!newSubjectName.trim() || subjectMutation.isPending}
+                  >
+                    <PlusCircle className="w-4 h-4 mr-2" /> Add Subject
+                  </Button>
+                </div>
+
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -2228,34 +2267,67 @@ const Academics = () => {
                         return true;
                       })
                       .map((s) => {
+                        const isEditingSubject = editingSubjectId === s.id;
                         return (
                           <TableRow key={s.id}>
-                            <TableCell className="py-2 font-medium px-3 text-sm">{s.name}</TableCell>
+                            <TableCell className="py-2 font-medium px-3 text-sm">
+                              {isEditingSubject ? (
+                                <Input
+                                  value={editingSubjectName}
+                                  onChange={(e) => setEditingSubjectName(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") handleUpdateSubjectInline(s.id);
+                                    if (e.key === "Escape") handleCancelSubjectEdit();
+                                  }}
+                                  autoFocus
+                                />
+                              ) : (
+                                s.name
+                              )}
+                            </TableCell>
                             <TableCell className="py-2 text-right px-3 text-sm">
                               <div className="flex justify-end gap-2">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button variant="outline" size="sm" onClick={() => openEdit("subject", s)}>
-                                      <Edit className="w-4 h-4" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Edit</TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
+                                {isEditingSubject ? (
+                                  <>
                                     <Button
-                                      variant="destructive"
+                                      variant="outline"
                                       size="sm"
-                                      onClick={() => {
-                                        setDeleteTarget({ type: "subject", id: s.id });
-                                        setDeleteDialog(true);
-                                      }}
+                                      onClick={() => handleUpdateSubjectInline(s.id)}
+                                      disabled={!editingSubjectName.trim() || subjectMutation.isPending}
                                     >
-                                      <Trash2 className="w-4 h-4" />
+                                      Save
                                     </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Delete</TooltipContent>
-                                </Tooltip>
+                                    <Button variant="ghost" size="sm" onClick={handleCancelSubjectEdit}>
+                                      Cancel
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button variant="outline" size="sm" onClick={() => handleStartSubjectEdit(s)}>
+                                          <Edit className="w-4 h-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Edit</TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="destructive"
+                                          size="sm"
+                                          onClick={() => {
+                                            setDeleteTarget({ type: "subject", id: s.id });
+                                            setDeleteDialog(true);
+                                          }}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Delete</TooltipContent>
+                                    </Tooltip>
+                                  </>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>

@@ -1,21 +1,72 @@
-import { IsNotEmpty, IsString, IsDateString, IsNumber, IsOptional, Min } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
+/**
+ * A single fee head entry for a hostel challan.
+ */
+export class HostelChallanHeadDto {
+  @IsString()
+  headName: string;
+
+  @IsNumber()
+  @Min(0)
+  amount: number;
+}
+
+/**
+ * DTO for creating a monthly HOSTEL challan for a student.
+ */
 export class CreateHostelChallanDto {
-  @IsNotEmpty() @IsString()
-  registrationId: string;
+  /**
+   * The hostel registration ID (HSTLxxxx).
+   */
+  @IsNotEmpty()
+  @IsString()
+  hostelRegNumber: string;
 
-  @IsNotEmpty() @IsString()
-  month: string; // e.g. "January 2026"
+  /**
+   * Month for this challan (e.g. "January 2026").
+   */
+  @IsOptional()
+  @IsString()
+  month?: string;
 
-  @IsNotEmpty() @IsDateString()
+  /**
+   * IDs of the predefined fee heads to include.
+   */
+  @IsArray()
+  @IsOptional()
+  @IsNumber({}, { each: true })
+  feeHeadIds?: number[];
+
+  /**
+   * Ad-hoc custom heads.
+   */
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => HostelChallanHeadDto)
+  heads?: HostelChallanHeadDto[];
+
+  /**
+   * Due date for this challan (ISO 8601 date string).
+   */
+  @IsDateString()
   dueDate: string;
 
-  @IsOptional() @IsNumber() @Min(0)
-  fineAmount?: number; // custom fine
-
-  @IsOptional() @IsNumber() @Min(0)
-  discount?: number;
-
-  @IsOptional() @IsString()
+  /**
+   * Optional free-text remarks.
+   */
+  @IsString()
+  @IsOptional()
   remarks?: string;
 }
