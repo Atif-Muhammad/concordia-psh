@@ -54,6 +54,13 @@ export class LateFeeCronService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  private isMissingColumnError(err: unknown): boolean {
+    return (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === 'P2022'
+    );
+  }
+
   /**
    * Find all unlocked installments and sync their late fee to the DB.
    *
@@ -65,15 +72,27 @@ export class LateFeeCronService implements OnModuleInit, OnModuleDestroy {
     let updated = 0;
     let skipped = 0;
 
-    const settings = await this.prisma.instituteSettings.findFirst({
-      select: { lateFeeRatePerDay: true, extraChallanLateFee: true },
-    });
-    const forcedRateInst = settings?.lateFeeRatePerDay
-      ? Number(settings.lateFeeRatePerDay)
-      : 0;
-    const forcedRateExtra = settings?.extraChallanLateFee
-      ? Number(settings.extraChallanLateFee)
-      : 0;
+    let forcedRateInst = 0;
+    let forcedRateExtra = 0;
+    try {
+      const settings = await this.prisma.instituteSettings.findFirst({
+        select: { lateFeeRatePerDay: true, extraChallanLateFee: true },
+      });
+      forcedRateInst = settings?.lateFeeRatePerDay
+        ? Number(settings.lateFeeRatePerDay)
+        : 0;
+      forcedRateExtra = settings?.extraChallanLateFee
+        ? Number(settings.extraChallanLateFee)
+        : 0;
+    } catch (err) {
+      if (this.isMissingTableError(err) || this.isMissingColumnError(err)) {
+        this.logger.warn(
+          'Skipping institute settings late-fee columns lookup: missing table/column. Falling back to 0 rates.',
+        );
+      } else {
+        throw err;
+      }
+    }
 
     // 1) Standard installments
     try {
