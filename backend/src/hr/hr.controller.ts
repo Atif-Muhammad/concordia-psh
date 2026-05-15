@@ -526,6 +526,14 @@ export class HrController {
     }
   }
 
+  @Get('reports/analytics')
+  async getReportsAnalytics(
+    @Query('month') month: string,
+    @Query('date') date: string,
+  ) {
+    return await this.hrService.getReportsAnalytics(month, date);
+  }
+
   // Payroll Templates
   @Post('payroll-template')
   async createPayrollTemplate(@Body() payload: any) {

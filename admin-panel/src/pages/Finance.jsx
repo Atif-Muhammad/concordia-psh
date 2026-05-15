@@ -14,7 +14,8 @@ import { TrendingUp, TrendingDown, DollarSign, FileText, Trash2, Info, Edit } fr
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Cell } from "recharts";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area } from "recharts";
+import { ModernChartCard, ModernTooltip, ChartLegendPills, MODERN_CHART_COLORS } from "@/components/ui/modern-charts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getFinanceIncomes,
@@ -26,7 +27,8 @@ import {
   getFinanceClosings,
   createFinanceClosing,
   updateFinanceClosing,
-  deleteFinanceClosing
+  deleteFinanceClosing,
+  getFinanceReportsAnalytics
 } from "../../config/apis";
 
 // Helper to format date as YYYY-MM-DD in local time
@@ -237,6 +239,17 @@ const Finance = () => {
   const { data: reportsExpenseData = [] } = useQuery({
     queryKey: ['reportsExpense', appliedReportsFilter.dateFrom, appliedReportsFilter.dateTo],
     queryFn: () => getFinanceExpenses({ dateFrom: appliedReportsFilter.dateFrom, dateTo: appliedReportsFilter.dateTo })
+  });
+
+  const { data: reportsAnalytics } = useQuery({
+    queryKey: ['financeReportsAnalytics', appliedReportsFilter.dateFrom, appliedReportsFilter.dateTo],
+    queryFn: () =>
+      getFinanceReportsAnalytics({
+        dateFrom: appliedReportsFilter.dateFrom || undefined,
+        dateTo: appliedReportsFilter.dateTo || undefined,
+        groupBy: 'month',
+      }),
+    retry: 0,
   });
 
   // Mutations
@@ -686,6 +699,35 @@ const Finance = () => {
       .map(([name, amount]) => ({ name, amount }))
       .sort((a, b) => b.amount - a.amount);
   }, [reportsExpenseData]);
+
+  const reportsTrendData = useMemo(() => {
+    if (reportsAnalytics?.timeseries?.length) {
+      return reportsAnalytics.timeseries.map((row) => ({
+        name: row.bucket,
+        income: Number(row.income || 0),
+        expense: Number(row.expense || 0),
+        net: Number(row.net || 0),
+      }));
+    }
+    const map = {};
+    [...reportsIncomeData, ...reportsExpenseData].forEach((row) => {
+      const d = new Date(row.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!map[key]) map[key] = { name: key, income: 0, expense: 0, net: 0 };
+      if (reportsIncomeData.includes(row)) map[key].income += Number(row.amount || 0);
+      else map[key].expense += Number(row.amount || 0);
+      map[key].net = map[key].income - map[key].expense;
+    });
+    return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+  }, [reportsAnalytics, reportsIncomeData, reportsExpenseData]);
+
+  const reportsIncomePieData = useMemo(
+    () =>
+      (reportsAnalytics?.incomeByCategory || reportsCategoryIncomeData.map((x) => ({ name: x.name, value: x.amount })))
+        .filter((x) => Number(x.value || x.amount || 0) > 0)
+        .map((x) => ({ name: x.name, value: Number(x.value ?? x.amount ?? 0) })),
+    [reportsAnalytics, reportsCategoryIncomeData],
+  );
 
   return <DashboardLayout>
     <div className="space-y-6 max-w-full overflow-x-hidden">
@@ -1189,6 +1231,56 @@ const Finance = () => {
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <ModernChartCard title="Income vs Expense Trend" subtitle="Filtered reporting period" empty={!reportsTrendData.length}>
+                  <div className="h-[280px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={reportsTrendData}>
+                        <defs>
+                          <linearGradient id="finIncomeGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={MODERN_CHART_COLORS.success} stopOpacity={0.35} />
+                            <stop offset="95%" stopColor={MODERN_CHART_COLORS.success} stopOpacity={0.04} />
+                          </linearGradient>
+                          <linearGradient id="finExpenseGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={MODERN_CHART_COLORS.danger} stopOpacity={0.35} />
+                            <stop offset="95%" stopColor={MODERN_CHART_COLORS.danger} stopOpacity={0.04} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.15} vertical={false} />
+                        <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} />
+                        <RechartsTooltip content={<ModernTooltip valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`} />} />
+                        <Area type="monotone" dataKey="income" stroke={MODERN_CHART_COLORS.success} fill="url(#finIncomeGrad)" strokeWidth={2.5} />
+                        <Area type="monotone" dataKey="expense" stroke={MODERN_CHART_COLORS.danger} fill="url(#finExpenseGrad)" strokeWidth={2.5} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </ModernChartCard>
+                <ModernChartCard title="Income Mix" subtitle="Category contribution" empty={!reportsIncomePieData.length}>
+                  <div className="h-[280px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={reportsIncomePieData} dataKey="value" nameKey="name" innerRadius={68} outerRadius={98} paddingAngle={3}>
+                          {reportsIncomePieData.map((item, index) => (
+                            <Cell
+                              key={`${item.name}-${index}`}
+                              fill={[MODERN_CHART_COLORS.primary, MODERN_CHART_COLORS.secondary, MODERN_CHART_COLORS.success, MODERN_CHART_COLORS.warning, MODERN_CHART_COLORS.sky, MODERN_CHART_COLORS.pink][index % 6]}
+                            />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip content={<ModernTooltip valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`} />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <ChartLegendPills
+                    items={reportsIncomePieData.slice(0, 6).map((x, i) => ({
+                      label: x.name,
+                      color: [MODERN_CHART_COLORS.primary, MODERN_CHART_COLORS.secondary, MODERN_CHART_COLORS.success, MODERN_CHART_COLORS.warning, MODERN_CHART_COLORS.sky, MODERN_CHART_COLORS.pink][i % 6],
+                    }))}
+                  />
+                </ModernChartCard>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="border rounded-lg p-4">
                   <h3 className="font-semibold text-lg mb-4">Income Summary</h3>

@@ -20,10 +20,12 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff, getProgramNames, getAttendanceSkips, deleteAttendanceSkip, getStaffAttendance, markStaffAttendance, markDateAsHoliday, getHrLeavesReport, getHrPayrollReport, getHrAdvanceReport, getHrStaffAttendanceReport, getHrDepartmentsReport } from "../../config/apis";
+import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff, getProgramNames, getAttendanceSkips, deleteAttendanceSkip, getStaffAttendance, markStaffAttendance, markDateAsHoliday, getHrLeavesReport, getHrPayrollReport, getHrAdvanceReport, getHrStaffAttendanceReport, getHrDepartmentsReport, getHrReportsAnalytics } from "../../config/apis";
 import { Loader2, ChevronsUpDown } from "lucide-react";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { calculateDuration } from "../lib/dateUtils";
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip as RechartsTooltip } from "recharts";
+import { ModernChartCard, ModernTooltip, MODERN_CHART_COLORS } from "@/components/ui/modern-charts";
 
 const HRPayroll = () => {
   const {
@@ -180,6 +182,13 @@ const HRPayroll = () => {
     queryKey: ["hrReportsDepartments"],
     queryFn: getHrDepartmentsReport,
     enabled: activeTab === "reports",
+  });
+
+  const { data: reportsAnalytics } = useQuery({
+    queryKey: ["hrReportsAnalytics", reportsMonth, reportsDate],
+    queryFn: () => getHrReportsAnalytics(reportsMonth, reportsDate),
+    enabled: activeTab === "reports",
+    retry: 0,
   });
 
   const setStaffAttendanceStatus = (staffId, status) => {
@@ -1399,6 +1408,53 @@ const HRPayroll = () => {
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                  <ModernChartCard title="Leave Status" subtitle="Monthly distribution" empty={!reportsAnalytics?.leaveStatus?.length}>
+                    <div className="h-[220px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={reportsAnalytics?.leaveStatus || []} dataKey="value" nameKey="name" innerRadius={46} outerRadius={78}>
+                            {(reportsAnalytics?.leaveStatus || []).map((item, i) => (
+                              <Cell key={`${item.name}-${i}`} fill={[MODERN_CHART_COLORS.warning, MODERN_CHART_COLORS.success, MODERN_CHART_COLORS.danger][i % 3]} />
+                            ))}
+                          </Pie>
+                          <RechartsTooltip content={<ModernTooltip />} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </ModernChartCard>
+                  <ModernChartCard title="Payroll Settlement" subtitle="Paid vs unpaid" empty={!reportsAnalytics?.payrollStatus?.length}>
+                    <div className="h-[220px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={reportsAnalytics?.payrollStatus || []}>
+                          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.15} vertical={false} />
+                          <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                          <YAxis tick={{ fontSize: 10 }} />
+                          <RechartsTooltip content={<ModernTooltip />} />
+                          <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                            {(reportsAnalytics?.payrollStatus || []).map((item, i) => (
+                              <Cell key={`${item.name}-${i}`} fill={item.name === "PAID" ? MODERN_CHART_COLORS.success : MODERN_CHART_COLORS.warning} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </ModernChartCard>
+                  <ModernChartCard title="Department Staff Mix" subtitle="Active staff count by department" empty={!reportsAnalytics?.departmentDistribution?.length}>
+                    <div className="h-[220px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={reportsAnalytics?.departmentDistribution || []}>
+                          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.15} vertical={false} />
+                          <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-20} textAnchor="end" height={52} />
+                          <YAxis tick={{ fontSize: 10 }} />
+                          <RechartsTooltip content={<ModernTooltip />} />
+                          <Bar dataKey="value" fill={MODERN_CHART_COLORS.primary} radius={[8, 8, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </ModernChartCard>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Pending Leaves</p><p className="text-2xl font-bold">{reportsSummary.leavesPending}</p></CardContent></Card>
                   <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Payroll Paid</p><p className="text-2xl font-bold">{reportsSummary.payrollPaid}/{reportsSummary.payrollTotal}</p></CardContent></Card>

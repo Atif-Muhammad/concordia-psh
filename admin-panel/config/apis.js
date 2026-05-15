@@ -2,8 +2,8 @@ import axios from "axios";
 import { format } from "date-fns";
 import { formatLocalDate } from "../src/lib/utils";
 
-// const base_url = "http://localhost:3003/api";
-const base_url = "http://69.62.117.175:3003/api";
+const base_url = "http://localhost:3003/api";
+// const base_url = "http://69.62.117.175:3003/api";
 
 export const userWho = async () => {
   try {
@@ -4330,6 +4330,23 @@ export const getFinanceExpenses = async (filters = {}) => {
   }
 };
 
+export const getFinanceReportsAnalytics = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
+    if (filters.dateTo) params.append('dateTo', filters.dateTo);
+    if (filters.groupBy) params.append('groupBy', filters.groupBy);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const response = await axios.get(`${base_url}/finance/reports/analytics${query}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 export const createFinanceExpense = async (data) => {
   try {
     const response = await axios.post(`${base_url}/finance/expense`, data, {
@@ -5121,6 +5138,21 @@ export const getHostelRevenue = async (filters = {}) => {
   }
 };
 
+export const getHostelReportsAnalytics = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters.startDate) params.append('startDate', filters.startDate);
+    if (filters.endDate) params.append('endDate', filters.endDate);
+    if (filters.groupBy) params.append('groupBy', filters.groupBy);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const { data } = await axios.get(`${base_url}/hostel/reports/analytics${query}`, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 export const searchHostelRegistrationsDedicated = async (q) => {
   try {
     const { data } = await axios.get(`${base_url}/hostel/registrations-search`, { params: { q }, withCredentials: true });
@@ -5384,6 +5416,38 @@ export const getNewClassStats = async (sessionId) => {
     return response.data;
   } catch (error) {
     const message = error.response?.data?.message || error.response?.data?.error || error.message || 'Something went wrong';
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getNewFeeReportsAnalytics = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters.sessionId && filters.sessionId !== 'all') params.append('sessionId', filters.sessionId);
+    if (filters.type && filters.type !== 'all') params.append('type', filters.type);
+    if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
+    if (filters.dateTo) params.append('dateTo', filters.dateTo);
+    if (filters.groupBy) params.append('groupBy', filters.groupBy);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const response = await axios.get(`${base_url}/fee/reports/analytics${query}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || 'Something went wrong';
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getHrReportsAnalytics = async (month, date) => {
+  try {
+    const response = await axios.get(`${base_url}/hr/reports/analytics`, {
+      params: { month, date },
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
     throw { message, status: error.response?.status || 500 };
   }
 };

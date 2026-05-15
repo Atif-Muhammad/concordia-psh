@@ -696,4 +696,69 @@ export class FinanceService {
       expenses,
     };
   }
+
+  async getReportsAnalytics(filters?: {
+    dateFrom?: string;
+    dateTo?: string;
+    groupBy?: 'day' | 'week' | 'month';
+  }) {
+    const groupBy = filters?.groupBy || 'month';
+    const [incomes, expenses] = await Promise.all([
+      this.getIncomes({ dateFrom: filters?.dateFrom, dateTo: filters?.dateTo }),
+      this.getExpenses({ dateFrom: filters?.dateFrom, dateTo: filters?.dateTo }),
+    ]);
+
+    const bucketKey = (d: Date) => {
+      if (groupBy === 'day') return d.toISOString().slice(0, 10);
+      if (groupBy === 'week') {
+        const date = new Date(d);
+        const day = date.getDay();
+        const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(date.setDate(diff));
+        return monday.toISOString().slice(0, 10);
+      }
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    };
+
+    const seriesMap: Record<string, { bucket: string; income: number; expense: number; net: number }> = {};
+    for (const inc of incomes as any[]) {
+      const key = bucketKey(new Date(inc.date));
+      if (!seriesMap[key]) seriesMap[key] = { bucket: key, income: 0, expense: 0, net: 0 };
+      seriesMap[key].income += Number(inc.amount || 0);
+    }
+    for (const exp of expenses as any[]) {
+      const key = bucketKey(new Date(exp.date));
+      if (!seriesMap[key]) seriesMap[key] = { bucket: key, income: 0, expense: 0, net: 0 };
+      seriesMap[key].expense += Number(exp.amount || 0);
+    }
+
+    const timeseries = Object.values(seriesMap)
+      .map((x) => ({ ...x, net: x.income - x.expense }))
+      .sort((a, b) => a.bucket.localeCompare(b.bucket));
+
+    const sumByCategory = (rows: any[]) =>
+      Object.entries(
+        rows.reduce((acc: Record<string, number>, row: any) => {
+          const key = row.category || 'Other';
+          acc[key] = (acc[key] || 0) + Number(row.amount || 0);
+          return acc;
+        }, {}),
+      ).map(([name, value]) => ({ name, value }));
+
+    const totalIncome = incomes.reduce((s: number, x: any) => s + Number(x.amount || 0), 0);
+    const totalExpense = expenses.reduce((s: number, x: any) => s + Number(x.amount || 0), 0);
+
+    return {
+      groupBy,
+      totals: {
+        income: totalIncome,
+        expense: totalExpense,
+        net: totalIncome - totalExpense,
+      },
+      timeseries,
+      netSeries: timeseries.map((x) => ({ bucket: x.bucket, net: x.net })),
+      incomeByCategory: sumByCategory(incomes as any[]),
+      expenseByCategory: sumByCategory(expenses as any[]),
+    };
+  }
 }

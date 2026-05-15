@@ -522,6 +522,39 @@ export class FeeController {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  @Get('reports/analytics')
+  async getAnalytics(
+    @Query('sessionId') sessionId?: string,
+    @Query('type') type?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('groupBy') groupBy?: 'day' | 'week' | 'month' | 'year',
+  ) {
+    const summary = await this.getReportSummary(sessionId, type, dateFrom, dateTo);
+    const timeline = await this.getRevenueOverTime(sessionId);
+    const classComparison = await this.getClassStats(sessionId);
+    const totalRevenue = Number(summary.totalRevenue || 0);
+    const mixBreakdown = [
+      { name: 'Installment', value: Number(summary.regularRevenue || 0) },
+      { name: 'Extra Challan', value: Number(summary.extraRevenue || 0) },
+      { name: 'Hostel', value: Number(summary.hostelRevenue || 0) },
+    ];
+    return {
+      groupBy: groupBy || 'month',
+      summary,
+      timeline,
+      classComparison,
+      mixBreakdown,
+      kpiDeltas: {
+        collectedRatio: totalRevenue > 0 ? Math.round((Number(summary.regularRevenue || 0) / totalRevenue) * 100) : 0,
+        outstandingRatio:
+          Number(summary.totalOutstanding || 0) + totalRevenue > 0
+            ? Math.round((Number(summary.totalOutstanding || 0) / (Number(summary.totalOutstanding || 0) + totalRevenue)) * 100)
+            : 0,
+      },
+    };
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Settings
   // ─────────────────────────────────────────────────────────────────────────────

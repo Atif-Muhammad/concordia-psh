@@ -113,4 +113,13 @@ export class FinanceController {
   ) {
     return this.financeService.getDashboardStats(dateFrom, dateTo);
   }
+
+  @Get('reports/analytics')
+  getReportsAnalytics(
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('groupBy') groupBy?: 'day' | 'week' | 'month',
+  ) {
+    return this.financeService.getReportsAnalytics({ dateFrom, dateTo, groupBy });
+  }
 }

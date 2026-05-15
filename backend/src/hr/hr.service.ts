@@ -2668,4 +2668,54 @@ export class HrService {
       };
     });
   }
+
+  async getReportsAnalytics(month: string, date: string) {
+    const [leaves, payroll, advances, attendanceRows, departments] = await Promise.all([
+      this.getLeaveSheet(month, 'all'),
+      this.getPayrollSheet(month, 'all'),
+      this.getAdvanceSalaries(month, 'all'),
+      this.getStaffAttendance(new Date(date), 'all'),
+      this.getEmployeesByDept(),
+    ]);
+
+    const leaveStatus = Object.entries(
+      (leaves || []).reduce((acc: Record<string, number>, row: any) => {
+        const key = row.status || 'PENDING';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {}),
+    ).map(([name, value]) => ({ name, value }));
+
+    const payrollStatus = [
+      { name: 'PAID', value: (payroll || []).filter((p: any) => p.status === 'PAID').length },
+      { name: 'UNPAID', value: (payroll || []).filter((p: any) => p.status !== 'PAID').length },
+    ];
+
+    const advanceStatus = [
+      { name: 'Adjusted', value: (advances || []).filter((a: any) => a.adjusted).length },
+      { name: 'Pending', value: (advances || []).filter((a: any) => !a.adjusted).length },
+    ];
+
+    const attendanceStatus = Object.entries(
+      (attendanceRows || []).reduce((acc: Record<string, number>, row: any) => {
+        const status = row.attendance?.[0]?.status || 'UNMARKED';
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      }, {}),
+    ).map(([name, value]) => ({ name, value }));
+
+    const departmentDistribution = (departments || []).map((d: any) => ({
+      name: d.name,
+      value: Number(d.totalEmployees || d.count || 0),
+    }));
+
+    return {
+      leaveStatus,
+      payrollStatus,
+      advanceStatus,
+      attendanceStatus,
+      departmentDistribution,
+      meta: { month, date },
+    };
+  }
 }

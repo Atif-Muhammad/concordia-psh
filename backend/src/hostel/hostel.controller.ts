@@ -287,6 +287,15 @@ export class HostelController {
     return this.hostelService.getHostelRevenue(startDate, endDate);
   }
 
+  @Get('reports/analytics')
+  getHostelReportsAnalytics(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('groupBy') groupBy?: 'month' | 'week',
+  ) {
+    return this.hostelService.getHostelReportsAnalytics(startDate, endDate, groupBy || 'month');
+  }
+
   // ── Deprecated: legacy simple payment route — returns 410 Gone ───────────
 
   @Post('registrations/:id/payments')

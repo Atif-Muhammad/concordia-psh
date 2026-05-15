@@ -45,6 +45,7 @@ import {
   getDefaultFeeChallanTemplate,
   recordHostelPayment,
   getHostelRevenue,
+  getHostelReportsAnalytics,
 } from "../../config/apis";
 import { computeOutstandingBalance } from "@/lib/hostelUtils";
 import { Home, Bed, UtensilsCrossed, DollarSign, Edit, Trash2, UserPlus, Package, Search, X, Receipt, Plus, Eye, ExternalLink, Printer, AlertCircle, ArrowRight, UserX, LogOut, Loader2, RotateCcw } from "lucide-react";
@@ -53,6 +54,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { ModernChartCard, ModernTooltip, MODERN_CHART_COLORS } from "@/components/ui/modern-charts";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -365,6 +367,18 @@ const Boarding = () => {
     },
     enabled: activeTab === 'revenue',
     staleTime: 60000,
+  });
+
+  const { data: revenueAnalytics } = useQuery({
+    queryKey: ['hostelRevenueAnalytics', revenueFromDate, revenueToDate],
+    queryFn: () =>
+      getHostelReportsAnalytics({
+        ...(revenueFromDate ? { startDate: revenueFromDate } : {}),
+        ...(revenueToDate ? { endDate: revenueToDate } : {}),
+        groupBy: 'month',
+      }),
+    enabled: activeTab === 'revenue',
+    retry: 0,
   });
 
   const { data: reportExpenses = [] } = useQuery({
@@ -2030,40 +2044,49 @@ const Boarding = () => {
 
                 {/* Occupancy + Expenses charts */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Card>
-                    <CardHeader><CardTitle>Room Occupancy (Seats)</CardTitle></CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={260}>
-                        <PieChart>
-                          <Pie data={roomOccupancyData} cx="50%" cy="50%" labelLine={false} label={entry => `${entry.name}: ${entry.value}`} outerRadius={80} fill="hsl(var(--primary))" dataKey="value">
-                            {roomOccupancyData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
-                          </Pie>
-                          <RechartsTooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader><CardTitle>Expenses Over Time</CardTitle></CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={260}>
-                        <BarChart data={expensesOverTimeData}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                          <YAxis tick={{ fontSize: 11 }} />
-                          <RechartsTooltip />
-                          <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[4,4,0,0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
+                  <ModernChartCard title="Room Occupancy (Seats)" subtitle="Live seat utilization">
+                    <ResponsiveContainer width="100%" height={260}>
+                      <PieChart>
+                        <Pie
+                          data={
+                            revenueAnalytics?.occupancy
+                              ? [
+                                  { name: "Occupied", value: revenueAnalytics.occupancy.occupied },
+                                  { name: "Vacant", value: revenueAnalytics.occupancy.vacant },
+                                ]
+                              : roomOccupancyData
+                          }
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={58}
+                          outerRadius={88}
+                          dataKey="value"
+                        >
+                          <Cell fill={MODERN_CHART_COLORS.primary} />
+                          <Cell fill={MODERN_CHART_COLORS.slate} />
+                        </Pie>
+                        <RechartsTooltip content={<ModernTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </ModernChartCard>
+                  <ModernChartCard title="Expenses Over Time" subtitle="Trend by selected range">
+                    <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={(revenueAnalytics?.expensesSeries || expensesOverTimeData).map((x) => ({ name: x.bucket || x.name, amount: x.amount }))}>
+                        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.15} />
+                        <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} />
+                        <RechartsTooltip content={<ModernTooltip valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`} />} />
+                        <Bar dataKey="amount" fill={MODERN_CHART_COLORS.warning} radius={[7, 7, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ModernChartCard>
                 </div>
 
                 {/* Monthly bar chart — zero-filled */}
                 <Card>
                   <CardHeader><CardTitle>Monthly Collection</CardTitle></CardHeader>                  <CardContent>
                     {(() => {
-                      const chartData = (revenueData?.monthlyBreakdown || []).map(m => ({
+                      const chartData = (revenueAnalytics?.collectionSeries || revenueData?.monthlyBreakdown || []).map(m => ({
                         month: m.month,
                         collected: m.collected,
                       }));
@@ -2074,8 +2097,8 @@ const Boarding = () => {
                             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                             <XAxis dataKey="month" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
                             <YAxis tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} tick={{ fontSize: 11 }} />
-                            <RechartsTooltip formatter={(v) => [`PKR ${Number(v).toLocaleString()}`, 'Collected']} />
-                            <Bar dataKey="collected" fill="hsl(var(--primary))" radius={[4,4,0,0]} />
+                            <RechartsTooltip content={<ModernTooltip valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`} />} />
+                            <Bar dataKey="collected" fill={MODERN_CHART_COLORS.success} radius={[8,8,0,0]} />
                           </BarChart>
                         </ResponsiveContainer>
                       );

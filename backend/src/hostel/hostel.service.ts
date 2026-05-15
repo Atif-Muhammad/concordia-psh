@@ -1101,6 +1101,58 @@ export class HostelService implements OnModuleInit {
     };
   }
 
+  async getHostelReportsAnalytics(startDate?: string, endDate?: string, groupBy: 'month' | 'week' = 'month') {
+    const [revenue, rooms, expenses] = await Promise.all([
+      this.getHostelRevenue(startDate, endDate),
+      this.findAllRooms(),
+      this.findAllExpenses(startDate, endDate),
+    ]);
+
+    const totalCapacity = (rooms || []).reduce((s, r) => s + Number(r.capacity || 0), 0);
+    const occupiedSeats = (rooms || []).reduce((s, r) => s + Number(r.currentOccupancy || 0), 0);
+    const occupancy = {
+      occupied: occupiedSeats,
+      vacant: Math.max(0, totalCapacity - occupiedSeats),
+      total: totalCapacity,
+      rate: totalCapacity > 0 ? Math.round((occupiedSeats / totalCapacity) * 100) : 0,
+    };
+
+    const keyFn = (d: Date) => {
+      if (groupBy === 'week') {
+        const date = new Date(d);
+        const day = date.getDay();
+        const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+        return new Date(date.setDate(diff)).toISOString().slice(0, 10);
+      }
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    };
+
+    const expenseMap: Record<string, number> = {};
+    for (const e of expenses || []) {
+      const key = keyFn(new Date(e.date));
+      expenseMap[key] = (expenseMap[key] || 0) + Number(e.amount || 0);
+    }
+    const expensesSeries = Object.entries(expenseMap)
+      .map(([bucket, amount]) => ({ bucket, amount }))
+      .sort((a, b) => a.bucket.localeCompare(b.bucket));
+
+    const topOutstandingStudents = [...(revenue?.perStudent || [])]
+      .sort((a, b) => Number(b.outstanding || 0) - Number(a.outstanding || 0))
+      .slice(0, 8);
+
+    return {
+      groupBy,
+      occupancy,
+      collectionSeries: revenue?.monthlyBreakdown || [],
+      expensesSeries,
+      topOutstandingStudents,
+      totals: {
+        collected: Number(revenue?.totalCollected || 0),
+        outstanding: Number(revenue?.totalOutstanding || 0),
+      },
+    };
+  }
+
   async searchRegistrations(query: string) {
     return this.prisma.hostelRegistration.findMany({
       where: {

@@ -1,9 +1,8 @@
-import DashboardLayout from "@/components/DashboardLayout";
+﻿import DashboardLayout from "@/components/DashboardLayout";
 import React from 'react';
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, CartesianGrid, XAxis, YAxis, Legend, ResponsiveContainer } from "recharts";
+import { Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, CartesianGrid, XAxis, YAxis, ResponsiveContainer, AreaChart, Area, Tooltip as RechartsTooltip } from "recharts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -19,8 +18,9 @@ import { cn } from "@/lib/utils";
 import { Users, DollarSign, TrendingUp, ClipboardCheck, FileText, BookOpen, GraduationCap, Briefcase, Loader2, Info, ChevronRight } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { ModernTooltip, ChartLegendPills, MODERN_CHART_COLORS } from "@/components/ui/modern-charts";
 
-// â”€â”€ Skeleton helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Skeleton helpers ----------------------------------------------------------
 const Skeleton = ({ className }) => (
   <div className={cn("animate-pulse rounded bg-muted", className)} />
 );
@@ -42,8 +42,9 @@ const ChartSkeleton = ({ height = 200 }) => (
 );
 
 const formatPKR = (amount = 0) => `PKR ${Math.round(Number(amount || 0)).toLocaleString()}`;
+const SOFT_COLORS = ["#4f46e5", "#0ea5a4", "#f59e0b", "#3b82f6", "#a855f7"];
 
-// â”€â”€ Section components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Section components --------------------------------------------------------
 
 const StatCard = ({ title, value, change, icon: Icon, color, bgColor, breakdown, loading, onClick }) => (
   <Card onClick={onClick} className={cn("shadow-sm hover:shadow-md transition-all border-l-4 border-border", onClick && "cursor-pointer")}>
@@ -87,13 +88,7 @@ const StatCard = ({ title, value, change, icon: Icon, color, bgColor, breakdown,
   </Card>
 );
 
-const chartConfig = {
-  collected: { label: "Collected", color: "hsl(var(--success))" },
-  pending: { label: "Pending", color: "hsl(var(--warning))" },
-  rate: { label: "Attendance %", color: "hsl(var(--primary))" },
-};
-
-// â”€â”€ Main Dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Main Dashboard ------------------------------------------------------------
 const Dashboard = () => {
   const navigate = useNavigate();
   const go = (path) => navigate(path);
@@ -114,9 +109,9 @@ const Dashboard = () => {
   const sid = selectedSessionId;
   const enabled = !!sid;
   const selectedSession = sessions.find(s => s.id.toString() === sid);
-  const sessionLabel = sid === 'all' ? 'All Time' : (selectedSession?.name || '-')
+  const sessionLabel = sid === 'all' ? 'All Time' : (selectedSession?.name || "-");
 
-  // â”€â”€ Individual section queries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // -- Individual section queries ----------------------------------------------
   const { data: students, isLoading: studentsLoading } = useQuery({
     queryKey: ['dashboard-students', sid],
     queryFn: () => getDashboardStudents(sid),
@@ -171,7 +166,7 @@ const Dashboard = () => {
     );
   }
 
-  // â”€â”€ Derived display values â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // -- Derived display values --------------------------------------------------
   const studentDistribution = students ? [
     { name: "Intermediate", value: students.byProgram.intermediate || 0, fill: "hsl(var(--primary))" },
     { name: "Diploma",      value: students.byProgram.diploma || 0,      fill: "hsl(var(--secondary))" },
@@ -212,10 +207,18 @@ const Dashboard = () => {
   const netBalance = finance?.netBalance ?? (totalInflow - totalOutflow);
 
   const attendanceStatusData = attendance ? [
-    { name: "Present", value: attendance.byStatus.present, fill: "hsl(var(--success))" },
-    { name: "Absent",  value: attendance.byStatus.absent,  fill: "hsl(var(--destructive))" },
-    { name: "Leave",   value: attendance.byStatus.leave,   fill: "hsl(var(--warning))" },
+    { name: "Present", value: attendance.byStatus.present, fill: "#22c55e" },
+    { name: "Absent",  value: attendance.byStatus.absent,  fill: "#f97316" },
+    { name: "Leave",   value: attendance.byStatus.leave,   fill: "#0ea5e9" },
   ] : [];
+  const hasPieData = (arr) => Array.isArray(arr) && arr.some((x) => Number(x?.value || 0) > 0);
+  const studentDistributionPie = (() => {
+    const sorted = [...(studentDistribution || [])].sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
+    const top = sorted.slice(0, 4).map((item, idx) => ({ ...item, fill: SOFT_COLORS[idx % SOFT_COLORS.length] }));
+    const othersTotal = sorted.slice(4).reduce((sum, item) => sum + Number(item.value || 0), 0);
+    if (othersTotal > 0) top.push({ name: "Others", value: othersTotal, fill: "#94a3b8" });
+    return top;
+  })();
 
   return (
     <DashboardLayout>
@@ -245,7 +248,7 @@ const Dashboard = () => {
           </Select>
         </div>
 
-        {/* â”€â”€ Main Stats â”€â”€ */}
+        {/* -- Main Stats -- */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
           <StatCard
             title="Total Students" icon={Users}
@@ -285,18 +288,18 @@ const Dashboard = () => {
             color="text-blue-600" bgColor="bg-blue-500/10"
             loading={attendanceLoading}
             value={attendance ? `${attendance.today.rate}%` : "-"}
-            change={attendance ? `${attendance.today.present} records � ${sessionLabel}` : ""}
+            change={attendance ? `${attendance.today.present} records · ${sessionLabel}` : ""}
           />
           {/* <StatCard
             title="Finance Balance" icon={TrendingUp}
             color="text-purple-600" bgColor="bg-purple-500/10"
             loading={financeLoading}
-            value={finance ? `PKR ${Math.round(finance.netBalance).toLocaleString()}` : "â€”"}
-            change={`Net Â· ${sessionLabel}`}
+            value={finance ? `PKR ${Math.round(finance.netBalance).toLocaleString()}` : "-"}
+            change={`Net · ${sessionLabel}`}
           /> */}
         </div>
 
-        {/* â”€â”€ Quick Stats (students by program) â”€â”€ */}
+        {/* -- Quick Stats (students by program) -- */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             { label: "Intermediate", key: "intermediate", icon: BookOpen,      color: "text-blue-500",   bg: "bg-blue-500/10" },
@@ -331,7 +334,7 @@ const Dashboard = () => {
           ))}
         </div>
 
-        {/* â”€â”€ Charts Row â”€â”€ */}
+        {/* -- Charts Row -- */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Student Distribution */}
           <Card onClick={() => go("/students")} className="shadow-sm hover:shadow-md transition-all cursor-pointer relative">
@@ -339,18 +342,30 @@ const Dashboard = () => {
             <CardHeader><CardTitle>Student Distribution</CardTitle></CardHeader>
             <CardContent className="p-4">
               {studentsLoading ? <ChartSkeleton height={200} /> : (
-                <div className="w-full h-[200px]">
-                  <ChartContainer config={chartConfig} className="w-full h-full">
+                <div className="w-full h-[240px] flex gap-2">
+                  <div className="flex-1 min-w-0">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
-                        <Pie data={studentDistribution} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={5} dataKey="value">
-                          {studentDistribution.map((e, i) => <Cell key={i} fill={e.fill} />)}
+                        <Pie data={studentDistributionPie} cx="50%" cy="50%" innerRadius={36} outerRadius={78} paddingAngle={2} dataKey="value">
+                          {studentDistributionPie.map((e, i) => <Cell key={i} fill={e.fill} />)}
                         </Pie>
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                        <Legend verticalAlign="bottom" height={36} />
+                        <RechartsTooltip content={<ModernTooltip />} />
                       </PieChart>
                     </ResponsiveContainer>
-                  </ChartContainer>
+                  </div>
+                  <div className="w-[130px] overflow-y-auto pr-1">
+                    <div className="space-y-1.5 pt-2">
+                      {studentDistributionPie.map((item, i) => (
+                        <div key={`${item.name}-${i}`} className="text-[11px] flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1.5 min-w-0">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.fill }} />
+                            <span className="truncate text-muted-foreground">{item.name}</span>
+                          </span>
+                          <span className="font-medium">{item.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -363,20 +378,20 @@ const Dashboard = () => {
               <CardHeader><CardTitle>Fee Collection Trend ({sessionLabel})</CardTitle></CardHeader>
               <CardContent className="p-4">
                 {chartsLoading ? <ChartSkeleton height={200} /> : (
-                  <div className="w-full h-[200px]">
-                    <ChartContainer config={chartConfig} className="w-full h-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={charts?.monthlyFeeCollection || []} barGap={8}>
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
-                          <XAxis dataKey="month" axisLine={false} tickLine={false} tickMargin={10} />
-                          <YAxis axisLine={false} tickLine={false} />
-                          <ChartTooltip content={<ChartTooltipContent indicator="dashed" />} cursor={{ fill: 'transparent' }} />
-                          <Legend verticalAlign="top" align="right" height={36} iconType="circle" />
-                          <Bar dataKey="collected" fill="hsl(var(--success))" name="Collected" radius={[6,6,0,0]} maxBarSize={50} />
-                          <Bar dataKey="pending"   fill="hsl(var(--warning))" name="Pending"   radius={[6,6,0,0]} maxBarSize={50} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </ChartContainer>
+                  <div className="w-full h-[250px]">
+                    <div className="mb-2">
+                      <ChartLegendPills items={[{ label: "Collected", color: MODERN_CHART_COLORS.success }, { label: "Pending", color: MODERN_CHART_COLORS.warning }]} />
+                    </div>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={charts?.monthlyFeeCollection || []} barGap={8} margin={{ top: 6, right: 8, left: 0, bottom: 24 }}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.15} vertical={false} />
+                        <XAxis dataKey="month" axisLine={false} tickLine={false} tickMargin={8} interval={0} tick={{ fontSize: 11 }} />
+                        <YAxis axisLine={false} tickLine={false} />
+                        <RechartsTooltip content={<ModernTooltip valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`} />} cursor={{ fill: 'transparent' }} />
+                        <Bar dataKey="collected" fill={MODERN_CHART_COLORS.success} name="Collected" radius={[8,8,0,0]} maxBarSize={42} />
+                        <Bar dataKey="pending" fill={MODERN_CHART_COLORS.warning} name="Pending" radius={[8,8,0,0]} maxBarSize={42} />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 )}
               </CardContent>
@@ -384,32 +399,35 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* â”€â”€ Attendance Trend â”€â”€ */}
+        {/* -- Attendance Trend -- */}
         <Card onClick={() => go("/attendance")} className="shadow-sm hover:shadow-md transition-all cursor-pointer relative">
           <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-3 right-3" />
           <CardHeader><CardTitle>Attendance Trend ({sessionLabel})</CardTitle></CardHeader>
           <CardContent className="p-4">
             {chartsLoading ? <ChartSkeleton height={220} /> : (
               <div className="w-full h-[220px]">
-                <ChartContainer config={chartConfig} className="w-full h-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={charts?.weeklyAttendance || []}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
-                      <XAxis dataKey="day" axisLine={false} tickLine={false} tickMargin={10} />
-                      <YAxis domain={[0, 100]} axisLine={false} tickLine={false} />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Line type="monotone" dataKey="rate" stroke="hsl(var(--primary))" strokeWidth={4}
-                        dot={{ fill: "hsl(var(--primary))", r: 6, strokeWidth: 2, stroke: "white" }}
-                        activeDot={{ r: 8, strokeWidth: 0 }} name="Attendance %" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={charts?.weeklyAttendance || []}>
+                    <defs>
+                      <linearGradient id="attnGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={MODERN_CHART_COLORS.primary} stopOpacity={0.35} />
+                        <stop offset="95%" stopColor={MODERN_CHART_COLORS.primary} stopOpacity={0.05} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.15} vertical={false} />
+                    <XAxis dataKey="day" axisLine={false} tickLine={false} tickMargin={10} />
+                    <YAxis domain={[0, 100]} axisLine={false} tickLine={false} />
+                    <RechartsTooltip content={<ModernTooltip valueFormatter={(v) => `${Number(v || 0)}%`} />} />
+                    <Area type="monotone" dataKey="rate" stroke={MODERN_CHART_COLORS.primary} fill="url(#attnGrad)" strokeWidth={3} />
+                    <Line type="monotone" dataKey="rate" stroke={MODERN_CHART_COLORS.primary} strokeWidth={2.5} dot={{ r: 4 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* â”€â”€ Module Status â”€â”€ */}
+        {/* -- Module Status -- */}
         <div>
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
             <Briefcase className="w-4 h-4 text-primary" />
@@ -434,18 +452,28 @@ const Dashboard = () => {
                 </CardHeader>
                 <CardContent className="p-4">
                   {loading ? <ChartSkeleton height={180} /> : (
-                    <div className="w-full h-[180px]">
-                      <ChartContainer config={chartConfig} className="w-full h-full">
+                    <div className="w-full h-[200px] flex gap-2">
+                      <div className="flex-1 min-w-0">
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
-                            <Pie data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={3} dataKey="value">
+                            <Pie data={data} cx="50%" cy="50%" innerRadius={0} outerRadius={68} paddingAngle={2} dataKey="value">
                               {data.map((e, i) => <Cell key={i} fill={e.fill} />)}
                             </Pie>
-                            <ChartTooltip content={<ChartTooltipContent />} />
-                            <Legend verticalAlign="bottom" height={24} iconSize={8} />
+                            <RechartsTooltip content={<ModernTooltip />} />
                           </PieChart>
                         </ResponsiveContainer>
-                      </ChartContainer>
+                      </div>
+                      <div className="w-[110px] flex flex-col gap-1 justify-center">
+                        {data.map((d, i) => (
+                          <div key={`${d.name}-${i}`} className="text-[11px] flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: d.fill }} />
+                            <span className="text-muted-foreground truncate">{d.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {hasPieData(data) ? null : (
+                        <div className="text-xs text-muted-foreground">No data</div>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -454,7 +482,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* â”€â”€ Bottom Row â”€â”€ */}
+        {/* -- Bottom Row -- */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Summary */}
           <Card className="shadow-sm hover:shadow-md transition-all">
@@ -462,7 +490,7 @@ const Dashboard = () => {
             <CardContent>
               <div className="space-y-3">
                 {[
-                  { action: "Students",       detail: studentsLoading   ? null : `${students?.total ?? 0} total � ${students?.active ?? 0} active` },
+                  { action: "Students",       detail: studentsLoading   ? null : `${students?.total ?? 0} total · ${students?.active ?? 0} active` },
                   { action: "Installment Fees", detail: feesLoading     ? null : `${formatPKR(feeBreakdown.installment.collected)} collected - ${formatPKR(feeBreakdown.installment.outstanding)} pending` },
                   { action: "Hostel Fees",      detail: feesLoading     ? null : `${formatPKR(feeBreakdown.hostel.collected)} collected - ${formatPKR(feeBreakdown.hostel.outstanding)} pending` },
                   { action: "Extra Challans",   detail: feesLoading     ? null : `${formatPKR(feeBreakdown.extraChallans.collected)} collected - ${formatPKR(feeBreakdown.extraChallans.outstanding)} pending` },
@@ -553,3 +581,4 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
+

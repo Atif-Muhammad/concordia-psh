@@ -36,6 +36,7 @@ import {
   getNewFeeReportSummary,
   getNewRevenueOverTime,
   getNewClassStats,
+  getNewFeeReportsAnalytics,
   getNewFeeSettings,
   updateNewFeeSettings,
   getStudentInstallments,
@@ -54,6 +55,7 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { format, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ModernTooltip } from "@/components/ui/modern-charts";
 const FeeManagement = () => {
 
   const {
@@ -699,6 +701,19 @@ const FeeManagement = () => {
   const { data: newClassStats = [] } = useQuery({
     queryKey: ['newClassStats', reportSessionFilter],
     queryFn: () => getNewClassStats(reportSessionFilter)
+  });
+
+  const { data: newFeeAnalytics } = useQuery({
+    queryKey: ['newFeeAnalytics', reportSessionFilter, reportTypeFilter, reportDateFrom, reportDateTo],
+    queryFn: () =>
+      getNewFeeReportsAnalytics({
+        sessionId: reportSessionFilter,
+        type: reportTypeFilter,
+        dateFrom: reportDateFrom || undefined,
+        dateTo: reportDateTo || undefined,
+        groupBy: reportFilter === 'daily' ? 'day' : reportFilter === 'weekly' ? 'week' : reportFilter === 'year' ? 'year' : 'month',
+      }),
+    retry: 0,
   });
 
   const { data: challanTemplates = [] } = useQuery({
@@ -3564,7 +3579,7 @@ const FeeManagement = () => {
                   <div className="h-[320px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart
-                        data={newRevenueOverTime.length > 0 ? newRevenueOverTime : revenueData}
+                        data={newFeeAnalytics?.timeline?.length ? newFeeAnalytics.timeline : newRevenueOverTime.length > 0 ? newRevenueOverTime : revenueData}
                         margin={{ top: 10, right: 10, left: 0, bottom: 40 }}
                       >
                         <defs>
@@ -3596,16 +3611,7 @@ const FeeManagement = () => {
                           tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}
                           width={45}
                         />
-                        <RechartsTooltip
-                          formatter={(value, name) => [`PKR ${Number(value).toLocaleString()}`, name === 'installment' ? 'Installment Fee' : name === 'extra' ? 'Extra Challans' : 'Total']}
-                          labelFormatter={(label) => {
-                            if (!label || !label.includes('-')) return label;
-                            const [yr, mo] = label.split('-');
-                            const monthFull = ['January','February','March','April','May','June','July','August','September','October','November','December'][parseInt(mo) - 1];
-                            return `${monthFull} ${yr}`;
-                          }}
-                          contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                        />
+                        <RechartsTooltip content={<ModernTooltip valueFormatter={(v) => `PKR ${Number(v || 0).toLocaleString()}`} />} />
                         <Legend
                           verticalAlign="top"
                           height={28}
@@ -3634,7 +3640,7 @@ const FeeManagement = () => {
                 </CardHeader>
                 <CardContent>
                   {(() => {
-                    const chartData = newClassStats.length > 0 ? newClassStats : classCollectionData;
+                    const chartData = newFeeAnalytics?.classComparison?.length ? newFeeAnalytics.classComparison : newClassStats.length > 0 ? newClassStats : classCollectionData;
                     if (!chartData || chartData.length === 0) {
                       return (
                         <div className="flex items-center justify-center h-[320px] text-muted-foreground text-sm">
