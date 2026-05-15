@@ -1035,75 +1035,126 @@ export class FeeManagementService {
 
   async createFeeChallanTemplate(payload: any) {
     const { name, htmlContent, isDefault, type } = payload;
+    const hasTypeColumn = await this.hasFeeTemplateTypeColumn();
 
     if (isDefault) {
       await this.prisma.feeChallanTemplate.updateMany({
-        where: { isDefault: true, type: type || 'INSTALLMENT' },
+        where: hasTypeColumn
+          ? { isDefault: true, type: type || 'INSTALLMENT' }
+          : { isDefault: true },
         data: { isDefault: false },
       });
     }
 
+    const createData: any = {
+      name,
+      htmlContent,
+      isDefault: isDefault || false,
+    };
+    if (hasTypeColumn) {
+      createData.type = type || 'INSTALLMENT';
+    }
+
     return await this.prisma.feeChallanTemplate.create({
-      data: { 
-        name, 
-        htmlContent, 
-        isDefault: isDefault || false,
-        type: type || 'INSTALLMENT'
-      },
+      data: createData,
     });
   }
 
   async getFeeChallanTemplates() {
+    const hasTypeColumn = await this.hasFeeTemplateTypeColumn();
     return await this.prisma.feeChallanTemplate.findMany({
       orderBy: { createdAt: 'desc' },
+      select: hasTypeColumn
+        ? {
+            id: true,
+            name: true,
+            htmlContent: true,
+            isDefault: true,
+            createdAt: true,
+            updatedAt: true,
+            type: true,
+          }
+        : {
+            id: true,
+            name: true,
+            htmlContent: true,
+            isDefault: true,
+            createdAt: true,
+            updatedAt: true,
+          },
     });
   }
 
   async getFeeChallanTemplateById(id: number) {
-    const template = await this.prisma.feeChallanTemplate.findUnique({
+    const hasTypeColumn = await this.hasFeeTemplateTypeColumn();
+    const template = await this.prisma.feeChallanTemplate.findFirst({
       where: { id },
+      select: hasTypeColumn
+        ? {
+            id: true,
+            name: true,
+            htmlContent: true,
+            isDefault: true,
+            createdAt: true,
+            updatedAt: true,
+            type: true,
+          }
+        : {
+            id: true,
+            name: true,
+            htmlContent: true,
+            isDefault: true,
+            createdAt: true,
+            updatedAt: true,
+          },
     });
 
     if (!template) {
       throw new NotFoundException(`FeeChallanTemplate with id ${id} not found`);
     }
 
-    return template;
+    return hasTypeColumn ? template : { ...template, type: 'INSTALLMENT' };
   }
 
   async updateFeeChallanTemplate(id: number, payload: any) {
-    const template = await this.prisma.feeChallanTemplate.findUnique({
-      where: { id },
-    });
+    const hasTypeColumn = await this.hasFeeTemplateTypeColumn();
+    const template = await this.getFeeChallanTemplateById(id);
 
     if (!template) {
       throw new NotFoundException(`FeeChallanTemplate with id ${id} not found`);
     }
 
     const { name, htmlContent, isDefault, type } = payload;
-    const effectiveType = type || template.type;
+    const effectiveType = type || template.type || 'INSTALLMENT';
 
     if (isDefault && (!template.isDefault || (type && type !== template.type))) {
       await this.prisma.feeChallanTemplate.updateMany({
-        where: { isDefault: true, type: effectiveType },
+        where: hasTypeColumn
+          ? { isDefault: true, type: effectiveType }
+          : { isDefault: true },
         data: { isDefault: false },
       });
     }
 
+    const updateData: any = {
+      name: name !== undefined ? name : template.name,
+      htmlContent: htmlContent !== undefined ? htmlContent : template.htmlContent,
+      isDefault: isDefault !== undefined ? isDefault : template.isDefault,
+    };
+    if (hasTypeColumn) {
+      updateData.type = effectiveType;
+    }
+
     return await this.prisma.feeChallanTemplate.update({
       where: { id },
-      data: { 
-        name: name !== undefined ? name : template.name, 
-        htmlContent: htmlContent !== undefined ? htmlContent : template.htmlContent, 
-        isDefault: isDefault !== undefined ? isDefault : template.isDefault,
-        type: effectiveType
-      },
+      data: updateData,
     });
   }
 
   async deleteFeeChallanTemplate(id: number) {
-    const template = await this.prisma.feeChallanTemplate.findUnique({
+    const template = await this.prisma.feeChallanTemplate.findFirst({
       where: { id },
+      select: { id: true },
     });
 
     if (!template) {
@@ -1114,9 +1165,41 @@ export class FeeManagementService {
   }
 
   async getDefaultTemplate() {
-    return await this.prisma.feeChallanTemplate.findFirst({
+    const hasTypeColumn = await this.hasFeeTemplateTypeColumn();
+    const template = await this.prisma.feeChallanTemplate.findFirst({
       where: { isDefault: true },
+      select: hasTypeColumn
+        ? {
+            id: true,
+            name: true,
+            htmlContent: true,
+            isDefault: true,
+            createdAt: true,
+            updatedAt: true,
+            type: true,
+          }
+        : {
+            id: true,
+            name: true,
+            htmlContent: true,
+            isDefault: true,
+            createdAt: true,
+            updatedAt: true,
+          },
     });
+    if (!template) return null;
+    return hasTypeColumn ? template : { ...template, type: 'INSTALLMENT' };
+  }
+
+  private async hasFeeTemplateTypeColumn(): Promise<boolean> {
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ COLUMN_NAME: string }>>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'feechallantemplate'
+         AND COLUMN_NAME = 'type'`,
+    );
+    return rows.length > 0;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

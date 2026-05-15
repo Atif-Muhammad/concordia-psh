@@ -219,6 +219,8 @@ export class ConfigurationService {
 
     const createData: Record<string, any> = {};
     if (columns.has('instituteName')) createData.instituteName = 'My Institute';
+    if (columns.has('createdAt')) createData.createdAt = new Date();
+    if (columns.has('updatedAt')) createData.updatedAt = new Date();
     for (const [key, value] of filteredEntries) {
       createData[key] = value;
     }
