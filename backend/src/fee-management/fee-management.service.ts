@@ -1125,9 +1125,13 @@ export class FeeManagementService {
     }
 
     const { name, htmlContent, isDefault, type } = payload;
-    const effectiveType = type || template.type || 'INSTALLMENT';
+    const currentType =
+      typeof (template as any).type === 'string'
+        ? (template as any).type
+        : 'INSTALLMENT';
+    const effectiveType = type || currentType;
 
-    if (isDefault && (!template.isDefault || (type && type !== template.type))) {
+    if (isDefault && (!template.isDefault || (type && type !== currentType))) {
       await this.prisma.feeChallanTemplate.updateMany({
         where: hasTypeColumn
           ? { isDefault: true, type: effectiveType }
