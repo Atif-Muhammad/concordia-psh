@@ -55,7 +55,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
   const [dismissedMissing, setDismissedMissing] = useState(false);
   const [confirmRegenerateOpen, setConfirmRegenerateOpen] = useState(false);
   const [paymentRow, setPaymentRow] = useState(null);
-  const [paymentForm, setPaymentForm] = useState({ amount: "", paymentMethod: "Cash", remarks: "" });
+  const [paymentForm, setPaymentForm] = useState({ amount: "", paymentMethod: "Cash", remarks: "", paymentDate: new Date().toISOString().split("T")[0], transactionId: "", chequeNumber: "" });
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -116,7 +116,7 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
       toast({ title: "Payment recorded" });
       queryClient.invalidateQueries({ queryKey: ["payrollSheet", month, activeTab] });
       setPaymentRow(null);
-      setPaymentForm({ amount: "", paymentMethod: "Cash", remarks: "" });
+      setPaymentForm({ amount: "", paymentMethod: "Cash", remarks: "", paymentDate: new Date().toISOString().split("T")[0], transactionId: "", chequeNumber: "" });
       refetch();
     },
     onError: (err) => toast({ title: err.message, variant: "destructive" }),
@@ -230,6 +230,9 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
       amount: full ? String(balance) : "",
       paymentMethod: "Cash",
       remarks: "",
+      paymentDate: new Date().toISOString().split("T")[0],
+      transactionId: "",
+      chequeNumber: ""
     });
   };
 
@@ -241,6 +244,9 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
         amount: Number(paymentForm.amount || 0),
         paymentMethod: paymentForm.paymentMethod,
         remarks: paymentForm.remarks,
+        paymentDate: paymentForm.paymentDate,
+        transactionId: paymentForm.transactionId,
+        chequeNumber: paymentForm.chequeNumber,
       },
     });
   };
@@ -1034,6 +1040,14 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                 />
               </div>
               <div className="space-y-2">
+                <Label>Payment Date</Label>
+                <Input
+                  type="date"
+                  value={paymentForm.paymentDate}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
                 <Label>Payment Method</Label>
                 <Select
                   value={paymentForm.paymentMethod}
@@ -1045,11 +1059,34 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                   <SelectContent>
                     <SelectItem value="Cash">Cash</SelectItem>
                     <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="EasyPaisa">EasyPaisa</SelectItem>
+                    <SelectItem value="JazzCash">JazzCash</SelectItem>
                     <SelectItem value="Cheque">Cheque</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
+              {["Bank Transfer", "EasyPaisa", "JazzCash"].includes(paymentForm.paymentMethod) && (
+                <div className="space-y-2">
+                  <Label>Transaction ID / Number</Label>
+                  <Input
+                    value={paymentForm.transactionId}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, transactionId: e.target.value })}
+                    placeholder="Enter transaction reference"
+                  />
+                </div>
+              )}
+
+              {paymentForm.paymentMethod === "Cheque" && (
+                <div className="space-y-2">
+                  <Label>Cheque Number</Label>
+                  <Input
+                    value={paymentForm.chequeNumber}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, chequeNumber: e.target.value })}
+                    placeholder="Enter cheque number"
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Remarks</Label>
                 <Input

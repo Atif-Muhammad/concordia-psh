@@ -1619,9 +1619,8 @@ const FeeManagement = () => {
         ${paidAtText ? `<tr class="paid-at-row"><td style="${labelCellStyle} ${topBorder}">Paid At</td><td style="${valueCellStyle} ${topBorder}">${paidAtText}</td></tr>` : ''}
         ${paidByText ? `<tr class="paid-by-row"><td style="${labelCellStyle}">Paid By</td><td style="${valueCellStyle}">${paidByText}</td></tr>` : ''}
         <tr class="paid-remarks-row">
-          <td style="${labelCellStyle} ${bottomBorder}; vertical-align: top;">Remarks</td>
-          <td style="${valueCellStyle} ${bottomBorder}; white-space: normal; word-break: break-word; line-height: 1.35;">
-            ${remarksShort || 'FULLY PAID / SETTLED'}
+          <td colspan="2" style="${valueCellStyle} ${bottomBorder}; white-space: normal; word-break: break-word; line-height: 1.35;">
+            Remarks: ${remarksShort || 'FULLY PAID / SETTLED'}
             ${remarksClean.length > 160 ? '<div style="font-size: 9px; opacity: 0.8; margin-top: 3px;">(truncated for print layout)</div>' : ''}
           </td>
         </tr>
@@ -1843,7 +1842,7 @@ const FeeManagement = () => {
             const sessionLabel = match.session || match.sessionName || challan.installment?.session?.name || "";
             const rowLabel = `${monthLabel} - ${instLabel}${sessionLabel ? ` / ${sessionLabel}` : ''}`;
             return `<tr style="background-color: #fafafa; line-height: 1.2;">
-              <td style="padding-left: 25px; font-style: italic; font-size: 10px; color: #555;">&#8627; ${rowLabel}</td>
+              <td style="font-style: italic; font-size: 10px; color: #555;">${rowLabel}</td>
               <td style="font-size: 10px; color: #555;">${Number(finalAmt).toLocaleString()}</td>
             </tr>`;
           }).filter(Boolean).join('\n');
@@ -1855,10 +1854,10 @@ const FeeManagement = () => {
         }
 
         if (arrearsRowsHtml) {
-          arrearsRowsHtml += `<tr style="background-color: #e0e0e0; line-height: 1.2;">
-            <td style="padding-left: 10px; font-size: 10px;"><strong>Total Arrears Balance</strong></td>
-            <td style="font-size: 11px;"><strong>${snapshotArrears.toLocaleString()}</strong></td>
-          </tr>`;
+          // arrearsRowsHtml += `<tr style="background-color: #e0e0e0; line-height: 1.2;">
+          //   <td style="padding-left: 10px; font-size: 10px;"><strong>Total Arrears Balance</strong></td>
+          //   <td style="font-size: 11px;"><strong>${snapshotArrears.toLocaleString()}</strong></td>
+          // </tr>`;
         } else {
           arrearsRowsHtml = `<tr><td>Arrears (Previous Balance)</td><td>${snapshotArrears.toLocaleString()}</td></tr>`;
         }
@@ -1909,10 +1908,10 @@ const FeeManagement = () => {
     // Show paid/advance rows only when this challan has received payment.
     const shouldShowBalanceRows = alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status);
     if (shouldShowBalanceRows) {
-      const paidDisplay = alreadyPaid > 0 ? `- ${alreadyPaid.toLocaleString()}` : '0';
+      const paidDisplay = alreadyPaid > 0 ? `${alreadyPaid.toLocaleString()}` : '0';
       const paidRowHtml = `
         <tr style="color: #166534; background-color: #f0fdf4; font-weight: 600; font-size: 11px;">
-          <td>Paid Amount / Advance Credits</td>
+          <td>Paid Amount</td>
           <td>${paidDisplay}</td>
         </tr>
         <tr style="font-weight: 700; border-top: 1px solid #e2e8f0;">
@@ -5971,8 +5970,8 @@ const FeeManagement = () => {
                                   const arrearsLabel = `${monthLabel} - ${instLabel}${sessionLabel ? ` / ${sessionLabel}` : ''}`;
                                   return (
                                     <TableRow key={`arr-${idx}`} className="bg-amber-50/10">
-                                      <TableCell className="text-xs px-3 py-1.5 pl-8 text-amber-600 italic">
-                                        ↳ {arrearsLabel}
+                                      <TableCell className="text-xs px-3 py-1.5 text-amber-600 italic">
+                                        {arrearsLabel}
                                       </TableCell>
                                       <TableCell className="text-xs px-3 text-right py-1.5 text-amber-600">
                                         {formatAmount(finalAmt)}
