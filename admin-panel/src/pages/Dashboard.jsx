@@ -1,4 +1,4 @@
-﻿import DashboardLayout from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/DashboardLayout";
 import React from 'react';
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -228,7 +228,7 @@ const Dashboard = () => {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <div>
             <h1 className="text-xl font-semibold">Concordia College Management Dashboard</h1>
-            <p className="text-muted-foreground mt-1">Welcome back! Here's what's happening in your school.</p>
+            <p className="text-muted-foreground mt-1">Welcome back! Here's what's happening in your institute.</p>
           </div>
           <Select value={sid || ""} onValueChange={setSelectedSessionId}>
             <SelectTrigger className="w-[180px]">

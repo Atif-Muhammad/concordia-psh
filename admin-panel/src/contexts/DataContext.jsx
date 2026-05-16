@@ -350,7 +350,7 @@ const initialAdmins = [{
   email: "ali@concordia.edu.pk",
   password: "admin123",
   roleId: "1",
-  accessRights: ["Dashboard", "Students", "Academics", "Attendance", "Examination", "Finance", "Fee Management", "HR & Payroll", "Front Office", "Hostel", "Inventory", "Configuration"]
+  accessRights: ["Dashboard", "Students", "Academics", "Attendance", "Examination", "Finance", "Fee Management", "HR & Payroll", "Front Office", "Boarding", "Inventory", "Configuration"]
 }];
 const initialInquiries = [{
   id: "1",

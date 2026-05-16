@@ -169,7 +169,7 @@ const STAFF_MODULES = [
     "Fee Management",
     "HR & Payroll",
     "Front Office",
-    "Hostel",
+    "Boarding",
     "Inventory",
     "Complaints",
     "Configuration",

@@ -920,7 +920,9 @@ export class ChallanService {
             });
 
             if (sc.installmentId) {
-              const restorationData = await this.getRestorationData(tx, sc.installmentId, sc);
+              const restorationData = await this.getRestorationData(tx, sc.installmentId, sc, {
+                keepChallanGenerated: true,
+              });
               if (restorationData) {
                 await tx.feeInstallment.update({
                   where: { id: sc.installmentId },
@@ -948,6 +950,73 @@ export class ChallanService {
                 where: { id: sc.installmentId },
                 data: {
                   supersededBy: newLeader.installmentId,
+                },
+              });
+            }
+          }
+        }
+      }
+
+      // Step 2b (critical): If deleting a PAID leading challan, explicitly promote
+      // the latest ancestor challan back to active state with its original paidAmount.
+      // This guarantees one restored leader even when all ancestors were SETTLED.
+      if (isPaid && supersededChallans.length > 0) {
+        const sortedAncestors = [...supersededChallans].sort(
+          (a, b) => (Number(b.installmentNo ?? 0) - Number(a.installmentNo ?? 0))
+        );
+        const promotedLeader = sortedAncestors[0];
+
+        if (promotedLeader) {
+          const leaderStatus: 'PARTIAL' | 'OVERDUE' | 'PENDING' =
+            Number(promotedLeader.amountReceived || 0) > 0
+              ? 'PARTIAL'
+              : (promotedLeader.dueDate && new Date() > new Date(promotedLeader.dueDate) ? 'OVERDUE' : 'PENDING');
+
+          await tx.feeChallanV2.update({
+            where: { id: promotedLeader.id },
+            data: {
+              status: leaderStatus as any,
+              settledByChallanNumber: null,
+              settledAmount: null,
+              settledAt: null,
+              paidAt: null,
+              paymentInfo: Prisma.DbNull,
+              // Keep original pre-supersede paid amount as-is.
+              amountReceived: promotedLeader.amountReceived,
+            },
+          });
+
+          if (promotedLeader.installmentId) {
+            const restorationData = await this.getRestorationData(tx, promotedLeader.installmentId, promotedLeader, {
+              keepChallanGenerated: true,
+            });
+            if (restorationData) {
+              await tx.feeInstallment.update({
+                where: { id: promotedLeader.installmentId },
+                data: restorationData as any,
+              });
+            }
+          }
+
+          // Re-point all deeper ancestors to the promoted leader and keep them SUPERSEDED.
+          for (const sc of sortedAncestors.slice(1)) {
+            await tx.feeChallanV2.update({
+              where: { id: sc.id },
+              data: {
+                status: 'SUPERSEDED' as any,
+                settledByChallanNumber: promotedLeader.challanNumber,
+                settledAmount: null,
+                settledAt: null,
+                paidAt: null,
+                paymentInfo: Prisma.DbNull,
+              },
+            });
+
+            if (sc.installmentId && promotedLeader.installmentId) {
+              await tx.feeInstallment.update({
+                where: { id: sc.installmentId },
+                data: {
+                  supersededBy: promotedLeader.installmentId,
                 },
               });
             }
@@ -999,7 +1068,10 @@ export class ChallanService {
             });
           }
         } else {
-          const restorationData = await this.getRestorationData(tx, challan.installmentId, challan);
+          const restorationData = await this.getRestorationData(tx, challan.installmentId, challan, {
+            // This is the installment of the challan being deleted.
+            keepChallanGenerated: false,
+          });
           if (restorationData) {
             await tx.feeInstallment.update({
               where: { id: challan.installmentId },
@@ -1027,7 +1099,12 @@ export class ChallanService {
     return { success: true };
   }
 
-  private async getRestorationData(tx: any, installmentId: number, fromChallan?: any) {
+  private async getRestorationData(
+    tx: any,
+    installmentId: number,
+    fromChallan?: any,
+    options?: { keepChallanGenerated?: boolean },
+  ) {
     const inst = await tx.feeInstallment.findUnique({
       where: { id: installmentId },
       include: { heads: true }
@@ -1053,11 +1130,13 @@ export class ChallanService {
     const totalAmount = basePayable + headsSum + extraFine + Number(lateFeeFine) + arrears - Math.abs(discount);
     const pendingAmount = totalAmount - Number(inst.paidAmount || 0);
 
-    // Determine if challanGenerated should be true.
-    // If we are restoring a SUPERSEDED installment, it still has its own challan, so it should stay true.
-    // If we are restoring the PRIMARY installment whose challan was just deleted, it should be false.
-    // We check if the challan we are restoring FROM is the one that was recently deleted.
-    const isPrimaryDelete = fromChallan && fromChallan.installmentId === installmentId && fromChallan.status !== 'SUPERSEDED';
+    // Explicit control from caller:
+    // - deleted installment -> false
+    // - promoted/restored ancestor with existing challan -> true
+    const keepChallanGenerated =
+      typeof options?.keepChallanGenerated === 'boolean'
+        ? options.keepChallanGenerated
+        : true;
 
     return {
       status: (Number(inst.paidAmount) > 0 
@@ -1067,7 +1146,7 @@ export class ChallanService {
       settled: null,
       settledByInstallmentId: null,
       isLocked: false,
-      challanGenerated: !isPrimaryDelete,
+      challanGenerated: keepChallanGenerated,
       paidAmount: Number(inst.paidAmount || 0),
       pendingAmount,
       totalAmount,

@@ -53,6 +53,8 @@ export class PaymentService {
     paymentMode: string,
     paidDate: Date,
     remarks?: string,
+    paidByName?: string | null,
+    paidById?: number | null,
   ) {
     // ── Step 1: Load feeChallanV2 + linked FeeInstallment ────────────
     const challan = await this.prisma.feeChallanV2.findUnique({
@@ -101,6 +103,8 @@ export class PaymentService {
           status: newChallanStatus,
           ...(isFullyPaid ? { paidAt: paidDate } : {}),
           paymentInfo: {
+            paidBy: paidByName ?? null,
+            paidById: paidById ?? null,
             paidDate: paidDate.toISOString(),
             remarks: remarks ?? null,
           },
@@ -186,6 +190,12 @@ export class PaymentService {
                   advanceFromChallanNo: challan.challanNumber,
                   status: isNextFullyPaid ? 'PAID' : 'PARTIAL',
                   ...(isNextFullyPaid ? { paidAt: paidDate } : {}),
+                  paymentInfo: {
+                    paidBy: paidByName ?? null,
+                    paidById: paidById ?? null,
+                    paidDate: paidDate.toISOString(),
+                    remarks: remarks ?? `Advance adjusted from challan ${challan.challanNumber}`,
+                  },
                 }
               });
             }
@@ -230,6 +240,8 @@ export class PaymentService {
               settledAt: paidDate,
               paidAt: paidDate,
               paymentInfo: {
+                paidBy: paidByName ?? null,
+                paidById: paidById ?? null,
                 paidDate: paidDate.toISOString(),
                 remarks: `Settled by challan ${challan.challanNumber}`,
               },
@@ -280,6 +292,8 @@ export class PaymentService {
 
           if (isNowFullySettled) {
             scUpdateData.paymentInfo = {
+              paidBy: paidByName ?? null,
+              paidById: paidById ?? null,
               paidDate: paidDate.toISOString(),
               remarks: `Settled by challan ${challan.challanNumber}`,
             };

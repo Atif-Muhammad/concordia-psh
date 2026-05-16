@@ -877,7 +877,7 @@ const Configuration = () => {
     "Fee Management",
     "HR & Payroll",
     "Front Office",
-    "Hostel",
+    "Boarding",
     "Inventory",
     "Configuration",
   ];

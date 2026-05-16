@@ -9,7 +9,9 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { InstallmentService } from './installment.service';
@@ -24,6 +26,7 @@ import { BulkGenerateDto } from './dtos/bulk-generate.dto';
 import { ExtraChallanDto } from './dtos/extra-challan.dto';
 import { RecordPaymentDto } from './dtos/record-payment.dto';
 import { ExtraChallanService } from './extra-challan.service';
+import { JwtAccGuard } from '../common/guards/jwt-access.guard';
 
 /**
  * FeeController — new REST API for the redesigned fee management system.
@@ -256,13 +259,18 @@ export class FeeController {
    * Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 11.1
    */
   @Post('payments')
-  async recordPayment(@Body() dto: RecordPaymentDto) {
+  @UseGuards(JwtAccGuard)
+  async recordPayment(@Body() dto: RecordPaymentDto, @Req() req: any) {
+    const paidByName = req?.user?.name || req?.user?.fullName || req?.user?.email || null;
+    const paidById = req?.user?.id ? Number(req.user.id) : null;
     return this.paymentService.recordPayment(
       dto.challanId,
       dto.amount,
       dto.paymentMode,
       new Date(dto.paidDate),
       dto.remarks,
+      paidByName,
+      paidById,
     );
   }
 
@@ -297,7 +305,6 @@ export class FeeController {
     if (dateFrom) dateFilter.gte = new Date(dateFrom);
     if (dateTo) dateFilter.lte = new Date(dateTo);
     const hasDateFilter = Object.keys(dateFilter).length > 0;
-    const paymentDateFilter = hasDateFilter ? { lastPaymentDate: dateFilter } : {};
     const normalizedType = (type || 'all').toLowerCase();
     const includeInstallment = normalizedType === 'all' || normalizedType === 'installment';
     const includeExtra = normalizedType === 'all' || normalizedType === 'extra';
@@ -307,22 +314,14 @@ export class FeeController {
     let regularRevenue = 0;
     let installmentOutstanding = 0;
     if (includeInstallment) {
-      if (hasDateFilter) {
-        const regularRevenueAggr = await this.prisma.challanPayment.aggregate({
-          where: {
-            paymentDate: dateFilter,
-            challan: { installment: { ...sessionFilter, settled: null } },
-          },
-          _sum: { amount: true },
-        });
-        regularRevenue = Number(regularRevenueAggr._sum.amount ?? 0);
-      } else {
-        const regularRevenueAggr = await this.prisma.feeInstallment.aggregate({
-          where: { ...sessionFilter, ...paymentDateFilter, settled: null },
-          _sum: { paidAmount: true },
-        });
-        regularRevenue = Number(regularRevenueAggr._sum.paidAmount ?? 0);
-      }
+      const regularRevenueAggr = await this.prisma.challanPayment.aggregate({
+        where: {
+          ...(hasDateFilter ? { paymentDate: dateFilter } : {}),
+          challan: { installment: { ...sessionFilter } },
+        },
+        _sum: { amount: true },
+      });
+      regularRevenue = Number(regularRevenueAggr._sum.amount ?? 0);
 
       const outstandingAggr = await this.prisma.feeInstallment.aggregate({
         where: {

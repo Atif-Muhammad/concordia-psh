@@ -277,10 +277,11 @@ const FeeManagement = () => {
       status: c.status === 'SUPERSEDED' ? 'SUPERSEDED' : c.status === 'SETTLED' ? 'SETTLED' : (c.status ?? 'PENDING'),
       coveredInstallments: null,
       challanType: c.type === 'EXTRA' ? 'FEE_HEADS_ONLY' : 'INSTALLMENT',
-      previousChallans: [],
-      supersedes: [],
+      // Preserve backend chain relations when present; required for stable arrears display.
+      previousChallans: Array.isArray(c.previousChallans) ? c.previousChallans : [],
+      supersedes: Array.isArray(c.supersedes) ? c.supersedes : [],
       supersededBy: null,
-      settledAmount: 0,
+      settledAmount: Number(c.settledAmount ?? 0),
       paymentHistory: null,
       feeStructure: null,
     };
@@ -343,13 +344,16 @@ const FeeManagement = () => {
     const prevIds = new Set((challan.previousChallans || []).map(p => p.id));
     return challan.supersedes.reduce((total, prev) => {
       if (prev.status === 'VOID' && !prevIds.has(prev.id)) {
-        const totalDue = Math.max(0,
+        const grossDue = Math.max(0,
           (prev.amount || 0) +
+          getSelectedHeadsTotal(prev) +
           (prev.fineAmount || 0) +
           (prev.lateFeeFine || 0) -
           (prev.discount || 0)
         );
-        return total + totalDue + getSupersededArrears(prev);
+        const paidOrSettled = Math.max(0, (prev.paidAmount || 0) + (prev.settledAmount || 0));
+        const remainingDue = Math.max(0, grossDue - paidOrSettled);
+        return total + remainingDue + getSupersededArrears(prev);
       }
       return total;
     }, 0);
@@ -1011,6 +1015,9 @@ const FeeManagement = () => {
       queryClient.invalidateQueries(['feeChallans']);
       queryClient.invalidateQueries(['extraChallans']);
       queryClient.invalidateQueries(['studentFeeHistory']);
+      queryClient.invalidateQueries(['installmentSummary']);
+      queryClient.invalidateQueries(['newFeeReportSummary']);
+      queryClient.invalidateQueries(['feeCollectionSummary']);
       toast({ title: "Challan deleted successfully" });
       setDeleteDialogOpen(false);
     },
@@ -1022,6 +1029,8 @@ const FeeManagement = () => {
     onSuccess: () => {
       queryClient.invalidateQueries(['extraChallans']);
       queryClient.invalidateQueries(['studentFeeHistory']);
+      queryClient.invalidateQueries(['newFeeReportSummary']);
+      queryClient.invalidateQueries(['feeCollectionSummary']);
       toast({ title: "Extra Challan deleted successfully" });
       setDeleteDialogOpen(false);
     },
@@ -1554,6 +1563,40 @@ const FeeManagement = () => {
     return latestRemarks || 'FULLY PAID / SETTLED';
   };
 
+  const getPaidByText = (challan) => {
+    if (Array.isArray(challan?.payments) && challan.payments.length > 0) {
+      const latestPayment = [...challan.payments].sort((a, b) => new Date(b.paymentDate || b.date || 0) - new Date(a.paymentDate || a.date || 0))[0];
+      const fromPayment =
+        latestPayment?.receivedByName ||
+        latestPayment?.receivedBy ||
+        latestPayment?.paidBy ||
+        latestPayment?.updatedByName ||
+        latestPayment?.updatedBy;
+      if (fromPayment) return String(fromPayment);
+    }
+
+    if (challan?.paymentInfo) {
+      try {
+        const info = typeof challan.paymentInfo === 'string' ? JSON.parse(challan.paymentInfo) : challan.paymentInfo;
+        const fromInfo =
+          info?.receivedByName ||
+          info?.receivedBy ||
+          info?.updatedByName ||
+          info?.updatedBy ||
+          info?.paidBy ||
+          info?.paymentMode;
+        if (fromInfo) return String(fromInfo);
+      } catch (e) {}
+    }
+
+    if (challan?.paidBy) return String(challan.paidBy);
+    if (challan?.updatedByName) return String(challan.updatedByName);
+    if (challan?.updatedBy) return String(challan.updatedBy);
+    if (challan?.createdByName) return String(challan.createdByName);
+    if (challan?.createdBy) return String(challan.createdBy);
+    return "System";
+  };
+
   const isPaidChallanForPrint = (challan) => {
     const alreadyPaid = Number(challan?.amountReceived ?? challan?.paidAmount ?? 0);
     const totalDue = Number(challan?.snapshotTotalDue ?? challan?.totalAmount ?? challan?.amount ?? 0);
@@ -1561,13 +1604,26 @@ const FeeManagement = () => {
   };
 
   const getPaidChallanRowsHtml = (challan) => {
-    const paidRemarksStyle = 'background-color: #dcfce7; color: #14532d; font-weight: bold;';
+    const paidRemarksStyle = 'background-color: #dcfce7; color: #14532d; font-weight: 700; font-size: 10px;';
+    const blockBorder = 'border-left: 1px solid #9ca3af; border-right: 1px solid #9ca3af;';
+    const topBorder = 'border-top: 1px solid #9ca3af;';
+    const bottomBorder = 'border-bottom: 1px solid #9ca3af;';
+    const labelCellStyle = `${paidRemarksStyle} ${blockBorder}`;
+    const valueCellStyle = `${paidRemarksStyle} ${blockBorder} text-align: left;`;
     const paidAtText = getPaidAtText(challan);
+    const paidByText = getPaidByText(challan);
+    const remarksRaw = String(getPaidChallanRemarks(challan) || '');
+    const remarksClean = remarksRaw.replace(/\s+/g, ' ').trim();
+    const remarksShort = remarksClean.length > 160 ? `${remarksClean.slice(0, 160)}...` : remarksClean;
     return `
-        ${paidAtText ? `<tr class="paid-at-row"><td style="${paidRemarksStyle}">Paid At</td><td style="${paidRemarksStyle}">${paidAtText}</td></tr>` : ''}
+        ${paidAtText ? `<tr class="paid-at-row"><td style="${labelCellStyle} ${topBorder}">Paid At</td><td style="${valueCellStyle} ${topBorder}">${paidAtText}</td></tr>` : ''}
+        ${paidByText ? `<tr class="paid-by-row"><td style="${labelCellStyle}">Paid By</td><td style="${valueCellStyle}">${paidByText}</td></tr>` : ''}
         <tr class="paid-remarks-row">
-          <td style="${paidRemarksStyle}; vertical-align: top;">Remarks</td>
-          <td style="${paidRemarksStyle}; white-space: normal; text-align: left; line-height: 1.35;">${getPaidChallanRemarks(challan)}</td>
+          <td style="${labelCellStyle} ${bottomBorder}; vertical-align: top;">Remarks</td>
+          <td style="${valueCellStyle} ${bottomBorder}; white-space: normal; word-break: break-word; line-height: 1.35;">
+            ${remarksShort || 'FULLY PAID / SETTLED'}
+            ${remarksClean.length > 160 ? '<div style="font-size: 9px; opacity: 0.8; margin-top: 3px;">(truncated for print layout)</div>' : ''}
+          </td>
         </tr>
       `;
   };
@@ -1745,22 +1801,50 @@ const FeeManagement = () => {
         
         if (Array.isArray(arrearsNums) && arrearsNums.length > 0) {
           const allInsts = challan.installment?.student?.feeInstallments || [];
+          const prevChallans = Array.isArray(challan.previousChallans) ? challan.previousChallans : [];
+          const fallbackTotalArrears = Number(challan.snapshotArrearsAmount || 0);
+          const fallbackPerRow = arrearsNums.length > 0 ? Math.round(fallbackTotalArrears / arrearsNums.length) : 0;
           arrearsRowsHtml = arrearsNums.map(num => {
             const match = allInsts.find(i => Number(i.installmentNumber) === Number(num));
             if (!match) return "";
-            // Use snapshotArrearsAmount per installment if available, otherwise use totalAmount
-            // (the original amount owed at challan creation — NOT pendingAmount which becomes 0 after payment)
-            const amt = Number(match.snapshotArrearsAmount ?? match.totalAmount ?? 0);
-            // Build label: "Month (Session / Class)" for context
-            const sessionLabel = match.session || match.sessionName || "";
-            const classLabel = match.class?.name || match.className || "";
-            const contextLabel = [sessionLabel, classLabel].filter(Boolean).join(' / ');
-            const rowLabel = contextLabel
-              ? `${match.month || `#${num}`} <span style="color:#888;font-size:9px;">(${contextLabel})</span>`
-              : (match.month || `#${num}`);
+            // IMPORTANT:
+            // For settled arrears chains, installment live balances become 0.
+            // So prefer the linked previous-challan snapshot/settled values.
+            const prev = prevChallans.find((p) =>
+              Number(p.installmentNo ?? p.installmentNumber ?? p.installment?.installmentNumber ?? -1) === Number(num)
+            );
+            const prevSettled = Number(prev?.settledAmount ?? 0);
+            const prevSnapshotDue = Number(prev?.snapshotTotalDue ?? 0);
+            const prevReceived = Number(prev?.amountReceived ?? prev?.paidAmount ?? 0);
+            const prevRemainingAtRoll = Math.max(0, prevSnapshotDue - prevReceived);
+
+            const snapArrears = Number(match.snapshotArrearsAmount ?? 0);
+            const settledContribution = Number(match.settledAmount ?? 0);
+            const outstandingPrincipal = Number(match.outstandingPrincipal ?? 0);
+            const matchTotal = Number(match.totalAmount ?? 0);
+            const matchPaid = Number(match.paidAmount ?? 0);
+            const fallbackRemaining = Math.max(0, matchTotal - matchPaid);
+
+            const amt = prevSettled > 0
+              ? prevSettled
+              : (prevRemainingAtRoll > 0
+                ? prevRemainingAtRoll
+                : (snapArrears > 0
+                  ? snapArrears
+                  : (settledContribution > 0
+                    ? settledContribution
+                    : (outstandingPrincipal > 0 ? outstandingPrincipal : fallbackRemaining))));
+            const finalAmt = Number(amt) > 0
+              ? Number(amt)
+              : (arrearsNums.length === 1 ? fallbackTotalArrears : fallbackPerRow);
+            // Build label: "Month - Installment X / Session"
+            const monthLabel = match.month || `#${num}`;
+            const instLabel = `Installment ${match.installmentNumber || num}`;
+            const sessionLabel = match.session || match.sessionName || challan.installment?.session?.name || "";
+            const rowLabel = `${monthLabel} - ${instLabel}${sessionLabel ? ` / ${sessionLabel}` : ''}`;
             return `<tr style="background-color: #fafafa; line-height: 1.2;">
               <td style="padding-left: 25px; font-style: italic; font-size: 10px; color: #555;">&#8627; ${rowLabel}</td>
-              <td style="font-size: 10px; color: #555;">${Number(amt).toLocaleString()}</td>
+              <td style="font-size: 10px; color: #555;">${Number(finalAmt).toLocaleString()}</td>
             </tr>`;
           }).filter(Boolean).join('\n');
         } else if (challan.installment?.arrearsMonths) {
@@ -1789,7 +1873,8 @@ const FeeManagement = () => {
     const totalSnap = isExtraChallanType
       ? Math.max(Number(challan.snapshotTotalDue ?? 0), Number(challan.totalAmount ?? 0), standardTotal)
       : Number(challan.snapshotTotalDue ?? standardTotal ?? 0);
-    const remainingPayable = Math.max(0, totalSnap - alreadyPaid);
+    // Keep negative value when overpaid so UI can show advance credit on this challan.
+    const remainingPayable = totalSnap - alreadyPaid;
 
     // Paid/remaining rows are injected via {{paidRow}} only — do NOT append to arrearsRowsHtml
 
@@ -1821,7 +1906,8 @@ const FeeManagement = () => {
     html = html.replace(/\{\{discount\}\}/g, '');
     
     // Paid/remaining rows are useful for paid, partial, and pending challans.
-    const shouldShowBalanceRows = ['PAID', 'SETTLED', 'PARTIAL', 'PENDING', 'OVERDUE'].includes(challan.status) || alreadyPaid > 0;
+    // Show paid/advance rows only when this challan has received payment.
+    const shouldShowBalanceRows = alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status);
     if (shouldShowBalanceRows) {
       const paidDisplay = alreadyPaid > 0 ? `- ${alreadyPaid.toLocaleString()}` : '0';
       const paidRowHtml = `
@@ -5846,21 +5932,50 @@ const FeeManagement = () => {
                                 if (!Array.isArray(arrearsNums) || arrearsNums.length === 0) return null;
                                 
                                 const allInsts = selectedChallanDetails.installment?.student?.feeInstallments || [];
+                                const prevChallans = Array.isArray(selectedChallanDetails.previousChallans) ? selectedChallanDetails.previousChallans : [];
+                                const fallbackTotalArrears = Number(selectedChallanDetails.snapshotArrearsAmount || 0);
+                                const fallbackPerRow = arrearsNums.length > 0 ? Math.round(fallbackTotalArrears / arrearsNums.length) : 0;
                                 return arrearsNums.map((num, idx) => {
                                   const match = allInsts.find(i => Number(i.installmentNumber) === Number(num));
                                   if (!match) return null;
-                                  // Use totalAmount (original) — pendingAmount becomes 0 after payment
-                                  const amt = Number(match.totalAmount ?? 0);
+                                  // For settled arrears, prefer previous challan settlement snapshot.
+                                  const prev = prevChallans.find((p) =>
+                                    Number(p.installmentNo ?? p.installmentNumber ?? p.installment?.installmentNumber ?? -1) === Number(num)
+                                  );
+                                  const prevSettled = Number(prev?.settledAmount ?? 0);
+                                  const prevSnapshotDue = Number(prev?.snapshotTotalDue ?? 0);
+                                  const prevReceived = Number(prev?.amountReceived ?? prev?.paidAmount ?? 0);
+                                  const prevRemainingAtRoll = Math.max(0, prevSnapshotDue - prevReceived);
+
+                                  const snapArrears = Number(match.snapshotArrearsAmount ?? 0);
+                                  const settledContribution = Number(match.settledAmount ?? 0);
+                                  const outstandingPrincipal = Number(match.outstandingPrincipal ?? 0);
+                                  const matchTotal = Number(match.totalAmount ?? 0);
+                                  const matchPaid = Number(match.paidAmount ?? 0);
+                                  const fallbackRemaining = Math.max(0, matchTotal - matchPaid);
+                                  const amt = prevSettled > 0
+                                    ? prevSettled
+                                    : (prevRemainingAtRoll > 0
+                                      ? prevRemainingAtRoll
+                                      : (snapArrears > 0
+                                        ? snapArrears
+                                        : (settledContribution > 0
+                                          ? settledContribution
+                                          : (outstandingPrincipal > 0 ? outstandingPrincipal : fallbackRemaining))));
+                                  const finalAmt = Number(amt) > 0
+                                    ? Number(amt)
+                                    : (arrearsNums.length === 1 ? fallbackTotalArrears : fallbackPerRow);
                                   const sessionLabel = match.session || match.sessionName || selectedChallanDetails.installment?.session?.name || "";
-                                  const classLabel = match.class?.name || match.className || "";
-                                  const contextLabel = [sessionLabel, classLabel].filter(Boolean).join(' / ');
+                                  const monthLabel = match.month || `#${num}`;
+                                  const instLabel = `Installment ${match.installmentNumber || num}`;
+                                  const arrearsLabel = `${monthLabel} - ${instLabel}${sessionLabel ? ` / ${sessionLabel}` : ''}`;
                                   return (
                                     <TableRow key={`arr-${idx}`} className="bg-amber-50/10">
                                       <TableCell className="text-xs px-3 py-1.5 pl-8 text-amber-600 italic">
-                                        ↳ {match.month || `#${num}`}{contextLabel ? <span className="text-[10px] text-muted-foreground ml-1">({contextLabel})</span> : null}
+                                        ↳ {arrearsLabel}
                                       </TableCell>
                                       <TableCell className="text-xs px-3 text-right py-1.5 text-amber-600">
-                                        {formatAmount(amt)}
+                                        {formatAmount(finalAmt)}
                                       </TableCell>
                                     </TableRow>
                                   );
@@ -5973,7 +6088,8 @@ const FeeManagement = () => {
                             ? (selectedChallanDetails.settledAmount || 0)
                             : (selectedChallanDetails.paidAmount || 0);
                           
-                          const remaining = Math.max(0, totalDue - effectivePaid);
+                          // Keep negative value when overpaid so it is visible as advance.
+                          const remaining = totalDue - effectivePaid;
 
                           return (
                             <>
@@ -6548,10 +6664,8 @@ const FeeManagement = () => {
                                     return !isBilledStatus;
                                   });
                                   
-                                  // isGenerated: installment already has challanGenerated=true, or is fully paid
-                                  const hasActiveChallan = currentInst?.challanGenerated === true || (student.challans || []).some(c =>
-                                    c.studentFeeInstallmentId === currentInst?.id
-                                  );
+                                  // isGenerated: rely on current installment state (avoid legacy challan relation false positives)
+                                  const hasActiveChallan = currentInst?.challanGenerated === true;
                                   const isSuperseded = false; // new schema doesn't use remainingAmount
                                   const isGenerated = currentInst && !isSuperseded && (
                                     (Number(currentInst.paidAmount) || 0) >= Number(currentInst.basePayable ?? currentInst.amount ?? 0) ||

@@ -22,7 +22,7 @@ import FrontOffice from "./pages/FrontOffice";
 import Examination from "./pages/Examination";
 import Academics from "./pages/Academics";
 import HRPayroll from "./pages/HRPayroll";
-import Boarding from "./pages/Hostel";
+import Boarding from "./pages/Boarding";
 import Finance from "./pages/Finance";
 import Configuration from "./pages/Configuration";
 import Inventory from "./pages/Inventory";
@@ -42,7 +42,7 @@ const menuOrder = [
   "Examination",
   "Academics",
   "HR & Payroll",
-  "Hostel",
+  "Boarding",
   "Finance",
   "Inventory",
   "Configuration",
@@ -64,7 +64,7 @@ const getDefaultPath = (user) => {
     "Examination": "/examination",
     "Academics": "/academics",
     "HR & Payroll": "/hr-payroll",
-    "Hostel": "/hostel",
+    "Boarding": "/hostel",
     "Finance": "/finance",
     "Inventory": "/inventory",
     "Configuration": "/configuration",
@@ -272,7 +272,7 @@ function App() {
                 <Route
                   path="/hostel"
                   element={
-                    <PermissionRoute moduleName="Hostel">
+                    <PermissionRoute moduleName="Boarding">
                       <Boarding />
                     </PermissionRoute>
                   }
