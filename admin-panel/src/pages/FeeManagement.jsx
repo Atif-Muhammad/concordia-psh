@@ -1698,11 +1698,7 @@ const FeeManagement = () => {
 
     const hasPaidRows = html.includes('class="paid-at-row"') || html.includes('class="paid-remarks-row"');
     const paidRowsHtml = getPaidChallanRowsHtml(challan);
-    const systemGeneratedNote = `
-      <div class="paid-system-note" style="padding: 8px 10px 5px 10px; margin-top: 4px; font-size: 8px; line-height: 1.35; color: #475569; font-style: italic;">
-        * This paid challan is system generated and does not require bank/account officer or depositor signatures.
-      </div>
-    `;
+    const isFullyPaid = ['PAID', 'SETTLED'].includes(challan.status);
 
     let nextHtml = hasPaidRows ? html : html.replace(
       /<tr[^>]*>\s*<td[^>]*>\s*Remarks\s*<\/td>\s*<td[^>]*>[\s\S]*?<\/td>\s*<\/tr>/gi,
@@ -1716,10 +1712,19 @@ const FeeManagement = () => {
       );
     }
 
-    nextHtml = nextHtml.replace(
-      /<div class="signatures">[\s\S]*?<div class="sig-label">Depositor Signature<\/div>\s*<\/div>\s*<\/div>/gi,
-      systemGeneratedNote
-    );
+    // Only replace signature block with system-generated note for fully paid challans.
+    // Partial challans keep the signature fields (same as pending challans).
+    if (isFullyPaid) {
+      const systemGeneratedNote = `
+        <div class="paid-system-note" style="padding: 8px 10px 5px 10px; margin-top: 4px; font-size: 8px; line-height: 1.35; color: #475569; font-style: italic;">
+          * This paid challan is system generated and does not require bank/account officer or depositor signatures.
+        </div>
+      `;
+      nextHtml = nextHtml.replace(
+        /<div class="signatures">[\s\S]*?<div class="sig-label">Depositor Signature<\/div>\s*<\/div>\s*<\/div>/gi,
+        systemGeneratedNote
+      );
+    }
 
     return nextHtml;
   };
