@@ -112,6 +112,7 @@ export class InstallmentService {
       ],
       include: {
         heads: true,
+        session: true,
         challans: {
           select: {
             id: true,
@@ -124,6 +125,10 @@ export class InstallmentService {
             snapshotTotalDue: true,
             amountReceived: true,
             paidAt: true,
+            advanceAmount: true,
+            advanceFromChallanNo: true,
+            settledByChallanNumber: true,
+            settledAmount: true,
           },
         },
       },
@@ -145,6 +150,7 @@ export class InstallmentService {
       where: { id },
       include: {
         heads: true,
+        session: true,
         challans: {
           select: {
             id: true,
@@ -157,6 +163,10 @@ export class InstallmentService {
             snapshotTotalDue: true,
             amountReceived: true,
             paidAt: true,
+            advanceAmount: true,
+            advanceFromChallanNo: true,
+            settledByChallanNumber: true,
+            settledAmount: true,
           },
         },
       },

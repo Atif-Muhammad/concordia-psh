@@ -204,14 +204,35 @@ export class FeeController {
       where: { id },
       include: {
         installment: {
-          select: {
-            id: true,
-            studentId: true,
-            installmentNumber: true,
-            month: true,
-            dueDate: true,
-            status: true,
-          },
+          include: {
+            student: {
+              include: {
+                feeInstallments: {
+                  include: {
+                    challans: {
+                      select: {
+                        id: true,
+                        challanNumber: true,
+                        status: true,
+                        installmentNo: true,
+                        snapshotTotalDue: true,
+                        amountReceived: true,
+                        advanceAmount: true,
+                        advanceFromChallanNo: true,
+                        paidAt: true,
+                      }
+                    },
+                    session: true,
+                  },
+                  orderBy: [
+                    { sessionId: 'asc' },
+                    { installmentNumber: 'asc' }
+                  ]
+                }
+              }
+            },
+            session: true,
+          }
         },
         payments: {
           orderBy: { paymentDate: 'desc' },

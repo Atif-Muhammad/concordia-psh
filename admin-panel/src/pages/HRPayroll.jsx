@@ -201,36 +201,31 @@ const HRPayroll = () => {
   };
 
   const handleSaveStaffAttendance = async () => {
-    const editableRows = staffAttendanceRows.filter((staff) => !isStaffAttendanceLocked(staff.attendance?.[0]));
-    const unmarkedRows = editableRows.filter((staff) => {
-      const existingStatus = staff.attendance?.[0]?.status?.toLowerCase();
-      return !(staffAttendanceChanges[staff.id] || existingStatus);
-    });
+    const editableRows = staffAttendanceRows.filter((row) => !isStaffAttendanceLocked(row));
 
-    if (unmarkedRows.length > 0) {
-      toast({ title: "Please mark attendance for every unlocked staff member before saving", variant: "destructive" });
-      return;
-    }
-
+    // Only submit attendance for staff that were explicitly marked (changed via UI)
     const payloads = editableRows
-      .map((staff) => {
-        const status = staffAttendanceChanges[staff.id] || staff.attendance?.[0]?.status?.toLowerCase();
-        return status ? {
-          staffId: staff.id,
+      .map((row) => {
+        const staffId = row.staffId || row.staff?.id;
+        const changedStatus = staffAttendanceChanges[staffId];
+        // If user explicitly marked a status, use that; otherwise skip — don't auto-submit nulls
+        if (!changedStatus) return null;
+        return {
+          staffId,
           date: staffAttendanceDate,
-          status: status.toUpperCase(),
-        } : null;
+          status: changedStatus.toUpperCase(),
+        };
       })
       .filter(Boolean);
 
     if (payloads.length === 0) {
-      toast({ title: "No attendance to save", variant: "default" });
+      toast({ title: "No attendance changes to save. Mark staff status first.", variant: "destructive" });
       return;
     }
 
     try {
       await Promise.all(payloads.map((payload) => markStaffAttendance(payload)));
-      toast({ title: "Staff attendance saved successfully", variant: "success" });
+      toast({ title: `Attendance saved for ${payloads.length} staff member(s)`, variant: "success" });
       setStaffAttendanceChanges({});
       refetchStaffAttendance();
     } catch (error) {
@@ -240,8 +235,9 @@ const HRPayroll = () => {
 
   const handleMarkAllStaff = (status) => {
     const next = {};
-    staffAttendanceRows.forEach((staff) => {
-      if (!isStaffAttendanceLocked(staff.attendance?.[0])) next[staff.id] = status;
+    staffAttendanceRows.forEach((row) => {
+      const sid = row.staffId || row.staff?.id;
+      if (!isStaffAttendanceLocked(row)) next[sid] = status;
     });
     setStaffAttendanceChanges(next);
   };
@@ -992,24 +988,24 @@ const HRPayroll = () => {
                           <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Select filters to load staff, mark attendance, then save.</TableCell>
                         </TableRow>
                       ) : (
-                        staffAttendanceRows.map((staff) => {
-                          const attendance = staff.attendance?.[0];
-                          const currentStatus = staffAttendanceChanges[staff.id] || attendance?.status?.toLowerCase();
-                          const isLocked = isStaffAttendanceLocked(attendance);
+                        staffAttendanceRows.map((row) => {
+                          const s = row.staff || row;
+                          const currentStatus = staffAttendanceChanges[row.staffId || s.id] || row.status?.toLowerCase();
+                          const isLocked = isStaffAttendanceLocked(row);
                           const auditLines = [];
-                          if (attendance?.generatedAt) auditLines.push(`Generated: ${new Date(attendance.generatedAt).toLocaleString()}`);
-                          if (attendance?.markedAt) {
-                            const markerName = attendance?.admin?.name || (attendance?.markedBy ? `User #${attendance.markedBy}` : "Unknown");
-                            auditLines.push(`Marked: ${new Date(attendance.markedAt).toLocaleString()}`);
+                          if (row.generatedAt) auditLines.push(`Generated: ${new Date(row.generatedAt).toLocaleString()}`);
+                          if (row.markedAt) {
+                            const markerName = row.admin?.name || (row.markedBy ? `User #${row.markedBy}` : "Unknown");
+                            auditLines.push(`Marked: ${new Date(row.markedAt).toLocaleString()}`);
                             auditLines.push(`Marked by: ${markerName}`);
                           }
-                          const markedByName = attendance?.admin?.name || (attendance?.markedBy ? `User #${attendance.markedBy}` : "-");
-                          const roleLabel = staff.isTeaching ? "Teaching" : "Non-Teaching";
-                          const deptLabel = staff.department?.name || staff.empDepartment || staff.designation || staff.specialization || "-";
+                          const markedByName = row.admin?.name || (row.markedBy ? `User #${row.markedBy}` : "-");
+                          const roleLabel = s.isTeaching && s.isNonTeaching ? "Dual" : s.isTeaching ? "Teaching" : "Non-Teaching";
+                          const deptLabel = s.department?.name || s.empDepartment || s.designation || s.specialization || "-";
 
                           return (
-                            <TableRow key={staff.id} className={isLocked ? "opacity-80" : ""}>
-                              <TableCell className="py-2 px-3 text-sm font-medium">{staff.name}</TableCell>
+                            <TableRow key={row.staffId || s.id} className={isLocked ? "opacity-80" : ""}>
+                              <TableCell className="py-2 px-3 text-sm font-medium">{s.name}</TableCell>
                               <TableCell className="py-2 px-3 text-sm">
                                 <div>{roleLabel}</div>
                                 <div className="text-xs text-muted-foreground">{deptLabel}</div>
@@ -1032,34 +1028,34 @@ const HRPayroll = () => {
                                 </div>
                               </TableCell>
                               <TableCell className="py-2 px-3 text-sm text-muted-foreground">
-                                {attendance?.markedAt ? new Date(attendance.markedAt).toLocaleString() : "-"}
+                                {row.markedAt ? new Date(row.markedAt).toLocaleString() : "-"}
                               </TableCell>
                               <TableCell className="py-2 px-3 text-sm text-muted-foreground">
-                                {attendance?.markedAt ? markedByName : "-"}
+                                {row.markedAt ? markedByName : "-"}
                               </TableCell>
                               <TableCell className="py-2 px-3 text-sm">
                                 <div className="flex gap-1">
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <Button size="sm" variant={currentStatus === "present" ? "default" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(staff.id, "present")}><CheckCircle2 className="w-4 h-4" /></Button>
+                                      <Button size="sm" variant={currentStatus === "present" ? "default" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(row.staffId || s.id, "present")}><CheckCircle2 className="w-4 h-4" /></Button>
                                     </TooltipTrigger>
                                     <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Present"}</TooltipContent>
                                   </Tooltip>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <Button size="sm" variant={currentStatus === "absent" ? "destructive" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(staff.id, "absent")}><XCircle className="w-4 h-4" /></Button>
+                                      <Button size="sm" variant={currentStatus === "absent" ? "destructive" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(row.staffId || s.id, "absent")}><XCircle className="w-4 h-4" /></Button>
                                     </TooltipTrigger>
                                     <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Absent"}</TooltipContent>
                                   </Tooltip>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <Button size="sm" variant={currentStatus === "leave" ? "secondary" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(staff.id, "leave")}><Clock className="w-4 h-4" /></Button>
+                                      <Button size="sm" variant={currentStatus === "leave" ? "secondary" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(row.staffId || s.id, "leave")}><Clock className="w-4 h-4" /></Button>
                                     </TooltipTrigger>
                                     <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Leave"}</TooltipContent>
                                   </Tooltip>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <Button size="sm" variant={currentStatus === "half_day" ? "secondary" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(staff.id, "half_day")}>1/2</Button>
+                                      <Button size="sm" variant={currentStatus === "half_day" ? "secondary" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(row.staffId || s.id, "half_day")}>1/2</Button>
                                     </TooltipTrigger>
                                     <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Half Day"}</TooltipContent>
                                   </Tooltip>

@@ -2003,9 +2003,8 @@ export class HrService {
       orderBy: { name: 'asc' },
     });
 
-    // Return a flat, UI-friendly row per staff member.
-    // If no record exists for the date, expose default draft status as PRESENT
-    // so the client can review/change before first save.
+// Return a flat, UI-friendly row per staff member.
+    // If no record exists for the date, status is null — the UI shows "Not Marked".
     return staffList.map((s) => {
       const existing = s.attendance?.[0];
       return {
@@ -2023,7 +2022,7 @@ export class HrService {
           photo_url: s.photo_url,
         },
         date: existing?.date ?? targetDate,
-        status: existing?.status ?? 'PRESENT',
+        status: existing?.status ?? null,
         markedBy: existing?.markedBy ?? null,
         markedAt: existing?.markedAt ?? null,
         generatedAt: existing?.generatedAt ?? null,

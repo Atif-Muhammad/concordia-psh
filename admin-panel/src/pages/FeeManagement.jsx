@@ -264,9 +264,10 @@ const FeeManagement = () => {
       studentSection: inst.student?.section ?? student?.section ?? c.studentSection ?? null,
       fatherName: student?.fatherOrguardian ?? '',
       amount: Number(c.snapshotBaseAmount ?? c.amount ?? 0),
-      // For SUPERSEDED/SETTLED challans, show the installment's actual paidAmount (payment went via the leading challan)
+      // paidAmount = total received on this challan (includes advance credits).
+      // For SUPERSEDED/SETTLED, use the installment's paidAmount (debt was absorbed by leading challan).
       paidAmount: (c.status === 'SUPERSEDED' || c.status === 'SETTLED')
-        ? Number(inst.paidAmount ?? c.amountReceived ?? c.paidAmount ?? 0)
+        ? Number(inst.paidAmount ?? c.paidAmount ?? 0)
         : Number(c.amountReceived ?? c.paidAmount ?? 0),
       totalAmount: Number(c.snapshotTotalDue ?? c.totalAmount ?? 0),
       lateFeeFine: Number(c.snapshotLateFee ?? c.lateFeeFine ?? 0),
@@ -292,6 +293,11 @@ const FeeManagement = () => {
   // Sum of additional fee heads from selectedHeads JSON (NOT fineAmount)
   const getSelectedHeadsTotal = (challan) => {
     if (!challan) return 0;
+
+    // New schema: challanHeads snapshot from backend
+    if (challan.challanHeads && Array.isArray(challan.challanHeads) && challan.challanHeads.length > 0) {
+      return challan.challanHeads.reduce((sum, h) => sum + Math.max(0, Number(h.amount || 0)), 0);
+    }
     
     // Support for ExtraChallan relation
     if (challan.heads && Array.isArray(challan.heads) && !challan.installmentNumber) {
@@ -1232,9 +1238,10 @@ const FeeManagement = () => {
 
   const handlePayment = async (challan) => {
     setItemToPay(challan);
-    // For new-schema challans, use snapshotTotalDue directly
+    // For new-schema challans, use snapshotTotalDue vs the direct payment on this challan.
+    // paidAmount is the normalized direct payment (excludes advance from previous challans).
     const currentTotalDue = challan.snapshotTotalDue != null
-      ? Math.max(0, Number(challan.snapshotTotalDue) - Number(challan.amountReceived ?? challan.paidAmount ?? 0))
+      ? Math.max(0, Number(challan.snapshotTotalDue) - Number(challan.paidAmount || 0))
       : Math.max(0, (challan.amount || 0) + getTotalArrears(challan) + getSelectedHeadsTotal(challan) + (challan.lateFeeFine || 0) - (challan.discount || 0) - (challan.paidAmount || 0));
     
     setPaymentAmount(currentTotalDue.toString());
@@ -1301,10 +1308,11 @@ const FeeManagement = () => {
     }
 
     const isExtraC = itemToPay.isExtra === true || itemToPay.challanType === 'FEE_HEADS_ONLY';
-    const totalDue = isExtraC 
+    const totalDue = isExtraC
       ? Number(itemToPay.totalAmount ?? 0)
       : Number(itemToPay.snapshotTotalDue ?? (Number(itemToPay.amount ?? 0) + getTotalArrears(itemToPay) + (itemToPay.lateFeeFine ?? 0) - (itemToPay.discount ?? 0)));
-    const alreadyPaid = Number(itemToPay.amountReceived ?? itemToPay.paidAmount ?? 0);
+    // Use normalized paidAmount (direct payment on this challan, excluding advance credits)
+    const alreadyPaid = Number(itemToPay.paidAmount || 0);
     const outstanding = Math.max(0, totalDue - alreadyPaid);
     const excess = receiving - outstanding;
 
@@ -1315,30 +1323,47 @@ const FeeManagement = () => {
       const isNewSchema = itemToPay._normalized === true || itemToPay.snapshotTotalDue != null || itemToPay.installmentId != null;
 
       let isLastInstallment;
+      let allStudentInsts = [];
       if (isNewSchema) {
         // Use the student's feeInstallments from the linked installment relation if available,
         // otherwise fall back to the installment number comparison.
         const linkedInst = itemToPay.installment;
-        const allStudentInsts = linkedInst?.student?.feeInstallments || itemToPay.student?.feeInstallments || [];
+        allStudentInsts = linkedInst?.student?.feeInstallments || itemToPay.student?.feeInstallments || [];
         if (allStudentInsts.length > 0) {
           const maxInstNum = Math.max(...allStudentInsts.map(i => Number(i.installmentNumber) || 0));
           isLastInstallment = (itemToPay.installmentNumber || 0) >= maxInstNum;
         } else {
-          // No installment list available — check if there's a next installment
-          // by seeing if the current installment has a supersededBy or any future installment.
+          // No installment list available — check if the current installment has a supersededBy or any future installment.
           // Conservative: treat as last installment to prevent overpayment.
           isLastInstallment = true;
         }
       } else {
-        const maxInstNum = Math.max(...(itemToPay.student?.feeInstallments?.map(i => i.installmentNumber) || [0]));
+        allStudentInsts = itemToPay.student?.feeInstallments || [];
+        const maxInstNum = Math.max(...(allStudentInsts.map(i => i.installmentNumber) || [0]));
         isLastInstallment = itemToPay.installmentNumber >= maxInstNum;
       }
 
       if (isLastInstallment) {
-        toast({ 
-          title: "Advance payment not allowed", 
-          description: `Installment #${itemToPay.installmentNumber} is the last scheduled installment. Payment cannot exceed the outstanding amount of PKR ${outstanding.toLocaleString()}.`, 
-          variant: "destructive" 
+        toast({
+          title: "Advance payment not allowed",
+          description: `Installment #${itemToPay.installmentNumber} is the last scheduled installment. Payment cannot exceed the outstanding amount of PKR ${outstanding.toLocaleString()}.`,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Cap advance at the next installment's pending amount so excess cannot snowball
+      const nextInst = allStudentInsts
+        .filter(i => Number(i.installmentNumber) > (itemToPay.installmentNumber || 0))
+        .sort((a, b) => Number(a.installmentNumber) - Number(b.installmentNumber))[0];
+      const nextPending = nextInst ? Number(nextInst.pendingAmount ?? nextInst.snapshotTotalDue ?? 0) : 0;
+      const maxAdvance = Math.max(0, nextPending);
+
+      if (excess > maxAdvance) {
+        toast({
+          title: "Advance payment exceeds limit",
+          description: `Advance amount cannot exceed the next installment's pending amount of PKR ${maxAdvance.toLocaleString()}. Maximum payment allowed is PKR ${(outstanding + maxAdvance).toLocaleString()}.`,
+          variant: "destructive"
         });
         return;
       }
@@ -1352,13 +1377,22 @@ const FeeManagement = () => {
 
     if (isExtraChallan) {
       setIsPaymentLoading(true);
+      const submissionDate = (() => {
+        const dateStr = challanForm.paidDate;
+        if (!dateStr) return new Date().toISOString();
+        const todayStr = new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd
+        if (dateStr === todayStr) return new Date().toISOString();
+        const [y, m, d] = dateStr.split('-').map(Number);
+        return new Date(y, m - 1, d, 12, 0, 0).toISOString();
+      })();
+
       try {
         await recordExtraFeePayment({
           id: itemToPay.id,
           data: {
             amount: receiving,
             paymentMode: challanForm.paidBy || 'Cash',
-            paymentDate: challanForm.paidDate || new Date().toISOString().split('T')[0],
+            paymentDate: submissionDate,
             remarks: challanForm.remarks || undefined,
           }
         });
@@ -1380,12 +1414,21 @@ const FeeManagement = () => {
 
     if (isNewSchemaChallan) {
       setIsPaymentLoading(true);
+      const submissionDate = (() => {
+        const dateStr = challanForm.paidDate;
+        if (!dateStr) return new Date().toISOString();
+        const todayStr = new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd
+        if (dateStr === todayStr) return new Date().toISOString();
+        const [y, m, d] = dateStr.split('-').map(Number);
+        return new Date(y, m - 1, d, 12, 0, 0).toISOString();
+      })();
+
       try {
         await recordFeePayment({
           challanId: itemToPay.id,
           amount: receiving,
           paymentMode: challanForm.paidBy || 'Cash',
-          paidDate: challanForm.paidDate || new Date().toISOString().split('T')[0],
+          paidDate: submissionDate,
           remarks: challanForm.remarks || undefined,
         });
         queryClient.invalidateQueries(['feeChallans']);
@@ -1522,7 +1565,7 @@ const FeeManagement = () => {
     if (rawPaidAt) {
       const paidAt = new Date(rawPaidAt);
       if (!Number.isNaN(paidAt.getTime())) {
-        return format(paidAt, "dd MMM yyyy");
+        return format(paidAt, "dd MMM yyyy hh:mm a");
       }
     }
 
@@ -1533,7 +1576,7 @@ const FeeManagement = () => {
         if (infoPaidAt) {
           const paidAt = new Date(infoPaidAt);
           if (!Number.isNaN(paidAt.getTime())) {
-            return format(paidAt, "dd MMM yyyy");
+            return format(paidAt, "dd MMM yyyy hh:mm a");
           }
         }
       } catch(e) {}
@@ -1560,7 +1603,7 @@ const FeeManagement = () => {
         latestRemarks = info.remarks || "";
       } catch(e) {}
     }
-    return latestRemarks || 'FULLY PAID / SETTLED';
+    return latestRemarks || '-';
   };
 
   const getPaidByText = (challan) => {
@@ -1598,33 +1641,56 @@ const FeeManagement = () => {
   };
 
   const isPaidChallanForPrint = (challan) => {
-    const alreadyPaid = Number(challan?.amountReceived ?? challan?.paidAmount ?? 0);
+    const alreadyPaid = Number(challan?.paidAmount ?? challan?.amountReceived ?? 0);
     const totalDue = Number(challan?.snapshotTotalDue ?? challan?.totalAmount ?? challan?.amount ?? 0);
-    return challan?.status === 'PAID' || challan?.status === 'SETTLED' || (totalDue > 0 && alreadyPaid >= totalDue);
+    return challan?.status === 'PAID' || challan?.status === 'SETTLED' || challan?.status === 'PARTIAL' || (totalDue > 0 && alreadyPaid >= totalDue);
   };
 
   const getPaidChallanRowsHtml = (challan) => {
     const paidRemarksStyle = 'background-color: #dcfce7; color: #14532d; font-weight: 700; font-size: 10px;';
     const blockBorder = 'border-left: 1px solid #9ca3af; border-right: 1px solid #9ca3af;';
-    const topBorder = 'border-top: 1px solid #9ca3af;';
+    const topBorder = 'border-top: 1.5px solid #166534;';
     const bottomBorder = 'border-bottom: 1px solid #9ca3af;';
     const labelCellStyle = `${paidRemarksStyle} ${blockBorder}`;
     const valueCellStyle = `${paidRemarksStyle} ${blockBorder} text-align: left;`;
+    
     const paidAtText = getPaidAtText(challan);
     const paidByText = getPaidByText(challan);
     const remarksRaw = String(getPaidChallanRemarks(challan) || '');
     const remarksClean = remarksRaw.replace(/\s+/g, ' ').trim();
     const remarksShort = remarksClean.length > 160 ? `${remarksClean.slice(0, 160)}...` : remarksClean;
-    return `
-        ${paidAtText ? `<tr class="paid-at-row"><td style="${labelCellStyle} ${topBorder}">Paid At</td><td style="${valueCellStyle} ${topBorder}">${paidAtText}</td></tr>` : ''}
-        ${paidByText ? `<tr class="paid-by-row"><td style="${labelCellStyle}">Paid By</td><td style="${valueCellStyle}">${paidByText}</td></tr>` : ''}
-        <tr class="paid-remarks-row">
-          <td colspan="2" style="${valueCellStyle} ${bottomBorder}; white-space: normal; word-break: break-word; line-height: 1.35;">
-            Remarks: ${remarksShort || 'FULLY PAID / SETTLED'}
-            ${remarksClean.length > 160 ? '<div style="font-size: 9px; opacity: 0.8; margin-top: 3px;">(truncated for print layout)</div>' : ''}
-          </td>
-        </tr>
-      `;
+    
+    const isPartial = challan?.status === 'PARTIAL';
+    const labelPrefix = isPartial ? 'Partial ' : '';
+    const fallbackRemarks = '-';
+
+    let rowsHtml = "";
+    let isFirst = true;
+
+    if (paidAtText) {
+      rowsHtml += `<tr class="paid-at-row">
+        <td style="${labelCellStyle} ${isFirst ? topBorder : ''}">${labelPrefix}Paid At</td>
+        <td style="${valueCellStyle} ${isFirst ? topBorder : ''}">${paidAtText}</td>
+      </tr>`;
+      isFirst = false;
+    }
+
+    if (paidByText) {
+      rowsHtml += `<tr class="paid-by-row">
+        <td style="${labelCellStyle} ${isFirst ? topBorder : ''}">${labelPrefix}Paid By</td>
+        <td style="${valueCellStyle} ${isFirst ? topBorder : ''}">${paidByText}</td>
+      </tr>`;
+      isFirst = false;
+    }
+
+    rowsHtml += `<tr class="paid-remarks-row">
+      <td colspan="2" style="${valueCellStyle} ${bottomBorder} ${isFirst ? topBorder : ''}; white-space: normal; word-break: break-word; line-height: 1.35;">
+        Remarks: ${remarksShort || fallbackRemarks}
+        ${remarksClean.length > 160 ? '<div style="font-size: 9px; opacity: 0.8; margin-top: 3px;">(truncated for print layout)</div>' : ''}
+      </td>
+    </tr>`;
+
+    return rowsHtml;
   };
 
   const applyPaidChallanPrintTreatment = (html, challan) => {
@@ -1839,7 +1905,7 @@ const FeeManagement = () => {
             // Build label: "Month - Installment X / Session"
             const monthLabel = match.month || `#${num}`;
             const instLabel = `Installment ${match.installmentNumber || num}`;
-            const sessionLabel = match.session || match.sessionName || challan.installment?.session?.name || "";
+            const sessionLabel = (typeof match.session === 'object' ? match.session?.name : match.session) || match.sessionName || challan.installment?.session?.name || "";
             const rowLabel = `${monthLabel} - ${instLabel}${sessionLabel ? ` / ${sessionLabel}` : ''}`;
             return `<tr style="background-color: #fafafa; line-height: 1.2;">
               <td style="font-style: italic; font-size: 10px; color: #555;">${rowLabel}</td>
@@ -1865,15 +1931,71 @@ const FeeManagement = () => {
         arrearsRowsHtml = `<tr><td>Arrears (Previous Balance)</td><td>${snapshotArrears.toLocaleString()}</td></tr>`;
       }
     }
+    
+    // ── Build Advance Rows (Applied Credits) ──────────────────────────────────
+    let advanceRowsHtml = "";
+    const appliedAdvance = Number(challan.advanceAmount || 0);
+    if (appliedAdvance > 0) {
+      const sourceChallanNo = challan.advanceFromChallanNo;
+      // Priority: data from the challan's own nested student installments (now returned by getFeeChallans),
+      // then fall back to component-level studentInstallments state.
+      const allInsts = (() => {
+        const seen = new Set();
+        const merged = [
+          ...(Array.isArray(challan.installment?.student?.feeInstallments) ? challan.installment.student.feeInstallments : []),
+          ...(Array.isArray(challan.student?.feeInstallments) ? challan.student.feeInstallments : []),
+          ...(Array.isArray(studentInstallments) ? studentInstallments : []),
+        ];
+        return merged.filter(inst => {
+          if (seen.has(inst.id)) return false;
+          seen.add(inst.id);
+          return true;
+        });
+      })();
+      
+      let sourceInst = null;
+      let sourceChallan = null;
+
+      for (const inst of allInsts) {
+        const found = (inst.challans || []).find(c => String(c.challanNumber) === String(sourceChallanNo));
+        if (found) {
+          sourceChallan = found;
+          sourceInst = inst;
+          break;
+        }
+      }
+
+      const monthLabel = sourceInst?.month || "N/A";
+      const instLabel = sourceInst?.installmentNumber ? `Installment ${sourceInst.installmentNumber}` : "";
+      const sessionLabel = sourceInst?.session?.name || "";
+      const rowLabel = `${monthLabel}${instLabel ? ` - ${instLabel}` : ''}${sessionLabel ? ` / ${sessionLabel}` : ''}`;
+      
+      advanceRowsHtml = `<tr style="background-color: #f0f9ff; line-height: 1.2;">
+        <td style="font-style: italic; font-size: 10px; color: #0369a1;">${rowLabel} (Advance)</td>
+        <td style="font-size: 10px; color: #0369a1;">- ${appliedAdvance.toLocaleString()}</td>
+      </tr>`;
+
+      // NOTE: Do NOT subtract advance from standardTotal here.
+      // The advance is a credit from a previous challan; it is shown as an
+      // informational line item but the challan's own total/remaining should
+      // be computed from snapshotTotalDue vs the actual payment on this challan.
+      // This keeps the print preview consistent with the details dialog.
+    }
+    
+    if (advanceRowsHtml) {
+      arrearsRowsHtml += advanceRowsHtml;
+    }
 
     // ── Payment Adjustments ───────────────────────────────────────────────────
-    const alreadyPaid = Number(challan.amountReceived ?? challan.paidAmount ?? 0);
+    // paidAmount = total amount received (includes advance credits from previous challans).
+    const alreadyPaid = Number(challan.paidAmount || 0);
     const isExtraChallanType = challan.challanType === 'FEE_HEADS_ONLY' || challan.isExtra;
     const totalSnap = isExtraChallanType
       ? Math.max(Number(challan.snapshotTotalDue ?? 0), Number(challan.totalAmount ?? 0), standardTotal)
       : Number(challan.snapshotTotalDue ?? standardTotal ?? 0);
     // Keep negative value when overpaid so UI can show advance credit on this challan.
     const remainingPayable = totalSnap - alreadyPaid;
+    const isFullyPaid = isPaidChallanForPrint(challan);
 
     // Paid/remaining rows are injected via {{paidRow}} only — do NOT append to arrearsRowsHtml
 
@@ -1894,6 +2016,9 @@ const FeeManagement = () => {
     html = html.replace(/\{\{installmentNo\}\}/g, challan.installmentNumber || challan.installment?.installmentNumber || "");
 
     html = html.replace(/\{\{Tuition Fee\}\}/g, '');
+    // Remove "Total Payable after due date" row from output
+    html = html.replace(/<tr[^>]*>\s*<td[^>]*>\s*Total Payable after due date\s*<\/td>[\s\S]*?<\/tr>/gi, '');
+
     html = html.replace(/\{\{feeHeadsRows\}\}/g, feeHeadsRowsHtml);
     html = html.replace(/\{\{arrearsRows\}\}/g, arrearsRowsHtml);
     html = html.replace(/\{\{arrears\}\}/g, snapshotArrears.toLocaleString());
@@ -1909,15 +2034,23 @@ const FeeManagement = () => {
     const shouldShowBalanceRows = alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status);
     if (shouldShowBalanceRows) {
       const paidDisplay = alreadyPaid > 0 ? `${alreadyPaid.toLocaleString()}` : '0';
+      const showTotalRowInPaid = isFullyPaid ? `
+        <tr style="font-weight: 700; border-top: 1px solid #e2e8f0; background-color: #b8b6b6ff;">
+          <td>Total Amount</td>
+          <td>${standardTotal.toLocaleString()}</td>
+        </tr>` : '';
+
       const paidRowHtml = `
+        ${showTotalRowInPaid}
         <tr style="color: #166534; background-color: #f0fdf4; font-weight: 600; font-size: 11px;">
           <td>Paid Amount</td>
           <td>${paidDisplay}</td>
         </tr>
+        ${challan.status !== 'PENDING' ? `
         <tr style="font-weight: 700; border-top: 1px solid #e2e8f0;">
           <td>Remaining Balance</td>
           <td>${remainingPayable.toLocaleString()}</td>
-        </tr>
+        </tr>` : ''}
       `;
       html = html.replace(/\{\{paidRow\}\}/g, paidRowHtml);
     } else {
@@ -1938,8 +2071,9 @@ const FeeManagement = () => {
     // with actual data in the History Table block below.
 
     html = html.replace(/\{\{paymentDetailsRow\}\}/g, '');
-    const isFullyPaid = challan.status === 'PAID' || challan.status === 'SETTLED' || remainingPayable <= 0;
     const cellStyle = 'background-color: #e0e0e0; font-weight: bold;';
+
+    const isActuallyFullyPaid = ['PAID', 'SETTLED'].includes(challan.status) || (alreadyPaid >= standardTotal && standardTotal > 0);
 
     if (isFullyPaid) {
       let latestRemarks = challan.remarks || "";
@@ -1950,23 +2084,31 @@ const FeeManagement = () => {
         } catch(e) {}
       }
 
-      // Hide the "Total Payable" row for fully paid/settled challans.
       // Inject a <style> block to hide .total-row via CSS — this avoids greedy
       // regex that would eat content across the 3 challan copies.
-      const hideTotalRowStyle = '<style>.total-row { display: none !important; }</style>';
+      // NOTE: We no longer hide .total-row here as the user wants to see it.
+      const hideTotalRowStyle = '';
       if (html.includes('</head>')) {
         html = html.replace('</head>', `${hideTotalRowStyle}</head>`);
       } else {
         html = hideTotalRowStyle + html;
       }
-      html = html.replace(/\{\{totalPayable\}\}/g, '');
+
+      if (isActuallyFullyPaid) {
+        html = html.replace(/<tr[^>]*>\s*<td[^>]*>\s*Total Payable within due date\s*<\/td>[\s\S]*?<\/tr>/gi, '');
+        html = html.replace(/<tr[^>]*>\s*<td[^>]*>\s*Total Payable after due date\s*<\/td>[\s\S]*?<\/tr>/gi, '');
+        html = html.replace(/\{\{totalPayable\}\}/g, '');
+      } else {
+        // For partial challans, still show the remaining balance
+        html = html.replace(/\{\{totalPayable\}\}/g, remainingPayable.toLocaleString());
+      }
       
       // Update the late-fee row to show paid remarks and payment timestamp instead.
       html = html.replace(/<tr class="late-fee-row">[\s\S]*?<\/tr>/gi, getPaidChallanRowsHtml({ ...challan, remarks: latestRemarks }));
-      html = html.replace(/\{\{lateFee\}\}/g, latestRemarks || 'FULLY PAID / SETTLED');
+      html = html.replace(/\{\{lateFee\}\}/g, latestRemarks || (challan.status === 'PARTIAL' ? '-' : '-'));
     } else {
-      // For pending/partial challans: replace {{totalPayable}} with the remaining balance
-      // and highlight the "Total Payable" row.
+      // For pending/unpaid challans: remove late fee after due date row, show total payable.
+      html = html.replace(/<tr class="late-fee-row">[\s\S]*?<\/tr>/gi, '');
       html = html.replace(/\{\{totalPayable\}\}/g, remainingPayable.toLocaleString());
       html = html.replace(/<td>Total Payable within due date<\/td>/gi,
         `<td style="${cellStyle}">Total Payable within due date</td>`);
@@ -4515,9 +4657,8 @@ const FeeManagement = () => {
                 const totalDue = isExtraC
                   ? Number(itemToPay.totalAmount ?? 0)
                   : Number(itemToPay.snapshotTotalDue ?? (base + arrears + lateFee));
-                const alreadyPaid = isExtraC
-                  ? Number(itemToPay.paidAmount ?? 0)
-                  : Number(itemToPay.amountReceived ?? itemToPay.paidAmount ?? 0);
+                // Use normalized paidAmount (direct payment on this challan, excluding advance credits)
+                const alreadyPaid = Number(itemToPay.paidAmount || 0);
                 const remaining = Math.max(0, totalDue - alreadyPaid - (parseFloat(paymentAmount) || 0));
                 const student = itemToPay.student;
                 const studentClass = itemToPay.studentClass?.name || student?.class?.name || 'N/A';
@@ -5964,7 +6105,7 @@ const FeeManagement = () => {
                                   const finalAmt = Number(amt) > 0
                                     ? Number(amt)
                                     : (arrearsNums.length === 1 ? fallbackTotalArrears : fallbackPerRow);
-                                  const sessionLabel = match.session || match.sessionName || selectedChallanDetails.installment?.session?.name || "";
+                                  const sessionLabel = (typeof match.session === 'object' ? match.session?.name : match.session) || match.sessionName || selectedChallanDetails.installment?.session?.name || "";
                                   const monthLabel = match.month || `#${num}`;
                                   const instLabel = `Installment ${match.installmentNumber || num}`;
                                   const arrearsLabel = `${monthLabel} - ${instLabel}${sessionLabel ? ` / ${sessionLabel}` : ''}`;
@@ -6117,7 +6258,7 @@ const FeeManagement = () => {
                                   <span className="font-black text-slate-700 uppercase">Remaining Balance</span>
                                 </TableCell>
                                 <TableCell className="text-sm px-3 text-right py-2">
-                                  <span className="text-lg font-black text-slate-800">PKR {formatAmount(remaining)}</span>
+                                  <span className={cn("text-lg font-black", remaining < 0 ? "text-blue-600" : "text-slate-800")}>{remaining < 0 ? '-' : ''}PKR {formatAmount(Math.abs(remaining))}</span>
                                 </TableCell>
                               </TableRow>
                             </>

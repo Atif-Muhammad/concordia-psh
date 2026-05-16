@@ -3829,7 +3829,7 @@ const normalizeStaffAttendanceRows = (rows, date) => {
   if (!Array.isArray(rows)) return [];
 
   const mapped = rows.map((row) => {
-    // New flattened backend shape
+    // New flattened backend shape — already has row.staff
     if (row?.staff) return row;
 
     // Legacy shape: direct staff row with nested attendance[]
@@ -3849,7 +3849,7 @@ const normalizeStaffAttendanceRows = (rows, date) => {
         photo_url: row?.photo_url,
       },
       date: existing?.date ?? date,
-      status: existing?.status ?? "PRESENT",
+      status: existing?.status ?? null,
       markedBy: existing?.markedBy ?? null,
       markedAt: existing?.markedAt ?? null,
       generatedAt: existing?.generatedAt ?? null,
@@ -3861,8 +3861,7 @@ const normalizeStaffAttendanceRows = (rows, date) => {
     };
   });
 
-  // If mixed payload arrives (draft + attendance for same staff), keep one row per staff,
-  // preferring the row that has real attendance metadata.
+  // Deduplicate: keep one row per staff, preferring rows with real attendance data.
   const byStaff = new Map();
   const score = (r) => {
     let s = 0;
@@ -3880,17 +3879,7 @@ const normalizeStaffAttendanceRows = (rows, date) => {
     if (!prev || score(r) > score(prev)) byStaff.set(sid, r);
   }
 
-  const deduped = Array.from(byStaff.values());
-
-  // Important UX rule:
-  // - If attendance exists for the selected date+role filter, show attendance rows only.
-  // - Otherwise, show draft staff rows.
-  const hasAnyAttendance = deduped.some((r) => r?.id || r?.generatedAt || r?.markedAt);
-  if (hasAnyAttendance) {
-    return deduped.filter((r) => r?.id || r?.generatedAt || r?.markedAt);
-  }
-
-  return deduped;
+  return Array.from(byStaff.values());
 };
 
 export const getStaffAttendance = async (date, role = 'all') => {

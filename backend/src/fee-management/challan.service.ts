@@ -253,7 +253,10 @@ export class ChallanService {
 
         // Find the source challan for the advance (the one that generated the excess)
         let advanceFromChallanNo: string | null = null;
-        const advanceAmount = Number(installmentK.advancePaid || 0);
+        // Rule: if a challan has arrears, it cannot have advance credit.
+        // Arrears mean the previous chain is unpaid; Advance means it was overpaid.
+        // These states are mutually exclusive.
+        let advanceAmount = arrears > 0 ? 0 : Number(installmentK.advancePaid || 0);
         if (advanceAmount > 0) {
             const prevChallan = await tx.feeChallanV2.findFirst({
                 where: {

@@ -829,7 +829,7 @@ export default function Staff() {
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
                     <TabsList>
                         <TabsTrigger value="directory">Staff Directory</TabsTrigger>
-                        <TabsTrigger value="attendance">Attendance</TabsTrigger>
+                        {/* <TabsTrigger value="attendance">Attendance</TabsTrigger> */}
                     </TabsList>
 
                     <TabsContent value="directory" className="space-y-6">

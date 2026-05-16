@@ -16,7 +16,7 @@ export class FeeManagementService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly challanService: ChallanService,
-  ) {}
+  ) { }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Fee Heads
@@ -291,20 +291,29 @@ export class FeeManagementService {
                 program: { select: { id: true, name: true } },
                 section: { select: { id: true, name: true } },
                 feeInstallments: {
-                  select: {
-                    id: true,
-                    month: true,
-                    totalAmount: true,
-                    paidAmount: true,
-                    installmentNumber: true,
+                  include: {
+                    session: { select: { id: true, name: true } },
+                    challans: {
+                      select: {
+                        id: true,
+                        challanNumber: true,
+                        status: true,
+                        advanceAmount: true,
+                        advanceFromChallanNo: true,
+                      },
+                    },
                   },
-                  orderBy: { installmentNumber: 'asc' },
+                  orderBy: [
+                    { sessionId: 'asc' },
+                    { installmentNumber: 'asc' },
+                  ],
                 },
               },
             },
             class: { select: { id: true, name: true } },
             session: { select: { id: true, name: true } },
             heads: true,
+            
           },
         },
         payments: { orderBy: { paymentDate: 'desc' } },
@@ -343,14 +352,22 @@ export class FeeManagementService {
                 sectionId: true,
                 fatherOrguardian: true,
                 feeInstallments: {
-                  select: {
-                    id: true,
-                    month: true,
-                    totalAmount: true,
-                    paidAmount: true,
-                    installmentNumber: true,
+                  include: {
+                    session: { select: { id: true, name: true } },
+                    challans: {
+                      select: {
+                        id: true,
+                        challanNumber: true,
+                        status: true,
+                        advanceAmount: true,
+                        advanceFromChallanNo: true,
+                      },
+                    },
                   },
-                  orderBy: { installmentNumber: 'asc' },
+                  orderBy: [
+                    { sessionId: 'asc' },
+                    { installmentNumber: 'asc' },
+                  ],
                 },
               },
             },
@@ -602,7 +619,7 @@ export class FeeManagementService {
           const computedArrears = prior
             .filter(p => !['SUPERSEDED', 'VOID', 'SETTLED'].includes(p.status as string) && Number(p.pendingAmount) > 0)
             .reduce((sum, p) => sum + Number(p.pendingAmount), 0);
-          
+
           return {
             ...inst,
             // Prioritize already persisted arrears (if any), otherwise use computed
@@ -736,21 +753,21 @@ export class FeeManagementService {
     const totalPaid = refreshedInstallments.reduce(
       (sum, inst) => {
         // Use the latest non-void challan's amountReceived if it exists, else installment's paidAmount
-        const latestChallan = inst.challans.filter(c => c.status !== 'VOID').sort((a,b) => new Date(b.generatedDate).getTime() - new Date(a.generatedDate).getTime())[0];
+        const latestChallan = inst.challans.filter(c => c.status !== 'VOID').sort((a, b) => new Date(b.generatedDate).getTime() - new Date(a.generatedDate).getTime())[0];
         return sum + Number(latestChallan?.amountReceived ?? inst.paidAmount);
       },
       0,
     );
     const totalPending = refreshedInstallments.reduce(
       (sum, inst) => {
-        const latestChallan = inst.challans.filter(c => c.status !== 'VOID').sort((a,b) => new Date(b.generatedDate).getTime() - new Date(a.generatedDate).getTime())[0];
+        const latestChallan = inst.challans.filter(c => c.status !== 'VOID').sort((a, b) => new Date(b.generatedDate).getTime() - new Date(a.generatedDate).getTime())[0];
         return sum + Number(latestChallan?.snapshotTotalDue ?? inst.pendingAmount);
       },
       0,
     );
     const totalBase = refreshedInstallments.reduce(
       (sum, inst) => {
-        const latestChallan = inst.challans.filter(c => c.status !== 'VOID').sort((a,b) => new Date(b.generatedDate).getTime() - new Date(a.generatedDate).getTime())[0];
+        const latestChallan = inst.challans.filter(c => c.status !== 'VOID').sort((a, b) => new Date(b.generatedDate).getTime() - new Date(a.generatedDate).getTime())[0];
         return sum + Number(latestChallan?.snapshotBaseAmount ?? inst.basePayable);
       },
       0,
@@ -1066,22 +1083,22 @@ export class FeeManagementService {
       orderBy: { createdAt: 'desc' },
       select: hasTypeColumn
         ? {
-            id: true,
-            name: true,
-            htmlContent: true,
-            isDefault: true,
-            createdAt: true,
-            updatedAt: true,
-            type: true,
-          }
+          id: true,
+          name: true,
+          htmlContent: true,
+          isDefault: true,
+          createdAt: true,
+          updatedAt: true,
+          type: true,
+        }
         : {
-            id: true,
-            name: true,
-            htmlContent: true,
-            isDefault: true,
-            createdAt: true,
-            updatedAt: true,
-          },
+          id: true,
+          name: true,
+          htmlContent: true,
+          isDefault: true,
+          createdAt: true,
+          updatedAt: true,
+        },
     });
   }
 
@@ -1091,22 +1108,22 @@ export class FeeManagementService {
       where: { id },
       select: hasTypeColumn
         ? {
-            id: true,
-            name: true,
-            htmlContent: true,
-            isDefault: true,
-            createdAt: true,
-            updatedAt: true,
-            type: true,
-          }
+          id: true,
+          name: true,
+          htmlContent: true,
+          isDefault: true,
+          createdAt: true,
+          updatedAt: true,
+          type: true,
+        }
         : {
-            id: true,
-            name: true,
-            htmlContent: true,
-            isDefault: true,
-            createdAt: true,
-            updatedAt: true,
-          },
+          id: true,
+          name: true,
+          htmlContent: true,
+          isDefault: true,
+          createdAt: true,
+          updatedAt: true,
+        },
     });
 
     if (!template) {
@@ -1174,22 +1191,22 @@ export class FeeManagementService {
       where: { isDefault: true },
       select: hasTypeColumn
         ? {
-            id: true,
-            name: true,
-            htmlContent: true,
-            isDefault: true,
-            createdAt: true,
-            updatedAt: true,
-            type: true,
-          }
+          id: true,
+          name: true,
+          htmlContent: true,
+          isDefault: true,
+          createdAt: true,
+          updatedAt: true,
+          type: true,
+        }
         : {
-            id: true,
-            name: true,
-            htmlContent: true,
-            isDefault: true,
-            createdAt: true,
-            updatedAt: true,
-          },
+          id: true,
+          name: true,
+          htmlContent: true,
+          isDefault: true,
+          createdAt: true,
+          updatedAt: true,
+        },
     });
     if (!template) return null;
     return hasTypeColumn ? template : { ...template, type: 'INSTALLMENT' };
@@ -1246,7 +1263,7 @@ export class FeeManagementService {
 
       // Void all challans except the one to keep
       const challansToVoid = challans.filter(c => c.id !== keepChallanId);
-      
+
       for (const challan of challansToVoid) {
         await tx.feeChallanV2.update({
           where: { id: challan.id },
