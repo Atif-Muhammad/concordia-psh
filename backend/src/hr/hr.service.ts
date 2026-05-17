@@ -78,6 +78,132 @@ export class HrService {
     return AttendanceStatus.PRESENT;
   }
 
+  private normalizeAttendanceLeaveType(value: unknown): 'CASUAL' | 'SICK' | 'ANNUAL' | null {
+    const raw = String(value ?? '').trim().toUpperCase();
+    if (raw === 'CASUAL' || raw === 'SICK' || raw === 'ANNUAL') return raw;
+    return null;
+  }
+
+  private buildTypedLeaveCounts(params: {
+    attendanceRows?: Array<{ status?: string; leaveType?: string | null }>;
+    approvedLeavesFallback?: Array<{ leaveType?: string | null; days?: number | null }>;
+  }) {
+    const counts = { CASUAL: 0, SICK: 0, ANNUAL: 0 };
+    const attendanceRows = Array.isArray(params.attendanceRows) ? params.attendanceRows : [];
+
+    for (const row of attendanceRows) {
+      if (String(row?.status || '').toUpperCase() !== 'LEAVE') continue;
+      const normalizedType = this.normalizeAttendanceLeaveType(row?.leaveType) || 'CASUAL';
+      counts[normalizedType] += 1;
+    }
+
+    const attendanceTotal = counts.CASUAL + counts.SICK + counts.ANNUAL;
+    if (attendanceTotal > 0) return counts;
+
+    // Backward compatibility: for historical months without attendance leaveType,
+    // fall back to approved staff-leave records if present.
+    const leaves = Array.isArray(params.approvedLeavesFallback) ? params.approvedLeavesFallback : [];
+    for (const leave of leaves) {
+      const normalizedType = this.normalizeAttendanceLeaveType(leave?.leaveType) || 'CASUAL';
+      counts[normalizedType] += Number(leave?.days || 0);
+    }
+
+    return counts;
+  }
+
+  private calculateTypedLeaveDeduction(
+    counts: { CASUAL: number; SICK: number; ANNUAL: number },
+    settings: {
+      casualAllowed: number;
+      casualDeduction: number;
+      sickAllowed: number;
+      sickDeduction: number;
+      annualAllowed: number;
+      annualDeduction: number;
+    },
+  ) {
+    const casualDeductionAmount = Math.max(0, Number(counts.CASUAL || 0) - Number(settings.casualAllowed || 0)) * Number(settings.casualDeduction || 0);
+    const sickDeductionAmount = Math.max(0, Number(counts.SICK || 0) - Number(settings.sickAllowed || 0)) * Number(settings.sickDeduction || 0);
+    const annualDeductionAmount = Math.max(0, Number(counts.ANNUAL || 0) - Number(settings.annualAllowed || 0)) * Number(settings.annualDeduction || 0);
+    return {
+      casualDeductionAmount,
+      sickDeductionAmount,
+      annualDeductionAmount,
+      totalDeduction: casualDeductionAmount + sickDeductionAmount + annualDeductionAmount,
+    };
+  }
+
+  private async syncPayrollLeaveDeductionForMonth(staffId: number, month: string) {
+    if (!staffId || !month) return;
+
+    const payroll = await this.prismService.payroll.findFirst({
+      where: { staffId, month },
+    });
+    if (!payroll) return;
+    if (payroll.status && payroll.status !== 'UNPAID') return;
+
+    const settings = await this.prismService.staffLeaveSettings.findUnique({
+      where: { staffId },
+    });
+    if (!settings) return;
+
+    const [year, monthNum] = String(month).split('-').map(Number);
+    if (!year || !monthNum) return;
+    const startDate = new Date(year, monthNum - 1, 1);
+    const endDate = new Date(year, monthNum, 0);
+
+    const attendanceRows = await this.prismService.staffAttendance.findMany({
+      where: {
+        staffId,
+        date: { gte: startDate, lte: endDate },
+        status: AttendanceStatus.LEAVE,
+      },
+      select: {
+        status: true,
+        leaveType: true,
+      } as any,
+    });
+
+    const counts = this.buildTypedLeaveCounts({ attendanceRows: attendanceRows as any });
+    const { totalDeduction } = this.calculateTypedLeaveDeduction(counts, {
+      casualAllowed: settings.casualAllowed,
+      casualDeduction: settings.casualDeduction,
+      sickAllowed: settings.sickAllowed,
+      sickDeduction: settings.sickDeduction,
+      annualAllowed: settings.annualAllowed,
+      annualDeduction: settings.annualDeduction,
+    });
+
+    const totalDeductions =
+      (Number(payroll.securityDeduction) || 0) +
+      (Number(payroll.advanceDeduction) || 0) +
+      (Number(payroll.absentDeduction) || 0) +
+      (Number(payroll.otherDeduction) || 0) +
+      (Number(payroll.incomeTax) || 0) +
+      (Number(payroll.eobi) || 0) +
+      (Number(payroll.lateArrivalDeduction) || 0) +
+      totalDeduction;
+
+    const totalAllowances =
+      (Number(payroll.extraAllowance) || 0) +
+      (Number(payroll.travelAllowance) || 0) +
+      (Number(payroll.houseRentAllowance) || 0) +
+      (Number(payroll.medicalAllowance) || 0) +
+      (Number(payroll.insuranceAllowance) || 0) +
+      (Number(payroll.otherAllowance) || 0);
+
+    const netSalary = (Number(payroll.basicSalary) || 0) + totalAllowances - totalDeductions;
+
+    await this.prismService.payroll.update({
+      where: { id: payroll.id },
+      data: {
+        leaveDeduction: totalDeduction,
+        totalDeductions,
+        netSalary,
+      } as any,
+    });
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // UNIFIED STAFF MANAGEMENT (Teaching + Non-Teaching)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -698,6 +824,9 @@ export class HrService {
     } else if (type === 'all') {
       // No filter
     }
+    const [year, monthNum] = String(month || '').split('-').map(Number);
+    const startDate = new Date(year, (monthNum || 1) - 1, 1);
+    const endDate = new Date(year, monthNum || 1, 0);
 
     const payrolls = await this.prismService.payroll.findMany({
       where: {
@@ -711,6 +840,13 @@ export class HrService {
             leaves: {
               where: { month, status: 'APPROVED' },
               select: { leaveType: true, days: true },
+            },
+            attendance: {
+              where: {
+                date: { gte: startDate, lte: endDate },
+                status: AttendanceStatus.LEAVE,
+              },
+              select: { status: true, leaveType: true } as any,
             },
           },
         },
@@ -729,6 +865,10 @@ export class HrService {
         (sum, payment) => sum + Number(payment.amount || 0),
         0,
       );
+      const leaveBreakdownCounts = this.buildTypedLeaveCounts({
+        attendanceRows: (staff as any)?.attendance || [],
+        approvedLeavesFallback: (staff as any)?.leaves || [],
+      });
       return {
         id: staff?.id,
         name: staff?.name || 'N/A',
@@ -769,9 +909,9 @@ export class HrService {
         balanceAmount: Math.max(0, Number(payroll.netSalary || 0) - paidAmount),
         isLocked: payroll.status === 'PAID' || payroll.status === 'PARTIAL_PAID',
         leaveBreakdown: {
-          casual: (staff as any)?.leaves?.filter((l: any) => l.leaveType === 'CASUAL').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
-          sick:   (staff as any)?.leaves?.filter((l: any) => l.leaveType === 'SICK').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
-          annual: (staff as any)?.leaves?.filter((l: any) => l.leaveType === 'ANNUAL').reduce((s: number, l: any) => s + (l.days || 0), 0) || 0,
+          casual: leaveBreakdownCounts.CASUAL || 0,
+          sick: leaveBreakdownCounts.SICK || 0,
+          annual: leaveBreakdownCounts.ANNUAL || 0,
         },
         payments: payrollPayments.map((payment) => ({
           id: payment.id,
@@ -839,15 +979,20 @@ export class HrService {
     const startDate = new Date(year, monthNum - 1, 1);
     const endDate = new Date(year, monthNum, 0);
 
-    const [attendance, allAdvanceSalaries, leaves] = await Promise.all([
+    const [attendance, allAdvanceSalaries, leaves, staffLeaveSettings] = await Promise.all([
       this.prismService.staffAttendance.findMany({
         where: { staffId: staff.id, date: { gte: startDate, lte: endDate } },
+        select: { status: true, leaveType: true } as any,
       }),
       this.prismService.advanceSalary.findMany({
         where: { staffId: staff.id, month },
       }),
       this.prismService.staffLeave.findMany({
         where: { staffId: staff.id, month, status: 'APPROVED' },
+        select: { leaveType: true, days: true } as any,
+      }),
+      this.prismService.staffLeaveSettings.findUnique({
+        where: { staffId: staff.id },
       }),
     ]);
 
@@ -891,8 +1036,20 @@ export class HrService {
     const leaveCount = attendance.filter((a) => a.status === 'LEAVE').length;
     const advanceDeduction = advanceSalaries.reduce((sum, advance) => sum + Number(advance.amount || 0), 0);
     const absentDeduction = Math.max(0, absentCount - (settings.absentsAllowed || 0)) * (settings.absentDeduction || 0);
-    const leaveDeduction = leaves.reduce((sum, leave) => sum + Number((leave as any).deductionAmount || 0), 0)
-      || Math.max(0, leaveCount - (settings.leavesAllowed || 0)) * (settings.leaveDeduction || 0);
+    const typedLeaveCounts = this.buildTypedLeaveCounts({
+      attendanceRows: attendance as any,
+      approvedLeavesFallback: leaves as any,
+    });
+    const leaveDeduction = staffLeaveSettings
+      ? this.calculateTypedLeaveDeduction(typedLeaveCounts, {
+        casualAllowed: staffLeaveSettings.casualAllowed,
+        casualDeduction: staffLeaveSettings.casualDeduction,
+        sickAllowed: staffLeaveSettings.sickAllowed,
+        sickDeduction: staffLeaveSettings.sickDeduction,
+        annualAllowed: staffLeaveSettings.annualAllowed,
+        annualDeduction: staffLeaveSettings.annualDeduction,
+      }).totalDeduction
+      : Math.max(0, leaveCount - (settings.leavesAllowed || 0)) * (settings.leaveDeduction || 0);
     const basicSalary = Number(staff.basicPay) || 0;
     const totalDeductions = advanceDeduction + absentDeduction + leaveDeduction;
     const advanceSalaryIds = advanceSalaries
@@ -1511,27 +1668,90 @@ export class HrService {
 
     const settings = staff.leaveSettings;
     const year = new Date().getFullYear();
+    const yearlyTaken: Record<number, { CASUAL: number; SICK: number; ANNUAL: number }> = {};
+    const ensureYearBucket = (y: number) => {
+      if (!yearlyTaken[y]) {
+        yearlyTaken[y] = { CASUAL: 0, SICK: 0, ANNUAL: 0 };
+      }
+      return yearlyTaken[y];
+    };
 
-    // Count approved/pending leaves taken this year grouped by type
-    const taken = await this.prismService.staffLeave.groupBy({
-      by: ['leaveType'],
+    // Primary source of truth: attendance-marked leave rows.
+    const attendanceLeaves = await this.prismService.staffAttendance.findMany({
       where: {
         staffId,
-        month: { startsWith: `${year}-` },
-        status: { in: ['APPROVED', 'PENDING'] },
+        status: AttendanceStatus.LEAVE,
       },
-      _sum: { days: true },
+      select: {
+        date: true,
+        leaveType: true,
+      } as any,
+      orderBy: { date: 'asc' },
     });
 
-    const takenMap: Record<string, number> = {};
-    for (const t of taken) {
-      takenMap[t.leaveType] = t._sum.days || 0;
+    for (const row of attendanceLeaves as any[]) {
+      const d = row?.date ? new Date(row.date) : null;
+      if (!d || Number.isNaN(d.getTime())) continue;
+      const y = d.getFullYear();
+      const bucket = ensureYearBucket(y);
+      const t = this.normalizeAttendanceLeaveType(row?.leaveType) || 'CASUAL';
+      bucket[t] += 1;
     }
 
+    // Backward compatibility: for historical periods where attendance leave type
+    // wasn't persisted, fill gaps from approved/pending leave requests.
+    const legacyLeaves = await this.prismService.staffLeave.findMany({
+      where: {
+        staffId,
+        status: { in: ['APPROVED', 'PENDING'] },
+      },
+      select: {
+        month: true,
+        days: true,
+        leaveType: true,
+      } as any,
+    });
+
+    for (const leave of legacyLeaves as any[]) {
+      const month = String(leave?.month || '');
+      const y = Number(month.slice(0, 4));
+      if (!Number.isFinite(y)) continue;
+      const bucket = ensureYearBucket(y);
+      const t = this.normalizeAttendanceLeaveType(leave?.leaveType) || 'CASUAL';
+      // Only fill from legacy if that year's attendance did not already track this type.
+      if ((bucket[t] || 0) === 0) {
+        bucket[t] = Number(leave?.days || 0);
+      }
+    }
+
+    const current = yearlyTaken[year] || { CASUAL: 0, SICK: 0, ANNUAL: 0 };
+    const allowed = {
+      CASUAL: Number(settings?.casualAllowed || 0),
+      SICK: Number(settings?.sickAllowed || 0),
+      ANNUAL: Number(settings?.annualAllowed || 0),
+    };
+
+    const history = Object.keys(yearlyTaken)
+      .map((y) => Number(y))
+      .filter((y) => Number.isFinite(y))
+      .sort((a, b) => b - a)
+      .map((y) => {
+        const counts = yearlyTaken[y] || { CASUAL: 0, SICK: 0, ANNUAL: 0 };
+        return {
+          year: y,
+          CASUAL: counts.CASUAL || 0,
+          SICK: counts.SICK || 0,
+          ANNUAL: counts.ANNUAL || 0,
+          total: (counts.CASUAL || 0) + (counts.SICK || 0) + (counts.ANNUAL || 0),
+        };
+      });
+
     return {
-      SICK:   { taken: takenMap['SICK']   || 0, allowed: settings?.sickAllowed   || 0 },
-      ANNUAL: { taken: takenMap['ANNUAL'] || 0, allowed: settings?.annualAllowed || 0 },
-      CASUAL: { taken: takenMap['CASUAL'] || 0, allowed: settings?.casualAllowed || 0 },
+      year,
+      CASUAL: { taken: current.CASUAL || 0, allowed: allowed.CASUAL, remaining: Math.max(0, allowed.CASUAL - (current.CASUAL || 0)) },
+      SICK: { taken: current.SICK || 0, allowed: allowed.SICK, remaining: Math.max(0, allowed.SICK - (current.SICK || 0)) },
+      ANNUAL: { taken: current.ANNUAL || 0, allowed: allowed.ANNUAL, remaining: Math.max(0, allowed.ANNUAL - (current.ANNUAL || 0)) },
+      history,
     };
   }
 
@@ -1582,128 +1802,10 @@ export class HrService {
   }
 
   private async applyLeaveDeductionToPayroll(leave: any) {
-    const staffId = leave.staffId;
-    const month = leave.month;
-    const leaveType: string = leave.leaveType || 'CASUAL';
-    const days: number = leave.days || 0;
-
-    // Fetch staff leave settings
-    const settings = await this.prismService.staffLeaveSettings.findUnique({
-      where: { staffId },
-    });
-    if (!settings) return; // No settings configured — no deduction
-
-    // Determine allowed days and deduction rate for this leave type
-    let allowed = 0;
-    let ratePerDay = 0;
-    if (leaveType === 'SICK') {
-      allowed = settings.sickAllowed;
-      ratePerDay = settings.sickDeduction;
-    } else if (leaveType === 'ANNUAL') {
-      allowed = settings.annualAllowed;
-      ratePerDay = settings.annualDeduction;
-    } else if (leaveType === 'CASUAL') {
-      allowed = settings.casualAllowed;
-      ratePerDay = settings.casualDeduction;
-    } else {
-      return; // MATERNITY, PATERNITY, UNPAID, OTHER — no deduction logic
-    }
-
-    // Count total approved leaves of this type for this staff in this month
-    const totalApproved = await this.prismService.staffLeave.aggregate({
-      where: { staffId, month, leaveType: leaveType as any, status: 'APPROVED' },
-      _sum: { days: true },
-    });
-    const totalDays = totalApproved._sum.days || 0;
-
-    // Excess days = total approved days - allowed (floor at 0)
-    const excessDays = Math.max(0, totalDays - allowed);
-    const deductionAmount = excessDays * ratePerDay;
-
-    // Upsert payroll record for this month — update the relevant deduction field
-    const payroll = await this.prismService.payroll.findFirst({
-      where: { staffId, month },
-    });
-
-    const staff = await this.prismService.staff.findUnique({
-      where: { id: staffId },
-      select: { basicPay: true },
-    });
-    const basicSalary = Number(staff?.basicPay) || 0;
-
-    if (payroll) {
-      // All leave types (casual, sick, annual) go into leaveDeduction
-      // Recalculate total leaveDeduction across ALL types for this month
-      const allLeaveTypes = ['CASUAL', 'SICK', 'ANNUAL'] as const;
-      let totalLeaveDeduction = 0;
-      for (const type of allLeaveTypes) {
-        let typeAllowed = 0;
-        let typeRate = 0;
-        if (type === 'SICK') { typeAllowed = settings.sickAllowed; typeRate = settings.sickDeduction; }
-        else if (type === 'ANNUAL') { typeAllowed = settings.annualAllowed; typeRate = settings.annualDeduction; }
-        else { typeAllowed = settings.casualAllowed; typeRate = settings.casualDeduction; }
-        const typeApproved = await this.prismService.staffLeave.aggregate({
-          where: { staffId, month, leaveType: type as any, status: 'APPROVED' },
-          _sum: { days: true },
-        });
-        const typeDays = typeApproved._sum.days || 0;
-        totalLeaveDeduction += Math.max(0, typeDays - typeAllowed) * typeRate;
-      }
-
-      const updateData: any = { leaveDeduction: totalLeaveDeduction };
-      const updated = { ...payroll, ...updateData };
-      const totalDeductions =
-        (updated.securityDeduction || 0) +
-        (updated.advanceDeduction || 0) +
-        (updated.absentDeduction || 0) +
-        totalLeaveDeduction +
-        (updated.otherDeduction || 0) +
-        (updated.incomeTax || 0) +
-        (updated.eobi || 0) +
-        (updated.lateArrivalDeduction || 0);
-      const totalAllowances =
-        (updated.extraAllowance || 0) +
-        (updated.travelAllowance || 0) +
-        (updated.houseRentAllowance || 0) +
-        (updated.medicalAllowance || 0) +
-        (updated.insuranceAllowance || 0) +
-        (updated.otherAllowance || 0);
-      updateData.totalDeductions = totalDeductions;
-      updateData.totalAllowances = totalAllowances;
-      updateData.netSalary = basicSalary - totalDeductions + totalAllowances;
-      await this.prismService.payroll.update({
-        where: { id: payroll.id },
-        data: updateData,
-      });
-    } else {
-      // Compute total leave deduction across all types
-      const allLeaveTypes = ['CASUAL', 'SICK', 'ANNUAL'] as const;
-      let totalLeaveDeduction = 0;
-      for (const type of allLeaveTypes) {
-        let typeAllowed = 0;
-        let typeRate = 0;
-        if (type === 'SICK') { typeAllowed = settings.sickAllowed; typeRate = settings.sickDeduction; }
-        else if (type === 'ANNUAL') { typeAllowed = settings.annualAllowed; typeRate = settings.annualDeduction; }
-        else { typeAllowed = settings.casualAllowed; typeRate = settings.casualDeduction; }
-        const typeApproved = await this.prismService.staffLeave.aggregate({
-          where: { staffId, month, leaveType: type as any, status: 'APPROVED' },
-          _sum: { days: true },
-        });
-        const typeDays = typeApproved._sum.days || 0;
-        totalLeaveDeduction += Math.max(0, typeDays - typeAllowed) * typeRate;
-      }
-      await this.prismService.payroll.create({
-        data: {
-          staffId,
-          month,
-          basicSalary,
-          leaveDeduction: totalLeaveDeduction,
-          totalDeductions: totalLeaveDeduction,
-          totalAllowances: 0,
-          netSalary: basicSalary - totalLeaveDeduction,
-        },
-      });
-    }
+    const staffId = Number(leave?.staffId || 0);
+    const month = this.normalizeMonth(leave?.month);
+    if (!staffId || !month) return;
+    await this.syncPayrollLeaveDeductionForMonth(staffId, month);
   }
 
   async getStaffLeaves(filters: StaffLeaveFilterDto) {
@@ -1907,6 +2009,9 @@ export class HrService {
     const toDate = new Date(leave.endDate);
 
     const attendanceStatus = leave.status === 'APPROVED' ? 'LEAVE' : 'ABSENT';
+    const attendanceLeaveType = attendanceStatus === 'LEAVE'
+      ? (this.normalizeAttendanceLeaveType(leave.leaveType) || 'CASUAL')
+      : null;
 
     // Generate dates in range, only including current and past dates
     const dates: Date[] = [];
@@ -1942,17 +2047,25 @@ export class HrService {
           },
           update: {
             status: attendanceStatus,
+            leaveType: attendanceLeaveType,
             notes: `Marked ${attendanceStatus.toLowerCase()} automatically based on leave`,
           },
           create: {
             staffId,
             date,
             status: attendanceStatus,
+            leaveType: attendanceLeaveType,
             notes: `Marked ${attendanceStatus.toLowerCase()} automatically based on leave`,
             autoGenerated: true,
           },
         });
       }
+    }
+
+    const staffId = leave.staffId || leave.teacherId || leave.employeeId;
+    if (staffId) {
+      const months = [...new Set(dates.map((d) => d.toISOString().slice(0, 7)))];
+      await Promise.all(months.map((m) => this.syncPayrollLeaveDeductionForMonth(staffId, m)));
     }
   }
 
@@ -1989,6 +2102,7 @@ export class HrService {
             staffId: true,
             date: true,
             status: true,
+            leaveType: true,
             markedBy: true,
             markedAt: true,
             generatedAt: true,
@@ -2023,6 +2137,7 @@ export class HrService {
         },
         date: existing?.date ?? targetDate,
         status: existing?.status ?? null,
+        leaveType: existing?.leaveType ?? null,
         markedBy: existing?.markedBy ?? null,
         markedAt: existing?.markedAt ?? null,
         generatedAt: existing?.generatedAt ?? null,
@@ -2079,6 +2194,9 @@ export class HrService {
       throw new BadRequestException('Valid staffId is required for attendance.');
     }
     const status = this.normalizeAttendanceStatus(data.status);
+    const leaveType = status === AttendanceStatus.LEAVE
+      ? (this.normalizeAttendanceLeaveType(data.leaveType) || 'CASUAL')
+      : null;
 
     // Check if attendance already exists
     const existing = await this.prismService.staffAttendance.findUnique({
@@ -2101,29 +2219,35 @@ export class HrService {
       }
 
       // Update existing attendance
-      return await this.prismService.staffAttendance.update({
+      const updated = await this.prismService.staffAttendance.update({
         where: { id: existing.id },
         data: {
           status,
+          leaveType,
           markedBy: data.markedBy,
           markedAt: new Date(),
           notes: data.notes,
           autoGenerated: false,
         },
       });
+      await this.syncPayrollLeaveDeductionForMonth(staffId, formattedDate.slice(0, 7));
+      return updated;
     } else {
       // Create new attendance record
-      return await this.prismService.staffAttendance.create({
+      const created = await this.prismService.staffAttendance.create({
         data: {
           staffId,
           date: new Date(formattedDate),
           status,
+          leaveType,
           markedBy: data.markedBy,
           markedAt: new Date(),
           notes: data.notes,
           autoGenerated: false,
         },
       });
+      await this.syncPayrollLeaveDeductionForMonth(staffId, formattedDate.slice(0, 7));
+      return created;
     }
   }
 
@@ -2275,6 +2399,7 @@ export class HrService {
       employeeId?: number;
       teacherId?: number;
       status: string;
+      leaveType?: string;
       notes?: string;
     }>;
   }) {
@@ -2307,6 +2432,9 @@ export class HrService {
       .map((r) => ({
         staffId: Number(r.staffId ?? r.employeeId ?? r.teacherId),
         status: this.normalizeAttendanceStatus(r.status),
+        leaveType: this.normalizeAttendanceStatus(r.status) === AttendanceStatus.LEAVE
+          ? (this.normalizeAttendanceLeaveType(r.leaveType) || 'CASUAL')
+          : null,
         notes: r.notes ?? null,
       }))
       .filter((r) => Number.isFinite(r.staffId) && r.staffId > 0 && allowedIds.has(r.staffId));
@@ -2343,6 +2471,7 @@ export class HrService {
             where: { id: existing.id },
             data: {
               status: row.status,
+              leaveType: row.leaveType,
               notes: row.notes,
               markedBy: data.markedBy,
               markedAt: new Date(),
@@ -2356,6 +2485,7 @@ export class HrService {
               staffId: row.staffId,
               date: new Date(formattedDate),
               status: row.status,
+              leaveType: row.leaveType,
               notes: row.notes,
               markedBy: data.markedBy,
               markedAt: new Date(),
@@ -2366,6 +2496,12 @@ export class HrService {
         }
       }
     });
+
+    const month = formattedDate.slice(0, 7);
+    const touchedStaffIds = [...new Set(rows.map((r) => r.staffId))];
+    await Promise.all(
+      touchedStaffIds.map((sid) => this.syncPayrollLeaveDeductionForMonth(sid, month)),
+    );
 
     return {
       success: true,

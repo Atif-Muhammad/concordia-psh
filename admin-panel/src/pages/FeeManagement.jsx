@@ -264,7 +264,7 @@ const FeeManagement = () => {
       studentSection: inst.student?.section ?? student?.section ?? c.studentSection ?? null,
       fatherName: student?.fatherOrguardian ?? '',
       amount: Number(c.snapshotBaseAmount ?? c.amount ?? 0),
-      // paidAmount = total received on this challan (includes advance credits).
+      // paidAmount = total amount received on this challan (includes advance/excess).
       // For SUPERSEDED/SETTLED, use the installment's paidAmount (debt was absorbed by leading challan).
       paidAmount: (c.status === 'SUPERSEDED' || c.status === 'SETTLED')
         ? Number(inst.paidAmount ?? c.paidAmount ?? 0)
@@ -1557,7 +1557,55 @@ const FeeManagement = () => {
     setEditingStructure(null);
   };
 
+  const getAdvanceSourceChallan = (challan) => {
+    if (!challan) return null;
+    const isAdvancePaidTarget =
+      ['PAID', 'PARTIAL'].includes(challan.status) &&
+      Number(challan.advanceAmount || 0) > 0 &&
+      !!challan.advanceFromChallanNo;
+    if (!isAdvancePaidTarget) return null;
+
+    const sourceNo = String(challan.advanceFromChallanNo);
+    const candidates = [];
+
+    const instLists = [
+      ...(Array.isArray(challan.installment?.student?.feeInstallments) ? challan.installment.student.feeInstallments : []),
+      ...(Array.isArray(challan.student?.feeInstallments) ? challan.student.feeInstallments : []),
+    ];
+
+    for (const inst of instLists) {
+      const list = Array.isArray(inst?.challans) ? inst.challans : [];
+      for (const c of list) candidates.push(c);
+    }
+
+    if (Array.isArray(feeChallans)) {
+      for (const c of feeChallans) candidates.push(c);
+    }
+
+    const source = candidates.find((c) => String(c?.challanNumber || '') === sourceNo);
+    return source || null;
+  };
+
   const getPaidAtText = (challan) => {
+    const sourceAdvanceChallan = getAdvanceSourceChallan(challan);
+    if (sourceAdvanceChallan) {
+      const sourceInfo = typeof sourceAdvanceChallan.paymentInfo === 'string'
+        ? (() => { try { return JSON.parse(sourceAdvanceChallan.paymentInfo); } catch { return {}; } })()
+        : (sourceAdvanceChallan.paymentInfo || {});
+      const sourceRawPaidAt =
+        sourceInfo?.paidAt ||
+        sourceInfo?.paidDate ||
+        sourceAdvanceChallan?.paidAt ||
+        sourceAdvanceChallan?.paymentDate ||
+        sourceAdvanceChallan?.updatedAt;
+      if (sourceRawPaidAt) {
+        const paidAt = new Date(sourceRawPaidAt);
+        if (!Number.isNaN(paidAt.getTime())) {
+          return format(paidAt, "dd MMM yyyy hh:mm a");
+        }
+      }
+    }
+
     const latestPayment = Array.isArray(challan?.payments) && challan.payments.length > 0
       ? [...challan.payments].sort((a, b) => new Date(b.paymentDate || b.date || 0) - new Date(a.paymentDate || a.date || 0))[0]
       : null;
@@ -1586,6 +1634,15 @@ const FeeManagement = () => {
   };
 
   const getPaidChallanRemarks = (challan) => {
+    const sourceAdvanceChallan = getAdvanceSourceChallan(challan);
+    if (sourceAdvanceChallan) {
+      const sourceInfo = typeof sourceAdvanceChallan.paymentInfo === 'string'
+        ? (() => { try { return JSON.parse(sourceAdvanceChallan.paymentInfo); } catch { return {}; } })()
+        : (sourceAdvanceChallan.paymentInfo || {});
+      const sourceRemarks = String(sourceInfo?.remarks || sourceAdvanceChallan?.remarks || '').trim();
+      return `Advance adjusted via challan #${sourceAdvanceChallan.challanNumber}${sourceRemarks ? ` — ${sourceRemarks}` : ''}`;
+    }
+
     let latestRemarks = "";
 
     if (Array.isArray(challan?.payments) && challan.payments.length > 0) {
@@ -1607,6 +1664,21 @@ const FeeManagement = () => {
   };
 
   const getPaidByText = (challan) => {
+    const sourceAdvanceChallan = getAdvanceSourceChallan(challan);
+    if (sourceAdvanceChallan) {
+      const sourceInfo = typeof sourceAdvanceChallan.paymentInfo === 'string'
+        ? (() => { try { return JSON.parse(sourceAdvanceChallan.paymentInfo); } catch { return {}; } })()
+        : (sourceAdvanceChallan.paymentInfo || {});
+      const fromSource =
+        sourceInfo?.paidBy ||
+        sourceInfo?.receivedByName ||
+        sourceInfo?.updatedByName ||
+        sourceAdvanceChallan?.paidBy ||
+        sourceAdvanceChallan?.updatedByName ||
+        sourceAdvanceChallan?.createdByName;
+      if (fromSource) return String(fromSource);
+    }
+
     if (Array.isArray(challan?.payments) && challan.payments.length > 0) {
       const latestPayment = [...challan.payments].sort((a, b) => new Date(b.paymentDate || b.date || 0) - new Date(a.paymentDate || a.date || 0))[0];
       const fromPayment =
@@ -2128,17 +2200,69 @@ const FeeManagement = () => {
       : [];
     // Only show history for installment challans (installmentNumber > 0)
     const paymentHistory = currentInstNo > 0
-      ? allStudentInsts.filter(i => Number(i.installmentNumber) < currentInstNo)
+      ? allStudentInsts
+          .filter(i => Number(i.installmentNumber) < currentInstNo)
+          .sort((a, b) => Number(a.installmentNumber || 0) - Number(b.installmentNumber || 0))
+          .slice(-4)
       : [];
     
     const histMonths = paymentHistory.map(i => `<td>${i.month || '—'}</td>`).join('');
     // Use snapshotTotalDue if available (most accurate), else totalAmount
     const histTotals = paymentHistory.map(i => `<td>${Number(i.snapshotTotalDue ?? i.totalAmount ?? 0).toFixed(0)}</td>`).join('');
-    const histPaid = paymentHistory.map(i => `<td>${Number(i.paidAmount ?? 0).toFixed(0)}</td>`).join('');
+    const histPaid = paymentHistory.map(i => {
+      const challans = Array.isArray(i?.challans) ? i.challans : [];
+      const activeChallans = [...challans]
+        .filter(c => !['VOID', 'SUPERSEDED'].includes(String(c?.status || '').toUpperCase()))
+        .sort((a, b) => {
+          const bt = new Date(b?.paidAt || b?.generatedDate || b?.updatedAt || b?.createdAt || 0).getTime();
+          const at = new Date(a?.paidAt || a?.generatedDate || a?.updatedAt || a?.createdAt || 0).getTime();
+          return bt - at;
+        });
+      const preferred = activeChallans.find(c => ['PAID', 'PARTIAL', 'SETTLED', 'SUCCESS'].includes(String(c?.status || '').toUpperCase()))
+        || activeChallans[0]
+        || null;
+
+      const paidFromPreferredChallan = Number(preferred?.amountReceived ?? preferred?.paidAmount ?? 0);
+      const installmentAppliedPaid = Number(i?.paidAmount ?? 0);
+      const sourceChallanNo = preferred?.challanNumber;
+
+      // If direct received amount is missing from nested challan payload, reconstruct
+      // actual received amount as: installment-applied paid + advance credits linked
+      // from this challan into subsequent installments.
+      const linkedAdvanceToThisChallan = sourceChallanNo
+        ? allStudentInsts.reduce((sum, inst) => {
+            const instChallans = Array.isArray(inst?.challans) ? inst.challans : [];
+            const linked = instChallans.reduce((cSum, ch) => {
+              if (!ch) return cSum;
+              const fromNo = String(ch.advanceFromChallanNo || '');
+              if (!fromNo || fromNo !== String(sourceChallanNo)) return cSum;
+              const adv = Number(ch.advanceAmount ?? 0);
+              return cSum + (Number.isFinite(adv) && adv > 0 ? adv : 0);
+            }, 0);
+            return sum + linked;
+          }, 0)
+        : 0;
+
+      const reconstructedPaid = installmentAppliedPaid + linkedAdvanceToThisChallan;
+      const actualPaid = Number.isFinite(paidFromPreferredChallan) && paidFromPreferredChallan > 0
+        ? paidFromPreferredChallan
+        : reconstructedPaid;
+
+      return `<td>${Math.max(0, actualPaid).toFixed(0)}</td>`;
+    }).join('');
 
     html = html.replace(/\{\{paymentHistoryMonths\}\}/g, histMonths);
     html = html.replace(/\{\{paymentHistoryTotals\}\}/g, histTotals);
     html = html.replace(/\{\{paymentHistoryPaid\}\}/g, histPaid);
+
+    // Compact the "Particulars" header cell box in print/preview.
+    html = html.replace(/<th([^>]*)>\s*Particulars\s*<\/th>/gi, (match, attrs = "") => {
+      const compactStyle = "padding:4px 6px;line-height:1.1;";
+      if (/style\s*=/i.test(attrs)) {
+        return `<th${attrs.replace(/style\s*=\s*["']([^"']*)["']/i, (_m, s) => ` style="${s};${compactStyle}"`)}>Particulars</th>`;
+      }
+      return `<th${attrs} style="${compactStyle}">Particulars</th>`;
+    });
 
     // Legacy/Extra fields
     html = html.replace(/\{\{paidRow\}\}/g, "");
@@ -4664,7 +4788,10 @@ const FeeManagement = () => {
                   : Number(itemToPay.snapshotTotalDue ?? (base + arrears + lateFee));
                 // Use normalized paidAmount (direct payment on this challan, excluding advance credits)
                 const alreadyPaid = Number(itemToPay.paidAmount || 0);
-                const remaining = Math.max(0, totalDue - alreadyPaid - (parseFloat(paymentAmount) || 0));
+                const outstanding = Math.max(0, totalDue - alreadyPaid);
+                const receiving = parseFloat(paymentAmount) || 0;
+                // Allow negative remaining to show excess/advance amount going to next installment
+                const remaining = totalDue - alreadyPaid - receiving;
                 const student = itemToPay.student;
                 const studentClass = itemToPay.studentClass?.name || student?.class?.name || 'N/A';
 
@@ -6644,11 +6771,9 @@ const FeeManagement = () => {
                                      });
                                      if (!ci) return false;
                                      
-                                     // Requirement 11.2: exclude settled, paid, or already generated
-                                     const isBilledOrPaidCi = ['PAID', 'SETTLED'].includes(ci.status) || 
-                                                             (ci.challanGenerated === true) || 
-                                                             (Number(ci.pendingAmount || 0) <= 0 && Number(ci.paidAmount || 0) > 0);
-                                     if (isBilledOrPaidCi) return false;
+                                      // Exclude only if challan already generated or missing previous unpaid installments
+                                      const hasChallan = ci.challanGenerated === true;
+                                      if (hasChallan) return false;
 
                                      const tnum = ci.installmentNumber || 0;
                                      const rank = (cls) => cls ? (Number(cls.year || 0) * 100 + Number(cls.semester || 0)) : 0;
@@ -6679,6 +6804,7 @@ const FeeManagement = () => {
                                 <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Inst. Amt</TableHead>
                                 <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Late Fee</TableHead>
                                 <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Arrears</TableHead>
+                                <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Advance</TableHead>
                                 <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Total Due</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -6709,7 +6835,7 @@ const FeeManagement = () => {
                                 if (filteredRows.length === 0) {
                                   return (
                                     <TableRow>
-                                      <TableCell colSpan={6} className="py-8 text-center text-red-500 font-medium italic">
+                                      <TableCell colSpan={7} className="py-8 text-center text-red-500 font-medium italic">
                                         No installment plan found for {mNameMatch} {selYear} / {generateForm.sessionId !== 'all' ? (academicSessions.find(as => as.id.toString() === generateForm.sessionId)?.name || 'selected session') : 'any session'}
                                       </TableCell>
                                     </TableRow>
@@ -6769,7 +6895,7 @@ const FeeManagement = () => {
                                     });
 
                                     const total = pastInsts.reduce((sum, inst) => {
-                                      return sum + Number(inst.pendingAmount ?? 0);
+                                      return sum + Number(inst.remainingAmount ?? inst.pendingAmount ?? inst.outstandingPrincipal ?? 0);
                                     }, 0);
 
                                     return {
@@ -6784,11 +6910,6 @@ const FeeManagement = () => {
 
                                   const brk = getArrearsBreakdown();
                                   const arrearsAmount = brk.total;
-                                  const instBaseAmt = currentInst ? Number(currentInst.basePayable ?? currentInst.amount ?? 0) : 0;
-                                  // Fix: use pendingAmount which already accounts for advance payments correctly
-                                  const unpaidInstAmt = currentInst ? Math.max(0, Number(currentInst.pendingAmount ?? 0)) : 0;
-                                  const isSelected = selectedBulkStudents.includes(student.id);
-                                  
                                   const prevInsts = (student.feeInstallments || [])
                                      .filter(inst => !!inst.dueDate)
                                      .filter(inst => {
@@ -6801,6 +6922,141 @@ const FeeManagement = () => {
                                        }
                                      }).sort((a,b) => getChronoRank(a) - getChronoRank(b));
 
+                                  const resolveInstallmentAdvance = (inst) => {
+                                    if (!inst) return 0;
+
+                                    const firstValidNonNegative = (...values) => {
+                                      for (const val of values) {
+                                        if (val === null || val === undefined || val === '') continue;
+                                        const n = Number(val);
+                                        if (Number.isFinite(n)) return Math.max(0, n);
+                                      }
+                                      return null;
+                                    };
+
+                                    const directAdvance = firstValidNonNegative(
+                                      inst.advancePaid,
+                                      inst.advanceAmount,
+                                      inst.carryForwardAdvance,
+                                      // For ungenerated installments, any existing paidAmount
+                                      // is effectively an advance carry-forward.
+                                      inst.challanGenerated === true ? null : inst.paidAmount
+                                    );
+                                    if (directAdvance !== null) return directAdvance;
+
+                                    const challanAdvance = (Array.isArray(inst.challans) ? inst.challans : []).reduce((sum, ch) => {
+                                      if (!ch) return sum;
+                                      const candidates = [ch.advanceAmount, ch.carryForwardAdvance, ch.advancePaid];
+                                      const parsed = candidates
+                                        .map(v => Number(v))
+                                        .find(v => Number.isFinite(v) && v > 0);
+                                      return sum + (parsed || 0);
+                                    }, 0);
+
+                                    return Math.max(0, challanAdvance);
+                                  };
+
+                                  const resolveAdvanceFromPreviousOverpayments = (allInsts, inst) => {
+                                    if (!inst) return 0;
+
+                                    const prevInstallments = (Array.isArray(allInsts) ? allInsts : []).filter((pi) => {
+                                      if (!pi) return false;
+                                      const iClassRank = getClassRank(pi.class);
+                                      if (pi.classId === inst.classId) return Number(pi.installmentNumber || 0) < Number(inst.installmentNumber || 0);
+                                      return iClassRank < targetClassRank;
+                                    });
+
+                                    const getChallanDue = (ch) => {
+                                      if (!ch) return 0;
+                                      const direct = Number(ch.snapshotTotalDue ?? ch.totalAmount ?? ch.totalDue ?? 0);
+                                      if (Number.isFinite(direct) && direct > 0) return direct;
+
+                                      const base = Number(ch.snapshotBaseAmount ?? ch.amount ?? 0);
+                                      const heads = Number(ch.snapshotHeadsAmount ?? ch.headsAmount ?? 0);
+                                      const late = Number(ch.snapshotLateFee ?? ch.lateFeeFine ?? ch.lateFee ?? 0);
+                                      const arrears = Number(ch.snapshotArrears ?? ch.arrears ?? 0);
+                                      const discount = Number(ch.snapshotDiscount ?? ch.discount ?? 0);
+                                      const fallback = (Number.isFinite(base) ? base : 0)
+                                        + (Number.isFinite(heads) ? heads : 0)
+                                        + (Number.isFinite(late) ? late : 0)
+                                        + (Number.isFinite(arrears) ? arrears : 0)
+                                        - (Number.isFinite(discount) ? discount : 0);
+                                      return Math.max(0, fallback);
+                                    };
+
+                                    const overpaidFromPriorChallans = prevInstallments.reduce((sum, pi) => {
+                                      const challans = Array.isArray(pi?.challans) ? pi.challans : [];
+                                      const instExcess = challans.reduce((cSum, ch) => {
+                                        if (!ch) return cSum;
+                                        const paid = Number(ch.amountReceived ?? ch.paidAmount ?? 0);
+                                        if (!Number.isFinite(paid) || paid <= 0) return cSum;
+                                        const due = getChallanDue(ch);
+                                        const excess = Math.max(0, paid - due);
+                                        return cSum + excess;
+                                      }, 0);
+                                      return sum + instExcess;
+                                    }, 0);
+
+                                    // Some installment-plan payloads do not include challans in this dialog,
+                                    // but they do include balance fields. Negative pending/remaining means
+                                    // prior overpayment carried forward as advance.
+                                    const overpaidFromNegativeBalances = prevInstallments.reduce((sum, pi) => {
+                                      const bal = Number(
+                                        pi?.remainingAmount ??
+                                        pi?.pendingAmount ??
+                                        pi?.outstandingPrincipal ??
+                                        0
+                                      );
+                                      if (!Number.isFinite(bal) || bal >= 0) return sum;
+                                      return sum + Math.abs(bal);
+                                    }, 0);
+
+                                    return Math.max(0, overpaidFromPriorChallans, overpaidFromNegativeBalances);
+                                  };
+
+                                  // isGenerated: only block if challan already exists (allow generation for fully-paid installments without challans)
+                                  const hasActiveChallan = currentInst?.challanGenerated === true;
+                                  const isSuperseded = false;
+                                  const isGenerated = currentInst && !isSuperseded && hasActiveChallan;
+
+                                  // Align with backend generation logic:
+                                  // advance is applied only when arrears are zero and no active challan exists yet.
+                                  const installmentAmount = currentInst ? (Number(currentInst.basePayable ?? currentInst.amount ?? 0) + (recurringHeadsAmt || 0)) : 0;
+                                  const expectedNoArrearsDue = installmentAmount + (installmentLateFee || 0);
+                                  const directInstallmentAdvance = resolveInstallmentAdvance(currentInst);
+                                  const priorOverpaymentAdvance = resolveAdvanceFromPreviousOverpayments(studentInsts, currentInst);
+                                  const availableAdvance = Math.max(directInstallmentAdvance, priorOverpaymentAdvance);
+                                  if (import.meta.env.DEV && availableAdvance > 0 && !(Number(currentInst?.advancePaid ?? 0) > 0)) {
+                                    console.debug("[FeeManagement] Generate challan advance fallback used", {
+                                      studentId: student?.id,
+                                      installmentId: currentInst?.id,
+                                      installmentNumber: currentInst?.installmentNumber,
+                                      availableAdvance,
+                                      directInstallmentAdvance,
+                                      priorOverpaymentAdvance,
+                                      advancePaid: currentInst?.advancePaid,
+                                      advanceAmount: currentInst?.advanceAmount,
+                                      carryForwardAdvance: currentInst?.carryForwardAdvance
+                                    });
+                                  }
+                                  // Backend rule: no advance application when arrears are present on the target installment.
+                                  const advanceApplied = (hasActiveChallan || arrearsAmount > 0)
+                                    ? 0
+                                    : Math.max(0, Math.min(availableAdvance, expectedNoArrearsDue));
+
+                                  const installmentPendingLike = Number(
+                                    currentInst?.remainingAmount ??
+                                    currentInst?.pendingAmount ??
+                                    currentInst?.outstandingPrincipal ??
+                                    NaN
+                                  );
+                                  const hasExplicitPending = Number.isFinite(installmentPendingLike);
+                                  const displayBaseDue = hasActiveChallan && hasExplicitPending
+                                    ? Math.max(0, installmentPendingLike)
+                                    : (expectedNoArrearsDue + arrearsAmount);
+                                  const totalDueDisplay = Math.max(0, displayBaseDue - advanceApplied);
+                                  const isSelected = selectedBulkStudents.includes(student.id);
+
                                   const missingPrev = prevInsts.filter(inst => {
                                     const isBilledStatus = (inst.paidAmount || 0) > 0 || 
                                       (inst.pendingAmount != null ? Number(inst.pendingAmount) > 0 : (inst.outstandingPrincipal || 0) > 0) || 
@@ -6809,14 +7065,6 @@ const FeeManagement = () => {
                                     return !isBilledStatus;
                                   });
                                   
-                                  // isGenerated: rely on current installment state (avoid legacy challan relation false positives)
-                                  const hasActiveChallan = currentInst?.challanGenerated === true;
-                                  const isSuperseded = false; // new schema doesn't use remainingAmount
-                                  const isGenerated = currentInst && !isSuperseded && (
-                                    (Number(currentInst.paidAmount) || 0) >= Number(currentInst.basePayable ?? currentInst.amount ?? 0) ||
-                                    ['PAID'].includes(currentInst.status) ||
-                                    hasActiveChallan
-                                  );
                                   const hasMissing = missingPrev.length > 0;
 
                                   return (
@@ -6830,7 +7078,7 @@ const FeeManagement = () => {
                                           type="checkbox"
                                           className="h-3.5 w-3.5 accent-orange-600 cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
                                           checked={isSelected}
-                                          disabled={hasMissing || currentInst?.status === 'PAID' || isGenerated}
+                                           disabled={hasMissing || isGenerated}
                                           onChange={(e) => {
                                             if (e.target.checked && !(hasMissing || isGenerated)) {
                                               setSelectedBulkStudents([...selectedBulkStudents, student.id]);
@@ -6866,7 +7114,7 @@ const FeeManagement = () => {
                                         </div>
                                       </TableCell>
                                       <TableCell className="text-sm px-3 py-2 text-xs p-2 text-right font-medium whitespace-nowrap">
-                                        Rs. {(currentInst ? (Number(currentInst.basePayable ?? currentInst.amount ?? 0) + (recurringHeadsAmt || 0)) : 0).toLocaleString()}
+                                        Rs. {installmentAmount.toLocaleString()}
                                       </TableCell>
                                       <TableCell className="text-sm px-3 py-2 text-xs p-2 text-right font-medium whitespace-nowrap text-orange-600">
                                         Rs. {(installmentLateFee || 0).toLocaleString()}
@@ -6904,8 +7152,11 @@ const FeeManagement = () => {
                                           </Tooltip>
                                         )}
                                       </TableCell>
+                                      <TableCell className="text-sm px-3 py-2 text-xs p-2 text-right font-medium whitespace-nowrap text-emerald-600">
+                                        {advanceApplied > 0 ? `- Rs. ${advanceApplied.toLocaleString()}` : <span className="text-slate-400">Rs. 0</span>}
+                                      </TableCell>
                                       <TableCell className="text-sm px-3 py-2 text-xs p-2 text-right font-black text-orange-700 whitespace-nowrap">
-                                        Rs. {(instBaseAmt + (recurringHeadsAmt || 0) + (installmentLateFee || 0) + arrearsAmount).toLocaleString()}
+                                        Rs. {totalDueDisplay.toLocaleString()}
                                       </TableCell>
                                     </TableRow>
                                   );

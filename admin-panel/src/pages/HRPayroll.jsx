@@ -19,8 +19,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff, getProgramNames, getAttendanceSkips, deleteAttendanceSkip, getStaffAttendance, markStaffAttendance, markDateAsHoliday, getHrLeavesReport, getHrPayrollReport, getHrAdvanceReport, getHrStaffAttendanceReport, getHrDepartmentsReport, getHrReportsAnalytics } from "../../config/apis";
+import { useQuery, useMutation, useQueryClient, useQueries } from "@tanstack/react-query";
+import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff, getProgramNames, getAttendanceSkips, deleteAttendanceSkip, getStaffAttendance, markStaffAttendance, markDateAsHoliday, getHrLeavesReport, getHrPayrollReport, getHrAdvanceReport, getHrStaffAttendanceReport, getHrDepartmentsReport, getHrReportsAnalytics, getStaffLeaveBalance } from "../../config/apis";
 import { Loader2, ChevronsUpDown } from "lucide-react";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { calculateDuration } from "../lib/dateUtils";
@@ -47,6 +47,10 @@ const HRPayroll = () => {
   const [staffAttendanceDate, setStaffAttendanceDate] = useState(new Date().toISOString().split("T")[0]);
   const [staffAttendanceRole, setStaffAttendanceRole] = useState("all");
   const [staffAttendanceChanges, setStaffAttendanceChanges] = useState({});
+  const [leaveTypePopover, setLeaveTypePopover] = useState({
+    staffId: null,
+    leaveType: "casual",
+  });
   const [editingAdvance, setEditingAdvance] = useState(null);
   const [idCardTemplate, setIdCardTemplate] = useState("");
   const [viewEmployeeOpen, setViewEmployeeOpen] = useState(false);
@@ -153,6 +157,28 @@ const HRPayroll = () => {
     queryFn: () => getStaffAttendance(staffAttendanceDate, staffAttendanceRole),
     enabled: activeTab === "attendance",
   });
+  const staffLeaveBalanceQueries = useQueries({
+    queries: (activeTab === "attendance" ? staffAttendanceRows : []).map((row) => {
+      const sid = row.staffId || row.staff?.id;
+      return {
+        queryKey: ["staffLeaveBalance", sid],
+        queryFn: () => getStaffLeaveBalance(sid),
+        enabled: !!sid,
+        staleTime: 60 * 1000,
+      };
+    }),
+  });
+  const staffLeaveBalanceById = useMemo(() => {
+    const balances = {};
+    const rows = activeTab === "attendance" ? staffAttendanceRows : [];
+    rows.forEach((row, idx) => {
+      const sid = row.staffId || row.staff?.id;
+      if (!sid) return;
+      const data = staffLeaveBalanceQueries[idx]?.data;
+      if (data) balances[sid] = data;
+    });
+    return balances;
+  }, [activeTab, staffAttendanceRows, staffLeaveBalanceQueries]);
 
   const { data: reportsLeaves = [], isFetching: reportsLeavesLoading } = useQuery({
     queryKey: ["hrReportsLeaves", reportsMonth],
@@ -192,7 +218,48 @@ const HRPayroll = () => {
   });
 
   const setStaffAttendanceStatus = (staffId, status) => {
-    setStaffAttendanceChanges(prev => ({ ...prev, [staffId]: status }));
+    setStaffAttendanceChanges(prev => {
+      const prevRow = prev?.[staffId];
+      const prevLeaveType = typeof prevRow === "object" && prevRow !== null ? prevRow.leaveType : undefined;
+      return {
+        ...prev,
+        [staffId]: {
+          status,
+          leaveType: status === "leave" ? (prevLeaveType || "casual") : undefined,
+        },
+      };
+    });
+  };
+
+  const openLeaveTypePicker = (row, staffMeta) => {
+    const sid = row.staffId || staffMeta?.id;
+    if (!sid) return;
+    const changed = staffAttendanceChanges[sid];
+    const currentLeaveType = (typeof changed === "object" && changed !== null ? changed.leaveType : undefined)
+      || String(row.leaveType || "CASUAL").toLowerCase();
+    setLeaveTypePopover({
+      staffId: sid,
+      leaveType: currentLeaveType,
+    });
+  };
+
+  const closeLeaveTypePicker = () => {
+    setLeaveTypePopover({
+      staffId: null,
+      leaveType: "casual",
+    });
+  };
+
+  const confirmLeaveTypePicker = () => {
+    if (!leaveTypePopover.staffId) return;
+    setStaffAttendanceChanges(prev => ({
+      ...prev,
+      [leaveTypePopover.staffId]: {
+        status: "leave",
+        leaveType: leaveTypePopover.leaveType || "casual",
+      },
+    }));
+    closeLeaveTypePicker();
   };
 
   const isStaffAttendanceLocked = (record) => {
@@ -207,13 +274,18 @@ const HRPayroll = () => {
     const payloads = editableRows
       .map((row) => {
         const staffId = row.staffId || row.staff?.id;
-        const changedStatus = staffAttendanceChanges[staffId];
+        const changed = staffAttendanceChanges[staffId];
+        const changedStatus = typeof changed === "string" ? changed : changed?.status;
+        const changedLeaveType = typeof changed === "object" && changed !== null ? changed.leaveType : undefined;
         // If user explicitly marked a status, use that; otherwise skip — don't auto-submit nulls
         if (!changedStatus) return null;
         return {
           staffId,
           date: staffAttendanceDate,
           status: changedStatus.toUpperCase(),
+          leaveType: changedStatus.toLowerCase() === "leave"
+            ? String(changedLeaveType || row.leaveType || "casual").toUpperCase()
+            : undefined,
         };
       })
       .filter(Boolean);
@@ -227,6 +299,8 @@ const HRPayroll = () => {
       await Promise.all(payloads.map((payload) => markStaffAttendance(payload)));
       toast({ title: `Attendance saved for ${payloads.length} staff member(s)`, variant: "success" });
       setStaffAttendanceChanges({});
+      await queryClient.invalidateQueries({ queryKey: ["staffLeaveBalance"] });
+      await queryClient.invalidateQueries({ queryKey: ["payrollSheet"] });
       refetchStaffAttendance();
     } catch (error) {
       toast({ title: "Failed to save staff attendance", description: error.message, variant: "destructive" });
@@ -237,7 +311,12 @@ const HRPayroll = () => {
     const next = {};
     staffAttendanceRows.forEach((row) => {
       const sid = row.staffId || row.staff?.id;
-      if (!isStaffAttendanceLocked(row)) next[sid] = status;
+      if (!isStaffAttendanceLocked(row)) {
+        next[sid] = {
+          status,
+          leaveType: status === "leave" ? "casual" : undefined,
+        };
+      }
     });
     setStaffAttendanceChanges(next);
   };
@@ -990,7 +1069,10 @@ const HRPayroll = () => {
                       ) : (
                         staffAttendanceRows.map((row) => {
                           const s = row.staff || row;
-                          const currentStatus = staffAttendanceChanges[row.staffId || s.id] || row.status?.toLowerCase();
+                          const changed = staffAttendanceChanges[row.staffId || s.id];
+                          const currentStatus = (typeof changed === "string" ? changed : changed?.status) || row.status?.toLowerCase();
+                          const currentLeaveType = (typeof changed === "object" && changed !== null ? changed.leaveType : undefined)
+                            || String(row.leaveType || "CASUAL").toLowerCase();
                           const isLocked = isStaffAttendanceLocked(row);
                           const auditLines = [];
                           if (row.generatedAt) auditLines.push(`Generated: ${new Date(row.generatedAt).toLocaleString()}`);
@@ -1002,6 +1084,7 @@ const HRPayroll = () => {
                           const markedByName = row.admin?.name || (row.markedBy ? `User #${row.markedBy}` : "-");
                           const roleLabel = s.isTeaching && s.isNonTeaching ? "Dual" : s.isTeaching ? "Teaching" : "Non-Teaching";
                           const deptLabel = s.department?.name || s.empDepartment || s.designation || s.specialization || "-";
+                          const leaveBalance = staffLeaveBalanceById[row.staffId || s.id];
 
                           return (
                             <TableRow key={row.staffId || s.id} className={isLocked ? "opacity-80" : ""}>
@@ -1009,6 +1092,11 @@ const HRPayroll = () => {
                               <TableCell className="py-2 px-3 text-sm">
                                 <div>{roleLabel}</div>
                                 <div className="text-xs text-muted-foreground">{deptLabel}</div>
+                                <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
+                                  <Badge variant="outline" className="font-normal">C {leaveBalance?.CASUAL?.taken ?? 0}/{leaveBalance?.CASUAL?.allowed ?? 0}</Badge>
+                                  <Badge variant="outline" className="font-normal">S {leaveBalance?.SICK?.taken ?? 0}/{leaveBalance?.SICK?.allowed ?? 0}</Badge>
+                                  <Badge variant="outline" className="font-normal">A {leaveBalance?.ANNUAL?.taken ?? 0}/{leaveBalance?.ANNUAL?.allowed ?? 0}</Badge>
+                                </div>
                               </TableCell>
                               <TableCell className="py-2 px-3 text-sm">
                                 <div className="flex items-center gap-1.5">
@@ -1034,7 +1122,7 @@ const HRPayroll = () => {
                                 {row.markedAt ? markedByName : "-"}
                               </TableCell>
                               <TableCell className="py-2 px-3 text-sm">
-                                <div className="flex gap-1">
+                                <div className="flex items-center gap-1">
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <Button size="sm" variant={currentStatus === "present" ? "default" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(row.staffId || s.id, "present")}><CheckCircle2 className="w-4 h-4" /></Button>
@@ -1047,18 +1135,54 @@ const HRPayroll = () => {
                                     </TooltipTrigger>
                                     <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Absent"}</TooltipContent>
                                   </Tooltip>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button size="sm" variant={currentStatus === "leave" ? "secondary" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(row.staffId || s.id, "leave")}><Clock className="w-4 h-4" /></Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Leave"}</TooltipContent>
-                                  </Tooltip>
+                                  <Popover
+                                    open={leaveTypePopover.staffId === (row.staffId || s.id)}
+                                    onOpenChange={(open) => {
+                                      if (open) {
+                                        openLeaveTypePicker(row, s);
+                                      } else {
+                                        closeLeaveTypePicker();
+                                      }
+                                    }}
+                                  >
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <PopoverTrigger asChild>
+                                          <Button size="sm" variant={currentStatus === "leave" ? "secondary" : "outline"} disabled={isLocked}>
+                                            <Clock className="w-4 h-4" />
+                                          </Button>
+                                        </PopoverTrigger>
+                                      </TooltipTrigger>
+                                      <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Leave (Select Type)"}</TooltipContent>
+                                    </Tooltip>
+                                    <PopoverContent side="right" align="start" className="w-64 p-3 space-y-2">
+                                      <p className="text-xs text-muted-foreground">Choose leave type for {s.name}</p>
+                                      <Select
+                                        value={leaveTypePopover.leaveType}
+                                        onValueChange={(value) => setLeaveTypePopover((prev) => ({ ...prev, leaveType: value }))}
+                                      >
+                                        <SelectTrigger className="h-8">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="casual">Casual</SelectItem>
+                                          <SelectItem value="sick">Sick</SelectItem>
+                                          <SelectItem value="annual">Annual</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <div className="flex justify-end gap-2">
+                                        <Button size="sm" variant="outline" onClick={closeLeaveTypePicker}>Cancel</Button>
+                                        <Button size="sm" onClick={confirmLeaveTypePicker}>Set Leave</Button>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <Button size="sm" variant={currentStatus === "half_day" ? "secondary" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(row.staffId || s.id, "half_day")}>1/2</Button>
                                     </TooltipTrigger>
                                     <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Half Day"}</TooltipContent>
                                   </Tooltip>
+                                  {currentStatus === "leave" && <Badge variant="outline">{String(currentLeaveType || "casual").toUpperCase()}</Badge>}
                                 </div>
                               </TableCell>
                             </TableRow>

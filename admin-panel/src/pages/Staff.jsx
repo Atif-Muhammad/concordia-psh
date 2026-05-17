@@ -274,7 +274,17 @@ export default function Staff() {
     });
 
     useEffect(() => {
-        setAttendanceDraftRows(Array.isArray(attendanceData) ? attendanceData : []);
+        setAttendanceDraftRows(
+            Array.isArray(attendanceData)
+                ? attendanceData.map((row) => {
+                    const isLeave = String(row?.status || '').toUpperCase() === 'LEAVE';
+                    return {
+                        ...row,
+                        leaveType: isLeave ? String(row?.leaveType || 'CASUAL').toUpperCase() : null,
+                    };
+                })
+                : []
+        );
     }, [attendanceData]);
 
     // Check if today is a global holiday
@@ -359,6 +369,9 @@ export default function Staff() {
         return filtered.map((record) => ({
             staffId: record.staff?.id ?? record.staffId,
             status: record.status || "PRESENT",
+            leaveType: String(record.status || "").toUpperCase() === "LEAVE"
+                ? String(record.leaveType || "CASUAL").toUpperCase()
+                : undefined,
             notes: record.notes || "",
         }));
     };
@@ -1192,7 +1205,13 @@ export default function Staff() {
                                                                         setAttendanceDraftRows((prev) =>
                                                                             prev.map((r) =>
                                                                                 r.staff?.id === record.staff?.id
-                                                                                    ? { ...r, status: val }
+                                                                                    ? {
+                                                                                        ...r,
+                                                                                        status: val,
+                                                                                        leaveType: String(val).toUpperCase() === "LEAVE"
+                                                                                            ? String(r.leaveType || "CASUAL").toUpperCase()
+                                                                                            : null,
+                                                                                    }
                                                                                     : r
                                                                             )
                                                                         )
@@ -1209,6 +1228,30 @@ export default function Staff() {
                                                                         <SelectItem value="HALF_DAY">Half Day</SelectItem>
                                                                     </SelectContent>
                                                                 </Select>
+                                                                {String(record.status || "").toUpperCase() === "LEAVE" && (
+                                                                    <Select
+                                                                        value={String(record.leaveType || "CASUAL").toUpperCase()}
+                                                                        disabled={isLocked}
+                                                                        onValueChange={(val) =>
+                                                                            setAttendanceDraftRows((prev) =>
+                                                                                prev.map((r) =>
+                                                                                    r.staff?.id === record.staff?.id
+                                                                                        ? { ...r, leaveType: String(val).toUpperCase() }
+                                                                                        : r
+                                                                                )
+                                                                            )
+                                                                        }
+                                                                    >
+                                                                        <SelectTrigger className="w-[120px]">
+                                                                            <SelectValue />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="CASUAL">Casual</SelectItem>
+                                                                            <SelectItem value="SICK">Sick</SelectItem>
+                                                                            <SelectItem value="ANNUAL">Annual</SelectItem>
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                )}
                                                                 {isLocked ? (
                                                                     <Tooltip>
                                                                         <TooltipTrigger asChild>

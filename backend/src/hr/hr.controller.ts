@@ -407,6 +407,7 @@ export class HrController {
       teacherId?: number; // legacy
       date: string;
       status: string;
+      leaveType?: string; // CASUAL | SICK | ANNUAL (when status=LEAVE)
       notes?: string;
     },
   ) {
@@ -433,6 +434,7 @@ export class HrController {
         employeeId?: number;
         teacherId?: number;
         status: string;
+        leaveType?: string; // CASUAL | SICK | ANNUAL (when status=LEAVE)
         notes?: string;
       }>;
     },

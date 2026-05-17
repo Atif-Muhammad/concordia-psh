@@ -3850,6 +3850,7 @@ const normalizeStaffAttendanceRows = (rows, date) => {
       },
       date: existing?.date ?? date,
       status: existing?.status ?? null,
+      leaveType: existing?.leaveType ?? null,
       markedBy: existing?.markedBy ?? null,
       markedAt: existing?.markedAt ?? null,
       generatedAt: existing?.generatedAt ?? null,
@@ -4047,6 +4048,9 @@ export const bulkMarkStaffAttendance = async (data) => {
               teacherId: r.teacherId,
               date: data.date,
               status: r.status || "PRESENT",
+              leaveType: (String(r.status || "").toUpperCase() === "LEAVE")
+                ? (String(r.leaveType || "CASUAL").toUpperCase())
+                : undefined,
               notes: r.notes || "",
             },
             { withCredentials: true }

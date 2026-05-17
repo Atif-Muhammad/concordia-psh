@@ -1129,9 +1129,27 @@ export class ChallanService {
       Number(inst.lateFeeRatePerDay || 0)
     );
 
+    // Recalculate paidAmount from actual active challans for this installment.
+    // This ensures paidAmount is always in sync with challan data after deletions.
+    const activeChallans = await tx.feeChallanV2.findMany({
+      where: {
+        installmentId,
+        status: { notIn: ['VOID', 'SUPERSEDED', 'SETTLED'] },
+      },
+      select: { amountReceived: true, advanceAmount: true },
+    });
+    const paidAmount = activeChallans.reduce(
+      (sum, c) => sum + Number(c.amountReceived ?? 0),
+      0,
+    );
+    const advancePaid = activeChallans.reduce(
+      (sum, c) => sum + Number(c.advanceAmount ?? 0),
+      0,
+    );
+
     // total = base + heads + extraFine + lateFee + arrears - discount
     const totalAmount = basePayable + headsSum + extraFine + Number(lateFeeFine) + arrears - Math.abs(discount);
-    const pendingAmount = totalAmount - Number(inst.paidAmount || 0);
+    const pendingAmount = totalAmount - paidAmount;
 
     // Explicit control from caller:
     // - deleted installment -> false
@@ -1142,7 +1160,7 @@ export class ChallanService {
         : true;
 
     return {
-      status: (Number(inst.paidAmount) > 0 
+      status: (paidAmount > 0 
         ? 'PARTIAL' 
         : (new Date() > inst.dueDate ? 'OVERDUE' : 'PENDING')) as any,
       supersededBy: null,
@@ -1150,7 +1168,8 @@ export class ChallanService {
       settledByInstallmentId: null,
       isLocked: false,
       challanGenerated: keepChallanGenerated,
-      paidAmount: Number(inst.paidAmount || 0),
+      paidAmount,
+      advancePaid,
       pendingAmount,
       totalAmount,
       lateFeeFine,

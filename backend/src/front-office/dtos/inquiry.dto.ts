@@ -19,6 +19,8 @@ export enum InquiryType {
 export class InquiryDto {
   @IsNotEmpty({ message: 'Student name must be provided' })
   studentName: string;
+  @IsNotEmpty({ message: 'Student CNIC/Form-B must be provided' })
+  studentCnic: string;
   @IsNotEmpty({ message: 'Father name must be provided' })
   fatherName: string;
   @IsOptional()

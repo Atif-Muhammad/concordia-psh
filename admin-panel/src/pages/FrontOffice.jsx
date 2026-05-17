@@ -148,6 +148,7 @@ const FrontOffice = () => {
     gender: "",
     dob: "",
     parentCNIC: "",
+    studentCnic: "",
     documents: "{}",
   });
   // === FETCH DATA ===
@@ -252,6 +253,7 @@ const FrontOffice = () => {
   // === FORM STATES ===
   const [inquiryForm, setInquiryForm] = useState({
     studentName: "",
+    studentCnic: "",
     fatherName: "",
     fatherCnic: "",
     contactNumber: "",
@@ -535,6 +537,7 @@ const FrontOffice = () => {
   const closeInquiryDialog = () => {
     setInquiryForm({
       studentName: "",
+      studentCnic: "",
       fatherName: "",
       fatherCnic: "",
       contactNumber: "",
@@ -601,7 +604,7 @@ const FrontOffice = () => {
 
   // === HANDLERS ===
   const handleInquirySubmit = () => {
-    if (!inquiryForm.studentName || !inquiryForm.contactNumber) {
+    if (!inquiryForm.studentName || !inquiryForm.studentCnic || !inquiryForm.contactNumber) {
       toast({ title: "Please fill required fields", variant: "destructive" });
       return;
     }
@@ -627,6 +630,7 @@ const FrontOffice = () => {
   const handleEditInquiry = (inquiry) => {
     setInquiryForm({
       studentName: inquiry.studentName,
+      studentCnic: inquiry.studentCnic || "",
       fatherName: inquiry.fatherName,
       fatherCnic: inquiry.fatherCnic,
       contactNumber: inquiry.contactNumber,
@@ -672,6 +676,7 @@ const FrontOffice = () => {
       parentOrGuardianEmail: inquiry.email || "",
       parentOrGuardianPhone: inquiry.contactNumber || "",
       parentCNIC: inquiry.fatherCnic || "",
+      studentCnic: inquiry.studentCnic || "",
       address: inquiry.address || "",
       programId: inquiry.programInterest?.toString() || inquiry.program?.id?.toString() || "",
       classId: inquiry.classId?.toString() || "",
@@ -717,6 +722,7 @@ const FrontOffice = () => {
       classId: String(studentFormData.classId), // Convert to string
       programId: String(selectedInquiryForAccept.programInterest || selectedInquiryForAccept.program?.id), // Convert to string
       sectionId: studentFormData.sectionId ? String(studentFormData.sectionId) : undefined, // Convert to string
+      studentCnic: studentFormData.studentCnic || undefined,
       documents: studentFormData.documents,
     };
 
@@ -736,6 +742,7 @@ const FrontOffice = () => {
       gender: "",
       dob: "",
       parentCNIC: "",
+      studentCnic: "",
       documents: "{}",
     });
   };
@@ -971,11 +978,15 @@ const FrontOffice = () => {
                               <Input value={inquiryForm.studentName} onChange={(e) => setInquiryForm({ ...inquiryForm, studentName: e.target.value })} />
                             </div>
                             <div className="space-y-1">
-                              <Label>Father Name</Label>
+                              <Label>Student CNIC / Form-B *</Label>
+                              <Input value={inquiryForm.studentCnic} onChange={(e) => setInquiryForm({ ...inquiryForm, studentCnic: e.target.value })} placeholder="e.g. 12345-1234567-1" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Father/Guardian Name *</Label>
                               <Input value={inquiryForm.fatherName} onChange={(e) => setInquiryForm({ ...inquiryForm, fatherName: e.target.value })} />
                             </div>
                             <div className="space-y-1">
-                              <Label>Father CNIC</Label>
+                              <Label>Father/Guardian CNIC <span className="text-muted-foreground text-xs">(optional)</span></Label>
                               <Input value={inquiryForm.fatherCnic} onChange={(e) => setInquiryForm({ ...inquiryForm, fatherCnic: e.target.value })} placeholder="12345-1234567-1" />
                             </div>
                             <div className="space-y-1">
@@ -983,11 +994,11 @@ const FrontOffice = () => {
                               <Input value={inquiryForm.contactNumber} onChange={(e) => setInquiryForm({ ...inquiryForm, contactNumber: e.target.value })} placeholder="0300-1234567" />
                             </div>
                             <div className="space-y-1">
-                              <Label>Email</Label>
+                              <Label>Email <span className="text-muted-foreground text-xs">(optional)</span></Label>
                               <Input value={inquiryForm.email} onChange={(e) => setInquiryForm({ ...inquiryForm, email: e.target.value })} placeholder="email@example.com" />
                             </div>
                             <div className="space-y-1">
-                              <Label>Gender</Label>
+                              <Label>Gender <span className="text-muted-foreground text-xs">(optional)</span></Label>
                               <Select value={inquiryForm.gender} onValueChange={(v) => setInquiryForm({ ...inquiryForm, gender: v })}>
                                 <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
                                 <SelectContent>
@@ -998,7 +1009,7 @@ const FrontOffice = () => {
                               </Select>
                             </div>
                             <div className="space-y-1 md:col-span-2">
-                              <Label>Address</Label>
+                              <Label>Address <span className="text-muted-foreground text-xs">(optional)</span></Label>
                               <Input value={inquiryForm.address} onChange={(e) => setInquiryForm({ ...inquiryForm, address: e.target.value })} />
                             </div>
                           </div>
@@ -2061,7 +2072,8 @@ const FrontOffice = () => {
                     <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Contact</p><p className="text-sm font-medium">{viewDetailsDialog.data.contactNumber || "—"}</p></div>
                     <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Email</p><p className="text-sm font-medium">{viewDetailsDialog.data.email || "—"}</p></div>
                     <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Gender</p><p className="text-sm font-medium">{viewDetailsDialog.data.gender || "—"}</p></div>
-                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Father CNIC</p><p className="text-sm font-medium">{viewDetailsDialog.data.fatherCnic || "—"}</p></div>
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Student CNIC / Form-B</p><p className="text-sm font-medium">{viewDetailsDialog.data.studentCnic || "—"}</p></div>
+                    <div><p className="text-[10px] text-muted-foreground uppercase font-semibold">Teacher CNIC</p><p className="text-sm font-medium">{viewDetailsDialog.data.fatherCnic || "—"}</p></div>
                     <div className="col-span-2"><p className="text-[10px] text-muted-foreground uppercase font-semibold">Address</p><p className="text-sm font-medium">{viewDetailsDialog.data.address || "—"}</p></div>
                   </div>
                 </div>

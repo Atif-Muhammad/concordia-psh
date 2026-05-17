@@ -329,11 +329,30 @@ export class InstallmentService {
         extraFine: true,
         discount: true,
         paidAmount: true,
+        advancePaid: true,
         pendingAmount: true,
         month: true,
         heads: true,
       },
     });
+
+    // Pre-fetch all active challans for this student and group by installmentId.
+    // This avoids N+1 queries inside the loop.
+    const studentChallans = await this.prisma.feeChallanV2.findMany({
+      where: {
+        installment: { studentId },
+        status: { notIn: ['VOID', 'SUPERSEDED', 'SETTLED'] },
+      },
+      select: { installmentId: true, amountReceived: true, advanceAmount: true },
+    });
+    const challansByInstId = new Map<number, { totalReceived: number; totalAdvance: number }>();
+    for (const c of studentChallans) {
+      const key = Number(c.installmentId);
+      const existing = challansByInstId.get(key) || { totalReceived: 0, totalAdvance: 0 };
+      existing.totalReceived += Number(c.amountReceived ?? 0);
+      existing.totalAdvance += Number(c.advanceAmount ?? 0);
+      challansByInstId.set(key, existing);
+    }
 
     // Build a map for O(1) lookup of the previous installment by its position index
     // We need the globally-ordered previous installment, not just installmentNumber - 1
@@ -342,6 +361,8 @@ export class InstallmentService {
       arrears: number;
       totalAmount: number;
       pendingAmount: number;
+      paidAmount: number;
+      advancePaid: number;
     }> = [];
 
     let blockedInstallment: { installmentNumber: number; month: string | null } | null = null;
@@ -390,12 +411,17 @@ export class InstallmentService {
       const lateFeeFine = Number(current.lateFeeFine);
       const extraFine = Number(current.extraFine);
       const discount = Number(current.discount);
-      const paidAmount = Number(current.paidAmount);
       const headsSum = (current.heads || []).reduce((sum, h) => sum + Number(h.amount), 0);
+
+      // Recalculate paidAmount from actual active challans for this installment.
+      // This ensures paidAmount is always in sync with challan data after deletions.
+      const challanData = challansByInstId.get(current.id) || { totalReceived: 0, totalAdvance: 0 };
+      const newPaidAmount = challanData.totalReceived;
+      const newAdvancePaid = challanData.totalAdvance;
 
       const newTotalAmount =
         basePayable + newArrears + lateFeeFine + extraFine + headsSum - discount;
-      const newPendingAmount = newTotalAmount - paidAmount;
+      const newPendingAmount = newTotalAmount - newPaidAmount;
 
       // Only queue an update if something actually changed
       // Note: we also check if totalAmount matches the new calculation precisely
@@ -404,13 +430,17 @@ export class InstallmentService {
       if (
         newArrears !== Number(current.arrears) ||
         newTotalAmount !== currentTotalInDB ||
-        newPendingAmount !== Number(current.pendingAmount)
+        newPendingAmount !== Number(current.pendingAmount) ||
+        newPaidAmount !== Number(current.paidAmount) ||
+        newAdvancePaid !== Number(current.advancePaid)
       ) {
         updates.push({
           id: current.id,
           arrears: newArrears,
           totalAmount: newTotalAmount,
           pendingAmount: newPendingAmount,
+          paidAmount: newPaidAmount,
+          advancePaid: newAdvancePaid,
         });
 
         // Update the in-memory record so subsequent iterations see the new pendingAmount.
@@ -421,6 +451,8 @@ export class InstallmentService {
           ...current,
           arrears: newArrears,
           pendingAmount: newPendingAmount,
+          paidAmount: newPaidAmount,
+          advancePaid: newAdvancePaid,
         } as unknown as typeof current;
       }
     }
@@ -428,10 +460,10 @@ export class InstallmentService {
     // Requirement 7.3: all updates in a single DB transaction
     if (updates.length > 0) {
       await this.prisma.$transaction(
-        updates.map(({ id, arrears, totalAmount, pendingAmount }) =>
+        updates.map(({ id, arrears, totalAmount, pendingAmount, paidAmount, advancePaid }) =>
           this.prisma.feeInstallment.update({
             where: { id },
-            data: { arrears, totalAmount, pendingAmount },
+            data: { arrears, totalAmount, pendingAmount, paidAmount, advancePaid },
           }),
         ),
       );

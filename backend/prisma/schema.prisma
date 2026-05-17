@@ -589,6 +589,7 @@ model StaffAttendance {
   staffId       Int
   date          DateTime         @db.Date
   status        AttendanceStatus @default(PRESENT)
+  leaveType     String?          @db.VarChar(20) // CASUAL | SICK | ANNUAL (used when status=LEAVE)
   markedBy      Int? // admin id who last marked
   markedAt      DateTime         @default(now())
   generatedAt   DateTime?        // when auto-generated
@@ -648,6 +649,7 @@ enum InquiryType {
 model Inquiry{
   id Int @id @unique @default(autoincrement())
   studentName        String
+  studentCnic        String?      @db.VarChar(15)
   fatherName         String?     
   fatherCnic         String?      
   contactNumber      String
