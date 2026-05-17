@@ -198,7 +198,7 @@ export class InstallmentService {
    */
   async updateInstallment(id: number, dto: UpdateInstallmentDto) {
     // Load the installment to check lock status (Requirement 11.2)
-    const existing = await this.prisma.feeInstallment.findUnique({
+    const existing: any = await this.prisma.feeInstallment.findUnique({
       where: { id },
       select: {
         id: true,
@@ -210,9 +210,10 @@ export class InstallmentService {
         lateFeeFine: true,
         lateFeeRatePerDay: true,
         extraFine: true,
+        absentiesFine: true,
         discount: true,
         paidAmount: true,
-      },
+      } as any,
     });
 
     if (!existing) {
@@ -246,13 +247,14 @@ export class InstallmentService {
         : Number(existing.lateFeeRatePerDay); // keep existing rate if not provided
 
     // Recalculate totalAmount and pendingAmount after the update
-    // totalAmount = basePayable + arrears + lateFeeFine + extraFine - discount (Requirement 4.6, 17.3)
+    // totalAmount = basePayable + arrears + lateFeeFine + extraFine + absentiesFine - discount (Requirement 4.6, 17.3)
     const arrears = Number(existing.arrears);
     const lateFeeFine = Number(existing.lateFeeFine);
+    const absentiesFine = Number((existing as any).absentiesFine || 0);
     const paidAmount = Number(existing.paidAmount);
 
     const newTotalAmount =
-      newBasePayable + arrears + lateFeeFine + newExtraFine - newDiscount;
+      newBasePayable + arrears + lateFeeFine + newExtraFine + absentiesFine - newDiscount;
     const newPendingAmount = newTotalAmount - paidAmount;
 
     // Build the update payload — only include fields present in dto
@@ -290,7 +292,7 @@ export class InstallmentService {
    *
    * For each installment K (starting from `fromInstallmentNumber`):
    *   - Sets `arrears = prevInstallment.pendingAmount`
-   *   - Recalculates `totalAmount = basePayable + arrears + lateFeeFine + extraFine - discount`
+   *   - Recalculates `totalAmount = basePayable + arrears + lateFeeFine + extraFine + absentiesFine - discount`
    *   - Recalculates `pendingAmount = totalAmount - paidAmount`
    *
    * Stops at the first locked installment and returns a warning identifying it.
@@ -314,7 +316,7 @@ export class InstallmentService {
   ): Promise<{ warning: string | null }> {
     // Load all installments for the student ordered globally
     // (sessionId ASC, installmentNumber ASC) — Requirement 7.1
-    const allInstallments = await this.prisma.feeInstallment.findMany({
+    const allInstallments: any[] = await this.prisma.feeInstallment.findMany({
       where: { studentId },
       orderBy: [{ sessionId: 'asc' }, { installmentNumber: 'asc' }],
       select: {
@@ -327,13 +329,14 @@ export class InstallmentService {
         arrears: true,
         lateFeeFine: true,
         extraFine: true,
+        absentiesFine: true,
         discount: true,
         paidAmount: true,
         advancePaid: true,
         pendingAmount: true,
         month: true,
         heads: true,
-      },
+      } as any,
     });
 
     // Pre-fetch all active challans for this student and group by installmentId.
@@ -410,6 +413,7 @@ export class InstallmentService {
       const basePayable = Number(current.basePayable);
       const lateFeeFine = Number(current.lateFeeFine);
       const extraFine = Number(current.extraFine);
+      const absentiesFine = Number((current as any).absentiesFine || 0);
       const discount = Number(current.discount);
       const headsSum = (current.heads || []).reduce((sum, h) => sum + Number(h.amount), 0);
 
@@ -420,12 +424,12 @@ export class InstallmentService {
       const newAdvancePaid = challanData.totalAdvance;
 
       const newTotalAmount =
-        basePayable + newArrears + lateFeeFine + extraFine + headsSum - discount;
+        basePayable + newArrears + lateFeeFine + extraFine + absentiesFine + headsSum - discount;
       const newPendingAmount = newTotalAmount - newPaidAmount;
 
       // Only queue an update if something actually changed
       // Note: we also check if totalAmount matches the new calculation precisely
-      const currentTotalInDB = Number(current.basePayable) + Number(current.arrears) + lateFeeFine + extraFine + headsSum - discount;
+      const currentTotalInDB = Number(current.basePayable) + Number(current.arrears) + lateFeeFine + extraFine + absentiesFine + headsSum - discount;
 
       if (
         newArrears !== Number(current.arrears) ||

@@ -376,9 +376,11 @@ const FeeManagement = () => {
   // Still used by legacy challan display that reads from the old FeeChallan schema.
   // Total due for a challan: tuition + heads + late fee + arrears
   const getChallanTotal = (challan) => {
+    const absentiesFine = Number(challan?.snapshotAbsentiesFine ?? challan?.installment?.absentiesFine ?? 0);
     return (challan.amount || 0) +
       getSelectedHeadsTotal(challan) +
       (challan.lateFeeFine || 0) +
+      absentiesFine +
       getTotalArrears(challan);
   };
 
@@ -1841,6 +1843,7 @@ const FeeManagement = () => {
     const tuitionOnly = Number(challan.snapshotBaseAmount ?? challan.amount ?? 0);
     let headsTotal = Number(challan.fineAmount ?? 0);
     const extraFine = Number(challan.installment?.extraFine || 0);
+    const absentiesFine = Number((challan.snapshotAbsentiesFine ?? challan.installment?.absentiesFine) || 0);
     const lateFee = Number(challan.snapshotLateFee ?? challan.lateFeeFine ?? 0);
     const scholarship = Number(challan.snapshotDiscount) || Number(challan.discount) || Number(challan.installment?.discount) || 0;
     const originalArrears = Number(challan.snapshotArrearsAmount ?? getTotalArrears(challan) ?? 0);
@@ -1925,6 +1928,9 @@ const FeeManagement = () => {
     }
     if (extraFine > 0) {
       headsRowsList.push(`<tr><td>Fine (Extra)</td><td>${extraFine.toLocaleString()}</td></tr>`);
+    }
+    if (absentiesFine > 0) {
+      headsRowsList.push(`<tr><td>Fine (Absentees)</td><td>${absentiesFine.toLocaleString()}</td></tr>`);
     }
     if (Math.abs(scholarship) > 0) {
       headsRowsList.push(`<tr><td>Discount</td><td>-${Math.abs(scholarship).toLocaleString()}</td></tr>`);
@@ -2881,27 +2887,43 @@ const FeeManagement = () => {
                           </TableCell>
                           {/* Base Payable: use snapshotBaseAmount when available (new schema), fall back to challan.amount */}
                           <TableCell className="text-sm px-3 py-2 font-medium">PKR {formatAmount(challan.snapshotBaseAmount ?? challan.amount)}</TableCell>
-                          {/* Extra/Heads + Arrears: use snapshotArrearsAmount when available (new schema), fall back to legacy computation */}
+                          {/* Extra/Heads + Arrears: heads + extraFine + (-discount), with arrears shown as a sub-line */}
                           <TableCell className="text-sm px-3 py-2 font-medium text-orange-600">
-                             {challan.snapshotArrearsAmount != null ? (
-                               <>
-                                 PKR {formatAmount(getSelectedHeadsTotal(challan))}
-                                 {challan.snapshotArrearsAmount > 0 && (
-                                   <div className="text-[10px] text-muted-foreground font-normal">
-                                     + Arrears: {formatAmount(challan.snapshotArrearsAmount)}
-                                   </div>
-                                 )}
-                               </>
-                             ) : (
-                               <>
-                                 PKR {formatAmount(getSelectedHeadsTotal(challan))}
-                                 {getTotalArrears(challan) > 0 && (
-                                   <div className="text-[10px] text-muted-foreground font-normal">
-                                     + Arrears: {formatAmount(getTotalArrears(challan))}
-                                   </div>
-                                 )}
-                               </>
-                             )}
+                             {(() => {
+                               const headsAmount = Number(getSelectedHeadsTotal(challan) || 0);
+                               const extraFineAmount = Number(
+                                 challan.snapshotExtraFine ??
+                                 challan.installment?.extraFine ??
+                                 0
+                               );
+                               const absentiesFineAmount = Number(
+                                 challan.snapshotAbsentiesFine ??
+                                 challan.installment?.absentiesFine ??
+                                 0
+                               );
+                               const discountRaw = Number(
+                                 challan.snapshotDiscount ??
+                                 challan.discount ??
+                                 challan.installment?.discount ??
+                                 0
+                               );
+                               // Apply "-discount" but avoid double minus if discount is already negative.
+                               const discountTerm = discountRaw > 0 ? -discountRaw : discountRaw;
+                               const extraHeadsDisplay = headsAmount + extraFineAmount + absentiesFineAmount + discountTerm;
+                               const arrearsDisplay = challan.snapshotArrearsAmount != null
+                                 ? Number(challan.snapshotArrearsAmount || 0)
+                                 : Number(getTotalArrears(challan) || 0);
+                               return (
+                                 <>
+                                   PKR {formatAmount(extraHeadsDisplay)}
+                                   {arrearsDisplay > 0 && (
+                                     <div className="text-[10px] text-muted-foreground font-normal">
+                                       + Arrears: {formatAmount(arrearsDisplay)}
+                                     </div>
+                                   )}
+                                 </>
+                               );
+                             })()}
                           </TableCell>
                           {/* Late Fee: use snapshotLateFee when available (new schema), fall back to challan.lateFeeFine */}
                           <TableCell className="text-sm px-3 py-2 font-medium text-red-600">
@@ -6107,7 +6129,8 @@ const FeeManagement = () => {
                     {/* Settlement breakdown */}
                     {(() => {
                       const discountVal = Number(selectedChallanDetails.snapshotDiscount || selectedChallanDetails.discount || selectedChallanDetails.installment?.discount || 0);
-                      const totalDue = (selectedChallanDetails.snapshotBaseAmount != null ? Number(selectedChallanDetails.snapshotBaseAmount) : (selectedChallanDetails.amount || 0)) + (selectedChallanDetails.snapshotExtraFine != null ? Number(selectedChallanDetails.snapshotExtraFine) : (selectedChallanDetails.fineAmount || 0)) + (selectedChallanDetails.snapshotLateFee != null ? Number(selectedChallanDetails.snapshotLateFee) : (selectedChallanDetails.lateFeeFine || 0)) - discountVal;
+                      const absentiesFineVal = Number(selectedChallanDetails.snapshotAbsentiesFine ?? selectedChallanDetails.installment?.absentiesFine ?? 0);
+                      const totalDue = (selectedChallanDetails.snapshotBaseAmount != null ? Number(selectedChallanDetails.snapshotBaseAmount) : (selectedChallanDetails.amount || 0)) + (selectedChallanDetails.snapshotExtraFine != null ? Number(selectedChallanDetails.snapshotExtraFine) : (selectedChallanDetails.fineAmount || 0)) + absentiesFineVal + (selectedChallanDetails.snapshotLateFee != null ? Number(selectedChallanDetails.snapshotLateFee) : (selectedChallanDetails.lateFeeFine || 0)) - discountVal;
                       const settled = selectedChallanDetails.settledAmount || 0;
                       const remaining = Math.max(0, totalDue - settled);
                       const fullySettled = settled >= totalDue - 0.01 && totalDue > 0;
@@ -6334,6 +6357,23 @@ const FeeManagement = () => {
                           </TableRow>
                         )}
 
+                        {/* Absentees Fine */}
+                        {(Number((selectedChallanDetails.snapshotAbsentiesFine ?? selectedChallanDetails.installment?.absentiesFine) || 0) > 0) && (
+                          <TableRow className="text-destructive bg-destructive/5 font-medium border-t border-destructive/20">
+                            <TableCell className="text-sm px-3 py-2 italic">
+                              Fine (Absentees)
+                              {(Number((selectedChallanDetails.snapshotTotalAbsenties ?? selectedChallanDetails.installment?.totalAbsenties) || 0) > 0) && (
+                                <span className="text-[10px] text-muted-foreground ml-1">
+                                  ({Number((selectedChallanDetails.snapshotTotalAbsenties ?? selectedChallanDetails.installment?.totalAbsenties) || 0)} days x 50)
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm px-3 text-right font-bold py-2">
+                              {formatAmount(Number((selectedChallanDetails.snapshotAbsentiesFine ?? selectedChallanDetails.installment?.absentiesFine) || 0))}
+                            </TableCell>
+                          </TableRow>
+                        )}
+
                         {/* Discounts */}
                         {(() => {
                           const disc = Number(selectedChallanDetails.snapshotDiscount) || Number(selectedChallanDetails.discount) || Number(selectedChallanDetails.installment?.discount) || 0;
@@ -6350,11 +6390,12 @@ const FeeManagement = () => {
                         {(() => {
                           const isVoid = selectedChallanDetails.status === 'VOID';
                           const discountVal = Number(selectedChallanDetails.snapshotDiscount) || Number(selectedChallanDetails.discount) || Number(selectedChallanDetails.installment?.discount) || 0;
+                          const absentiesFineVal = Number(selectedChallanDetails.snapshotAbsentiesFine ?? selectedChallanDetails.installment?.absentiesFine ?? 0);
                           const totalDue = (Number(selectedChallanDetails.snapshotTotalDue) || 0) > 0
                             ? Number(selectedChallanDetails.snapshotTotalDue)
                             : isVoid
-                              ? Math.max(0, (selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + (selectedChallanDetails.lateFeeFine || 0) - Math.abs(discountVal))
-                              : Math.max(0, (selectedChallanDetails.amount || 0) + getSelectedHeadsTotal(selectedChallanDetails) + (selectedChallanDetails.lateFeeFine || 0) + getRecursiveArrears(selectedChallanDetails) - Math.abs(discountVal));
+                              ? Math.max(0, (selectedChallanDetails.amount || 0) + (selectedChallanDetails.fineAmount || 0) + absentiesFineVal + (selectedChallanDetails.lateFeeFine || 0) - Math.abs(discountVal))
+                              : Math.max(0, (selectedChallanDetails.amount || 0) + getSelectedHeadsTotal(selectedChallanDetails) + absentiesFineVal + (selectedChallanDetails.lateFeeFine || 0) + getRecursiveArrears(selectedChallanDetails) - Math.abs(discountVal));
                           
                           const effectivePaid = isVoid
                             ? (selectedChallanDetails.settledAmount || 0)
@@ -6803,6 +6844,7 @@ const FeeManagement = () => {
                                 <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2">Student</TableHead>
                                 <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Inst. Amt</TableHead>
                                 <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Late Fee</TableHead>
+                                <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Abs. Fine</TableHead>
                                 <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Arrears</TableHead>
                                 <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Advance</TableHead>
                                 <TableHead className="text-sm px-3 py-2 text-[10px] uppercase font-bold p-2 text-right">Total Due</TableHead>
@@ -6835,7 +6877,7 @@ const FeeManagement = () => {
                                 if (filteredRows.length === 0) {
                                   return (
                                     <TableRow>
-                                      <TableCell colSpan={7} className="py-8 text-center text-red-500 font-medium italic">
+                                      <TableCell colSpan={8} className="py-8 text-center text-red-500 font-medium italic">
                                         No installment plan found for {mNameMatch} {selYear} / {generateForm.sessionId !== 'all' ? (academicSessions.find(as => as.id.toString() === generateForm.sessionId)?.name || 'selected session') : 'any session'}
                                       </TableCell>
                                     </TableRow>
@@ -6873,7 +6915,11 @@ const FeeManagement = () => {
                                   const targetClassRank = getClassRank(currentInst?.class);
                                   const targetInstNum = currentInst?.installmentNumber || 0;
                                   const studentLateFee = student.lateFeeFine || lateFeeFine || 0;
-                                  const installmentLateFee = currentInst?.lateFeeAccrued || 0;
+                                  const installmentLateFee = Math.max(
+                                    0,
+                                    Number(currentInst?.lateFeeFine ?? currentInst?.lateFeeAccrued ?? 0) || 0
+                                  );
+                                  const absentiesFineAmount = Math.max(0, Number(currentInst?.absentiesFine ?? 0) || 0);
                                   const recurringHeadsAmt = (student.feeStructure?.feeHeads || [])
                                     .filter(sh => !sh.feeHead?.isTuition && !sh.feeHead?.isDiscount)
                                     .reduce((sum, sh) => sum + (sh.amount || 0), 0);
@@ -7022,7 +7068,7 @@ const FeeManagement = () => {
                                   // Align with backend generation logic:
                                   // advance is applied only when arrears are zero and no active challan exists yet.
                                   const installmentAmount = currentInst ? (Number(currentInst.basePayable ?? currentInst.amount ?? 0) + (recurringHeadsAmt || 0)) : 0;
-                                  const expectedNoArrearsDue = installmentAmount + (installmentLateFee || 0);
+                                  const expectedNoArrearsDue = installmentAmount + (installmentLateFee || 0) + absentiesFineAmount;
                                   const directInstallmentAdvance = resolveInstallmentAdvance(currentInst);
                                   const priorOverpaymentAdvance = resolveAdvanceFromPreviousOverpayments(studentInsts, currentInst);
                                   const availableAdvance = Math.max(directInstallmentAdvance, priorOverpaymentAdvance);
@@ -7118,6 +7164,9 @@ const FeeManagement = () => {
                                       </TableCell>
                                       <TableCell className="text-sm px-3 py-2 text-xs p-2 text-right font-medium whitespace-nowrap text-orange-600">
                                         Rs. {(installmentLateFee || 0).toLocaleString()}
+                                      </TableCell>
+                                      <TableCell className="text-sm px-3 py-2 text-xs p-2 text-right font-medium whitespace-nowrap text-red-600">
+                                        {absentiesFineAmount > 0 ? `Rs. ${absentiesFineAmount.toLocaleString()}` : <span className="text-slate-400">Rs. 0</span>}
                                       </TableCell>
                                       <TableCell className="text-sm px-3 py-2 text-xs p-2 text-right text-red-600 font-medium whitespace-nowrap">
                                         <div>Rs. {arrearsAmount.toLocaleString()}</div>

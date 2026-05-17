@@ -31,6 +31,90 @@ export class ChallanService {
     private readonly installmentService: InstallmentService,
   ) {}
 
+  private monthNameFromDate(date: Date): string {
+    return date.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
+  }
+
+  private async computeAttendanceStatsForInstallment(studentId: number, refDate: Date) {
+    const monthStart = new Date(Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth(), 1));
+    const monthEnd = new Date(Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth() + 1, 0));
+
+    const monthRows = await this.prisma.attendance.findMany({
+      where: {
+        studentId,
+        date: { gte: monthStart, lte: monthEnd },
+      },
+      select: { date: true, status: true },
+      orderBy: { date: 'asc' },
+    });
+
+    const dayMap = new Map<string, { absent: boolean; leave: boolean }>();
+    for (const row of monthRows) {
+      const key = new Date(row.date).toISOString().slice(0, 10);
+      const existing = dayMap.get(key) || { absent: false, leave: false };
+      const status = String(row.status || '').toUpperCase();
+      if (status === 'ABSENT') existing.absent = true;
+      else if (status === 'LEAVE') existing.leave = true;
+      dayMap.set(key, existing);
+    }
+
+    let totalAbsenties = 0;
+    let totalLeaves = 0;
+    for (const day of dayMap.values()) {
+      if (day.absent) totalAbsenties += 1;
+      else if (day.leave) totalLeaves += 1;
+    }
+
+    // Build full month-wise track for this student across all years.
+    const yearRows = await this.prisma.attendance.findMany({
+      where: {
+        studentId,
+      },
+      select: { date: true, status: true },
+      orderBy: { date: 'asc' },
+    });
+
+    const monthDayStatus = new Map<string, Map<string, { absent: boolean; leave: boolean }>>();
+    for (const row of yearRows) {
+      const d = new Date(row.date);
+      const monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const dayKey = d.toISOString().slice(0, 10);
+      const perMonth = monthDayStatus.get(monthKey) || new Map<string, { absent: boolean; leave: boolean }>();
+      const existing = perMonth.get(dayKey) || { absent: false, leave: false };
+      const status = String(row.status || '').toUpperCase();
+      if (status === 'ABSENT') existing.absent = true;
+      else if (status === 'LEAVE') existing.leave = true;
+      perMonth.set(dayKey, existing);
+      monthDayStatus.set(monthKey, perMonth);
+    }
+
+    const attendanceMonthlyTrack = Array.from(monthDayStatus.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([monthKey, perDay]) => {
+        let absentCount = 0;
+        let leaveCount = 0;
+        for (const day of perDay.values()) {
+          if (day.absent) absentCount += 1;
+          else if (day.leave) leaveCount += 1;
+        }
+        const [y, m] = monthKey.split('-').map(Number);
+        const monthDate = new Date(Date.UTC(y, (m || 1) - 1, 1));
+        return {
+          month: this.monthNameFromDate(monthDate),
+          year: y,
+          totalabsenties: absentCount,
+          totalLeaves: leaveCount,
+        };
+      });
+
+    return {
+      totalAbsenties,
+      totalLeaves,
+      absentiesFine: totalAbsenties * 50,
+      attendanceMonthlyTrack,
+    };
+  }
+
   /**
    * Generate a feeChallanV2 snapshot for a given FeeInstallment.
    *
@@ -45,7 +129,7 @@ export class ChallanService {
    *    installments where `pendingAmount > 0`.
    * 5. Calculate `lateFeeFine` via `LateFeeService.calculate` applied to
    *    `(basePayable + arrears)` — the rate is a flat PKR-per-day value.
-   * 6. Calculate `totalAmount = basePayable + arrears + lateFeeFine + extraFine - discount`.
+   * 6. Calculate `totalAmount = basePayable + arrears + lateFeeFine + extraFine + absentiesFine - discount`.
    * 7. In a single transaction:
    *    - Update FeeInstallment K with computed fields + set `challanGenerated = TRUE`
    *    - Create feeChallanV2 snapshot with frozen fields
@@ -174,8 +258,14 @@ export class ChallanService {
     //     date, e.g. a grace period).  Used only for the challan record itself.
     //
     // The rate is a flat PKR-per-day value (not a percentage).
+    const attendanceStats = await this.computeAttendanceStatsForInstallment(
+      installmentK.studentId,
+      new Date(installmentK.dueDate),
+    );
+
     const basePayable = Number(installmentK.basePayable);
     const extraFine = Number(installmentK.extraFine);
+    const absentiesFine = Number(attendanceStats.absentiesFine || 0);
     const discount = Number(installmentK.discount);
 
     // Fetch the global late fee rate (ignoring the local installment rate as requested)
@@ -196,8 +286,8 @@ export class ChallanService {
     }));
 
     const headsSum = headsSnapshot.reduce((sum, h) => sum + h.amount, 0);
-    // total = base + arrears + lateFee + extraFine + headsSum - abs(discount)
-    const totalAmount = basePayable + arrears + lateFeeFine + extraFine + headsSum - Math.abs(discount);
+    // total = base + arrears + lateFee + extraFine + absentiesFine + headsSum - abs(discount)
+    const totalAmount = basePayable + arrears + lateFeeFine + extraFine + absentiesFine + headsSum - Math.abs(discount);
     const paidAmount = Number(installmentK.paidAmount);
     const pendingAmount = totalAmount - paidAmount;
 
@@ -221,6 +311,10 @@ export class ChallanService {
             arrearsInstallments:
               arrearsInstallments.length > 0 ? arrearsInstallments : [],
             lateFeeFine,
+            absentiesFine,
+            totalAbsenties: Number(attendanceStats.totalAbsenties || 0),
+            totalLeaves: Number(attendanceStats.totalLeaves || 0),
+            attendanceMonthlyTrack: attendanceStats.attendanceMonthlyTrack as any,
             totalAmount,
             pendingAmount,
             lateFeeRatePerDay: effectiveRate,
@@ -230,7 +324,7 @@ export class ChallanService {
               ? 'OVERDUE' 
               : (installmentK.status === 'VOID' ? 'PENDING' : installmentK.status)),
             isLocked: pendingAmount <= 0,
-          },
+          } as any,
         });
 
         // Check if the update actually affected any rows
@@ -282,6 +376,9 @@ export class ChallanService {
             snapshotArrearsAmount: arrears,
             snapshotLateFee: lateFeeFine,
             snapshotExtraFine: extraFine,
+            snapshotAbsentiesFine: absentiesFine,
+            snapshotTotalAbsenties: Number(attendanceStats.totalAbsenties || 0),
+            snapshotTotalLeaves: Number(attendanceStats.totalLeaves || 0),
             snapshotDiscount: discount,
             snapshotTotalDue: totalAmount,
             amountReceived: advanceAmount,
@@ -297,7 +394,7 @@ export class ChallanService {
                   headName: h.headName
                 }))
             }
-          },
+          } as any,
         });
 
         // ── Mark prior installments' challans as SUPERSEDED ───────────────────
@@ -774,8 +871,8 @@ export class ChallanService {
                 challanGenerated: false,
                 isLocked: false,
                 paidAmount: 0,
-                pendingAmount: Number(scInst.basePayable),
-                totalAmount: Number(scInst.basePayable),
+                pendingAmount: Number(scInst.basePayable) + Number((scInst as any).absentiesFine || 0),
+                totalAmount: Number(scInst.basePayable) + Number((scInst as any).absentiesFine || 0),
                 arrears: 0,
                 arrearsMonths: [],
                 arrearsInstallments: [],
@@ -1042,6 +1139,7 @@ export class ChallanService {
           if (inst) {
             const basePayable = Number(inst.basePayable);
             const extraFine = Number(challan.snapshotExtraFine || 0);
+            const absentiesFine = Number((challan as any).snapshotAbsentiesFine || 0);
             const discount = Number(challan.snapshotDiscount || 0);
             const arrears = Number(challan.snapshotArrearsAmount || 0);
             const headsSum = (inst.heads || []).reduce((sum, h) => sum + Number(h.amount), 0);
@@ -1049,7 +1147,7 @@ export class ChallanService {
               inst.dueDate,
               Number(inst.lateFeeRatePerDay || 0),
             );
-            const totalAmount = basePayable + headsSum + extraFine + Number(lateFeeFine) + arrears - Math.abs(discount);
+            const totalAmount = basePayable + headsSum + extraFine + absentiesFine + Number(lateFeeFine) + arrears - Math.abs(discount);
 
             await tx.feeInstallment.update({
               where: { id: challan.installmentId },
@@ -1118,6 +1216,9 @@ export class ChallanService {
     const basePayable = Number(inst.basePayable);
     // Restore figures from challan snapshot if available
     const extraFine = fromChallan ? Number(fromChallan.snapshotExtraFine || 0) : Number(inst.extraFine || 0);
+    const absentiesFine = fromChallan
+      ? Number((fromChallan as any).snapshotAbsentiesFine || 0)
+      : Number((inst as any).absentiesFine || 0);
     const discount = fromChallan ? Number(fromChallan.snapshotDiscount || 0) : Number(inst.discount || 0);
     const arrears = fromChallan ? Number(fromChallan.snapshotArrearsAmount || 0) : 0;
     
@@ -1147,8 +1248,8 @@ export class ChallanService {
       0,
     );
 
-    // total = base + heads + extraFine + lateFee + arrears - discount
-    const totalAmount = basePayable + headsSum + extraFine + Number(lateFeeFine) + arrears - Math.abs(discount);
+    // total = base + heads + extraFine + absentiesFine + lateFee + arrears - discount
+    const totalAmount = basePayable + headsSum + extraFine + absentiesFine + Number(lateFeeFine) + arrears - Math.abs(discount);
     const pendingAmount = totalAmount - paidAmount;
 
     // Explicit control from caller:
@@ -1382,6 +1483,7 @@ export class ChallanService {
     const snapshotTotalDue = Number(c.snapshotTotalDue);
     const snapshotDiscount = Number(c.snapshotDiscount) || Number(inst.discount) || 0;
     const extraFine = Number(inst.extraFine || 0);
+    const absentiesFine = Number((c as any).snapshotAbsentiesFine || (inst as any).absentiesFine || 0);
 
     // ── Resolve Discount ──────────────────────────────────────────────────────
     const discount = snapshotDiscount;
@@ -1406,6 +1508,9 @@ export class ChallanService {
     }
     if (extraFine > 0) {
       headsRowsList.push(`<tr><td>Fine (Extra)</td><td>${extraFine.toLocaleString(undefined, {minimumFractionDigits: 2})}</td></tr>`);
+    }
+    if (absentiesFine > 0) {
+      headsRowsList.push(`<tr><td>Fine (Absentees)</td><td>${absentiesFine.toLocaleString(undefined, {minimumFractionDigits: 2})}</td></tr>`);
     }
     if (Math.abs(discount) > 0) {
       headsRowsList.push(`<tr><td>Discount</td><td>-${Math.abs(discount).toLocaleString(undefined, {minimumFractionDigits: 2})}</td></tr>`);
@@ -1733,14 +1838,17 @@ export class ChallanService {
         effectiveRate
       );
 
-      // total = base + arrears + lateFee + extraFine + headsSum + discount (discount is negative)
+      // total = base + arrears + lateFee + extraFine + absentiesFine + headsSum + discount (discount is negative)
       const extraFine = Number(updatedInst?.extraFine || 0);
+      const absentiesFine = Number((updatedInst as any)?.absentiesFine || 0);
+      const totalAbsenties = Number((updatedInst as any)?.totalAbsenties || 0);
+      const totalLeaves = Number((updatedInst as any)?.totalLeaves || 0);
       const discount = Number(updatedInst?.discount || 0);
       const arrears = Number(challan.snapshotArrearsAmount);
       
-      // total = base + arrears + lateFee + extraFine + headsSum - discount
-      // total = base + arrears + lateFee + extraFine + headsSum - abs(discount)
-      const snapshotTotalDue = snapshotBaseAmount + arrears + Number(snapshotLateFee) + extraFine + headsSum - Math.abs(discount);
+      // total = base + arrears + lateFee + extraFine + absentiesFine + headsSum - discount
+      // total = base + arrears + lateFee + extraFine + absentiesFine + headsSum - abs(discount)
+      const snapshotTotalDue = snapshotBaseAmount + arrears + Number(snapshotLateFee) + extraFine + absentiesFine + headsSum - Math.abs(discount);
 
       const finalChallan = await tx.feeChallanV2.update({
         where: { id },
@@ -1748,8 +1856,13 @@ export class ChallanService {
           ...challanUpdate,
           snapshotBaseAmount,
           snapshotLateFee,
+          snapshotExtraFine: extraFine,
+          snapshotAbsentiesFine: absentiesFine,
+          snapshotTotalAbsenties: totalAbsenties,
+          snapshotTotalLeaves: totalLeaves,
+          snapshotDiscount: discount,
           snapshotTotalDue,
-        },
+        } as any,
       });
 
       // Update the installment's late fee and totals for consistency (Requirement: "consistency accross the system")
@@ -1788,7 +1901,7 @@ export class ChallanService {
 
        const headsSum = (inst.heads || []).reduce((s, h) => s + Number(h.amount), 0);
        // Note: discount is subtracted
-       const totalAmount = Number(inst.basePayable) + Number(inst.arrears) + Number(inst.lateFeeFine) + Number(inst.extraFine) + headsSum - Math.abs(Number(inst.discount));
+       const totalAmount = Number(inst.basePayable) + Number(inst.arrears) + Number(inst.lateFeeFine) + Number(inst.extraFine) + Number((inst as any).absentiesFine || 0) + headsSum - Math.abs(Number(inst.discount));
        const pendingAmount = totalAmount - Number(inst.paidAmount);
         
        console.log(`[Ripple] Recalculated Inst #${inst.installmentNumber} (ID: ${inst.id}): Arrears=${inst.arrears}, Total=${totalAmount}, Pending=${pendingAmount}`);
@@ -1837,11 +1950,17 @@ export class ChallanService {
            const snapshotArrearsAmount = pendingAmount;
            const nextChallanHeads = await (tx as any).feeChallanHead.findMany({ where: { challanId: nextChallan.id } });
            const headsSum = nextChallanHeads.reduce((s, h) => s + Number(h.amount), 0);
-           const snapshotTotalDue = Number(nextChallan.snapshotBaseAmount) + snapshotArrearsAmount + Number(nextChallan.snapshotLateFee) + Number(nextInstFull.extraFine) + headsSum - Math.abs(Number(nextInstFull.discount));
+           const snapshotTotalDue = Number(nextChallan.snapshotBaseAmount) + snapshotArrearsAmount + Number(nextChallan.snapshotLateFee) + Number(nextInstFull.extraFine) + Number((nextInstFull as any).absentiesFine || 0) + headsSum - Math.abs(Number(nextInstFull.discount));
            
            await tx.feeChallanV2.update({
              where: { id: nextChallan.id },
-             data: { snapshotArrearsAmount, snapshotTotalDue }
+             data: {
+               snapshotArrearsAmount,
+               snapshotAbsentiesFine: Number((nextInstFull as any).absentiesFine || 0),
+               snapshotTotalAbsenties: Number((nextInstFull as any).totalAbsenties || 0),
+               snapshotTotalLeaves: Number((nextInstFull as any).totalLeaves || 0),
+               snapshotTotalDue,
+             } as any
            });
          }
          
@@ -1918,6 +2037,7 @@ export class ChallanService {
             Number(inst.arrears) +
             liveLateFee +
             Number(inst.extraFine) +
+            Number((inst as any).absentiesFine || 0) +
             headsSum -
             Math.abs(Number(inst.discount));
           updateData.totalAmount = totalAmount;
@@ -1948,6 +2068,7 @@ export class ChallanService {
             Number(activeChallan.snapshotArrearsAmount) +
             liveLateFee +
             Number(inst.extraFine) +
+            Number((inst as any).absentiesFine || 0) +
             cHeadsSum -
             Math.abs(Number(inst.discount));
 
@@ -1956,10 +2077,13 @@ export class ChallanService {
             data: {
               snapshotLateFee: liveLateFee,
               snapshotExtraFine: Number(inst.extraFine),
+              snapshotAbsentiesFine: Number((inst as any).absentiesFine || 0),
+              snapshotTotalAbsenties: Number((inst as any).totalAbsenties || 0),
+              snapshotTotalLeaves: Number((inst as any).totalLeaves || 0),
               snapshotDiscount: Number(inst.discount),
               snapshotTotalDue: newSnapshotTotal,
               status: isPastDue ? 'OVERDUE' : activeChallan.status,
-            },
+            } as any,
           });
         }
 

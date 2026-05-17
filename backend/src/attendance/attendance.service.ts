@@ -13,6 +13,206 @@ import { LeaveDto } from './dtos/leave.dto';
 export class AttendanceService {
   constructor(private prismaService: PrismaService) {}
 
+  private monthNameFromDate(date: Date): string {
+    return date.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
+  }
+
+  private async syncStudentAttendanceToFeeInstallment(studentId: number, targetDate: Date) {
+    if (!studentId || !targetDate) return;
+
+    const monthStart = new Date(
+      Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), 1),
+    );
+    const monthEnd = new Date(
+      Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth() + 1, 0),
+    );
+    const monthLabel = this.monthNameFromDate(targetDate);
+    const year = targetDate.getUTCFullYear();
+
+    // Month-level attendance summary (day-wise to avoid subject-wise double counting).
+    const monthRows = await this.prismaService.attendance.findMany({
+      where: {
+        studentId,
+        date: { gte: monthStart, lte: monthEnd },
+      },
+      select: {
+        date: true,
+        status: true,
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    const dayMap = new Map<string, { absent: boolean; leave: boolean }>();
+    for (const row of monthRows) {
+      const key = new Date(row.date).toISOString().slice(0, 10);
+      const existing = dayMap.get(key) || { absent: false, leave: false };
+      const status = String(row.status || '').toUpperCase();
+      if (status === 'ABSENT') existing.absent = true;
+      else if (status === 'LEAVE') existing.leave = true;
+      dayMap.set(key, existing);
+    }
+
+    let totalAbsenties = 0;
+    let totalLeaves = 0;
+    for (const day of dayMap.values()) {
+      if (day.absent) totalAbsenties += 1;
+      else if (day.leave) totalLeaves += 1;
+    }
+
+    // Charge PKR 50 per absent day for the target month.
+    const absentiesFine = totalAbsenties * 50;
+
+    // Build full month-wise track for this student across all years.
+    const yearRows = await this.prismaService.attendance.findMany({
+      where: {
+        studentId,
+      },
+      select: {
+        date: true,
+        status: true,
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    const monthDayStatus = new Map<string, Map<string, { absent: boolean; leave: boolean }>>();
+    for (const row of yearRows) {
+      const d = new Date(row.date);
+      const monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const dayKey = d.toISOString().slice(0, 10);
+      const perMonth = monthDayStatus.get(monthKey) || new Map<string, { absent: boolean; leave: boolean }>();
+      const existing = perMonth.get(dayKey) || { absent: false, leave: false };
+      const status = String(row.status || '').toUpperCase();
+      if (status === 'ABSENT') existing.absent = true;
+      else if (status === 'LEAVE') existing.leave = true;
+      perMonth.set(dayKey, existing);
+      monthDayStatus.set(monthKey, perMonth);
+    }
+
+    const attendanceMonthlyTrack = Array.from(monthDayStatus.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([monthKey, perDay]) => {
+        let absentCount = 0;
+        let leaveCount = 0;
+        for (const day of perDay.values()) {
+          if (day.absent) absentCount += 1;
+          else if (day.leave) leaveCount += 1;
+        }
+        const [y, m] = monthKey.split('-').map(Number);
+        const monthDate = new Date(Date.UTC(y, (m || 1) - 1, 1));
+        return {
+          month: monthDate.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' }),
+          year: y,
+          totalabsenties: absentCount,
+          totalLeaves: leaveCount,
+        };
+      });
+
+    // Find the target installment for this attendance month.
+    const installmentCandidates = await this.prismaService.feeInstallment.findMany({
+      where: {
+        studentId,
+        OR: [
+          { dueDate: { gte: monthStart, lte: monthEnd } },
+          { month: monthLabel },
+          { month: `${monthLabel} ${year}` },
+          { month: `${monthLabel}-${year}` },
+        ],
+      },
+      orderBy: [{ sessionId: 'desc' }, { dueDate: 'desc' }, { installmentNumber: 'desc' }],
+      include: {
+        heads: true,
+      } as any,
+    });
+
+    const targetInstallment = installmentCandidates.find((inst: any) => {
+      if (inst?.sessionId) {
+        return true;
+      }
+      const dueDate = inst?.dueDate ? new Date(inst.dueDate) : null;
+      return !!dueDate && dueDate.getUTCFullYear() === year && dueDate.getUTCMonth() === targetDate.getUTCMonth();
+    }) || installmentCandidates[0];
+
+    if (!targetInstallment) return;
+
+    const headsSum = (targetInstallment.heads || []).reduce(
+      (sum: number, h: any) => sum + Number(h.amount || 0),
+      0,
+    );
+    const basePayable = Number(targetInstallment.basePayable || 0);
+    const arrears = Number(targetInstallment.arrears || 0);
+    const lateFeeFine = Number(targetInstallment.lateFeeFine || 0);
+    const extraFine = Number(targetInstallment.extraFine || 0);
+    const discount = Number(targetInstallment.discount || 0);
+    const paidAmount = Number(targetInstallment.paidAmount || 0);
+
+    const computedTotalAmount =
+      basePayable +
+      arrears +
+      lateFeeFine +
+      extraFine +
+      Number(absentiesFine || 0) +
+      headsSum -
+      Math.abs(discount);
+    const computedPendingAmount = Math.max(0, computedTotalAmount - paidAmount);
+
+    const isFinanciallyMutable =
+      !targetInstallment.isLocked &&
+      !['PAID', 'SETTLED', 'SUPERSEDED', 'VOID'].includes(String(targetInstallment.status || '').toUpperCase());
+
+    await this.prismaService.feeInstallment.update({
+      where: { id: targetInstallment.id },
+      data: {
+        absentiesFine: Number(absentiesFine || 0),
+        totalAbsenties,
+        totalLeaves,
+        attendanceMonthlyTrack: attendanceMonthlyTrack as any,
+        ...(isFinanciallyMutable
+          ? {
+              totalAmount: computedTotalAmount,
+              pendingAmount: computedPendingAmount,
+            }
+          : {}),
+      } as any,
+    });
+
+    // Keep the active challan snapshot in sync for this installment.
+    const activeChallan = await this.prismaService.feeChallanV2.findFirst({
+      where: {
+        installmentId: targetInstallment.id,
+        status: { notIn: ['PAID', 'VOID', 'SETTLED'] as any },
+      },
+      include: {
+        challanHeads: true,
+      } as any,
+      orderBy: { generatedDate: 'desc' },
+    });
+
+    if (activeChallan) {
+      const challanHeadsSum = (activeChallan.challanHeads || []).reduce(
+        (sum: number, h: any) => sum + Number(h.amount || 0),
+        0,
+      );
+      const snapshotTotalDue =
+        Number(activeChallan.snapshotBaseAmount || basePayable) +
+        Number(activeChallan.snapshotArrearsAmount || arrears) +
+        Number(activeChallan.snapshotLateFee || lateFeeFine) +
+        Number(activeChallan.snapshotExtraFine || extraFine) +
+        Number(absentiesFine || 0) +
+        challanHeadsSum -
+        Math.abs(Number(activeChallan.snapshotDiscount || discount));
+
+      await this.prismaService.feeChallanV2.update({
+        where: { id: activeChallan.id },
+        data: {
+          snapshotAbsentiesFine: Number(absentiesFine || 0),
+          snapshotTotalAbsenties: totalAbsenties,
+          snapshotTotalLeaves: totalLeaves,
+          snapshotTotalDue: snapshotTotalDue,
+        } as any,
+      });
+    }
+  }
+
   private parseDateOnly(date: string | Date) {
     if (date instanceof Date) {
       return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -253,11 +453,14 @@ export class AttendanceService {
       );
     }
 
+    const touchedStudentIds = new Set<number>();
     for (const { studentId, status } of payload) {
+      const sid = Number(studentId);
+      if (sid) touchedStudentIds.add(sid);
       // Check if attendance exists
       const existing = await this.prismaService.attendance.findFirst({
         where: {
-          studentId: Number(studentId),
+          studentId: sid,
           classId,
           sectionId: sectionId ?? null,
           subjectId,
@@ -289,7 +492,7 @@ export class AttendanceService {
         // Create if not exists (handling the case where it wasn't generated)
         await this.prismaService.attendance.create({
           data: {
-            studentId: Number(studentId),
+            studentId: sid,
             classId,
             sectionId: sectionId ?? null,
             subjectId,
@@ -304,6 +507,14 @@ export class AttendanceService {
           },
         });
       }
+    }
+
+    if (touchedStudentIds.size > 0) {
+      await Promise.all(
+        [...touchedStudentIds].map((sid) =>
+          this.syncStudentAttendanceToFeeInstallment(sid, targetDate),
+        ),
+      );
     }
 
     return { success: true, generatedCount: payload.length };
@@ -540,6 +751,17 @@ export class AttendanceService {
           },
         });
       }
+    }
+
+    if (dates.length > 0) {
+      const monthKeys = [...new Set(dates.map((d) => d.toISOString().slice(0, 7)))];
+      await Promise.all(
+        monthKeys.map((mk) => {
+          const [y, m] = mk.split('-').map(Number);
+          const representativeDate = new Date(Date.UTC(y, (m || 1) - 1, 1));
+          return this.syncStudentAttendanceToFeeInstallment(studentId, representativeDate);
+        }),
+      );
     }
   }
   async deleteLeave(id: number) {
@@ -975,6 +1197,22 @@ export class AttendanceService {
     await this.prismaService.attendance.createMany({
       data: newEntries,
     });
+
+    const affectedStudentIds = [
+      ...new Set(
+        newEntries
+          .filter((e) => ['ABSENT', 'LEAVE'].includes(String(e.status || '').toUpperCase()))
+          .map((e) => Number(e.studentId))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      ),
+    ];
+    if (affectedStudentIds.length > 0) {
+      await Promise.all(
+        affectedStudentIds.map((sid) =>
+          this.syncStudentAttendanceToFeeInstallment(sid, targetDate),
+        ),
+      );
+    }
 
     return {
       message: `✅ Generated ${newEntries.length} attendance records for ${targetDate.toDateString()}.`,

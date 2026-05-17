@@ -138,6 +138,20 @@ const Attendance = () => {
     return `${y}-${m}-${day}`;
   };
 
+  // Guard report calculations from massive/invalid date ranges while typing in date inputs.
+  const MAX_REPORT_RANGE_DAYS = 1500;
+  const parseIsoDateOnly = (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+    const d = new Date(`${value}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const getRangeDays = (start, end) => {
+    if (!start || !end) return 0;
+    const days = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1;
+    if (!Number.isFinite(days) || days <= 0 || days > MAX_REPORT_RANGE_DAYS) return 0;
+    return days;
+  };
+
   const isGlobalHoliday = useMemo(() => {
     if (!markDate) return false;
     return holidays.some(h => toLocalDateStr(h.date) === markDate);
@@ -551,10 +565,9 @@ const Attendance = () => {
       };
     }
 
-    const start = new Date(reportStartDate);
-    const end = new Date(reportEndDate);
-    const diffTime = Math.abs(end - start);
-    const totalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    const start = parseIsoDateOnly(reportStartDate);
+    const end = parseIsoDateOnly(reportEndDate);
+    const totalDays = getRangeDays(start, end);
 
     const stats = {
       totalStudents: reportData.length,
@@ -566,6 +579,8 @@ const Attendance = () => {
       shortLeaveCount: 0,
       attendanceRate: 0,
     };
+
+    if (!totalDays) return stats;
 
     reportData.forEach((student) => {
       student.subjects.forEach((subject) => {
@@ -592,11 +607,15 @@ const Attendance = () => {
     if (!reportStartDate || !reportEndDate) return [];
 
     const dates = [];
-    const start = new Date(reportStartDate);
-    const end = new Date(reportEndDate);
+    const start = parseIsoDateOnly(reportStartDate);
+    const end = parseIsoDateOnly(reportEndDate);
+    const totalDays = getRangeDays(start, end);
+    if (!totalDays) return dates;
 
-    for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
-      dates.push(date.toISOString().split('T')[0]);
+    for (let i = 0; i < totalDays; i++) {
+      const date = new Date(start);
+      date.setDate(start.getDate() + i);
+      dates.push(date.toISOString().split("T")[0]);
     }
 
     return dates;
