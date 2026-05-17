@@ -872,6 +872,12 @@ export class HrService {
       return {
         id: staff?.id,
         name: staff?.name || 'N/A',
+        roleLabel: staff?.isTeaching && staff?.isNonTeaching
+          ? 'Dual'
+          : staff?.isTeaching
+            ? 'Teaching'
+            : 'Non-Teaching',
+        roleDepartmentLabel: staff?.department?.name || (staff?.empDepartment as string) || staff?.designation || staff?.specialization || 'N/A',
         designation: staff?.isTeaching
           ? staff.specialization
             ? `Teacher - ${staff.specialization}`

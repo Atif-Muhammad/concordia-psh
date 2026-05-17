@@ -808,12 +808,8 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
                   </TableCell>
                   <TableCell className="py-2 px-3 text-sm">
                     <div className="font-medium">{row.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {row.designation}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {row.department}
-                    </div>
+                    <div className="text-xs text-muted-foreground">{row.roleLabel || row.designation || "N/A"}</div>
+                    <div className="text-xs text-muted-foreground">{row.roleDepartmentLabel || row.department || "N/A"}</div>
                   </TableCell>
                   <TableCell className="py-2 px-3 text-sm">
                     {Number(row.basicSalary).toLocaleString()}
