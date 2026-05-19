@@ -11,6 +11,7 @@ import {
   Req,
   Param,
   HttpCode,
+  BadRequestException
 } from '@nestjs/common';
 import { JwtAccGuard } from 'src/common/guards/jwt-access.guard';
 import { PermissionsGuard } from 'src/common/guards/permission.guard';
@@ -111,6 +112,37 @@ export class HrController {
   @Get('staff/:id')
   async getStaffById(@Param('id') id: string) {
     return await this.hrService.getStaffById(Number(id));
+  }
+
+  @Get('staff-id-settings')
+  async getStaffIdSettings() {
+    return await this.hrService.getStaffIdSettings();
+  }
+
+  @Patch('staff-id-settings')
+  async updateStaffIdSettings(
+    @Body()
+    payload: { teachingPrefix?: string; nonTeachingPrefix?: string; dualPrefix?: string },
+  ) {
+    return await this.hrService.updateStaffIdSettings(payload || {});
+  }
+
+  @Get('staff-id-preview')
+  async previewStaffId(
+    @Query('isTeaching') isTeaching?: string,
+    @Query('isNonTeaching') isNonTeaching?: string,
+    @Query('joinDate') joinDate?: string,
+  ) {
+    const parsedTeaching = String(isTeaching || '').toLowerCase() === 'true';
+    const parsedNonTeaching = String(isNonTeaching || '').toLowerCase() === 'true';
+    if (!parsedTeaching && !parsedNonTeaching) {
+      throw new BadRequestException('At least one role is required for staff ID preview');
+    }
+    return await this.hrService.previewStaffId({
+      isTeaching: parsedTeaching,
+      isNonTeaching: parsedNonTeaching,
+      joinDate,
+    });
   }
 
   @Post('staff')

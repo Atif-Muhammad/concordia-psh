@@ -227,7 +227,7 @@ const Dashboard = () => {
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <div>
-            <h1 className="text-xl font-semibold">Concordia College Peshawar, Management Dashboard</h1>
+            <h1 className="text-xl font-semibold">Concordia College Peshawar Management Dashboard</h1>
             <p className="text-muted-foreground mt-1">Welcome back! Here's what's happening in your institute.</p>
           </div>
           <Select value={sid || ""} onValueChange={setSelectedSessionId}>

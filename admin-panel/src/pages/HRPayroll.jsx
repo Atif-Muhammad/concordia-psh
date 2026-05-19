@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useState, useMemo } from "react";
-import { UserPlus, Edit, Trash2, DollarSign, Calendar as CalendarIcon, CheckCircle2, XCircle, TrendingUp, Users, IdCard, Settings, UserCheck, Clock, Eye, Wallet, LockKeyhole } from "lucide-react";
+import { UserPlus, Edit, Trash2, DollarSign, Calendar as CalendarIcon, CheckCircle2, XCircle, TrendingUp, Users, IdCard, Settings, UserCheck, Clock, Eye, Wallet, LockKeyhole, Info } from "lucide-react";
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -1183,6 +1183,16 @@ const HRPayroll = () => {
                                     <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Half Day"}</TooltipContent>
                                   </Tooltip>
                                   {currentStatus === "leave" && <Badge variant="outline">{String(currentLeaveType || "casual").toUpperCase()}</Badge>}
+                                  {currentStatus === "leave" && !!row.leaveReason && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                                      </TooltipTrigger>
+                                      <TooltipContent className="text-xs max-w-[260px] whitespace-pre-line">
+                                        {`Leave reason: ${row.leaveReason}${row.leaveStartDate && row.leaveEndDate ? `\nPeriod: ${new Date(row.leaveStartDate).toLocaleDateString()} - ${new Date(row.leaveEndDate).toLocaleDateString()}` : ""}`}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
                                 </div>
                               </TableCell>
                             </TableRow>

@@ -43,6 +43,9 @@ import {
     getHolidays,
     deleteStaffAttendanceByDate,
     getDefaultStaffIDCardTemplate,
+    getStaffIdSettingsAPI,
+    updateStaffIdSettingsAPI,
+    previewStaffIdAPI,
 } from "../../config/apis";
 import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -114,6 +117,7 @@ const STAFF_TYPES = ["PERMANENT", "CONTRACT"];
 const STAFF_STATUSES = ["ACTIVE", "TERMINATED", "RETIRED"];
 
 const initialFormData = {
+    staffId: "",
     name: "",
     fatherName: "",
     cnic: "",
@@ -259,6 +263,11 @@ export default function Staff() {
     // Pending action when user confirms override (e.g. generate on holiday, or mark holiday when attendance exists)
     const [pendingAction, setPendingAction] = useState(null); // 'generate' | 'holiday' | null
     const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
+    const [staffIdSettingsForm, setStaffIdSettingsForm] = useState({
+        teachingPrefix: "",
+        nonTeachingPrefix: "",
+        dualPrefix: "",
+    });
 
     const photoInputRef = useRef(null);
 
@@ -271,6 +280,12 @@ export default function Staff() {
         queryKey: ["staffAttendance", attendanceDateStr, attendanceRoleFilter],
         queryFn: () => getStaffAttendance(attendanceDateStr, attendanceRoleFilter),
         enabled: activeTab === "attendance",
+    });
+
+    const { data: staffIdSettings } = useQuery({
+        queryKey: ["staffIdSettings"],
+        queryFn: getStaffIdSettingsAPI,
+        enabled: activeTab === "settings" || dialogOpen,
     });
 
     useEffect(() => {
@@ -562,6 +577,53 @@ export default function Staff() {
         },
     });
 
+    const updateStaffIdSettingsMutation = useMutation({
+        mutationFn: updateStaffIdSettingsAPI,
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ["staffIdSettings"] });
+            setStaffIdSettingsForm({
+                teachingPrefix: data?.teachingPrefix || "",
+                nonTeachingPrefix: data?.nonTeachingPrefix || "",
+                dualPrefix: data?.dualPrefix || "",
+            });
+            toast({ title: "Staff ID settings updated successfully" });
+        },
+        onError: (error) => {
+            toast({ title: "Error", description: error.message, variant: "destructive" });
+        },
+    });
+
+    useEffect(() => {
+        if (!staffIdSettings) return;
+        setStaffIdSettingsForm({
+            teachingPrefix: staffIdSettings.teachingPrefix || "",
+            nonTeachingPrefix: staffIdSettings.nonTeachingPrefix || "",
+            dualPrefix: staffIdSettings.dualPrefix || "",
+        });
+    }, [staffIdSettings]);
+
+    useEffect(() => {
+        if (editingStaff) return;
+        if (!dialogOpen) return;
+        if (!formData.isTeaching && !formData.isNonTeaching) {
+            setFormData(prev => ({ ...prev, staffId: "" }));
+            return;
+        }
+        const timer = setTimeout(async () => {
+            try {
+                const response = await previewStaffIdAPI({
+                    isTeaching: formData.isTeaching,
+                    isNonTeaching: formData.isNonTeaching,
+                    joinDate: formData.joinDate || undefined,
+                });
+                setFormData(prev => ({ ...prev, staffId: response?.staffId || prev.staffId }));
+            } catch {
+                // keep silent; backend still generates final ID on create
+            }
+        }, 200);
+        return () => clearTimeout(timer);
+    }, [dialogOpen, editingStaff, formData.isTeaching, formData.isNonTeaching, formData.joinDate]);
+
     // Handlers
     const handleCloseDialog = () => {
         setDialogOpen(false);
@@ -583,6 +645,7 @@ export default function Staff() {
     const handleOpenEdit = (staff) => {
         setEditingStaff(staff);
         setFormData({
+            staffId: staff.staffId || "",
             name: staff.name || "",
             fatherName: staff.fatherName || "",
             cnic: staff.cnic || "",
@@ -691,6 +754,14 @@ export default function Staff() {
         if (staffToDelete) {
             deleteMutation.mutate(staffToDelete.id);
         }
+    };
+
+    const handleSaveStaffIdSettings = () => {
+        updateStaffIdSettingsMutation.mutate({
+            teachingPrefix: staffIdSettingsForm.teachingPrefix,
+            nonTeachingPrefix: staffIdSettingsForm.nonTeachingPrefix,
+            dualPrefix: staffIdSettingsForm.dualPrefix,
+        });
     };
 
     const handleNext = () => {
@@ -842,6 +913,7 @@ export default function Staff() {
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
                     <TabsList>
                         <TabsTrigger value="directory">Staff Directory</TabsTrigger>
+                        <TabsTrigger value="settings">Settings</TabsTrigger>
                         {/* <TabsTrigger value="attendance">Attendance</TabsTrigger> */}
                     </TabsList>
 
@@ -978,6 +1050,7 @@ export default function Staff() {
                                                             </Avatar>
                                                             <div>
                                                                 <p className="font-medium">{staff.name}</p>
+                                                                <p className="text-xs text-muted-foreground">{staff.staffId || "No Staff ID"}</p>
                                                                 <p className="text-sm text-muted-foreground">{staff.cnic || "No CNIC"}</p>
                                                             </div>
                                                         </div>
@@ -1076,6 +1149,59 @@ export default function Staff() {
                                         </TableBody>
                                     </Table>
                                 )}
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+
+                    <TabsContent value="settings" className="space-y-6">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Staff ID Settings</CardTitle>
+                                <p className="text-sm text-muted-foreground">
+                                    Configure prefixes for Teaching, Non-Teaching, and Dual-role staff IDs.
+                                </p>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <Label>Teaching Prefix</Label>
+                                        <Input
+                                            value={staffIdSettingsForm.teachingPrefix}
+                                            onChange={(e) =>
+                                                setStaffIdSettingsForm((prev) => ({ ...prev, teachingPrefix: e.target.value }))
+                                            }
+                                            placeholder="PSH-TCR-"
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label>Non-Teaching Prefix</Label>
+                                        <Input
+                                            value={staffIdSettingsForm.nonTeachingPrefix}
+                                            onChange={(e) =>
+                                                setStaffIdSettingsForm((prev) => ({ ...prev, nonTeachingPrefix: e.target.value }))
+                                            }
+                                            placeholder="PSH-NT-"
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label>Dual Role Prefix</Label>
+                                        <Input
+                                            value={staffIdSettingsForm.dualPrefix}
+                                            onChange={(e) =>
+                                                setStaffIdSettingsForm((prev) => ({ ...prev, dualPrefix: e.target.value }))
+                                            }
+                                            placeholder="PSH-DUAL-"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex justify-end">
+                                    <Button
+                                        onClick={handleSaveStaffIdSettings}
+                                        disabled={updateStaffIdSettingsMutation.isPending}
+                                    >
+                                        {updateStaffIdSettingsMutation.isPending ? "Saving..." : "Save Settings"}
+                                    </Button>
+                                </div>
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -1399,6 +1525,17 @@ export default function Staff() {
                                 Fill in the details below. Staff can have teaching, non-teaching, or both roles.
                             </DialogDescription>
                         </DialogHeader>
+
+                        <div>
+                            <Label>Staff ID <span className="text-xs text-muted-foreground ml-1">Auto Generated</span></Label>
+                            <Input
+                                value={formData.staffId || ""}
+                                readOnly
+                                disabled
+                                placeholder="Auto-generated from role + join date"
+                                className="bg-muted/40"
+                            />
+                        </div>
 
                         <Tabs value={formTab} onValueChange={setFormTab}>
                             <StepIndicator

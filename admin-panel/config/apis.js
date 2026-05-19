@@ -230,6 +230,58 @@ export const deleteStaffAPI = async (id) => {
   }
 };
 
+export const getStaffIdSettingsAPI = async () => {
+  try {
+    const response = await axios.get(`${base_url}/hr/staff-id-settings`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const updateStaffIdSettingsAPI = async (data) => {
+  try {
+    const response = await axios.patch(`${base_url}/hr/staff-id-settings`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const previewStaffIdAPI = async ({ isTeaching, isNonTeaching, joinDate }) => {
+  try {
+    const params = new URLSearchParams();
+    params.append("isTeaching", String(Boolean(isTeaching)));
+    params.append("isNonTeaching", String(Boolean(isNonTeaching)));
+    if (joinDate) params.append("joinDate", joinDate);
+    const response = await axios.get(`${base_url}/hr/staff-id-preview?${params.toString()}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // LEGACY EMPLOYEE APIs (kept for backward compatibility)
 // ═══════════════════════════════════════════════════════════════════════════

@@ -2217,6 +2217,30 @@ const FeeManagement = () => {
     const histTotals = paymentHistory.map(i => `<td>${Number(i.snapshotTotalDue ?? i.totalAmount ?? 0).toFixed(0)}</td>`).join('');
     const histPaid = paymentHistory.map(i => {
       const challans = Array.isArray(i?.challans) ? i.challans : [];
+      const installmentStatus = String(i?.status || '').toUpperCase();
+      const nonVoidChallans = [...challans]
+        .filter(c => String(c?.status || '').toUpperCase() !== 'VOID')
+        .sort((a, b) => {
+          const bt = new Date(b?.paidAt || b?.generatedDate || b?.updatedAt || b?.createdAt || 0).getTime();
+          const at = new Date(a?.paidAt || a?.generatedDate || a?.updatedAt || a?.createdAt || 0).getTime();
+          return bt - at;
+        });
+      const installmentPaid = Number(i?.paidAmount ?? 0);
+      const installmentSettled = Number(i?.settledAmount ?? 0);
+      const directPaidFromInstallment = Number.isFinite(installmentPaid)
+        ? Math.max(0, installmentPaid - (Number.isFinite(installmentSettled) ? installmentSettled : 0))
+        : 0;
+      const directPaidFromOwnChallan = (() => {
+        const latestDirect = nonVoidChallans.find(c => {
+          const received = Number(c?.amountReceived ?? 0);
+          return Number.isFinite(received) && received > 0;
+        });
+        const latestDirectAmount = Number(latestDirect?.amountReceived ?? 0);
+        if (Number.isFinite(latestDirectAmount) && latestDirectAmount > 0) {
+          return latestDirectAmount;
+        }
+        return 0;
+      })();
       const activeChallans = [...challans]
         .filter(c => !['VOID', 'SUPERSEDED'].includes(String(c?.status || '').toUpperCase()))
         .sort((a, b) => {
@@ -2227,6 +2251,23 @@ const FeeManagement = () => {
       const preferred = activeChallans.find(c => ['PAID', 'PARTIAL', 'SETTLED', 'SUCCESS'].includes(String(c?.status || '').toUpperCase()))
         || activeChallans[0]
         || null;
+      const preferredStatus = String(preferred?.status || '').toUpperCase();
+      const settledViaOtherChallan = Boolean(i?.settledByChallanNumber)
+        || ['SUPERSEDED', 'SETTLED'].includes(installmentStatus)
+        || challans.some(c => Boolean(c?.settledByChallanNumber))
+        || challans.some(c => ['SUPERSEDED', 'SETTLED'].includes(String(c?.status || '').toUpperCase()));
+      const isPendingOrUnpaid = !preferred
+        || ['PENDING', 'UNPAID', 'OVERDUE', 'DUE', 'GENERATED', 'DRAFT'].includes(preferredStatus)
+        || ['PENDING', 'UNPAID', 'OVERDUE', 'DUE'].includes(installmentStatus);
+
+      if (settledViaOtherChallan) {
+        const settledRowDirectPaid = Math.max(directPaidFromInstallment, directPaidFromOwnChallan);
+        return `<td>${Math.max(0, settledRowDirectPaid).toFixed(0)}</td>`;
+      }
+
+      if (isPendingOrUnpaid) {
+        return `<td>0</td>`;
+      }
 
       const paidFromPreferredChallan = Number(preferred?.amountReceived ?? preferred?.paidAmount ?? 0);
       const installmentAppliedPaid = Number(i?.paidAmount ?? 0);

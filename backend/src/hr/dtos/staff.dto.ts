@@ -29,6 +29,9 @@ export class StaffDto {
   id?: number;
 
   @IsOptional()
+  staffId?: string;
+
+  @IsOptional()
   permissions?: string | any;
 
   // Common fields

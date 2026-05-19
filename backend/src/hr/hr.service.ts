@@ -22,6 +22,11 @@ import * as bcrypt from 'bcrypt';
 @Injectable()
 export class HrService {
   constructor(private prismService: PrismaService) { }
+  private readonly defaultStaffIdPrefixes = {
+    teaching: 'TCR-',
+    nonTeaching: 'NT-',
+    dual: 'DUAL-',
+  };
 
   private getActor(user?: any) {
     const name =
@@ -82,6 +87,100 @@ export class HrService {
     const raw = String(value ?? '').trim().toUpperCase();
     if (raw === 'CASUAL' || raw === 'SICK' || raw === 'ANNUAL') return raw;
     return null;
+  }
+
+  private sanitizeStaffIdPrefix(value: unknown, fallback: string) {
+    const raw = String(value ?? '').trim().toUpperCase();
+    const compact = raw.replace(/\s+/g, '');
+    const safe = compact.replace(/[^A-Z0-9-]/g, '');
+    if (!safe) return fallback;
+    return safe.endsWith('-') ? safe : `${safe}-`;
+  }
+
+  private getStaffRoleKey(isTeaching: boolean, isNonTeaching: boolean): 'teaching' | 'nonTeaching' | 'dual' {
+    if (isTeaching && isNonTeaching) return 'dual';
+    if (isTeaching) return 'teaching';
+    return 'nonTeaching';
+  }
+
+  async getStaffIdSettings() {
+    const existing = await this.prismService.staffIdSettings.findFirst({
+      orderBy: { id: 'asc' },
+    });
+
+    if (existing) return existing;
+
+    return this.prismService.staffIdSettings.create({
+      data: {
+        teachingPrefix: this.defaultStaffIdPrefixes.teaching,
+        nonTeachingPrefix: this.defaultStaffIdPrefixes.nonTeaching,
+        dualPrefix: this.defaultStaffIdPrefixes.dual,
+      },
+    });
+  }
+
+  async updateStaffIdSettings(payload: {
+    teachingPrefix?: string;
+    nonTeachingPrefix?: string;
+    dualPrefix?: string;
+  }) {
+    const current = await this.getStaffIdSettings();
+    return this.prismService.staffIdSettings.update({
+      where: { id: current.id },
+      data: {
+        teachingPrefix: this.sanitizeStaffIdPrefix(payload.teachingPrefix, current.teachingPrefix),
+        nonTeachingPrefix: this.sanitizeStaffIdPrefix(payload.nonTeachingPrefix, current.nonTeachingPrefix),
+        dualPrefix: this.sanitizeStaffIdPrefix(payload.dualPrefix, current.dualPrefix),
+      },
+    });
+  }
+
+  private async generateUniqueStaffId(params: {
+    isTeaching: boolean;
+    isNonTeaching: boolean;
+    joinDate?: Date | null;
+  }) {
+    const settings = await this.getStaffIdSettings();
+    const roleKey = this.getStaffRoleKey(params.isTeaching, params.isNonTeaching);
+    const prefixMap = {
+      teaching: settings.teachingPrefix,
+      nonTeaching: settings.nonTeachingPrefix,
+      dual: settings.dualPrefix,
+    };
+
+    const prefix = this.sanitizeStaffIdPrefix(prefixMap[roleKey], this.defaultStaffIdPrefixes[roleKey]);
+    const date = params.joinDate instanceof Date && !isNaN(params.joinDate.getTime()) ? params.joinDate : new Date();
+    const yy = String(date.getFullYear()).slice(-2);
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const yymm = `${yy}${mm}`;
+
+    for (let i = 0; i < 40; i += 1) {
+      const rand = String(Math.floor(1000 + Math.random() * 9000));
+      const candidate = `${prefix}${yymm}${rand}`;
+      const exists = await this.prismService.staff.findUnique({
+        where: { staffId: candidate },
+        select: { id: true },
+      });
+      if (!exists) return candidate;
+    }
+
+    throw new BadRequestException('Unable to generate unique staff ID. Please try again.');
+  }
+
+  async previewStaffId(params: {
+    isTeaching: boolean;
+    isNonTeaching: boolean;
+    joinDate?: string;
+  }) {
+    const parsedJoinDate = params.joinDate && !isNaN(new Date(params.joinDate).getTime())
+      ? new Date(params.joinDate)
+      : new Date();
+    const staffId = await this.generateUniqueStaffId({
+      isTeaching: params.isTeaching,
+      isNonTeaching: params.isNonTeaching,
+      joinDate: parsedJoinDate,
+    });
+    return { staffId };
   }
 
   private buildTypedLeaveCounts(params: {
@@ -296,10 +395,20 @@ export class HrService {
       typeof payload.documents === 'string'
         ? JSON.parse(payload.documents)
         : payload.documents;
+    const parsedJoinDate =
+      payload.joinDate && !isNaN(new Date(payload.joinDate).getTime())
+        ? new Date(payload.joinDate)
+        : new Date();
+    const generatedStaffId = await this.generateUniqueStaffId({
+      isTeaching,
+      isNonTeaching,
+      joinDate: parsedJoinDate,
+    });
 
     try {
       const created = await this.prismService.staff.create({
         data: {
+          staffId: generatedStaffId,
           name: payload.name,
           fatherName: payload.fatherName || null,
           email: payload.email || null,
@@ -317,9 +426,7 @@ export class HrService {
               ? parseFloat(payload.basicPay)
               : null,
           joinDate:
-            payload.joinDate && !isNaN(new Date(payload.joinDate).getTime())
-              ? new Date(payload.joinDate)
-              : undefined,
+            parsedJoinDate,
           leaveDate:
             payload.leaveDate && !isNaN(new Date(payload.leaveDate).getTime())
               ? new Date(payload.leaveDate)
@@ -379,7 +486,7 @@ export class HrService {
     } catch (error: any) {
       if (error.code === 'P2002') {
         throw new BadRequestException(
-          'Email or CNIC is already taken by another staff member',
+          'Email, CNIC, or Staff ID is already taken by another staff member',
         );
       }
       throw error;
@@ -429,11 +536,25 @@ export class HrService {
           ? JSON.parse(payload.documents)
           : payload.documents
         : undefined;
+    const resolvedJoinDate =
+      payload.joinDate !== undefined
+        ? payload.joinDate && !isNaN(new Date(payload.joinDate).getTime())
+          ? new Date(payload.joinDate)
+          : null
+        : existing.joinDate;
+    const generatedStaffIdForLegacy = !existing.staffId
+      ? await this.generateUniqueStaffId({
+        isTeaching,
+        isNonTeaching,
+        joinDate: resolvedJoinDate,
+      })
+      : existing.staffId;
 
     try {
       const updated = await this.prismService.staff.update({
         where: { id },
         data: {
+          staffId: generatedStaffIdForLegacy,
           name: payload.name,
           fatherName: payload.fatherName,
           email: payload.email,
@@ -454,9 +575,7 @@ export class HrService {
               : undefined,
           joinDate:
             payload.joinDate !== undefined
-              ? payload.joinDate && !isNaN(new Date(payload.joinDate).getTime())
-                ? new Date(payload.joinDate)
-                : null
+              ? resolvedJoinDate
               : undefined,
           leaveDate:
             payload.leaveDate !== undefined
@@ -541,7 +660,7 @@ export class HrService {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2002') {
           throw new BadRequestException(
-            'Email or CNIC is already taken by another staff member',
+            'Email, CNIC, or Staff ID is already taken by another staff member',
           );
         }
         if (error.code === 'P2025') {
@@ -2119,14 +2238,36 @@ export class HrService {
             admin: { select: { name: true } },
           },
         },
+        leaves: {
+          where: {
+            status: 'APPROVED' as any,
+            startDate: { lte: targetDate },
+            endDate: { gte: targetDate },
+          },
+          select: {
+            id: true,
+            leaveType: true,
+            reason: true,
+            startDate: true,
+            endDate: true,
+            status: true,
+          },
+          orderBy: { id: 'desc' },
+          take: 1,
+        },
       },
       orderBy: { name: 'asc' },
     });
 
-// Return a flat, UI-friendly row per staff member.
+    // Return a flat, UI-friendly row per staff member.
     // If no record exists for the date, status is null — the UI shows "Not Marked".
     return staffList.map((s) => {
       const existing = s.attendance?.[0];
+      const approvedLeave = (s as any)?.leaves?.[0] || null;
+      const inferredFromApprovedLeave = !existing && !!approvedLeave;
+      const inferredLeaveType = approvedLeave
+        ? (this.normalizeAttendanceLeaveType(approvedLeave.leaveType) || 'CASUAL')
+        : null;
       return {
         id: existing?.id ?? null,
         staffId: s.id,
@@ -2142,8 +2283,8 @@ export class HrService {
           photo_url: s.photo_url,
         },
         date: existing?.date ?? targetDate,
-        status: existing?.status ?? null,
-        leaveType: existing?.leaveType ?? null,
+        status: existing?.status ?? (inferredFromApprovedLeave ? AttendanceStatus.LEAVE : null),
+        leaveType: existing?.leaveType ?? (inferredFromApprovedLeave ? inferredLeaveType : null),
         markedBy: existing?.markedBy ?? null,
         markedAt: existing?.markedAt ?? null,
         generatedAt: existing?.generatedAt ?? null,
@@ -2152,6 +2293,11 @@ export class HrService {
         notes: existing?.notes ?? null,
         autoGenerated: existing?.autoGenerated ?? false,
         admin: existing?.admin ?? null,
+        leaveReason: approvedLeave?.reason ?? null,
+        leaveRequestId: approvedLeave?.id ?? null,
+        leaveStartDate: approvedLeave?.startDate ?? null,
+        leaveEndDate: approvedLeave?.endDate ?? null,
+        leaveInferredFromApprovedRequest: inferredFromApprovedLeave,
       };
     });
   }

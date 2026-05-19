@@ -178,6 +178,7 @@ enum StaffStatus {
 
 model Staff {
   id              Int     @id @unique @default(autoincrement())
+  staffId         String? @unique @db.VarChar(50)
   name            String  @db.VarChar(100)
   fatherName      String? @db.VarChar(100)
   email           String? @unique @db.VarChar(100)
@@ -1186,6 +1187,17 @@ model Payroll {
 
   @@unique([staffId, month])
   @@map("payroll")
+}
+
+model StaffIdSettings {
+  id                Int    @id @default(autoincrement())
+  teachingPrefix    String @db.VarChar(30)
+  nonTeachingPrefix String @db.VarChar(30)
+  dualPrefix        String @db.VarChar(30)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("staffidsettings")
 }
 
 model PayrollPayment {
