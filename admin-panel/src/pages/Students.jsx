@@ -90,6 +90,7 @@ import {
   getExtraChallansDedicated,
 } from "../../config/apis";
 import { computeOutstandingBalance } from "@/lib/hostelUtils";
+import { openManagedPrintWindow } from "@/lib/managedPrint";
 import StudentForm from "@/components/students/StudentForm";
 import {
   UserPlus,
@@ -242,6 +243,7 @@ const Students = () => {
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedChallanDetails, setSelectedChallanDetails] = useState(null);
   const [challanDetailLoading, setChallanDetailLoading] = useState(false);
+  const [studentChallanPrinting, setStudentChallanPrinting] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -1325,25 +1327,29 @@ const Students = () => {
     return finalHtml;
   };
 
-  // 2.5 printChallan — accepts challan object directly, fetches template, opens print window
+  // 2.5 printChallan - accepts challan object directly, fetches template, opens print window
   const printChallan = async (challan) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
+      return;
+    }
+
+    setStudentChallanPrinting(true);
     try {
       const template = await getDefaultFeeChallanTemplate();
       if (!template?.htmlContent) {
         toast({ title: "Template Missing", description: "Please mark a template as 'Default' in the Templates tab.", variant: "destructive" });
+        printWindow.close?.();
         return;
       }
       const finalHtml = generateChallanHtml(challan, template.htmlContent);
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) {
-        toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
-        return;
-      }
-      printWindow.document.write(finalHtml);
-      printWindow.document.close();
-      printWindow.onload = () => { printWindow.print(); };
+      await openManagedPrintWindow({ html: finalHtml, title: "Challan #" + (challan?.challanNumber || ""), toast, printWindow });
     } catch (error) {
       toast({ title: "Print error", description: "Failed to generate print view.", variant: "destructive" });
+      printWindow.close?.();
+    } finally {
+      setStudentChallanPrinting(false);
     }
   };
 
@@ -3640,8 +3646,8 @@ const Students = () => {
               <DialogTitle className="flex justify-between items-center">
                 <span>Challan Preview &amp; Details{challanDetailLoading && <span className="ml-2 text-xs font-normal text-muted-foreground animate-pulse">Loading full details…</span>}</span>
                 {selectedChallanDetails && (
-                  <Button variant="outline" size="sm" onClick={() => printChallan(selectedChallanDetails)} className="gap-2" disabled={challanDetailLoading}>
-                    <Printer className="w-4 h-4" /> Print Challan
+                  <Button variant="outline" size="sm" onClick={() => printChallan(selectedChallanDetails)} className="gap-2" disabled={challanDetailLoading || studentChallanPrinting}>
+                    <Printer className="w-4 h-4" /> {studentChallanPrinting ? "Preparing..." : "Print Challan"}
                   </Button>
                 )}
               </DialogTitle>

@@ -47,6 +47,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  Loader2,
 } from "lucide-react";
 import { useData } from "@/contexts/DataContext";
 import { useNavigate } from "react-router-dom";
@@ -75,6 +76,10 @@ import {
   createStudentIDCardTemplate,
   updateStudentIDCardTemplate,
   deleteStudentIDCardTemplate,
+  getFeeChallanTemplates,
+  createFeeChallanTemplate,
+  updateFeeChallanTemplate,
+  deleteFeeChallanTemplate,
 } from "../../config/apis";
 import {
   AlertDialog,
@@ -808,7 +813,6 @@ const Configuration = () => {
     config,
     branches,
     roles,
-    challanTemplates,
     idCardTemplates,
     // updateConfig removed as per user request to use backend only for institute
     addBranch,
@@ -817,9 +821,6 @@ const Configuration = () => {
     addRole,
     updateRole,
     deleteRole,
-    addChallanTemplate,
-    updateChallanTemplate,
-    deleteChallanTemplate,
     addIDCardTemplate,
     updateIDCardTemplate,
     deleteIDCardTemplate,
@@ -888,6 +889,9 @@ const Configuration = () => {
   const [idCardDialog, setIdCardDialog] = useState(false);
   const [teacherIdCardDialog, setTeacherIdCardDialog] = useState(false);
   const [studentIdCardDialog, setStudentIdCardDialog] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState("");
+  const [deletingTemplate, setDeletingTemplate] = useState({ type: "", id: null });
   const [challanForm, setChallanForm] = useState({
     name: "",
     htmlContent: "",
@@ -1081,6 +1085,7 @@ const Configuration = () => {
   });
 
   // Teacher ID Card State (Refactored to Backend)
+  const [feeChallanTemplates, setFeeChallanTemplates] = useState([]);
   const [teacherIdCardTemplates, setTeacherIdCardTemplates] = useState([]);
   const [studentIdCardTemplates, setStudentIdCardTemplates] = useState([]);
 
@@ -1091,12 +1096,14 @@ const Configuration = () => {
   useEffect(() => {
     const fetchTemplates = async () => {
       try {
-        const [marksheetData, payrollData, staffIdCardData, studentIdCardData] = await Promise.all([
+        const [feeChallanData, marksheetData, payrollData, staffIdCardData, studentIdCardData] = await Promise.all([
+          getFeeChallanTemplates(),
           getReportCardTemplates(),
           getPayrollTemplates(),
           getStaffIDCardTemplates(),
           getStudentIDCardTemplates()
         ]);
+        setFeeChallanTemplates(feeChallanData);
         setMarksheetTemplates(marksheetData);
         setPayrollTemplates(payrollData);
         setTeacherIdCardTemplates(staffIdCardData);
@@ -1170,8 +1177,9 @@ const Configuration = () => {
   }, []);
 
   const handleConfigUpdate = async () => {
+    setSavingConfig(true);
     try {
-      const updated = await updateInstituteSettings(configForm);
+      await updateInstituteSettings(configForm);
       // Invalidate the query to refresh header/sidebar logo and name
       queryClient.invalidateQueries({ queryKey: ["instituteSettings"] });
       toast({
@@ -1184,6 +1192,8 @@ const Configuration = () => {
         description: error.message || "Failed to update configuration",
         variant: "destructive",
       });
+    } finally {
+      setSavingConfig(false);
     }
   };
   const handleBranchSubmit = () => {
@@ -1352,6 +1362,68 @@ const Configuration = () => {
     });
     setPasswordDialog(true);
   };
+  const renderButtonContent = (loading, loadingText, defaultContent) => (
+    loading ? (
+      <>
+        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+        {loadingText}
+      </>
+    ) : defaultContent
+  );
+
+  const refreshFeeChallanTemplates = async () => {
+    const templates = await getFeeChallanTemplates();
+    setFeeChallanTemplates(Array.isArray(templates) ? templates : []);
+  };
+
+  const handleChallanTemplateSave = async () => {
+    const payload = {
+      name: challanForm.name,
+      htmlContent: challanForm.htmlContent,
+      isDefault: challanForm.isDefault,
+      type: challanForm.type,
+    };
+
+    setSavingTemplate("challan");
+    try {
+      if (editingChallan) {
+        await updateFeeChallanTemplate(editingChallan, payload);
+        toast({ title: "Template updated successfully" });
+      } else {
+        await createFeeChallanTemplate(payload);
+        toast({ title: "Template added successfully" });
+      }
+      await refreshFeeChallanTemplates();
+      setChallanDialog(false);
+      setEditingChallan(null);
+    } catch (err) {
+      toast({
+        title: editingChallan ? "Failed to update template" : "Failed to add template",
+        description: err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSavingTemplate("");
+    }
+  };
+
+  const handleChallanTemplateDelete = async (id) => {
+    setDeletingTemplate({ type: "challan", id });
+    try {
+      await deleteFeeChallanTemplate(id);
+      await refreshFeeChallanTemplates();
+      toast({ title: "Template deleted" });
+    } catch (err) {
+      toast({
+        title: "Failed to delete template",
+        description: err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingTemplate({ type: "", id: null });
+    }
+  };
+
   const { theme, setTheme } = useTheme();
   return (
     <DashboardLayout>
@@ -1520,7 +1592,9 @@ const Configuration = () => {
                   />
                   <p className="text-xs text-muted-foreground mt-1">Sets the prefix for generated challan numbers (e.g. CPC-000001)</p>
                 </div>
-                <Button onClick={handleConfigUpdate}>Save Configuration</Button>
+                <Button onClick={handleConfigUpdate} disabled={savingConfig}>
+                  {renderButtonContent(savingConfig, "Saving...", "Save Configuration")}
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1820,8 +1894,16 @@ const Configuration = () => {
                       />
                     </div>
                     <DialogFooter>
-                      <Button onClick={handleAdminSubmit} className="w-full">
-                        Update Account
+                      <Button
+                        onClick={handleAdminSubmit}
+                        className="w-full"
+                        disabled={createAdminMutation.isPending || updateAdminMutation.isPending}
+                      >
+                        {renderButtonContent(
+                          createAdminMutation.isPending || updateAdminMutation.isPending,
+                          "Saving...",
+                          "Update Account"
+                        )}
                       </Button>
                     </DialogFooter>
                   </div>
@@ -2081,50 +2163,15 @@ const Configuration = () => {
                             <Label>Set as Default Template</Label>
                           </div>
                           <Button
-                            onClick={() => {
-                              const payload = {
-                                name: challanForm.name,
-                                htmlContent: challanForm.htmlContent,
-                                isDefault: challanForm.isDefault,
-                                type: challanForm.type,
-                              };
-
-                              if (editingChallan) {
-                                // "editingChallan" is the ID of the template being edited
-                                updateChallanTemplate(editingChallan, payload)
-                                  .then(() => {
-                                    toast({
-                                      title: "Template updated successfully",
-                                    });
-                                    setChallanDialog(false);
-                                  })
-                                  .catch((err) => {
-                                    toast({
-                                      title: "Failed to update template",
-                                      description: err.message,
-                                      variant: "destructive",
-                                    });
-                                  });
-                              } else {
-                                addChallanTemplate(payload)
-                                  .then(() => {
-                                    toast({
-                                      title: "Template added successfully",
-                                    });
-                                    setChallanDialog(false);
-                                  })
-                                  .catch((err) => {
-                                    toast({
-                                      title: "Failed to add template",
-                                      description: err.message,
-                                      variant: "destructive",
-                                    });
-                                  });
-                              }
-                            }}
+                            onClick={handleChallanTemplateSave}
                             className="w-full"
+                            disabled={savingTemplate === "challan"}
                           >
-                            {editingChallan ? "Update" : "Add"}
+                            {renderButtonContent(
+                              savingTemplate === "challan",
+                              editingChallan ? "Updating..." : "Adding...",
+                              editingChallan ? "Update" : "Add"
+                            )}
                           </Button>
                         </div>
                       </DialogContent>
@@ -2141,7 +2188,7 @@ const Configuration = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {challanTemplates.map((template) => (
+                      {feeChallanTemplates.map((template) => (
                         <TableRow key={template.id}>
                           <TableCell className="py-2 px-3 text-sm">{template.name}</TableCell>
                           <TableCell className="py-2 px-3 text-sm">
@@ -2191,14 +2238,14 @@ const Configuration = () => {
                                     <Button
                                       variant="destructive"
                                       size="sm"
-                                      onClick={() => {
-                                        deleteChallanTemplate(template.id);
-                                        toast({
-                                          title: "Template deleted",
-                                        });
-                                      }}
+                                      onClick={() => handleChallanTemplateDelete(template.id)}
+                                      disabled={deletingTemplate.type === "challan" && deletingTemplate.id === template.id}
                                     >
-                                      <Trash2 className="w-4 h-4" />
+                                      {deletingTemplate.type === "challan" && deletingTemplate.id === template.id ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="w-4 h-4" />
+                                      )}
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent>Delete</TooltipContent>
@@ -3189,9 +3236,9 @@ const Configuration = () => {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDelete}>
-                Delete
+              <AlertDialogCancel disabled={deleteAdminMutation.isPending}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDelete} disabled={deleteAdminMutation.isPending}>
+                {renderButtonContent(deleteAdminMutation.isPending, "Deleting...", "Delete")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -3241,7 +3288,9 @@ const Configuration = () => {
               >
                 Cancel
               </Button>
-              <Button onClick={handlePasswordUpdate}>Update Password</Button>
+              <Button onClick={handlePasswordUpdate} disabled={updatePasswordMutation.isPending}>
+                {renderButtonContent(updatePasswordMutation.isPending, "Updating...", "Update Password")}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

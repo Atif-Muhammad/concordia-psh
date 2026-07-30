@@ -48,6 +48,7 @@ import {
   getHostelReportsAnalytics,
 } from "../../config/apis";
 import { computeOutstandingBalance } from "@/lib/hostelUtils";
+import { openManagedPrintWindow } from "@/lib/managedPrint";
 import { Home, Bed, UtensilsCrossed, DollarSign, Edit, Trash2, UserPlus, Package, Search, X, Receipt, Plus, Eye, ExternalLink, Printer, AlertCircle, ArrowRight, UserX, LogOut, Loader2, RotateCcw } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -301,6 +302,8 @@ const Boarding = () => {
   const [payHostelDate, setPayHostelDate] = useState(new Date().toISOString().split('T')[0]);
   const [challanPreviewOpen, setChallanPreviewOpen] = useState(false);
   const [challanPreviewHtml, setChallanPreviewHtml] = useState("");
+  const [hostelPrintingId, setHostelPrintingId] = useState(null);
+  const [hostelPreviewPrinting, setHostelPreviewPrinting] = useState(false);
   const [editingHostelChallan, setEditingHostelChallan] = useState(null);
   const [editHostelChallanForm, setEditHostelChallanForm] = useState({ fineAmount: "", discount: "", remarks: "", dueDate: "", heads: [] });
   const [challanDeleteConfirmOpen, setChallanDeleteConfirmOpen] = useState(false);
@@ -816,16 +819,18 @@ const Boarding = () => {
   };
 
   const printHostelChallan = async (challan, reg) => {
+    const w = window.open('', '_blank');
+    if (!w) { toast({ title: "Pop-up blocked", variant: "destructive" }); return; }
+
+    setHostelPrintingId(challan?.id || challan?.challanNumber || null);
     try {
       const html = await generateHostelChallanHtml(challan, reg);
-      const w = window.open('', '_blank');
-      if (!w) { toast({ title: "Pop-up blocked", variant: "destructive" }); return; }
-      // Add au script if not already in template
-      const printHtml = html.includes('window.print') ? html : html.replace('</body>', '<script>window.onload=()=>window.print()</script></body>');
-      w.document.write(printHtml);
-      w.document.close();
+      await openManagedPrintWindow({ html, title: "Hostel Challan #" + (challan?.challanNumber || ""), toast, printWindow: w });
     } catch (e) {
       toast({ title: "Failed to generate print view", variant: "destructive" });
+      w.close?.();
+    } finally {
+      setHostelPrintingId(null);
     }
   };
 
@@ -1844,8 +1849,8 @@ const Boarding = () => {
                                     </Tooltip>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <Button size="sm" variant="outline" onClick={() => printHostelChallan(c, challanReg)}>
-                                          <Printer className="h-4 w-4" />
+                                        <Button size="sm" variant="outline" onClick={() => printHostelChallan(c, challanReg)} disabled={hostelPrintingId === (c.id || c.challanNumber)}>
+                                          {hostelPrintingId === (c.id || c.challanNumber) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
                                         </Button>
                                       </TooltipTrigger>
                                       <TooltipContent>Print</TooltipContent>
@@ -3010,16 +3015,17 @@ const Boarding = () => {
           </div>
           <div className="flex justify-end gap-2 px-6 pb-6 flex-shrink-0 border-t pt-4">
             <Button variant="outline" onClick={() => setChallanPreviewOpen(false)}>Close</Button>
-            <Button onClick={() => {
+            <Button onClick={async () => {
               const w = window.open('', '_blank');
               if (!w) { toast({ title: "Pop-up blocked", variant: "destructive" }); return; }
-              const printHtml = challanPreviewHtml.includes('window.print')
-                ? challanPreviewHtml
-                : challanPreviewHtml.replace('</body>', '<script>window.onload=()=>window.print()</script></body>');
-              w.document.write(printHtml);
-              w.document.close();
-            }}>
-              <Printer className="mr-2 h-4 w-4" /> Print
+              setHostelPreviewPrinting(true);
+              try {
+                await openManagedPrintWindow({ html: challanPreviewHtml, title: "Hostel Challan", toast, printWindow: w });
+              } finally {
+                setHostelPreviewPrinting(false);
+              }
+            }} disabled={hostelPreviewPrinting}>
+              {hostelPreviewPrinting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />} {hostelPreviewPrinting ? "Preparing..." : "Print"}
             </Button>
           </div>
         </DialogContent>

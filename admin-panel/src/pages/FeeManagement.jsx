@@ -40,13 +40,14 @@ import {
   getNewFeeSettings,
   updateNewFeeSettings,
   getStudentInstallments,
-  printFeeInstallmentChallan,
+  getFeeInstallmentChallan,
   getExtraChallansDedicated,
   updateExtraChallanDedicated,
   deleteExtraChallanDedicated,
   printExtraChallan
 } from "../../config/apis";
 import { computeOutstandingBalance } from "@/lib/hostelUtils";
+import { openManagedPrintWindow, renderAndPrintChallans } from "@/lib/managedPrint";
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -121,6 +122,9 @@ const FeeManagement = () => {
   // Bulk Printing state
   const [bulkPrintOpen, setBulkPrintOpen] = useState(false);
   const [bulkPrinting, setBulkPrinting] = useState(false);
+  const [bulkPreviewPrinting, setBulkPreviewPrinting] = useState(false);
+  const [printingChallanId, setPrintingChallanId] = useState(null);
+  const [generatedPrintingKey, setGeneratedPrintingKey] = useState("");
   const [bulkPrintFilters, setBulkPrintFilters] = useState({
     programId: "all",
     classId: "all",
@@ -2112,9 +2116,11 @@ const FeeManagement = () => {
     ).toString());
     html = html.replace(/\{\{discount\}\}/g, '');
     
-    // Paid/remaining rows are useful for paid, partial, and pending challans.
-    // Show paid/advance rows only when this challan has received payment.
-    const shouldShowBalanceRows = alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status);
+    // For partial installment challans, only the remaining payable should appear in the total row.
+    const isInstallmentChallanType = !isExtraChallanType && (challan.challanType === 'INSTALLMENT' || challan.installmentId || challan.installment);
+    const isActuallyPaidInFullForRows = ['PAID', 'SETTLED'].includes(challan.status) || (alreadyPaid >= totalSnap && totalSnap > 0);
+    const shouldHidePaidRowsForPartialInstallment = isInstallmentChallanType && alreadyPaid > 0 && !isActuallyPaidInFullForRows;
+    const shouldShowBalanceRows = !shouldHidePaidRowsForPartialInstallment && (alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status));
     if (shouldShowBalanceRows) {
       const paidDisplay = alreadyPaid > 0 ? `${alreadyPaid.toLocaleString()}` : '0';
       const showTotalRowInPaid = isFullyPaid ? `
@@ -2344,43 +2350,11 @@ const FeeManagement = () => {
       const hasNewSchema = challans.some(c => c.snapshotTotalDue != null || c.installmentId != null);
 
       if (hasNewSchema) {
-        // New-schema: fetch rendered HTML from the print endpoint for each challan,
-        // concatenate, and trigger a single browser print action
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-          toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
-          return;
-        }
-
-        const htmlParts = await Promise.all(
-          challans.map(async challan => applyPaidChallanPrintTreatment(await printFeeInstallmentChallan(challan.id), challan))
-        );
-
-        const fullHtml = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <style>
-              @media print {
-                .page-break { page-break-after: always; }
-                @page { margin: 0; }
-                body { margin: 0; }
-              }
-            </style>
-          </head>
-          <body>
-            ${htmlParts.map((html, index) =>
-              `<div class="${index < htmlParts.length - 1 ? 'page-break' : ''}">${html}</div>`
-            ).join('')}
-          </body>
-          </html>
-        `;
-
-        printWindow.document.write(fullHtml);
-        printWindow.document.close();
-        printWindow.onload = () => {
-          printWindow.print();
-        };
+        await renderAndPrintChallans({
+          title: "Monthly Challans",
+          toast,
+          renderers: challans.map(challan => () => renderInstallmentChallanForPrint(challan.id, challan)),
+        });
         setBulkPrintOpen(false);
         return;
       }
@@ -2419,6 +2393,7 @@ const FeeManagement = () => {
   };
 
   const finalizeBulkPrint = async () => {
+    setBulkPreviewPrinting(true);
     try {
       const template = await getDefaultFeeChallanTemplate();
       if (!template || !template.htmlContent) {
@@ -2426,45 +2401,25 @@ const FeeManagement = () => {
         return;
       }
 
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) {
-        toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
-        return;
-      }
-
-      let fullHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            @media print {
-              .page-break { page-break-after: always; }
-              @page { margin: 0; }
-              body { margin: 0; }
-            }
-          </style>
-        </head>
-        <body>
-      `;
-
-      bulkChallansList.forEach((challan, index) => {
-        const challanHtml = generateChallanHtml(challan, template.htmlContent);
-        fullHtml += `<div class="${index < bulkChallansList.length - 1 ? 'page-break' : ''}">${challanHtml}</div>`;
+      await renderAndPrintChallans({
+        title: "Monthly Challans",
+        toast,
+        renderers: bulkChallansList.map(challan => () => generateChallanHtml(challan, template.htmlContent)),
       });
-
-      fullHtml += `</body></html>`;
-
-      printWindow.document.write(fullHtml);
-      printWindow.document.close();
-      printWindow.onload = () => {
-        printWindow.print();
-      };
     } catch (error) {
       console.error("Finalize print failed:", error);
       toast({ title: "Print error", description: "Failed to generate full print view.", variant: "destructive" });
+    } finally {
+      setBulkPreviewPrinting(false);
     }
   };
 
+  const renderInstallmentChallanForPrint = async (challanId, fallbackChallan = null) => {
+    const rawChallan = await getFeeInstallmentChallan(challanId);
+    const normalized = normalizeChallan(rawChallan);
+    const html = generateChallanHtml(normalized || fallbackChallan);
+    return applyPaidChallanPrintTreatment(html, normalized || fallbackChallan || {});
+  };
   const printChallan = async challanId => {
     let challan = feeChallans.find(c => c.id === challanId);
     let isDedicatedExtra = false;
@@ -2476,72 +2431,84 @@ const FeeManagement = () => {
 
     if (!challan) return;
 
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
+      return;
+    }
+
+    setPrintingChallanId(challanId);
     try {
+      let html = "";
+
       if (isDedicatedExtra) {
-        const html = applyPaidChallanPrintTreatment(await printExtraChallan(challanId), challan);
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-          toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
-          return;
+        html = applyPaidChallanPrintTreatment(await printExtraChallan(challanId), challan);
+      } else {
+        const isNewSchema = challan.snapshotTotalDue != null || challan.installmentId != null;
+
+        if (isNewSchema) {
+          html = await renderInstallmentChallanForPrint(challanId, challan);
+        } else {
+          const template = await getDefaultFeeChallanTemplate();
+          if (!template || !template.htmlContent) {
+            toast({
+              title: "Template Missing",
+              description: "No default challan template found. Please mark a template as default first.",
+              variant: "destructive",
+            });
+            printWindow.close?.();
+            return;
+          }
+          html = generateChallanHtml(challan, template.htmlContent);
         }
-        printWindow.document.write(html);
-        printWindow.document.close();
-        printWindow.onload = () => {
-          printWindow.print();
-        };
-        return;
       }
 
-      // Detect new-schema challan: has snapshotTotalDue or installmentId
-      const isNewSchema = challan.snapshotTotalDue != null || challan.installmentId != null;
-
-      if (isNewSchema) {
-        // Use the new print endpoint which returns rendered HTML
-        const html = applyPaidChallanPrintTreatment(await printFeeInstallmentChallan(challanId), challan);
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-          toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
-          return;
-        }
-        printWindow.document.write(html);
-        printWindow.document.close();
-        printWindow.onload = () => {
-          printWindow.print();
-        };
-        return;
-      }
-
-      // Legacy challan: use the default template
-      // 1. Fetch Fresh Default Template (bypass cache for latest print version)
-      const template = await getDefaultFeeChallanTemplate();
-      if (!template || !template.htmlContent) {
-        toast({
-          title: "Template Missing",
-          description: "No default challan template found. Please mark a template as default first.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // 2. Generate HTML
-      const finalHtml = generateChallanHtml(challan, template.htmlContent);
-
-      // 3. Print
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) {
-        toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
-        return;
-      }
-
-      printWindow.document.write(finalHtml);
-      printWindow.document.close();
-      printWindow.onload = () => {
-        printWindow.print();
-        // Optional: printWindow.close();
-      };
+      await openManagedPrintWindow({ html, title: "Challan #" + (challan.challanNumber || ""), toast, printWindow });
     } catch (error) {
       console.error("Print failed:", error);
       toast({ title: "Print error", description: "Failed to generate print view.", variant: "destructive" });
+      printWindow.close?.();
+    } finally {
+      setPrintingChallanId(null);
+    }
+  };
+
+  const printGeneratedChallan = async (result) => {
+    if (!result?.challan?.id) return;
+    const key = result.challan.id;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
+      return;
+    }
+
+    setGeneratedPrintingKey(key);
+    try {
+      const html = await renderInstallmentChallanForPrint(result.challan.id, result.challan);
+      await openManagedPrintWindow({ html, title: "Challan #" + (result.challanNumber || result.challan.challanNumber || ""), toast, printWindow });
+    } catch (error) {
+      toast({ title: "Print error", description: "Failed to generate print view.", variant: "destructive" });
+      printWindow.close?.();
+    } finally {
+      setGeneratedPrintingKey("");
+    }
+  };
+
+  const printGeneratedChallans = async (created = []) => {
+    const printable = created.filter(r => r?.challan?.id);
+    if (printable.length === 0) return;
+
+    setGeneratedPrintingKey("all");
+    try {
+      await renderAndPrintChallans({
+        title: "Generated Challans",
+        toast,
+        renderers: printable.map(r => () => renderInstallmentChallanForPrint(r.challan.id, r.challan)),
+      });
+    } catch (error) {
+      toast({ title: "Print error", description: "Failed to generate print view.", variant: "destructive" });
+    } finally {
+      setGeneratedPrintingKey("");
     }
   };
 
@@ -3235,7 +3202,7 @@ const FeeManagement = () => {
 
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <Button size="sm" variant="outline" onClick={() => printChallan(challan.id)}>
+                                  <Button size="sm" variant="outline" onClick={() => printChallan(challan.id)} disabled={printingChallanId === challan.id}>
                                     <Printer className="w-4 h-4" />
                                   </Button>
                                 </TooltipTrigger>
@@ -3473,7 +3440,7 @@ const FeeManagement = () => {
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <Button size="sm" variant="ghost" onClick={() => printChallan(challan.id)}>
+                                  <Button size="sm" variant="ghost" onClick={() => printChallan(challan.id)} disabled={printingChallanId === challan.id}>
                                     <Printer className="w-4 h-4" />
                                   </Button>
                                 </TooltipTrigger>
@@ -5418,6 +5385,7 @@ const FeeManagement = () => {
                               size="icon"
                               className="h-6 w-6"
                               onClick={() => printChallan(res.id)}
+                              disabled={printingChallanId === res.id}
                             >
                               <Printer className="w-3 h-3" />
                             </Button>
@@ -6007,8 +5975,8 @@ const FeeManagement = () => {
                   Showing first {Math.min(bulkChallansList.length, 5)} of {bulkChallansList.length} challans
                 </span>
               </div>
-              <Button onClick={finalizeBulkPrint} className="gap-2 bg-success hover:bg-success/90">
-                <Printer className="w-4 h-4" /> Print All {bulkChallansList.length} Challans
+              <Button onClick={finalizeBulkPrint} className="gap-2 bg-success hover:bg-success/90" disabled={bulkPreviewPrinting}>
+                <Printer className="w-4 h-4" /> {bulkPreviewPrinting ? "Preparing..." : `Print All ${bulkChallansList.length} Challans`}
               </Button>
             </DialogTitle>
           </DialogHeader>
@@ -7334,20 +7302,10 @@ const FeeManagement = () => {
                       </div>
                       {created.length > 0 && (
                         <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                          onClick={() => {
-                            created.forEach((r, idx) => {
-                              if (!r.challan?.id) return;
-                              setTimeout(async () => {
-                                try {
-                                  const html = await printFeeInstallmentChallan(r.challan.id);
-                                  const w = window.open('', '_blank');
-                                  if (w) { w.document.write(html); w.document.close(); w.onload = () => w.print(); }
-                                } catch { /* ignore */ }
-                              }, idx * 800);
-                            });
-                          }}
+                          onClick={() => printGeneratedChallans(created)}
+                          disabled={generatedPrintingKey === "all"}
                         >
-                          <Printer className="w-3 h-3" /> Print All
+                          <Printer className="w-3 h-3" /> {generatedPrintingKey === "all" ? "Preparing..." : "Print All"}
                         </Button>
                       )}
                     </div>
@@ -7373,14 +7331,8 @@ const FeeManagement = () => {
                                 <td className="px-3 py-2 font-mono font-bold text-primary">{r.challanNumber}</td>
                                 <td className="px-3 py-2 text-right">
                                   <Button size="icon" variant="ghost" className="h-7 w-7"
-                                    onClick={async () => {
-                                      if (!r.challan?.id) return;
-                                      try {
-                                        const html = await printFeeInstallmentChallan(r.challan.id);
-                                        const w = window.open('', '_blank');
-                                        if (w) { w.document.write(html); w.document.close(); w.onload = () => w.print(); }
-                                      } catch { /* ignore */ }
-                                    }}
+                                    onClick={() => printGeneratedChallan(r)}
+                                    disabled={generatedPrintingKey === r.challan?.id}
                                   >
                                     <Printer className="w-3.5 h-3.5" />
                                   </Button>

@@ -110,6 +110,7 @@ export class DashboardService {
         select: {
           id: true,
           passedOut: true,
+          status: true,
           program: {
             select: {
               name: true,
@@ -269,11 +270,13 @@ export class DashboardService {
 
     // Calculate student statistics
     const totalStudents = students.length;
-    const activeStudents = students.filter((s) => !s.passedOut).length;
+    const isActiveStudent = (s: any) => !s.passedOut && !['EXPELLED', 'GRADUATED', 'STRUCK_OFF'].includes(String(s.status || '').toUpperCase());
+    const activeProgramStudents = students.filter(isActiveStudent);
+    const activeStudents = activeProgramStudents.length;
 
     // Helper to count by program level safely
     const countByLevel = (level: string) =>
-      students.filter((s) => s.program?.level === level).length;
+      activeProgramStudents.filter((s) => s.program?.level === level).length;
 
     const studentsByStatus = {
       active: activeStudents,
@@ -600,16 +603,19 @@ export class DashboardService {
       select: {
         id: true,
         passedOut: true,
+        status: true,
         program: { select: { level: true } },
       },
     });
 
+    const isActiveStudent = (s: any) => !s.passedOut && !['EXPELLED', 'GRADUATED', 'STRUCK_OFF'].includes(String(s.status || '').toUpperCase());
+    const activeProgramStudents = students.filter(isActiveStudent);
     const countByLevel = (level: string) =>
-      students.filter((s) => s.program?.level === level).length;
+      activeProgramStudents.filter((s) => s.program?.level === level).length;
 
     return {
       total: students.length,
-      active: students.filter((s) => !s.passedOut).length,
+      active: activeProgramStudents.length,
       byProgram: {
         intermediate: countByLevel('INTERMEDIATE'),
         diploma: countByLevel('DIPLOMA'),
@@ -618,7 +624,7 @@ export class DashboardService {
         coaching: countByLevel('COACHING'),
       },
       byStatus: {
-        active: students.filter((s) => !s.passedOut).length,
+        active: activeProgramStudents.length,
         expelled: 0,
         passedOut: students.filter((s) => s.passedOut).length,
       },
