@@ -1,5 +1,11 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { validateCurrentTab } from "@/lib/staffValidation";
+import { FieldError } from "@/components/ui/field-error";
+import {
+    IMAGE_UPLOAD_RULES,
+    formatCnic,
+    validateImageFile,
+} from "@/lib/inputValidation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     Plus,
@@ -687,10 +693,13 @@ export default function Staff() {
     const handlePhotoChange = (e) => {
         const file = e.target.files?.[0];
         if (file) {
-            if (file.size > 5 * 1024 * 1024) {
-                toast({ title: "File too large", description: "Max size is 5MB", variant: "destructive" });
+            const error = validateImageFile(file);
+            if (error) {
+                setErrors(prev => ({ ...prev, photo: error }));
+                e.target.value = "";
                 return;
             }
+            setErrors(prev => { const next = { ...prev }; delete next.photo; return next; });
             setPhotoFile(file);
             setPhotoPreview(URL.createObjectURL(file));
         }
@@ -708,6 +717,20 @@ export default function Staff() {
         }
         if (!editingStaff && !formData.password) {
             toast({ title: "Password is required for new staff", variant: "destructive" });
+            return;
+        }
+        const allErrors = {
+            ...validateCurrentTab("basic", formData, !!editingStaff),
+            ...validateCurrentTab("employment", formData, !!editingStaff),
+            ...validateCurrentTab("roles", formData, !!editingStaff),
+            photo: validateImageFile(photoFile),
+        };
+        Object.keys(allErrors).forEach((key) => {
+            if (!allErrors[key]) delete allErrors[key];
+        });
+        if (Object.keys(allErrors).length > 0) {
+            setErrors(allErrors);
+            toast({ title: "Validation Error", description: "Please fix the highlighted fields.", variant: "destructive" });
             return;
         }
 
@@ -1561,12 +1584,13 @@ export default function Staff() {
                                         >
                                             Upload Photo
                                         </Button>
-                                        <p className="text-xs text-muted-foreground mt-1">Max 5MB</p>
+                                        <p className="text-xs text-muted-foreground mt-1">PNG, JPG, JPEG. Max 10MB</p>
+                                        <FieldError message={errors.photo} />
                                     </div>
                                     <input
                                         ref={photoInputRef}
                                         type="file"
-                                        accept="image/*"
+                                        accept={IMAGE_UPLOAD_RULES.accept}
                                         className="hidden"
                                         onChange={handlePhotoChange}
                                     />
@@ -1598,9 +1622,11 @@ export default function Staff() {
                                         <Label>CNIC <span className="text-xs text-muted-foreground ml-1">Optional</span></Label>
                                         <Input
                                             value={formData.cnic}
-                                            onChange={(e) => setFormData({ ...formData, cnic: e.target.value })}
+                                            onChange={(e) => setFormData({ ...formData, cnic: formatCnic(e.target.value) })}
                                             placeholder="12345-1234567-1"
+                                            className={errors.cnic ? "border-destructive" : ""}
                                         />
+                                        <FieldError message={errors.cnic} />
                                     </div>
                                     <div>
                                         <Label>Email <span className="text-xs text-muted-foreground ml-1">Required</span></Label>
@@ -1624,7 +1650,9 @@ export default function Staff() {
                                             value={formData.phone}
                                             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                                             placeholder="03001234567"
+                                            className={errors.phone ? "border-destructive" : ""}
                                         />
+                                        <FieldError message={errors.phone} />
                                     </div>
                                     <div>
                                         <Label>

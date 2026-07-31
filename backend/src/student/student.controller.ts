@@ -17,6 +17,7 @@ import { StudentService } from './student.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { StudentDto } from './dtos/student.dto';
 import { LocalFileService } from 'src/local-file/local-file.service';
+import { imageUploadOptions } from 'src/common/upload/image-upload.options';
 
 @Controller('student')
 export class StudentController {
@@ -115,7 +116,7 @@ export class StudentController {
 
   @Post('create')
   @UseInterceptors(
-    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('photo', imageUploadOptions),
   )
   async createStudent(
     @UploadedFile() file: Express.Multer.File,
@@ -159,7 +160,7 @@ export class StudentController {
 
   @Patch('update')
   @UseInterceptors(
-    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('photo', imageUploadOptions),
   )
   async updateStudent(
     @UploadedFile() file: Express.Multer.File,

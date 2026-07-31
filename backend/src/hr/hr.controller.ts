@@ -19,6 +19,7 @@ import { Permissions } from 'src/common/decorators/permissions.decorator';
 
 import { FileInterceptor } from '@nestjs/platform-express';
 import { LocalFileService } from 'src/local-file/local-file.service';
+import { imageUploadOptions } from 'src/common/upload/image-upload.options';
 import {
   UploadedFile,
   UseInterceptors,
@@ -147,7 +148,7 @@ export class HrController {
 
   @Post('staff')
   @UseInterceptors(
-    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('photo', imageUploadOptions),
   )
   async createStaff(
     @UploadedFile() file: Express.Multer.File,
@@ -178,7 +179,7 @@ export class HrController {
 
   @Patch('staff/:id')
   @UseInterceptors(
-    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('photo', imageUploadOptions),
   )
   async updateStaff(
     @Param('id') id: string,
@@ -255,7 +256,7 @@ export class HrController {
   }
   @Post('create/employee')
   @UseInterceptors(
-    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('photo', imageUploadOptions),
   )
   async createEmpl(
     @UploadedFile() file: Express.Multer.File,
@@ -283,7 +284,7 @@ export class HrController {
 
   @Patch('update/employee')
   @UseInterceptors(
-    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('photo', imageUploadOptions),
   )
   async updateEmpl(
     @UploadedFile() file: Express.Multer.File,

@@ -8,6 +8,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { FieldError } from "@/components/ui/field-error";
+import {
+    IMAGE_UPLOAD_RULES,
+    INPUT_LIMITS,
+    firstError,
+    formatCnic,
+    validateCnic,
+    validateEmail,
+    validateImageFile,
+    validateMaxLength,
+    validateNonNegativeNumber,
+    validatePkPhone,
+    validateRequired,
+} from "@/lib/inputValidation";
 import {
     Select,
     SelectContent,
@@ -162,6 +176,7 @@ const StudentForm = ({
 
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState(initialData.photo_url || "");
+    const [fieldErrors, setFieldErrors] = useState({});
 
     // === CALCULATED FIELDS ===
 
@@ -314,6 +329,13 @@ const StudentForm = ({
     const handleImageChange = (e) => {
         const file = e.target.files[0];
         if (file) {
+            const error = validateImageFile(file);
+            if (error) {
+                setFieldErrors(prev => ({ ...prev, photo: error }));
+                e.target.value = "";
+                return;
+            }
+            setFieldErrors(prev => { const next = { ...prev }; delete next.photo; return next; });
             setImageFile(file);
             const reader = new FileReader();
             reader.onloadend = () => setImagePreview(reader.result);
@@ -324,7 +346,13 @@ const StudentForm = ({
     const handleImageDrop = (e) => {
         e.preventDefault();
         const file = e.dataTransfer.files[0];
-        if (file && file.type.startsWith('image/')) {
+        if (file) {
+            const error = validateImageFile(file);
+            if (error) {
+                setFieldErrors(prev => ({ ...prev, photo: error }));
+                return;
+            }
+            setFieldErrors(prev => { const next = { ...prev }; delete next.photo; return next; });
             setImageFile(file);
             const reader = new FileReader();
             reader.onloadend = () => setImagePreview(reader.result);
@@ -588,6 +616,40 @@ const StudentForm = ({
             return;
         }
 
+        const validationErrors = {
+            fName: firstError(validateRequired(formData.fName, "First name"), validateMaxLength(formData.fName, INPUT_LIMITS.name, "First name")),
+            lName: validateMaxLength(formData.lName, INPUT_LIMITS.name, "Last name"),
+            fatherOrguardian: firstError(validateRequired(formData.fatherOrguardian, "Father/Guardian"), validateMaxLength(formData.fatherOrguardian, INPUT_LIMITS.name, "Father/Guardian")),
+            rollNumber: firstError(validateRequired(formData.rollNumber, "Roll number"), validateMaxLength(formData.rollNumber, INPUT_LIMITS.roll, "Roll number")),
+            parentOrGuardianEmail: validateEmail(formData.parentOrGuardianEmail),
+            parentOrGuardianPhone: firstError(validateRequired(formData.parentOrGuardianPhone, "Parent phone"), validatePkPhone(formData.parentOrGuardianPhone)),
+            parentCNIC: validateCnic(formData.parentCNIC),
+            studentCnic: validateCnic(formData.studentCnic),
+            address: validateMaxLength(formData.address, INPUT_LIMITS.longText, "Address"),
+            religion: validateMaxLength(formData.religion, INPUT_LIMITS.name, "Religion"),
+            tuitionFee: validateNonNegativeNumber(formData.tuitionFee, "Tuition fee"),
+            numberOfInstallments: validateNonNegativeNumber(formData.numberOfInstallments, "Number of installments"),
+            lateFeeFine: validateNonNegativeNumber(formData.lateFeeFine, "Late fee fine"),
+            previousBoardName: validateMaxLength(formData.previousBoardName, INPUT_LIMITS.name, "Previous board name"),
+            previousBoardRollNumber: validateMaxLength(formData.previousBoardRollNumber, INPUT_LIMITS.roll, "Previous board roll number"),
+            obtainedMarks: validateNonNegativeNumber(formData.obtainedMarks, "Obtained marks"),
+            totalMarks: validateNonNegativeNumber(formData.totalMarks, "Total marks"),
+            photo: validateImageFile(imageFile),
+        };
+        Object.keys(validationErrors).forEach(key => {
+            if (!validationErrors[key]) delete validationErrors[key];
+        });
+        if (Object.keys(validationErrors).length > 0) {
+            setFieldErrors(validationErrors);
+            toast({
+                title: "Validation Error",
+                description: "Please fix the highlighted fields.",
+                variant: "destructive"
+            });
+            return;
+        }
+        setFieldErrors({});
+
         const allowedFields = [
             'fName', 'lName', 'fatherOrguardian', 'rollNumber',
             'parentOrGuardianEmail', 'parentOrGuardianPhone', 'parentCNIC', 'address',
@@ -645,6 +707,7 @@ const StudentForm = ({
                                         e.stopPropagation();
                                         setImagePreview("");
                                         setImageFile(null);
+                                        setFieldErrors(prev => { const next = { ...prev }; delete next.photo; return next; });
                                     }}
                                 >
                                     <X className="w-3 h-3" />
@@ -657,18 +720,19 @@ const StudentForm = ({
                                     Click or drag to upload photo
                                 </p>
                                 <p className="text-[10px] text-muted-foreground/60 mt-1 uppercase font-bold">
-                                    Max 5MB
+                                    PNG, JPG, JPEG. Max 10MB
                                 </p>
                             </div>
                         )}
                         <input
                             id="photo-input"
                             type="file"
-                            accept="image/*"
+                            accept={IMAGE_UPLOAD_RULES.accept}
                             className="hidden"
                             onChange={handleImageChange}
                         />
                     </div>
+                    <FieldError message={fieldErrors.photo} />
                 </div>
 
                 {/* RIGHT — FORM */}
@@ -681,7 +745,9 @@ const StudentForm = ({
                                 value={formData.fName}
                                 onChange={(e) => setFormData({ ...formData, fName: e.target.value })}
                                 placeholder="John"
+                                className={fieldErrors.fName ? "border-destructive" : ""}
                             />
+                            <FieldError message={fieldErrors.fName} />
                         </div>
                         <div>
                             <Label>Last Name <span className="text-muted-foreground text-xs">(optional)</span></Label>
@@ -689,7 +755,9 @@ const StudentForm = ({
                                 value={formData.lName}
                                 onChange={(e) => setFormData({ ...formData, lName: e.target.value })}
                                 placeholder="Doe"
+                                className={fieldErrors.lName ? "border-destructive" : ""}
                             />
+                            <FieldError message={fieldErrors.lName} />
                         </div>
                         <div>
                             <Label>Session *</Label>
@@ -729,7 +797,9 @@ const StudentForm = ({
                                 value={formData.fatherOrguardian}
                                 onChange={(e) => setFormData({ ...formData, fatherOrguardian: e.target.value })}
                                 placeholder="Father's name"
+                                className={fieldErrors.fatherOrguardian ? "border-destructive" : ""}
                             />
+                            <FieldError message={fieldErrors.fatherOrguardian} />
                         </div>
                         <div>
                             <Label>Roll Number *</Label>
@@ -740,12 +810,13 @@ const StudentForm = ({
                                     </div>
                                 )}
                                 <Input
-                                    className={calculatedPrefix ? "rounded-l-none" : ""}
+                                    className={`${calculatedPrefix ? "rounded-l-none" : ""} ${fieldErrors.rollNumber ? "border-destructive" : ""}`}
                                     value={rollNumberSuffix}
                                     onChange={(e) => setFormData({ ...formData, rollNumber: `${calculatedPrefix}${e.target.value}` })}
                                     placeholder="e.g. 26-001"
                                 />
                             </div>
+                            <FieldError message={fieldErrors.rollNumber} />
                         </div>
 
                         {/* Program, Class, Section */}
@@ -831,19 +902,23 @@ const StudentForm = ({
                         {/* Parent Info & Demo */}
                         <div>
                             <Label>Parent Email <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                            <Input type="email" value={formData.parentOrGuardianEmail} onChange={e => setFormData({ ...formData, parentOrGuardianEmail: e.target.value })} />
+                            <Input type="email" value={formData.parentOrGuardianEmail} onChange={e => setFormData({ ...formData, parentOrGuardianEmail: e.target.value })} className={fieldErrors.parentOrGuardianEmail ? "border-destructive" : ""} />
+                            <FieldError message={fieldErrors.parentOrGuardianEmail} />
                         </div>
                         <div>
                             <Label>Parent Phone *</Label>
-                            <Input autoComplete="off" value={formData.parentOrGuardianPhone} onChange={e => setFormData({ ...formData, parentOrGuardianPhone: e.target.value })} />
+                            <Input autoComplete="off" value={formData.parentOrGuardianPhone} onChange={e => setFormData({ ...formData, parentOrGuardianPhone: e.target.value })} className={fieldErrors.parentOrGuardianPhone ? "border-destructive" : ""} placeholder="0300-1234567" />
+                            <FieldError message={fieldErrors.parentOrGuardianPhone} />
                         </div>
                         <div>
                             <Label>Parent CNIC <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                            <Input value={formData.parentCNIC} onChange={e => setFormData({ ...formData, parentCNIC: e.target.value })} placeholder="e.g. 12345-6789012-3" />
+                            <Input value={formData.parentCNIC} onChange={e => setFormData({ ...formData, parentCNIC: formatCnic(e.target.value) })} placeholder="e.g. 12345-6789012-3" className={fieldErrors.parentCNIC ? "border-destructive" : ""} />
+                            <FieldError message={fieldErrors.parentCNIC} />
                         </div>
                         <div>
                             <Label>Student CNIC <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                            <Input value={formData.studentCnic} onChange={e => setFormData({ ...formData, studentCnic: e.target.value })} placeholder="e.g. 12345-6789012-3" />
+                            <Input value={formData.studentCnic} onChange={e => setFormData({ ...formData, studentCnic: formatCnic(e.target.value) })} placeholder="e.g. 12345-6789012-3" className={fieldErrors.studentCnic ? "border-destructive" : ""} />
+                            <FieldError message={fieldErrors.studentCnic} />
                         </div>
                         <div>
                             <Label>Gender *</Label>

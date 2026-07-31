@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { FieldError } from "@/components/ui/field-error";
 import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar"
 import { Textarea } from "@/components/ui/textarea";
@@ -69,6 +70,17 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import {
+  INPUT_LIMITS,
+  firstError,
+  formatCnic,
+  validateCnic,
+  validateEmail,
+  validateMaxLength,
+  validateNonNegativeNumber,
+  validatePkPhone,
+  validateRequired,
+} from "@/lib/inputValidation";
 import {
   createInquiry,
   getProgramNames,
@@ -272,6 +284,7 @@ const FrontOffice = () => {
     followUpSlab: "",
     referenceBody: "",
   });
+  const [inquiryErrors, setInquiryErrors] = useState({});
 
   const [visitorForm, setVisitorForm] = useState({
     visitorName: "",
@@ -302,6 +315,7 @@ const FrontOffice = () => {
     email: "",
     details: "",
   });
+  const [contactErrors, setContactErrors] = useState({});
 
   const [visitorMonthFilter, setVisitorMonthFilter] = useState(() => {
     const now = new Date();
@@ -604,10 +618,29 @@ const FrontOffice = () => {
 
   // === HANDLERS ===
   const handleInquirySubmit = () => {
-    if (!inquiryForm.studentName || !inquiryForm.studentCnic || !inquiryForm.contactNumber) {
+    const nextErrors = {
+      studentName: firstError(validateRequired(inquiryForm.studentName, "Student name"), validateMaxLength(inquiryForm.studentName, INPUT_LIMITS.name, "Student name")),
+      studentCnic: firstError(validateRequired(inquiryForm.studentCnic, "Student CNIC/Form-B"), validateCnic(inquiryForm.studentCnic)),
+      fatherName: firstError(validateRequired(inquiryForm.fatherName, "Father/Guardian name"), validateMaxLength(inquiryForm.fatherName, INPUT_LIMITS.name, "Father/Guardian name")),
+      fatherCnic: validateCnic(inquiryForm.fatherCnic),
+      contactNumber: firstError(validateRequired(inquiryForm.contactNumber, "Contact number"), validatePkPhone(inquiryForm.contactNumber)),
+      email: validateEmail(inquiryForm.email),
+      address: validateMaxLength(inquiryForm.address, INPUT_LIMITS.longText, "Address"),
+      previousInstitute: validateMaxLength(inquiryForm.previousInstitute, INPUT_LIMITS.name, "Previous institute"),
+      remarks: validateMaxLength(inquiryForm.remarks, INPUT_LIMITS.longText, "Remarks"),
+      prospectusFee: validateNonNegativeNumber(inquiryForm.prospectusFee, "Prospectus fee"),
+      prospectusReceipt: validateMaxLength(inquiryForm.prospectusReceipt, INPUT_LIMITS.code, "Prospectus receipt"),
+      referenceBody: validateMaxLength(inquiryForm.referenceBody, INPUT_LIMITS.name, "Reference body"),
+    };
+    Object.keys(nextErrors).forEach((key) => {
+      if (!nextErrors[key]) delete nextErrors[key];
+    });
+    if (Object.keys(nextErrors).length > 0) {
+      setInquiryErrors(nextErrors);
       toast({ title: "Please fill required fields", variant: "destructive" });
       return;
     }
+    setInquiryErrors({});
 
     const payload = {
       ...inquiryForm,
@@ -816,6 +849,21 @@ const FrontOffice = () => {
   };
 
   const handleContactSubmit = () => {
+    const nextErrors = {
+      name: firstError(validateRequired(contactForm.name, "Name"), validateMaxLength(contactForm.name, INPUT_LIMITS.name, "Name")),
+      phone: firstError(validateRequired(contactForm.phone, "Phone"), validatePkPhone(contactForm.phone)),
+      email: validateEmail(contactForm.email),
+      details: validateMaxLength(contactForm.details, INPUT_LIMITS.longText, "Description"),
+    };
+    Object.keys(nextErrors).forEach((key) => {
+      if (!nextErrors[key]) delete nextErrors[key];
+    });
+    if (Object.keys(nextErrors).length > 0) {
+      setContactErrors(nextErrors);
+      toast({ title: "Validation Error", description: "Please fix the highlighted fields.", variant: "destructive" });
+      return;
+    }
+    setContactErrors({});
     if (!contactForm.name || !contactForm.phone) {
       toast({ title: "Please fill required fields", variant: "destructive" });
       return;
@@ -975,27 +1023,33 @@ const FrontOffice = () => {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div className="space-y-1">
                               <Label>Student Name *</Label>
-                              <Input value={inquiryForm.studentName} onChange={(e) => setInquiryForm({ ...inquiryForm, studentName: e.target.value })} />
+                              <Input value={inquiryForm.studentName} onChange={(e) => setInquiryForm({ ...inquiryForm, studentName: e.target.value })} className={inquiryErrors.studentName ? "border-destructive" : ""} />
+                              <FieldError message={inquiryErrors.studentName} />
                             </div>
                             <div className="space-y-1">
                               <Label>Student CNIC / Form-B *</Label>
-                              <Input value={inquiryForm.studentCnic} onChange={(e) => setInquiryForm({ ...inquiryForm, studentCnic: e.target.value })} placeholder="e.g. 12345-1234567-1" />
+                              <Input value={inquiryForm.studentCnic} onChange={(e) => setInquiryForm({ ...inquiryForm, studentCnic: formatCnic(e.target.value) })} placeholder="e.g. 12345-1234567-1" className={inquiryErrors.studentCnic ? "border-destructive" : ""} />
+                              <FieldError message={inquiryErrors.studentCnic} />
                             </div>
                             <div className="space-y-1">
                               <Label>Father/Guardian Name *</Label>
-                              <Input value={inquiryForm.fatherName} onChange={(e) => setInquiryForm({ ...inquiryForm, fatherName: e.target.value })} />
+                              <Input value={inquiryForm.fatherName} onChange={(e) => setInquiryForm({ ...inquiryForm, fatherName: e.target.value })} className={inquiryErrors.fatherName ? "border-destructive" : ""} />
+                              <FieldError message={inquiryErrors.fatherName} />
                             </div>
                             <div className="space-y-1">
                               <Label>Father/Guardian CNIC <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                              <Input value={inquiryForm.fatherCnic} onChange={(e) => setInquiryForm({ ...inquiryForm, fatherCnic: e.target.value })} placeholder="12345-1234567-1" />
+                              <Input value={inquiryForm.fatherCnic} onChange={(e) => setInquiryForm({ ...inquiryForm, fatherCnic: formatCnic(e.target.value) })} placeholder="12345-1234567-1" className={inquiryErrors.fatherCnic ? "border-destructive" : ""} />
+                              <FieldError message={inquiryErrors.fatherCnic} />
                             </div>
                             <div className="space-y-1">
                               <Label>Contact Number *</Label>
-                              <Input value={inquiryForm.contactNumber} onChange={(e) => setInquiryForm({ ...inquiryForm, contactNumber: e.target.value })} placeholder="0300-1234567" />
+                              <Input value={inquiryForm.contactNumber} onChange={(e) => setInquiryForm({ ...inquiryForm, contactNumber: e.target.value })} placeholder="0300-1234567" className={inquiryErrors.contactNumber ? "border-destructive" : ""} />
+                              <FieldError message={inquiryErrors.contactNumber} />
                             </div>
                             <div className="space-y-1">
                               <Label>Email <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                              <Input value={inquiryForm.email} onChange={(e) => setInquiryForm({ ...inquiryForm, email: e.target.value })} placeholder="email@example.com" />
+                              <Input value={inquiryForm.email} onChange={(e) => setInquiryForm({ ...inquiryForm, email: e.target.value })} placeholder="email@example.com" className={inquiryErrors.email ? "border-destructive" : ""} />
+                              <FieldError message={inquiryErrors.email} />
                             </div>
                             <div className="space-y-1">
                               <Label>Gender <span className="text-muted-foreground text-xs">(optional)</span></Label>
@@ -1904,7 +1958,8 @@ const FrontOffice = () => {
                           <Input value={contactForm.name} onChange={e => setContactForm({
                             ...contactForm,
                             name: e.target.value
-                          })} placeholder="Enter name" />
+                          })} placeholder="Enter name" className={contactErrors.name ? "border-destructive" : ""} />
+                          <FieldError message={contactErrors.name} />
                         </div>
                         <div className="space-y-2">
                           <Label>Category *</Label>
@@ -1929,14 +1984,16 @@ const FrontOffice = () => {
                           <Input value={contactForm.phone} onChange={e => setContactForm({
                             ...contactForm,
                             phone: e.target.value
-                          })} placeholder="Enter phone" />
+                          })} placeholder="0300-1234567" className={contactErrors.phone ? "border-destructive" : ""} />
+                          <FieldError message={contactErrors.phone} />
                         </div>
                         <div className="space-y-2">
                           <Label>Email</Label>
                           <Input value={contactForm.email} onChange={e => setContactForm({
                             ...contactForm,
                             email: e.target.value
-                          })} placeholder="email@example.com" />
+                          })} placeholder="email@example.com" className={contactErrors.email ? "border-destructive" : ""} />
+                          <FieldError message={contactErrors.email} />
                         </div>
                       </div>
                       <div className="space-y-2">
@@ -1944,7 +2001,8 @@ const FrontOffice = () => {
                         <Textarea value={contactForm.details} onChange={e => setContactForm({
                           ...contactForm,
                           details: e.target.value
-                        })} placeholder="Additional details" rows={2} />
+                        })} placeholder="Additional details" rows={2} className={contactErrors.details ? "border-destructive" : ""} />
+                        <FieldError message={contactErrors.details} />
                       </div>
                     </div>
                     <DialogFooter>

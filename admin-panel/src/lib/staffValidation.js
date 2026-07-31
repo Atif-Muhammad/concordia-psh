@@ -7,6 +7,16 @@
  * @param {boolean} isEditing - true when editing an existing staff member
  * @returns {object} errors map
  */
+import {
+  INPUT_LIMITS,
+  firstError,
+  validateCnic,
+  validateEmail,
+  validateMaxLength,
+  validateNonNegativeNumber,
+  validatePkPhone,
+} from "@/lib/inputValidation";
+
 export function validateCurrentTab(tab, formData, isEditing) {
   const errors = {};
 
@@ -16,13 +26,26 @@ export function validateCurrentTab(tab, formData, isEditing) {
     }
     if (!formData.email || !String(formData.email).trim()) {
       errors.email = "Email is required";
+    } else {
+      errors.email = firstError(
+        validateEmail(formData.email),
+        validateMaxLength(formData.email, INPUT_LIMITS.email, "Email"),
+      );
     }
     if (!formData.designation || !String(formData.designation).trim()) {
       errors.designation = "Designation is required";
     }
     if (!isEditing && (!formData.password || !String(formData.password).trim())) {
       errors.password = "Password is required";
+    } else {
+      errors.password = validateMaxLength(formData.password, INPUT_LIMITS.password, "Password");
     }
+    errors.name = errors.name || validateMaxLength(formData.name, INPUT_LIMITS.name, "Name");
+    errors.fatherName = validateMaxLength(formData.fatherName, INPUT_LIMITS.name, "Father's name");
+    errors.cnic = validateCnic(formData.cnic);
+    errors.phone = validatePkPhone(formData.phone);
+    errors.address = validateMaxLength(formData.address, INPUT_LIMITS.longText, "Address");
+    errors.designation = errors.designation || validateMaxLength(formData.designation, INPUT_LIMITS.name, "Designation");
   }
 
   if (tab === "employment") {
@@ -34,6 +57,8 @@ export function validateCurrentTab(tab, formData, isEditing) {
     }
     if (!formData.basicPay || !String(formData.basicPay).trim()) {
       errors.basicPay = "Basic pay is required";
+    } else {
+      errors.basicPay = validateNonNegativeNumber(formData.basicPay, "Basic pay");
     }
     if (!formData.joinDate || !String(formData.joinDate).trim()) {
       errors.joinDate = "Join date is required";
@@ -59,5 +84,8 @@ export function validateCurrentTab(tab, formData, isEditing) {
     }
   }
 
+  Object.keys(errors).forEach((key) => {
+    if (!errors[key]) delete errors[key];
+  });
   return errors;
 }

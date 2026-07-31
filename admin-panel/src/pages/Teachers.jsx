@@ -3,6 +3,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { FieldError } from "@/components/ui/field-error";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -46,6 +47,19 @@ import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { calculateDuration } from "../lib/dateUtils";
+import {
+  IMAGE_UPLOAD_RULES,
+  INPUT_LIMITS,
+  firstError,
+  formatCnic,
+  validateCnic,
+  validateEmail,
+  validateImageFile,
+  validateMaxLength,
+  validateNonNegativeNumber,
+  validatePkPhone,
+  validateRequired,
+} from "@/lib/inputValidation";
 
 const TEACHER_DOCUMENTS = [
   { key: "bsDegree", label: "BS/BSc Degree" },
@@ -119,6 +133,7 @@ const Teachers = () => {
     contractEnd: "",
     joinDate: "",
   });
+  const [formErrors, setFormErrors] = useState({});
 
   // Fetch Teachers
   const { data: teachers = [], isLoading } = useQuery({
@@ -242,6 +257,7 @@ const Teachers = () => {
       joinDate: "",
     });
     setEditingTeacher(null);
+    setFormErrors({});
   };
 
   const handleEdit = (teacher) => {
@@ -266,14 +282,33 @@ const Teachers = () => {
       contractEnd: teacher.contractEnd ? format(new Date(teacher.contractEnd), "yyyy-MM-dd") : "",
       joinDate: teacher.joinDate ? format(new Date(teacher.joinDate), "yyyy-MM-dd") : "",
     });
+    setFormErrors({});
     setOpen(true);
   };
 
   const handleSubmit = () => {
-    if (!formData.name || !formData.fatherName || !formData.email || (!editingTeacher && !formData.password)) {
+    const nextErrors = {
+      name: firstError(validateRequired(formData.name, "Name"), validateMaxLength(formData.name, INPUT_LIMITS.name, "Name")),
+      fatherName: firstError(validateRequired(formData.fatherName, "Father name"), validateMaxLength(formData.fatherName, INPUT_LIMITS.name, "Father name")),
+      cnic: validateCnic(formData.cnic),
+      address: validateMaxLength(formData.address, INPUT_LIMITS.longText, "Address"),
+      email: firstError(validateRequired(formData.email, "Email"), validateEmail(formData.email)),
+      phone: validatePkPhone(formData.phone),
+      password: !editingTeacher ? firstError(validateRequired(formData.password, "Password"), validateMaxLength(formData.password, INPUT_LIMITS.password, "Password")) : validateMaxLength(formData.password, INPUT_LIMITS.password, "Password"),
+      specialization: validateMaxLength(formData.specialization, INPUT_LIMITS.name, "Specialization"),
+      highestDegree: firstError(validateRequired(formData.highestDegree, "Highest degree"), validateMaxLength(formData.highestDegree, INPUT_LIMITS.name, "Highest degree")),
+      basicPay: validateNonNegativeNumber(formData.basicPay, "Basic pay"),
+      photo: validateImageFile(formData.photo),
+    };
+    Object.keys(nextErrors).forEach((key) => {
+      if (!nextErrors[key]) delete nextErrors[key];
+    });
+    if (Object.keys(nextErrors).length > 0) {
+      setFormErrors(nextErrors);
       toast({ title: "Please fill required fields", variant: "destructive" });
       return;
     }
+    setFormErrors({});
 
     const payload = new FormData();
     payload.append("name", formData.name);
@@ -369,27 +404,33 @@ const Teachers = () => {
                       <Input
                         value={formData.name}
                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        className={formErrors.name ? "border-destructive" : ""}
                       />
+                      <FieldError message={formErrors.name} />
                     </div>
 
                     {/* Photo */}
                     <div>
-                      <Label>Photo (Max 5MB)</Label>
+                      <Label>Photo (PNG, JPG, JPEG. Max 10MB)</Label>
                       <Input
                         type="file"
-                        accept="image/*"
+                        accept={IMAGE_UPLOAD_RULES.accept}
+                        className={formErrors.photo ? "border-destructive" : ""}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (file) {
-                            if (file.size > 5 * 1024 * 1024) {
-                              toast({ title: "File too large", description: "Max 5MB allowed", variant: "destructive" });
-                              e.target.value = null; // Clear input
+                            const error = validateImageFile(file);
+                            if (error) {
+                              setFormErrors(prev => ({ ...prev, photo: error }));
+                              e.target.value = "";
                               return;
                             }
+                            setFormErrors(prev => { const next = { ...prev }; delete next.photo; return next; });
                             setFormData({ ...formData, photo: file });
                           }
                         }}
                       />
+                      <FieldError message={formErrors.photo} />
                     </div>
 
                     {/* Father Name */}
@@ -398,7 +439,9 @@ const Teachers = () => {
                       <Input
                         value={formData.fatherName}
                         onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })}
+                        className={formErrors.fatherName ? "border-destructive" : ""}
                       />
+                      <FieldError message={formErrors.fatherName} />
                     </div>
 
                     {/* CNIC */}
@@ -406,9 +449,11 @@ const Teachers = () => {
                       <Label>CNIC</Label>
                       <Input
                         value={formData.cnic}
-                        onChange={(e) => setFormData({ ...formData, cnic: e.target.value })}
+                        onChange={(e) => setFormData({ ...formData, cnic: formatCnic(e.target.value) })}
                         placeholder="12345-1234567-1"
+                        className={formErrors.cnic ? "border-destructive" : ""}
                       />
+                      <FieldError message={formErrors.cnic} />
                     </div>
 
                     {/* Address */}
@@ -417,7 +462,9 @@ const Teachers = () => {
                       <Input
                         value={formData.address}
                         onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                        className={formErrors.address ? "border-destructive" : ""}
                       />
+                      <FieldError message={formErrors.address} />
                     </div>
 
                     {/* Email */}
@@ -427,7 +474,9 @@ const Teachers = () => {
                         type="email"
                         value={formData.email}
                         onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        className={formErrors.email ? "border-destructive" : ""}
                       />
+                      <FieldError message={formErrors.email} />
                     </div>
 
 
@@ -437,7 +486,10 @@ const Teachers = () => {
                       <Input
                         value={formData.phone}
                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        className={formErrors.phone ? "border-destructive" : ""}
+                        placeholder="0300-1234567"
                       />
+                      <FieldError message={formErrors.phone} />
                     </div>
                     {/* Password */}
                     <div>
@@ -445,7 +497,9 @@ const Teachers = () => {
                       <PasswordInput
                         value={formData.password}
                         onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        className={formErrors.password ? "border-destructive" : ""}
                       />
+                      <FieldError message={formErrors.password} />
                     </div>
 
                     {/* Specialization */}
@@ -454,7 +508,9 @@ const Teachers = () => {
                       <Input
                         value={formData.specialization}
                         onChange={(e) => setFormData({ ...formData, specialization: e.target.value })}
+                        className={formErrors.specialization ? "border-destructive" : ""}
                       />
+                      <FieldError message={formErrors.specialization} />
                     </div>
 
                     {/* Highest Degree */}
@@ -473,6 +529,7 @@ const Teachers = () => {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FieldError message={formErrors.highestDegree} />
                     </div>
 
                     <div>
@@ -537,7 +594,9 @@ const Teachers = () => {
                         value={formData.basicPay}
                         onChange={(e) => setFormData({ ...formData, basicPay: e.target.value })}
                         placeholder="0"
+                        className={formErrors.basicPay ? "border-destructive" : ""}
                       />
+                      <FieldError message={formErrors.basicPay} />
                     </div>
 
                     {/* Join Date */}

@@ -19,6 +19,7 @@ import { StudentService } from 'src/student/student.service';
 import { AttendanceStatus } from '@prisma/client';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { LocalFileService } from 'src/local-file/local-file.service';
+import { imageUploadOptions } from 'src/common/upload/image-upload.options';
 import {
   UploadedFile,
   UseInterceptors,
@@ -45,7 +46,7 @@ export class TeacherController {
 
   @Post('create')
   @UseInterceptors(
-    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('photo', imageUploadOptions),
   )
   async createTeacher(
     @UploadedFile() file: Express.Multer.File,
@@ -80,7 +81,7 @@ export class TeacherController {
   }
   @Patch('update')
   @UseInterceptors(
-    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('photo', imageUploadOptions),
   )
   async updateTeacher(
     @UploadedFile() file: Express.Multer.File,
