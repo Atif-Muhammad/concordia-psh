@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
+import { getUploadRoot } from './local-file/upload-path';
 import { AuthModule } from './auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
@@ -43,7 +43,7 @@ import { LocalFileModule } from './local-file/local-file.module';
     DashboardModule,
     LocalFileModule,
     ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), 'uploads'),
+      rootPath: getUploadRoot(),
       serveRoot: '/uploads',
     }),
   ],
