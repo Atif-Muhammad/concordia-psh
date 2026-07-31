@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 import { getUploadRoot } from './local-file/upload-path';
 import { AuthModule } from './auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
@@ -42,10 +43,16 @@ import { LocalFileModule } from './local-file/local-file.module';
     FinanceModule,
     DashboardModule,
     LocalFileModule,
-    ServeStaticModule.forRoot({
-      rootPath: getUploadRoot(),
-      serveRoot: '/uploads',
-    }),
+    ServeStaticModule.forRoot(
+      {
+        rootPath: getUploadRoot(),
+        serveRoot: '/uploads',
+      },
+      {
+        rootPath: join(process.cwd(), 'template-requirements'),
+        serveRoot: '/template-requirements',
+      },
+    ),
   ],
   controllers: [],
   providers: [],

@@ -28,8 +28,9 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
-# Copy template requirements and other upload assets
-COPY --from=builder /app/uploads ./uploads
+# Keep template requirements inside the backend root; dynamic uploads live in /opt/portal/uploads.
+COPY --from=builder /app/template-requirements ./template-requirements
+RUN mkdir -p /opt/portal/uploads/staff /opt/portal/uploads/students
 
 EXPOSE 3003
 
