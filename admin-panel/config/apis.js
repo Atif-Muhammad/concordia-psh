@@ -4923,8 +4923,8 @@ export const generateStaffAttendance = async (date) => {
 export const markDateAsHoliday = async (date, title) => {
   try {
     const response = await axios.post(
-      `${base_url}/attendance/holiday`,
-      { date, title },
+      `${base_url}/hr/holidays`,
+      { date, title, type: "Staff", repeatYearly: false, description: title },
       { withCredentials: true }
     );
     return response.data;

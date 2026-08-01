@@ -50,7 +50,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useData } from "@/contexts/DataContext";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import {
@@ -106,6 +106,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "../lib/utils";
+import { NAV_MODULES, getRouteSubmoduleId } from "@/lib/navigation.jsx";
 
 const salarySlipTemplate = `
 <div style="display: flex; gap: 20px; font-family: Arial, sans-serif; font-size: 12px; min-width: 900px;">
@@ -827,6 +828,9 @@ const Configuration = () => {
 
   } = useData();
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const routeTab = getRouteSubmoduleId(location.pathname, "Configuration", "institute");
   const [dialog, setDialog] = useState({
     type: "",
     open: false,
@@ -860,6 +864,8 @@ const Configuration = () => {
     email: "",
     password: "",
     role: "ADMIN",
+    accessRights: [],
+    subModules: {},
   });
   const [passwordDialog, setPasswordDialog] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
@@ -867,21 +873,7 @@ const Configuration = () => {
     newPassword: "",
     confirmPassword: "",
   });
-  const allModules = [
-    "Dashboard",
-    "Students",
-    "Academics",
-    "Attendance",
-    "Teacher",
-    "Examination",
-    "Finance",
-    "Fee Management",
-    "HR & Payroll",
-    "Front Office",
-    "Boarding",
-    "Inventory",
-    "Configuration",
-  ];
+  const allModules = NAV_MODULES;
 
   // Template states
   const [challanDialog, setChallanDialog] = useState(false);
@@ -995,13 +987,17 @@ const Configuration = () => {
 
 
   // Helper function to map admin data from API response
-  const mapAdminData = (admin) => ({
-    id: admin.id,
-    name: admin.name || admin.email.split("@")[0],
-    email: admin.email,
-    role: admin.role,
-    accessRights: admin.permissions?.modules || [],
-  });
+  const mapAdminData = (admin) => {
+    const permissions = admin.permissions || {};
+    return {
+      id: admin.id,
+      name: admin.name || admin.email.split("@")[0],
+      email: admin.email,
+      role: admin.role,
+      accessRights: permissions.modules || [],
+      subModules: permissions.subModules || {},
+    };
+  };
 
   // Fetch admins using React Query
   const { data: adminsRaw = [], isLoading: adminsLoading } = useQuery({
@@ -1010,7 +1006,7 @@ const Configuration = () => {
   });
 
   const admins = Array.isArray(adminsRaw)
-    ? adminsRaw.filter(a => a.role === "SUPER_ADMIN").map(mapAdminData)
+    ? adminsRaw.map(mapAdminData)
     : [];
 
   // Mutations
@@ -1020,7 +1016,7 @@ const Configuration = () => {
       queryClient.invalidateQueries({ queryKey: ["admins"] });
       toast({ title: "Admin created successfully" });
       setDialog({ type: "", open: false });
-      setAdminForm({ name: "", email: "", password: "", role: "ADMIN" });
+      setAdminForm({ name: "", email: "", password: "", role: "ADMIN", accessRights: [], subModules: {} });
     },
     onError: (error) => {
       toast({ title: "Error", description: error.message || "Failed to create admin", variant: "destructive" });
@@ -1035,7 +1031,7 @@ const Configuration = () => {
       toast({ title: "Admin updated successfully" });
       setDialog({ type: "", open: false });
       setEditing(null);
-      setAdminForm({ name: "", email: "", password: "", role: "ADMIN" });
+      setAdminForm({ name: "", email: "", password: "", role: "ADMIN", accessRights: [], subModules: {} });
     },
     onError: (error) => {
       toast({ title: "Error", description: error.message || "Failed to update admin", variant: "destructive" });
@@ -1240,6 +1236,7 @@ const Configuration = () => {
       role: "",
       permissions: [],
     });
+    setAdminForm({ name: "", email: "", password: "", role: "ADMIN", accessRights: [], subModules: {} });
   };
   const handleAdminSubmit = async () => {
     // Map frontend data to backend format
@@ -1249,9 +1246,10 @@ const Configuration = () => {
       email: adminForm.email,
       password: adminForm.password,
       role: adminForm.role,
-      permissions: adminForm.accessRights
-        ? { modules: adminForm.accessRights }
-        : { modules: [] },
+      permissions: {
+        modules: adminForm.accessRights || [],
+        subModules: adminForm.subModules || {},
+      },
     };
 
     if (editing) {
@@ -1268,17 +1266,53 @@ const Configuration = () => {
   const toggleAccessRight = async (adminId, module) => {
     const admin = admins.find((a) => a.id === adminId);
     if (!admin) return;
+    const moduleConfig = allModules.find((m) => m.label === module);
+    const childIds = moduleConfig?.subModules?.map((sub) => sub.id) || [];
     const hasAccess = admin.accessRights.includes(module);
     const newAccessRights = hasAccess
       ? admin.accessRights.filter((m) => m !== module)
       : [...admin.accessRights, module];
+    const newSubModules = { ...(admin.subModules || {}) };
+    if (hasAccess) {
+      delete newSubModules[module];
+    } else if (childIds.length > 0) {
+      newSubModules[module] = childIds;
+    }
 
     // Update only permissions, role remains "ADMIN"
     const updateData = {
-      permissions: { modules: newAccessRights },
+      permissions: { modules: newAccessRights, subModules: newSubModules },
     };
 
     toggleAccessMutation.mutate({ id: adminId, data: updateData, module });
+  };
+  const toggleSubmoduleAccess = async (adminId, module, subModuleId) => {
+    const admin = admins.find((a) => a.id === adminId);
+    if (!admin) return;
+    const moduleConfig = allModules.find((m) => m.label === module);
+    const childIds = moduleConfig?.subModules?.map((sub) => sub.id) || [];
+    const explicitChildren = admin.subModules?.[module];
+    const current = Array.isArray(explicitChildren)
+      ? explicitChildren
+      : admin.accessRights?.includes(module)
+        ? childIds
+        : [];
+    const nextChildren = current.includes(subModuleId)
+      ? current.filter((id) => id !== subModuleId)
+      : [...current, subModuleId];
+    const newSubModules = { ...(admin.subModules || {}), [module]: nextChildren };
+    let newAccessRights = admin.accessRights || [];
+    if (nextChildren.length === 0) {
+      delete newSubModules[module];
+      newAccessRights = newAccessRights.filter((m) => m !== module);
+    } else if (!newAccessRights.includes(module)) {
+      newAccessRights = [...newAccessRights, module];
+    }
+    toggleAccessMutation.mutate({
+      id: adminId,
+      data: { permissions: { modules: newAccessRights, subModules: newSubModules } },
+      module,
+    });
   };
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -1325,6 +1359,8 @@ const Configuration = () => {
       email: admin.email || "",
       password: "", // Don't set password when editing
       role: admin.role || "ADMIN",
+      accessRights: admin.accessRights || [],
+      subModules: admin.subModules || {},
     });
     setDialog({
       type: "admin",
@@ -1440,8 +1476,8 @@ const Configuration = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="institute" className="space-y-6">
-          <TabsList className="mb-4">
+        <Tabs value={routeTab} className="space-y-6">
+          <TabsList className="hidden">
             <TabsTrigger value="institute">Institute</TabsTrigger>
             {/* <TabsTrigger value="branches">Branches</TabsTrigger> */}
             {/* <TabsTrigger value="roles">Roles</TabsTrigger> */}
@@ -1980,29 +2016,66 @@ const Configuration = () => {
                                       </Badge>
                                     </div>
 
-                                    <div className="p-3 grid grid-cols-2 gap-2 max-h-[350px] overflow-y-auto">
+                                    <div className="p-3 space-y-3 max-h-[420px] overflow-y-auto">
                                       {allModules.map((module) => {
-                                        const hasAccess = admin.accessRights.includes(module);
+                                        const childIds = module.subModules?.map((subModule) => subModule.id) || [];
+                                        const explicitChildren = admin.subModules?.[module.label];
+                                        const selectedChildren = Array.isArray(explicitChildren)
+                                          ? explicitChildren
+                                          : admin.accessRights.includes(module.label)
+                                            ? childIds
+                                            : [];
+                                        const selectedChildSet = new Set(selectedChildren);
+                                        const hasAccess = admin.accessRights.includes(module.label);
+                                        const hasChildren = childIds.length > 0;
+                                        const allChildrenSelected = hasChildren
+                                          ? childIds.every((childId) => selectedChildSet.has(childId))
+                                          : hasAccess;
+                                        const someChildrenSelected =
+                                          hasChildren && childIds.some((childId) => selectedChildSet.has(childId));
+
                                         return (
                                           <div
-                                            key={module}
-                                            onClick={() => toggleAccessRight(admin.id, module)}
+                                            key={module.label}
                                             className={cn(
-                                              "group flex items-center justify-between px-3 py-2.5 text-[11px] rounded-lg cursor-pointer transition-all border duration-200",
+                                              "rounded-lg border transition-all duration-200",
                                               hasAccess
-                                                ? "bg-primary/5 text-primary border-border hover:bg-primary/10"
-                                                : "bg-background text-muted-foreground border-transparent hover:bg-muted/50 hover:text-foreground"
+                                                ? "bg-primary/5 border-border"
+                                                : "bg-background border-border/70"
                                             )}
                                           >
-                                            <span className="font-medium mr-2">{module}</span>
-                                            <div className={cn(
-                                              "h-4 w-4 rounded-full border flex items-center justify-center transition-colors",
-                                              hasAccess
-                                                ? "bg-primary border-primary"
-                                                : "border-muted-foreground/30 group-hover:border-muted-foreground/50"
-                                            )}>
-                                              {hasAccess && <Check className="h-2.5 w-2.5 text-white stroke-[3]" />}
+                                            <div className="flex items-center gap-3 px-3 py-2.5">
+                                              <Checkbox
+                                                checked={hasChildren && someChildrenSelected && !allChildrenSelected ? "indeterminate" : allChildrenSelected}
+                                                onCheckedChange={() => toggleAccessRight(admin.id, module.label)}
+                                                aria-label={`${module.label} access`}
+                                              />
+                                              <div className="min-w-0">
+                                                <p className="text-xs font-semibold text-foreground">{module.label}</p>
+                                                {hasChildren && (
+                                                  <p className="text-[10px] text-muted-foreground">
+                                                    {selectedChildSet.size} of {childIds.length} submodules
+                                                  </p>
+                                                )}
+                                              </div>
                                             </div>
+                                            {hasChildren && (
+                                              <div className="border-t border-border/70 px-3 py-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                {module.subModules.map((subModule) => (
+                                                  <label
+                                                    key={subModule.id}
+                                                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground cursor-pointer"
+                                                  >
+                                                    <Checkbox
+                                                      checked={selectedChildSet.has(subModule.id)}
+                                                      onCheckedChange={() => toggleSubmoduleAccess(admin.id, module.label, subModule.id)}
+                                                      aria-label={`${module.label} ${subModule.label} access`}
+                                                    />
+                                                    <span className="truncate">{subModule.label}</span>
+                                                  </label>
+                                                ))}
+                                              </div>
+                                            )}
                                           </div>
                                         );
                                       })}
@@ -2138,6 +2211,7 @@ const Configuration = () => {
                               </Button>
                             </div>
                             <Textarea
+                              noMaxLength
                               rows={10}
                               value={challanForm.htmlContent}
                               onChange={(e) =>
@@ -2322,6 +2396,7 @@ const Configuration = () => {
                               </Button>
                             </div>
                             <Textarea
+                              noMaxLength
                               rows={10}
                               value={teacherIdCardForm.htmlContent}
                               onChange={(e) =>
@@ -2544,6 +2619,7 @@ const Configuration = () => {
                               </Button>
                             </div>
                             <Textarea
+                              noMaxLength
                               rows={10}
                               value={studentIdCardForm.htmlContent}
                               onChange={(e) =>
@@ -2755,6 +2831,7 @@ const Configuration = () => {
                               </Button>
                             </div>
                             <Textarea
+                              noMaxLength
                               rows={10}
                               value={marksheetForm.htmlContent}
                               onChange={(e) =>
@@ -2991,6 +3068,7 @@ const Configuration = () => {
                             </div>
                             <div className="col-span-4">
                               <Textarea
+                                noMaxLength
                                 id="content"
                                 value={payrollForm.htmlContent}
                                 onChange={(e) => setPayrollForm({ ...payrollForm, htmlContent: e.target.value })}

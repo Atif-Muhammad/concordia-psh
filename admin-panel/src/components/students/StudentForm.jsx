@@ -196,6 +196,19 @@ const StudentForm = ({
         [selectedClass]
     );
 
+    const selectedSessionName = useMemo(() => {
+        if (formData.session) return formData.session;
+        if (!formData.sessionId) return "";
+        const found = academicSessions.find(s => s.id.toString() === formData.sessionId.toString());
+        return found?.name || "";
+    }, [academicSessions, formData.session, formData.sessionId]);
+
+    const applySelectedSessionToInstallment = (inst) => ({
+        ...inst,
+        session: selectedSessionName || inst.session || "",
+        sessionId: formData.sessionId || inst.sessionId || null,
+    });
+
     const availableSections = useMemo(() =>
         sections.filter(sec => sec.classId.toString() === formData.classId.toString()),
         [sections, formData.classId]
@@ -382,7 +395,8 @@ const StudentForm = ({
                         amount: 0,
                         dueDate: nextDate.toISOString().split('T')[0],
                         month: monthName,
-                        session: getSessionLabel(nextDate, gap),
+                        session: selectedSessionName || getSessionLabel(nextDate, gap),
+                        sessionId: formData.sessionId || null,
                     });
                 }
             } else if (currentInstallments.length > count) {
@@ -422,19 +436,19 @@ const StudentForm = ({
             return currentInstallments.map((inst, index) => {
                 // Keep paid installments locked
                 if ((inst.paidAmount || 0) > 0 || inst.status === 'PAID' || inst.status === 'PARTIAL') {
-                    return { ...inst, installmentNumber: index + 1 };
+                    return applySelectedSessionToInstallment({ ...inst, installmentNumber: index + 1 });
                 }
                 // Distribute to unlocked
                 const isLastUnlocked = unlockedIdx === unlockedCount - 1;
                 const amt = isLastUnlocked ? baseAmount + remainder : baseAmount;
                 unlockedIdx++;
-                return { ...inst, installmentNumber: index + 1, amount: amt };
+                return applySelectedSessionToInstallment({ ...inst, installmentNumber: index + 1, amount: amt });
             });
         }
 
         // All locked — just renumber
         return currentInstallments.map((inst, index) => ({
-            ...inst,
+            ...applySelectedSessionToInstallment(inst),
             installmentNumber: index + 1,
         }));
     };
@@ -456,7 +470,8 @@ const StudentForm = ({
                 amount: 0,
                 dueDate: nextDate.toISOString().split('T')[0],
                 month: monthName,
-                session: getSessionLabel(nextDate, gap),
+                session: selectedSessionName || getSessionLabel(nextDate, gap),
+                sessionId: formData.sessionId || null,
             }
         ];
 
@@ -465,7 +480,8 @@ const StudentForm = ({
             numberOfInstallments: newInstallments.length.toString(),
             installments: redistributeInstallments(prev.tuitionFee, newInstallments.map(inst => ({
                 ...inst,
-                session: prev.session || inst.session
+                session: selectedSessionName || prev.session || inst.session,
+                sessionId: prev.sessionId || inst.sessionId || null,
             })))
         }));
     };
@@ -650,6 +666,8 @@ const StudentForm = ({
         }
         setFieldErrors({});
 
+        const normalizedInstallments = (formData.installments || []).map(applySelectedSessionToInstallment);
+
         const allowedFields = [
             'fName', 'lName', 'fatherOrguardian', 'rollNumber',
             'parentOrGuardianEmail', 'parentOrGuardianPhone', 'parentCNIC', 'address',
@@ -663,7 +681,7 @@ const StudentForm = ({
         const submissionData = new FormData();
         allowedFields.forEach(key => {
             if (key === 'installments' || key === 'documents') {
-                submissionData.append(key, JSON.stringify(formData[key] || (key === 'documents' ? {} : [])));
+                submissionData.append(key, JSON.stringify(key === 'installments' ? normalizedInstallments : (formData[key] || {})));
             } else if (formData[key] !== undefined && formData[key] !== null) {
                 submissionData.append(key, formData[key]);
             }
@@ -772,7 +790,8 @@ const StudentForm = ({
                                         session: sessionRecord?.name || "",
                                         installments: (prev.installments || []).map(inst => ({
                                             ...inst,
-                                            session: sessionRecord?.name || prev.session
+                                            session: sessionRecord?.name || "",
+                                            sessionId: v
                                         }))
                                     }));
                                 }}
@@ -1099,8 +1118,8 @@ const StudentForm = ({
                                         </td>
                                         <td className="px-4 py-2">
                                             <Select
-                                                value={inst.session || ""}
-                                                onValueChange={(session) => handleInstallmentChange(index, "session", session)}
+                                                value={selectedSessionName || inst.session || ""}
+                                                disabled
                                             >
                                                 <SelectTrigger className="w-[130px]"><SelectValue placeholder="Session" /></SelectTrigger>
                                                 <SelectContent>

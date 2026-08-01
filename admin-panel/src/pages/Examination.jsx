@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -85,10 +86,13 @@ import {
   getTeacherClasses,
   getAcademicSessions
 } from "../../config/apis";
+import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 
 const Examination = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const routeTab = getRouteSubmoduleId(location.pathname, "Examination", "exams");
 
   const [examSearch, setExamSearch] = useState("");
   const [examDateFilter, setExamDateFilter] = useState("");
@@ -1069,8 +1073,8 @@ const Examination = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="exams" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 h-auto gap-1">
+        <Tabs value={routeTab} className="space-y-6">
+          <TabsList className="hidden">
             <TabsTrigger value="exams">Exams</TabsTrigger>
             <TabsTrigger value="marks">Marks Entry</TabsTrigger>
             <TabsTrigger value="results">Results</TabsTrigger>

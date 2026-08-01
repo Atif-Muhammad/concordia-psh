@@ -52,6 +52,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { format, addDays, addMonths } from "date-fns"
 import {
@@ -62,6 +63,7 @@ import {
   Edit,
   Trash2,
   Eye,
+  Search,
   Plus,
   Check,
   X,
@@ -81,6 +83,7 @@ import {
   validatePkPhone,
   validateRequired,
 } from "@/lib/inputValidation";
+import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 import {
   createInquiry,
   getProgramNames,
@@ -121,6 +124,8 @@ import {
 } from "@/components/ui/command";
 
 const FrontOffice = () => {
+  const location = useLocation();
+  const routeTab = getRouteSubmoduleId(location.pathname, "Front Office", "inquiry");
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -322,6 +327,10 @@ const FrontOffice = () => {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [categoryFilter, setCategoryFilter] = useState("All");
+  const [inquiryNameSearch, setInquiryNameSearch] = useState("");
+  const [visitorNameSearch, setVisitorNameSearch] = useState("");
+  const [complaintNameSearch, setComplaintNameSearch] = useState("");
+  const [contactNameSearch, setContactNameSearch] = useState("");
 
 
 
@@ -329,6 +338,12 @@ const FrontOffice = () => {
   const inquiries = useMemo(() => {
     return inquiriesData?.pages.flatMap((page) => page.data) || [];
   }, [inquiriesData]);
+  const nameMatches = (value, query) =>
+    !query.trim() || String(value || "").toLowerCase().includes(query.trim().toLowerCase());
+  const filteredInquiries = useMemo(
+    () => inquiries.filter(inquiry => nameMatches(inquiry.studentName, inquiryNameSearch)),
+    [inquiries, inquiryNameSearch]
+  );
 
   const observer = useRef();
   const lastInquiryElementRef = useCallback(
@@ -905,9 +920,21 @@ const FrontOffice = () => {
     }
     setDeleteDialog({ open: false, type: "", id: "" });
   };
-  const filteredContacts = categoryFilter === "All"
-    ? contacts
-    : contacts.filter(c => c.category === categoryFilter);
+  const filteredVisitors = useMemo(
+    () => visitors.filter(visitor => nameMatches(visitor.visitorName, visitorNameSearch)),
+    [visitors, visitorNameSearch]
+  );
+  const filteredComplaints = useMemo(
+    () => (complaints || []).filter(complaint => nameMatches(complaint.complainantName, complaintNameSearch)),
+    [complaints, complaintNameSearch]
+  );
+  const filteredContacts = useMemo(() => {
+    const contactRows = contacts || [];
+    const byCategory = categoryFilter === "All"
+      ? contactRows
+      : contactRows.filter(c => c.category === categoryFilter);
+    return byCategory.filter(contact => nameMatches(contact.name, contactNameSearch));
+  }, [contacts, categoryFilter, contactNameSearch]);
 
 
   const getStatusColor = (status) => {
@@ -975,8 +1002,8 @@ const FrontOffice = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="inquiry" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto">
+        <Tabs value={routeTab} className="w-full">
+          <TabsList className="hidden">
             <TabsTrigger value="inquiry">Inquiry</TabsTrigger>
             <TabsTrigger value="visitor">Visitor Book</TabsTrigger>
             <TabsTrigger value="complaint">Complaints</TabsTrigger>
@@ -992,6 +1019,15 @@ const FrontOffice = () => {
                   All Inquiries
                 </CardTitle>
                 <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={inquiryNameSearch}
+                      onChange={(e) => setInquiryNameSearch(e.target.value)}
+                      placeholder="Search by name"
+                      className="w-[220px] pl-9"
+                    />
+                  </div>
                   <Select value={selectedProgram} onValueChange={setSelectedProgram}>
                     <SelectTrigger className="w-[220px]">
                       <SelectValue placeholder="Filter by program" />
@@ -1258,12 +1294,12 @@ const FrontOffice = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {inquiries.length > 0 ? (
+                      {filteredInquiries.length > 0 ? (
                         <>
-                          {inquiries.map((inquiry, index) => (
+                          {filteredInquiries.map((inquiry, index) => (
                             <TableRow
                               key={inquiry.id}
-                              ref={index === inquiries.length - 1 ? lastInquiryElementRef : null}
+                              ref={index === filteredInquiries.length - 1 ? lastInquiryElementRef : null}
                             >
                               <TableCell className="py-2 px-3 text-sm">{inquiry.createdAt.split("T")[0]}</TableCell>
                               <TableCell className="py-2 px-3 text-sm font-medium">{inquiry.studentName}</TableCell>
@@ -1385,6 +1421,15 @@ const FrontOffice = () => {
                   Visitor Log
                 </CardTitle>
                 <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={visitorNameSearch}
+                      onChange={(e) => setVisitorNameSearch(e.target.value)}
+                      placeholder="Search by name"
+                      className="w-[220px] pl-9"
+                    />
+                  </div>
                   <Input
                     type="month"
                     value={visitorMonthFilter}
@@ -1559,14 +1604,14 @@ const FrontOffice = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {visitors.length === 0 ? (
+                      {filteredVisitors.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={7} className="py-2 px-3 text-sm text-center text-muted-foreground">
                             No visitors recorded yet.
                           </TableCell>
                         </TableRow>
                       ) : (
-                        visitors.map((visitor) => (
+                        filteredVisitors.map((visitor) => (
                           <TableRow key={visitor.id}>
                             <TableCell className="py-2 px-3 text-sm">{visitor.date.split("T")[0]}</TableCell>
                             <TableCell className="py-2 px-3 text-sm font-medium truncate max-w-[130px] overflow-hidden whitespace-nowrap">{visitor.visitorName}</TableCell>
@@ -1652,6 +1697,15 @@ const FrontOffice = () => {
                 </CardTitle>
                 <Dialog open={complaintDialog} onOpenChange={setComplaintDialog}>
                   <div className="flex items-center justify-center gap-x-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={complaintNameSearch}
+                        onChange={(e) => setComplaintNameSearch(e.target.value)}
+                        placeholder="Search by name"
+                        className="w-[220px] pl-9"
+                      />
+                    </div>
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button variant="outline">
@@ -1823,7 +1877,7 @@ const FrontOffice = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {complaints?.map(complaint => <TableRow key={complaint.id}>
+                    {filteredComplaints?.map(complaint => <TableRow key={complaint.id}>
                       <TableCell className="py-2 px-3 text-sm">{complaint.createdAt.split("T")[0]}</TableCell>
                       <TableCell className="py-2 px-3 text-sm">{complaint.type}</TableCell>
                       <TableCell className="py-2 px-3 text-sm font-medium">{complaint.complainantName}</TableCell>
@@ -1918,6 +1972,15 @@ const FrontOffice = () => {
                 <Dialog open={contactDialog} onOpenChange={setContactDialog}>
                   <div className="flex items-center justify-center gap-x-2">
                     <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          value={contactNameSearch}
+                          onChange={(e) => setContactNameSearch(e.target.value)}
+                          placeholder="Search by name"
+                          className="w-[220px] pl-9"
+                        />
+                      </div>
                       {/* CATEGORY FILTER */}
                       <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                         <SelectTrigger className="w-[150px]">

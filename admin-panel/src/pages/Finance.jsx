@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import React, { useState, useMemo } from "react";
+import { useLocation } from "react-router-dom";
 import { TrendingUp, TrendingDown, DollarSign, FileText, Trash2, Info, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -30,6 +31,7 @@ import {
   deleteFinanceClosing,
   getFinanceReportsAnalytics
 } from "../../config/apis";
+import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 
 // Helper to format date as YYYY-MM-DD in local time
 const toLocalDateString = (date) => {
@@ -78,7 +80,8 @@ const Finance = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const location = useLocation();
+  const activeTab = getRouteSubmoduleId(location.pathname, "Finance", "dashboard");
   const [incomeOpen, setIncomeOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [closingOpen, setClosingOpen] = useState(false);
@@ -775,8 +778,8 @@ const Finance = () => {
         </Card>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 h-auto gap-1">
+      <Tabs value={activeTab}>
+        <TabsList className="hidden">
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="income">Income</TabsTrigger>
           <TabsTrigger value="expense">Expense</TabsTrigger>

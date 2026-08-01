@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import { useLocation } from "react-router-dom";
 import { validateCurrentTab } from "@/lib/staffValidation";
 import { FieldError } from "@/components/ui/field-error";
 import {
@@ -57,6 +58,7 @@ import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -95,6 +97,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { NAV_MODULES, getRouteSubmoduleId } from "@/lib/navigation.jsx";
 
 // Constants
 const STAFF_DOCUMENTS = [
@@ -159,6 +162,7 @@ const initialFormData = {
     designation: "",
     empDepartment: "",
     accessRights: [],
+    subModules: {},
     // Leave settings
     sickAllowed: "0",
     sickDeduction: "0",
@@ -168,22 +172,7 @@ const initialFormData = {
     casualDeduction: "0",
 };
 
-const STAFF_MODULES = [
-    "Dashboard",
-    "Students",
-    "Academics",
-    "Attendance",
-    "Staff",
-    "Examination",
-    "Finance",
-    "Fee Management",
-    "HR & Payroll",
-    "Front Office",
-    "Boarding",
-    "Inventory",
-    "Complaints",
-    "Configuration",
-];
+const STAFF_PERMISSION_MODULES = NAV_MODULES;
 
 // ---------------------------------------------------------------------------
 // StepIndicator Component
@@ -240,6 +229,8 @@ function StepIndicator({ currentStep, completedSteps, onStepClick }) {
 export default function Staff() {
     const queryClient = useQueryClient();
     const { toast } = useToast();
+    const location = useLocation();
+    const activeTab = getRouteSubmoduleId(location.pathname, "Staff", "directory");
 
     // States
     const [searchTerm, setSearchTerm] = useState("");
@@ -261,7 +252,6 @@ export default function Staff() {
     const [idCardPreview, setIdCardPreview] = useState(null); // { html: string, staffName: string } | null
 
     // Attendance State
-    const [activeTab, setActiveTab] = useState("directory");
     const [attendanceDate, setAttendanceDate] = useState(new Date());
     const [attendanceRoleFilter, setAttendanceRoleFilter] = useState("all");
     const [attendanceDraftRows, setAttendanceDraftRows] = useState([]);
@@ -358,6 +348,54 @@ export default function Staff() {
             : deduped;
     }, [attendanceDraftRows, attendanceRoleFilter]);
 
+    const fixedModuleAccess = (moduleLabel) =>
+        (formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(moduleLabel)) ||
+        (formData.isNonTeaching && moduleLabel === "Complaints");
+
+    const getModuleChildIds = (module) => module.subModules?.map((subModule) => subModule.id) || [];
+
+    const getSelectedSubmodules = (module) => {
+        const childIds = getModuleChildIds(module);
+        if (!childIds.length) return [];
+        const explicitChildren = formData.subModules?.[module.label];
+        if (Array.isArray(explicitChildren)) return explicitChildren;
+        if (formData.accessRights?.includes(module.label) || fixedModuleAccess(module.label)) return childIds;
+        return [];
+    };
+
+    const toggleModuleAccess = (module) => {
+        if (fixedModuleAccess(module.label)) return;
+        const childIds = getModuleChildIds(module);
+        const hasAccess = formData.accessRights?.includes(module.label);
+        const nextRights = hasAccess
+            ? (formData.accessRights || []).filter((right) => right !== module.label)
+            : [...(formData.accessRights || []), module.label];
+        const nextSubModules = { ...(formData.subModules || {}) };
+        if (hasAccess) {
+            delete nextSubModules[module.label];
+        } else if (childIds.length) {
+            nextSubModules[module.label] = childIds;
+        }
+        setFormData({ ...formData, accessRights: nextRights, subModules: nextSubModules });
+    };
+
+    const toggleSubmoduleAccess = (module, subModuleId) => {
+        if (fixedModuleAccess(module.label)) return;
+        const current = getSelectedSubmodules(module);
+        const nextChildren = current.includes(subModuleId)
+            ? current.filter((id) => id !== subModuleId)
+            : [...current, subModuleId];
+        const nextSubModules = { ...(formData.subModules || {}), [module.label]: nextChildren };
+        let nextRights = formData.accessRights || [];
+        if (!nextChildren.length) {
+            delete nextSubModules[module.label];
+            nextRights = nextRights.filter((right) => right !== module.label);
+        } else if (!nextRights.includes(module.label)) {
+            nextRights = [...nextRights, module.label];
+        }
+        setFormData({ ...formData, accessRights: nextRights, subModules: nextSubModules });
+    };
+
     // Future date check — disable both buttons for future dates
     const isFutureDate = useMemo(() => {
         const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -396,6 +434,23 @@ export default function Staff() {
             notes: record.notes || "",
         }));
     };
+
+    const buildHolidayAttendanceRows = () =>
+        attendanceDraftRows
+            .filter((record) => {
+                if (attendanceRoleFilter === "all") return true;
+                const isTeaching = record.staff?.isTeaching;
+                const isNonTeaching = record.staff?.isNonTeaching;
+                if (attendanceRoleFilter === "teaching") return isTeaching;
+                if (attendanceRoleFilter === "non-teaching") return isNonTeaching;
+                return true;
+            })
+            .map((record) => ({
+                staffId: record.staff?.id ?? record.staffId,
+                status: "HOLIDAY",
+                leaveType: null,
+                notes: "Holiday",
+            }));
 
     const handleSaveStaffAttendance = async () => {
         if (!attendanceDate) {
@@ -495,7 +550,15 @@ export default function Staff() {
         try {
             // Delete attendance records for this date + selected role first
             await deleteStaffAttendanceByDate(attendanceDateStr, attendanceRoleFilter);
-            // Then mark as holiday
+            const rows = buildHolidayAttendanceRows();
+            if (rows.length) {
+                await bulkMarkStaffAttendance({
+                    date: attendanceDateStr,
+                    role: attendanceRoleFilter,
+                    rows,
+                });
+            }
+            // Then mark as holiday so normal attendance writes are blocked afterward.
             const result = await markDateAsHoliday(attendanceDateStr, "Holiday");
             const freshHolidays = await getHolidays();
             const created = freshHolidays.find(h => h.date?.startsWith(attendanceDateStr));
@@ -504,7 +567,7 @@ export default function Staff() {
             } else {
                 toast({ title: "Holiday marked successfully" });
             }
-            refetchAttendance();
+            await refetchAttendance();
             queryClient.invalidateQueries({ queryKey: ["holidays"] });
         } catch (error) {
             toast({ title: error.message || "Failed to mark date as holiday", variant: "destructive" });
@@ -676,6 +739,7 @@ export default function Staff() {
             designation: staff.designation || "",
             empDepartment: staff.empDepartment || "",
             accessRights: staff.permissions?.modules || [],
+            subModules: staff.permissions?.subModules || {},
             // Leave settings
             sickAllowed: staff.leaveSettings?.sickAllowed != null ? String(staff.leaveSettings.sickAllowed) : "0",
             sickDeduction: staff.leaveSettings?.sickDeduction != null ? String(staff.leaveSettings.sickDeduction) : "0",
@@ -736,7 +800,7 @@ export default function Staff() {
 
         const submitData = new FormData();
         Object.keys(formData).forEach((key) => {
-            if (key === "documents" || key === "accessRights") {
+            if (key === "documents" || key === "accessRights" || key === "subModules") {
                 // Skip these, handled separately or as permissions
             } else if (key === "password" && !formData[key]) {
                 // Skip empty password on edit
@@ -751,7 +815,10 @@ export default function Staff() {
         });
 
         // Add permissions structure that backend expects
-        submitData.append("permissions", JSON.stringify({ modules: formData.accessRights || [] }));
+        submitData.append("permissions", JSON.stringify({
+            modules: formData.accessRights || [],
+            subModules: formData.subModules || {},
+        }));
         // Add documents
         submitData.append("documents", JSON.stringify(formData.documents));
         // Add leave settings
@@ -933,8 +1000,8 @@ export default function Staff() {
                     </Button>
                 </div>
 
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                    <TabsList>
+                <Tabs value={activeTab} className="space-y-6">
+                    <TabsList className="hidden">
                         <TabsTrigger value="directory">Staff Directory</TabsTrigger>
                         <TabsTrigger value="settings">Settings</TabsTrigger>
                         {/* <TabsTrigger value="attendance">Attendance</TabsTrigger> */}
@@ -1003,6 +1070,9 @@ export default function Staff() {
                                         <div className="relative">
                                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                             <Input
+                                                type="search"
+                                                name="staff-directory-search"
+                                                autoComplete="off"
                                                 placeholder="Search by name, email, CNIC..."
                                                 value={searchTerm}
                                                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -1375,6 +1445,7 @@ export default function Staff() {
                                                                         <SelectItem value="LEAVE">Leave</SelectItem>
                                                                         <SelectItem value="SHORT_LEAVE">Short Leave</SelectItem>
                                                                         <SelectItem value="HALF_DAY">Half Day</SelectItem>
+                                                                        <SelectItem value="HOLIDAY">Holiday</SelectItem>
                                                                     </SelectContent>
                                                                 </Select>
                                                                 {String(record.status || "").toUpperCase() === "LEAVE" && (
@@ -1662,8 +1733,7 @@ export default function Staff() {
                                                 : <span className="text-xs text-muted-foreground ml-1">Optional</span>
                                             }
                                         </Label>
-                                        <Input
-                                            type="password"
+                                        <PasswordInput
                                             autoComplete="off"
                                             value={formData.password}
                                             onChange={(e) => {
@@ -2026,28 +2096,58 @@ export default function Staff() {
 
                                         <div className="pt-2">
                                             <Label className="mb-2 block">System Access Rights</Label>
-                                            <div className="grid grid-cols-3 gap-2 p-3 bg-background rounded-md border">
-                                                {STAFF_MODULES.map((module) => (
-                                                    <label key={module} className={`flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 p-1 rounded transition-colors ${((formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(module)) || (formData.isNonTeaching && module === "Complaints")) ? "opacity-70" : ""}`}>
-                                                        <Checkbox
-                                                            checked={formData.accessRights?.includes(module) || (formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(module)) || (formData.isNonTeaching && module === "Complaints")}
-                                                            disabled={(formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(module)) || (formData.isNonTeaching && module === "Complaints")}
-                                                            onCheckedChange={(checked) => {
-                                                                const rights = formData.accessRights || [];
-                                                                if (checked) {
-                                                                    setFormData({ ...formData, accessRights: [...rights, module] });
-                                                                } else {
-                                                                    setFormData({ ...formData, accessRights: rights.filter(r => r !== module) });
-                                                                }
-                                                            }}
-                                                        />
-                                                        <span className={((formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(module)) || (formData.isNonTeaching && module === "Complaints")) ? "font-semibold text-primary/80" : ""}>
-                                                            {module} {((formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(module)) || (formData.isNonTeaching && module === "Complaints")) && <span className="text-[10px] opacity-70">(Fixed)</span>}
-                                                        </span>
-                                                    </label>
-                                                ))}
+                                            <div className="space-y-3 p-3 bg-background rounded-md border max-h-[460px] overflow-y-auto">
+                                                {STAFF_PERMISSION_MODULES.map((module) => {
+                                                    const childIds = getModuleChildIds(module);
+                                                    const selectedChildren = getSelectedSubmodules(module);
+                                                    const selectedSet = new Set(selectedChildren);
+                                                    const fixed = fixedModuleAccess(module.label);
+                                                    const hasModuleAccess = formData.accessRights?.includes(module.label) || fixed;
+                                                    const allChildrenSelected = childIds.length
+                                                        ? childIds.every((childId) => selectedSet.has(childId))
+                                                        : hasModuleAccess;
+                                                    const someChildrenSelected = childIds.some((childId) => selectedSet.has(childId));
+
+                                                    return (
+                                                        <div key={module.label} className={`rounded-lg border ${hasModuleAccess ? "bg-primary/5 border-primary/20" : "bg-background"}`}>
+                                                            <div className="flex items-center gap-3 px-3 py-2.5">
+                                                                <Checkbox
+                                                                    checked={childIds.length && someChildrenSelected && !allChildrenSelected ? "indeterminate" : allChildrenSelected}
+                                                                    disabled={fixed}
+                                                                    onCheckedChange={() => toggleModuleAccess(module)}
+                                                                    aria-label={`${module.label} access`}
+                                                                />
+                                                                <div className="min-w-0">
+                                                                    <p className="text-sm font-semibold">
+                                                                        {module.label} {fixed && <span className="text-[10px] text-primary/80">(Fixed)</span>}
+                                                                    </p>
+                                                                    {childIds.length > 0 && (
+                                                                        <p className="text-[10px] text-muted-foreground">
+                                                                            {selectedSet.size} of {childIds.length} submodules
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            {childIds.length > 0 && (
+                                                                <div className="border-t px-3 py-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                    {module.subModules.map((subModule) => (
+                                                                        <label key={subModule.id} className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs cursor-pointer hover:bg-muted/50 ${fixed ? "opacity-70" : ""}`}>
+                                                                            <Checkbox
+                                                                                checked={selectedSet.has(subModule.id)}
+                                                                                disabled={fixed}
+                                                                                onCheckedChange={() => toggleSubmoduleAccess(module, subModule.id)}
+                                                                                aria-label={`${module.label} ${subModule.label} access`}
+                                                                            />
+                                                                            <span className="truncate">{subModule.label}</span>
+                                                                        </label>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
-                                            <p className="text-[10px] text-muted-foreground mt-1">Grant access to specific system modules for this staff member.</p>
+                                            <p className="text-[10px] text-muted-foreground mt-1">Grant broad modules or specific submodule links for this staff member.</p>
                                         </div>
                                     </div>
                                 )}

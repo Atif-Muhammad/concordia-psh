@@ -61,8 +61,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { hasModuleAccess, parseDurationToYears } from "../lib/utils";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState, useRef, useCallback } from "react";
+import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 import {
   createClass,
   createProgram,
@@ -140,6 +141,8 @@ const Academics = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  const routeTab = getRouteSubmoduleId(location.pathname, "Academics", "sessions");
   const [filterLevel, setFilterLevel] = useState("all");
   const [filterProgram, setFilterProgram] = useState("all");
   const [sectionFilterProgram, setSectionFilterProgram] = useState("all");
@@ -947,8 +950,8 @@ const Academics = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="sessions" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 h-auto gap-1">
+        <Tabs value={routeTab} className="space-y-6">
+          <TabsList className="hidden">
             <TabsTrigger value="sessions">Sessions</TabsTrigger>
             <TabsTrigger value="programs">Programs</TabsTrigger>
             <TabsTrigger value="classes">Classes</TabsTrigger>

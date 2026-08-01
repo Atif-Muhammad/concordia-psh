@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useState, useMemo } from "react";
+import { useLocation } from "react-router-dom";
 import { UserPlus, Edit, Trash2, DollarSign, Calendar as CalendarIcon, CheckCircle2, XCircle, TrendingUp, Users, IdCard, Settings, UserCheck, Clock, Eye, Wallet, LockKeyhole, Info } from "lucide-react";
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
@@ -20,18 +21,20 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient, useQueries } from "@tanstack/react-query";
-import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff, getProgramNames, getAttendanceSkips, deleteAttendanceSkip, getStaffAttendance, markStaffAttendance, markDateAsHoliday, getHrLeavesReport, getHrPayrollReport, getHrAdvanceReport, getHrStaffAttendanceReport, getHrDepartmentsReport, getHrReportsAnalytics, getStaffLeaveBalance } from "../../config/apis";
+import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff, getProgramNames, getAttendanceSkips, deleteAttendanceSkip, getStaffAttendance, markStaffAttendance, bulkMarkStaffAttendance, markDateAsHoliday, getHrLeavesReport, getHrPayrollReport, getHrAdvanceReport, getHrStaffAttendanceReport, getHrDepartmentsReport, getHrReportsAnalytics, getStaffLeaveBalance } from "../../config/apis";
 import { Loader2, ChevronsUpDown } from "lucide-react";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { calculateDuration } from "../lib/dateUtils";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip as RechartsTooltip } from "recharts";
 import { ModernChartCard, ModernTooltip, MODERN_CHART_COLORS } from "@/components/ui/modern-charts";
+import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 
 const HRPayroll = () => {
   const {
     toast
   } = useToast();
-  const [activeTab, setActiveTab] = useState("leaves");
+  const location = useLocation();
+  const activeTab = getRouteSubmoduleId(location.pathname, "HR & Payroll", "leaves");
   const [employeeOpen, setEmployeeOpen] = useState(false);
   const [payrollOpen, setPayrollOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -327,10 +330,32 @@ const HRPayroll = () => {
       return;
     }
     try {
+      const rows = staffAttendanceRows
+        .filter((row) => !isStaffAttendanceLocked(row))
+        .map((row) => ({
+          staffId: row.staffId || row.staff?.id || row.id,
+          status: "HOLIDAY",
+          leaveType: undefined,
+          notes: "Holiday",
+        }))
+        .filter((row) => row.staffId);
+
+      if (!rows.length) {
+        toast({ title: "No editable staff rows to mark as holiday.", variant: "destructive" });
+        return;
+      }
+
+      await bulkMarkStaffAttendance({
+        date: staffAttendanceDate,
+        role: staffAttendanceRole,
+        rows,
+      });
       await markDateAsHoliday(staffAttendanceDate, "Holiday");
       toast({ title: "Holiday marked successfully", variant: "success" });
       setStaffAttendanceChanges({});
-      refetchStaffAttendance();
+      await queryClient.invalidateQueries({ queryKey: ["staffLeaveBalance"] });
+      await queryClient.invalidateQueries({ queryKey: ["payrollSheet"] });
+      await refetchStaffAttendance();
     } catch (error) {
       toast({ title: "Failed to mark holiday", description: error.message, variant: "destructive" });
     }
@@ -952,8 +977,8 @@ const HRPayroll = () => {
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-7 lg:grid-cols-7 h-auto gap-1">
+        <Tabs value={activeTab}>
+          <TabsList className="hidden">
             <TabsTrigger value="leaves">Leaves</TabsTrigger>
             <TabsTrigger value="payroll">Payroll</TabsTrigger>
             <TabsTrigger value="attendance">Attendance</TabsTrigger>

@@ -54,7 +54,8 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tansta
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState, useMemo } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 import {
   getStudents,
   createStudent,
@@ -182,6 +183,9 @@ function BoardingRegistrationHistoryPanel({ regId }) {
 const Students = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const routeStatus = getRouteSubmoduleId(location.pathname, "Students", "ACTIVE");
 
   // Helper to extract year gap from program duration (e.g., "4 years" -> 4)
   const getProgramGap = (progId) => {
@@ -221,6 +225,22 @@ const Students = () => {
   const [selectedFeeSession, setSelectedFeeSession] = useState("current");
   const [challanTypeFilter, setChallanTypeFilter] = useState("all"); // "all" | "tuition" | "extra"
   const [selectedStudent, setSelectedStudent] = useState({});
+
+  useEffect(() => {
+    if (routeStatus && routeStatus !== selectedStatus) {
+      setSelectedStatus(routeStatus);
+    }
+  }, [routeStatus, selectedStatus]);
+
+  const handleStatusRouteChange = (value) => {
+    const pathMap = {
+      ACTIVE: "/students/active",
+      GRADUATED: "/students/graduated",
+      EXPELLED: "/students/expelled",
+      STRUCK_OFF: "/students/struck-off",
+    };
+    navigate(pathMap[value] || "/students/active");
+  };
   const [rejoinDetails, setRejoinDetails] = useState({
     sessionId: "",
     programId: "",
@@ -385,7 +405,6 @@ const Students = () => {
   const [showFeeConfig, setShowFeeConfig] = useState(true);
   const [pageSize, setPageSize] = useState(20);
   const searchTimeoutRef = useRef(null);
-  const location = useLocation();
 
   // Au student profile when navigated from another page (e.g. Hostel) with openStudentId state
   useEffect(() => {
@@ -1509,15 +1528,7 @@ const Students = () => {
       // - For installments without a challan yet: use basePayable (pendingAmount
       //   may be inflated by rolled-up arrears from prior unpaid installments).
       const unpaidActiveInsts = activeInsts.filter(i => i.status !== 'PAID');
-      const remainingDues = unpaidActiveInsts.reduce((sum, i) => {
-        if (i.challanGenerated) {
-          // Challan exists — totalAmount - paidAmount is the real remaining
-          return sum + Math.max(0, Number(i.totalAmount || 0) - Number(i.paidAmount || 0));
-        } else {
-          // No challan yet — use basePayable to avoid arrears inflation
-          return sum + Number(i.basePayable || 0);
-        }
-      }, 0);
+      const remainingDues = Math.max(0, sessionFee - paidThisSession);
       // Extra charges (late fee + extra fine) on unpaid installments — sub-text only
       const remainingExtras = unpaidActiveInsts.reduce(
         (sum, i) => sum + Number(i.lateFeeFine || 0) + Number(i.extraFine || 0), 0
@@ -1761,7 +1772,7 @@ const Students = () => {
                 <Label>Status</Label>
                 <Select
                   value={selectedStatus}
-                  onValueChange={(value) => setSelectedStatus(value)}
+                  onValueChange={handleStatusRouteChange}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select Status" />
@@ -1816,8 +1827,8 @@ const Students = () => {
                 {selectedStatus === "ACTIVE" ? "Active Students" : `${selectedStatus.charAt(0) + selectedStatus.slice(1).toLowerCase().replace('_', ' ')} Students`}
                 {loadingStudents && " (Loading...)"}
               </CardTitle>
-              <Tabs value={selectedStatus} onValueChange={setSelectedStatus} className="w-full md:w-auto">
-                <TabsList className="grid grid-cols-4 w-full md:w-[600px]">
+              <Tabs value={selectedStatus} className="w-full md:w-auto">
+                <TabsList className="hidden">
                   <TabsTrigger value="ACTIVE">Active</TabsTrigger>
                   <TabsTrigger value="GRADUATED">Graduated</TabsTrigger>
                   <TabsTrigger value="EXPELLED">Expelled</TabsTrigger>
@@ -1897,7 +1908,7 @@ const Students = () => {
                           </div>
                         </TableCell>
                         <TableCell className="py-2 px-3 text-sm">
-                          {student.createdAt ? format(new Date(student.createdAt), "dd MMM yyyy") : "-"}
+                          {(student.admissionDate || student.createdAt) ? format(new Date(student.admissionDate || student.createdAt), "dd MMM yyyy") : "-"}
                         </TableCell>
                         <TableCell className="py-2 px-3 text-sm"><Badge variant="outline">{prog?.name || "-"}</Badge></TableCell>
                         <TableCell className="py-2 px-3 text-sm">
@@ -2089,7 +2100,7 @@ const Students = () => {
                     </div>
                   </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div><span className="font-semibold">Admission Date:</span> {viewStudent.createdAt ? format(new Date(viewStudent.createdAt), "dd MMMM yyyy") : "-"}</div>
+                      <div><span className="font-semibold">Admission Date:</span> {(viewStudent.admissionDate || viewStudent.createdAt) ? format(new Date(viewStudent.admissionDate || viewStudent.createdAt), "dd MMMM yyyy") : "-"}</div>
                       <div><span className="font-semibold">Program:</span> {(() => {
                         const prog = programData.find((p) => p.id === viewStudent.programId);
                         return prog ? `${prog.name} - ${prog.department?.name}` : "-";

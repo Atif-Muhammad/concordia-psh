@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { CheckCircle2, XCircle, Clock, FileText, ClipboardList, UserCheck, Printer, User, Lock, Search, AlertTriangle, Timer, LockKeyhole, SlidersHorizontal } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
@@ -35,10 +36,13 @@ import {
   getAttendanceSkips,
 } from "../../config/apis";
 import { StudentAttendanceTab } from "./StudentAttendanceTab";
+import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 
 const Attendance = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const routeTab = getRouteSubmoduleId(location.pathname, "Attendance", "mark");
 
   const currentUser = queryClient.getQueryData(["currentUser"]);
   const isTeacher = currentUser?.role === "TEACHER" || currentUser?.role === "Teacher";
@@ -696,8 +700,8 @@ const Attendance = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="mark" className="w-full">
-          <TabsList className="grid w-full grid-cols-1 sm:grid-cols-4">
+        <Tabs value={routeTab} className="w-full">
+          <TabsList className="hidden">
             <TabsTrigger value="mark" className="gap-2">
               <UserCheck className="w-4 h-4" />Record Attendance
             </TabsTrigger>

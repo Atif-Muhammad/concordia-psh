@@ -56,12 +56,16 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { format, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "react-router-dom";
 import { ModernTooltip } from "@/components/ui/modern-charts";
+import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 const FeeManagement = () => {
 
   const {
     toast
   } = useToast();
+  const location = useLocation();
+  const routeTab = getRouteSubmoduleId(location.pathname, "Fee Management", "challans");
 
   // Student search state (for history tab)
   const [studentSearchOpen, setStudentSearchOpen] = useState(false);
@@ -186,6 +190,14 @@ const FeeManagement = () => {
   };
 
 
+  const getCurrentPaidTime = () => format(new Date(), "HH:mm");
+  const buildPaidTimestamp = (dateStr, timeStr) => {
+    if (!dateStr) return new Date().toISOString();
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const [hours, minutes] = (timeStr || getCurrentPaidTime()).split(':').map(Number);
+    return new Date(y, m - 1, d, hours || 0, minutes || 0, 0).toISOString();
+  };
+
   const [challanForm, setChallanForm] = useState({
     studentId: "",
     amount: "",
@@ -202,6 +214,7 @@ const FeeManagement = () => {
     otherAmount: "0",
     discount: 0,
     paidDate: format(new Date(), "yyyy-MM-dd"),
+    paidTime: getCurrentPaidTime(),
     paidBy: "Cash"
   });
 
@@ -804,6 +817,7 @@ const FeeManagement = () => {
       otherAmount: "0",
       discount: 0,
       paidDate: format(new Date(), "yyyy-MM-dd"),
+      paidTime: getCurrentPaidTime(),
       paidBy: "Cash"
     });
     setEditingChallan(null);
@@ -1282,6 +1296,8 @@ const FeeManagement = () => {
           }).filter(id => id !== null && !isNaN(id) && id !== -1);
         } catch (e) { return []; }
       })(),
+      paidDate: format(new Date(), "yyyy-MM-dd"),
+      paidTime: getCurrentPaidTime(),
       remarks: challan.remarks || "",
       arrearsSelections: preSelectedArrears,
       isOtherEnabled: (() => {
@@ -1383,14 +1399,7 @@ const FeeManagement = () => {
 
     if (isExtraChallan) {
       setIsPaymentLoading(true);
-      const submissionDate = (() => {
-        const dateStr = challanForm.paidDate;
-        if (!dateStr) return new Date().toISOString();
-        const todayStr = new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd
-        if (dateStr === todayStr) return new Date().toISOString();
-        const [y, m, d] = dateStr.split('-').map(Number);
-        return new Date(y, m - 1, d, 12, 0, 0).toISOString();
-      })();
+      const submissionDate = buildPaidTimestamp(challanForm.paidDate, challanForm.paidTime);
 
       try {
         await recordExtraFeePayment({
@@ -1420,14 +1429,7 @@ const FeeManagement = () => {
 
     if (isNewSchemaChallan) {
       setIsPaymentLoading(true);
-      const submissionDate = (() => {
-        const dateStr = challanForm.paidDate;
-        if (!dateStr) return new Date().toISOString();
-        const todayStr = new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd
-        if (dateStr === todayStr) return new Date().toISOString();
-        const [y, m, d] = dateStr.split('-').map(Number);
-        return new Date(y, m - 1, d, 12, 0, 0).toISOString();
-      })();
+      const submissionDate = buildPaidTimestamp(challanForm.paidDate, challanForm.paidTime);
 
       try {
         await recordFeePayment({
@@ -1474,6 +1476,7 @@ const FeeManagement = () => {
 
     const newPaidTotal = (itemToPay.paidAmount || 0) + receiving;
     const headsTotal = getSelectedHeadsTotal(itemToPay);
+    const submissionDate = buildPaidTimestamp(challanForm.paidDate, challanForm.paidTime);
 
     const allFeeHeadDetails = (feeHeads || [])
       .filter(h => (challanForm.selectedHeads || []).includes(Number(h.id)))
@@ -1499,7 +1502,7 @@ const FeeManagement = () => {
       id: itemToPay.id,
       data: {
         status: newPaidTotal >= ((itemToPay.amount || 0) + headsTotal + (itemToPay.lateFeeFine || 0) - newTotalDiscount) ? "PAID" : "PARTIAL",
-        paidDate: challanForm.paidDate,
+        paidDate: submissionDate,
         paidBy: challanForm.paidBy,
         paidAmount: newPaidTotal,
         receivingAmount: receiving,
@@ -1725,9 +1728,9 @@ const FeeManagement = () => {
   };
 
   const getPaidChallanRowsHtml = (challan) => {
-    const paidRemarksStyle = 'background-color: #dcfce7; color: #14532d; font-weight: 700; font-size: 10px;';
+    const paidRemarksStyle = 'background-color: #dcfce7; color: #000; font-weight: 700; font-size: 10px;';
     const blockBorder = 'border-left: 1px solid #9ca3af; border-right: 1px solid #9ca3af;';
-    const topBorder = 'border-top: 1.5px solid #166534;';
+    const topBorder = 'border-top: 1.5px solid #111827;';
     const bottomBorder = 'border-bottom: 1px solid #9ca3af;';
     const labelCellStyle = `${paidRemarksStyle} ${blockBorder}`;
     const valueCellStyle = `${paidRemarksStyle} ${blockBorder} text-align: left;`;
@@ -2052,10 +2055,12 @@ const FeeManagement = () => {
         }
       }
 
-      const monthLabel = sourceInst?.month || "N/A";
-      const instLabel = sourceInst?.installmentNumber ? `Installment ${sourceInst.installmentNumber}` : "";
-      const sessionLabel = sourceInst?.session?.name || "";
-      const rowLabel = `${monthLabel}${instLabel ? ` - ${instLabel}` : ''}${sessionLabel ? ` / ${sessionLabel}` : ''}`;
+      const monthLabel = sourceInst?.month || sourceChallan?.installment?.month || sourceChallan?.month || "N/A";
+      const sourceInstNo = sourceInst?.installmentNumber || sourceChallan?.installmentNo || sourceChallan?.installmentNumber || sourceChallan?.installment?.installmentNumber;
+      const instLabel = sourceInstNo ? `Installment ${sourceInstNo}` : "";
+      const sessionLabel = sourceInst?.session?.name || sourceChallan?.installment?.session?.name || sourceChallan?.session?.name || "";
+      const challanLabel = sourceChallanNo ? `Challan #${sourceChallanNo}` : "";
+      const rowLabel = `${monthLabel}${instLabel ? ` - ${instLabel}` : ''}${sessionLabel ? ` / ${sessionLabel}` : ''}${challanLabel ? ` - ${challanLabel}` : ''}`;
       
       advanceRowsHtml = `<tr style="background-color: #f0f9ff; line-height: 1.2;">
         <td style="font-style: italic; font-size: 10px; color: #0369a1;">${rowLabel} (Advance)</td>
@@ -2077,6 +2082,8 @@ const FeeManagement = () => {
     // paidAmount = total amount received (includes advance credits from previous challans).
     const alreadyPaid = Number(challan.paidAmount || 0);
     const isExtraChallanType = challan.challanType === 'FEE_HEADS_ONLY' || challan.isExtra;
+    const isInstallmentChallanType = !isExtraChallanType && (challan.challanType === 'INSTALLMENT' || challan.installmentId || challan.installment);
+    const isAdvanceAdjustedInstallment = isInstallmentChallanType && appliedAdvance > 0 && !!challan.advanceFromChallanNo;
     const totalSnap = isExtraChallanType
       ? Math.max(Number(challan.snapshotTotalDue ?? 0), Number(challan.totalAmount ?? 0), standardTotal)
       : Number(challan.snapshotTotalDue ?? standardTotal ?? 0);
@@ -2116,32 +2123,40 @@ const FeeManagement = () => {
     ).toString());
     html = html.replace(/\{\{discount\}\}/g, '');
     
-    // For partial installment challans, only the remaining payable should appear in the total row.
-    const isInstallmentChallanType = !isExtraChallanType && (challan.challanType === 'INSTALLMENT' || challan.installmentId || challan.installment);
+    // For direct paid/partial installment challans, show paid/remaining in particulars.
+    // If this installment was covered by advance from another challan, show only advance row.
     const isActuallyPaidInFullForRows = ['PAID', 'SETTLED'].includes(challan.status) || (alreadyPaid >= totalSnap && totalSnap > 0);
-    const shouldHidePaidRowsForPartialInstallment = isInstallmentChallanType && alreadyPaid > 0 && !isActuallyPaidInFullForRows;
-    const shouldShowBalanceRows = !shouldHidePaidRowsForPartialInstallment && (alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status));
+    const directInstallmentPayment = isInstallmentChallanType && !isAdvanceAdjustedInstallment && (alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status));
+    const nonInstallmentPayment = !isInstallmentChallanType && (alreadyPaid > 0 || ['PAID', 'SETTLED', 'PARTIAL'].includes(challan.status));
+    const shouldShowBalanceRows = directInstallmentPayment || nonInstallmentPayment;
+    const injectPaidRows = (sourceHtml, rowsHtml) => {
+      if (!rowsHtml) return sourceHtml.replace(/\{\{paidRow\}\}/g, '');
+      if (sourceHtml.includes('{{paidRow}}')) {
+        return sourceHtml.replace(/\{\{paidRow\}\}/g, rowsHtml);
+      }
+      return sourceHtml.replace(/(<tr[^>]*class=["']total-row["'][\s\S]*?<\/tr>)/gi, `${rowsHtml}\n$1`);
+    };
     if (shouldShowBalanceRows) {
       const paidDisplay = alreadyPaid > 0 ? `${alreadyPaid.toLocaleString()}` : '0';
       const showTotalRowInPaid = isFullyPaid ? `
-        <tr style="font-weight: 700; border-top: 1px solid #e2e8f0; background-color: #b8b6b6ff;">
+        <tr style="font-weight: 700; border-top: 1px solid #cbd5e1; background-color: #f1f5f9; color: #000;">
           <td>Total Amount</td>
           <td>${standardTotal.toLocaleString()}</td>
         </tr>` : '';
 
       const paidRowHtml = `
         ${showTotalRowInPaid}
-        <tr style="color: #166534; background-color: #f0fdf4; font-weight: 600; font-size: 11px;">
+        <tr style="color: #000; background-color: #f1f5f9; font-weight: 600; font-size: 11px;">
           <td>Paid Amount</td>
           <td>${paidDisplay}</td>
         </tr>
         ${challan.status !== 'PENDING' ? `
-        <tr style="font-weight: 700; border-top: 1px solid #e2e8f0;">
+        <tr style="color: #000; background-color: #f1f5f9; font-weight: 700; border-top: 1px solid #cbd5e1;">
           <td>Remaining Balance</td>
           <td>${remainingPayable.toLocaleString()}</td>
         </tr>` : ''}
       `;
-      html = html.replace(/\{\{paidRow\}\}/g, paidRowHtml);
+      html = injectPaidRows(html, paidRowHtml);
     } else {
       html = html.replace(/\{\{paidRow\}\}/g, '');
     }
@@ -2595,8 +2610,8 @@ const FeeManagement = () => {
           </div>
         </div>
 
-      <Tabs defaultValue="challans" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-7 h-auto gap-1">
+      <Tabs value={routeTab} className="w-full">
+        <TabsList className="hidden">
           <TabsTrigger value="challans"><Receipt className="w-4 h-4 mr-2" />Challans</TabsTrigger>
           <TabsTrigger value="extra-challans"><Plus className="w-4 h-4 mr-2" />Extra Challans</TabsTrigger>
           <TabsTrigger value="feeheads"><Layers className="w-4 h-4 mr-2" />Fee Heads</TabsTrigger>
@@ -4973,7 +4988,7 @@ const FeeManagement = () => {
               )}
 
               {/* Form Bottom */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                  <div className="space-y-2">
                     <Label className="text-[12px] font-bold text-slate-700">Paid Date</Label>
                     <div className="relative">
@@ -4982,6 +4997,17 @@ const FeeManagement = () => {
                          value={challanForm.paidDate}
                          onChange={(e) => setChallanForm({...challanForm, paidDate: e.target.value})}
                          className="h-10 text-[13px] border-slate-300" 
+                       />
+                    </div>
+                 </div>
+                 <div className="space-y-2">
+                    <Label className="text-[12px] font-bold text-slate-700">Paid Time</Label>
+                    <div className="relative">
+                       <Input
+                         type="time"
+                         value={challanForm.paidTime}
+                         onChange={(e) => setChallanForm({...challanForm, paidTime: e.target.value})}
+                         className="h-10 text-[13px] border-slate-300"
                        />
                     </div>
                  </div>

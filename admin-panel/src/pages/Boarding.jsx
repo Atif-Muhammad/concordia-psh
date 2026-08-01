@@ -67,7 +67,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 
 // ── Registration History Tab component ──────────────────────────────────────
 // Helper: extract last termination reason from terminationReason field (now a JSON array)
@@ -142,6 +143,8 @@ const Boarding = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  const activeTab = getRouteSubmoduleId(location.pathname, "Boarding", "registration");
 
   // Registration filters
   const [regSearch, setRegSearch] = useState("");
@@ -205,7 +208,6 @@ const Boarding = () => {
   });
 
   // UI State
-  const [activeTab, setActiveTab] = useState("registration");
   const [regOpen, setRegOpen] = useState(false);
   const [roomOpen, setRoomOpen] = useState(false);
   const [messOpen, setMessOpen] = useState(false);
@@ -1270,8 +1272,8 @@ const Boarding = () => {
           </Card>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 h-auto gap-1">
+        <Tabs value={activeTab}>
+          <TabsList className="hidden">
             <TabsTrigger value="registration">Registration</TabsTrigger>
             <TabsTrigger value="rooms">Rooms</TabsTrigger>
             <TabsTrigger value="fees">Fees</TabsTrigger>

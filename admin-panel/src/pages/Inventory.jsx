@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -25,9 +26,12 @@ import { Package, Plus, Pencil, Trash2, DollarSign, TrendingUp, AlertCircle, Cli
 import { toast } from "@/hooks/use-toast";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Badge } from "../components/ui/badge";
+import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
 
 const Inventory = () => {
     const queryClient = useQueryClient();
+    const location = useLocation();
+    const routeTab = getRouteSubmoduleId(location.pathname, "Inventory", "inventory");
 
     // Queries
     const { data: schoolInventory = [], isLoading: isLoadingInventory } = useQuery({
@@ -578,8 +582,8 @@ const Inventory = () => {
                     </Card>
                 </div>
 
-                <Tabs defaultValue="inventory" className="space-y-4">
-                    <TabsList>
+                <Tabs value={routeTab} className="space-y-4">
+                    <TabsList className="hidden">
                         <TabsTrigger value="inventory">
                             <Package className="mr-2 h-4 w-4" />
                             Inventory Items

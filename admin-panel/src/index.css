@@ -161,3 +161,34 @@ All colors MUST be HSL.
     display: none !important;
   }
 }
+
+@media (max-width: 768px) {
+  main {
+    min-width: 0;
+  }
+
+  main table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  main [role="dialog"],
+  main [data-radix-popper-content-wrapper] {
+    max-width: calc(100vw - 1rem);
+  }
+
+  main input,
+  main select,
+  main textarea,
+  main button {
+    max-width: 100%;
+  }
+
+  main .recharts-wrapper,
+  main .recharts-surface {
+    max-width: 100%;
+  }
+}
