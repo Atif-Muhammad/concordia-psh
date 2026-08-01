@@ -19,6 +19,8 @@ export class AuthService {
     role?: string;
     permissions: any;
     isStaff?: boolean;
+    isTeaching?: boolean;
+    isNonTeaching?: boolean;
   }) {
     if (!payload.role) {
       payload = { ...payload, role: payload.isStaff ? 'Staff' : 'ADMIN' };
@@ -41,6 +43,8 @@ export class AuthService {
     role?: string;
     permissions: any;
     isStaff?: boolean;
+    isTeaching?: boolean;
+    isNonTeaching?: boolean;
   }) {
     return this.generateTokens(payload);
   }

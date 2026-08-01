@@ -138,18 +138,38 @@ export const getActiveSubmoduleId = (pathname, module) => {
 
 export const getDefaultModulePath = (module) => module?.subModules?.[0]?.path || module?.path || "/dashboard";
 
+export const isDualRoleStaff = (user) =>
+  Boolean(user?.isStaff && user?.isTeaching && user?.isNonTeaching);
+
+export const hasExplicitModuleAccess = (user, moduleLabel) => {
+  const modules = user?.permissions?.modules;
+  const configuredSubmodules = user?.permissions?.subModules?.[moduleLabel];
+  return (
+    user?.permissions?.all === true ||
+    (Array.isArray(modules) && modules.includes(moduleLabel)) ||
+    (Array.isArray(configuredSubmodules) && configuredSubmodules.length > 0)
+  );
+};
+
 export const hasModuleAccess = (user, moduleLabel) => {
   if (user?.role === "SUPER_ADMIN") return true;
   const role = user?.role;
-  if ((role === "Teacher" || role === "TEACHER") && ["Attendance", "Examination", "Complaints"].includes(moduleLabel)) return true;
+  const isTeacher = role === "Teacher" || role === "TEACHER";
+  if (isTeacher && ["Attendance", "Examination", "Complaints"].includes(moduleLabel)) return true;
   if (role === "Staff" && moduleLabel === "Complaints") return true;
-  const modules = user?.permissions?.modules;
-  return Array.isArray(modules) && modules.includes(moduleLabel);
+  return hasExplicitModuleAccess(user, moduleLabel);
 };
 
 export const hasSubmoduleAccess = (user, moduleLabel, subModuleId) => {
   if (!hasModuleAccess(user, moduleLabel)) return false;
   if (!subModuleId || user?.role === "SUPER_ADMIN") return true;
+  const role = user?.role;
+  const isTeacher = role === "Teacher" || role === "TEACHER";
+  const usesTeacherFallback =
+    isTeacher &&
+    ["Attendance", "Examination", "Complaints"].includes(moduleLabel) &&
+    !hasExplicitModuleAccess(user, moduleLabel);
+  if (usesTeacherFallback) return true;
   const module = MODULE_BY_LABEL[moduleLabel];
   const subModules = module?.subModules || [];
   if (!subModules.length) return true;

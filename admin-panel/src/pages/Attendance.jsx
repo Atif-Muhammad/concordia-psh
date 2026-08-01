@@ -25,6 +25,7 @@ import {
   createLeave,
   updateLeave,
   updateStudentAttendance,
+  deleteStudentAttendanceRecord,
   getAttendanceReport,
   getTeacherClasses,
   searchStudents,
@@ -36,7 +37,11 @@ import {
   getAttendanceSkips,
 } from "../../config/apis";
 import { StudentAttendanceTab } from "./StudentAttendanceTab";
-import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
+import { getRouteSubmoduleId, hasExplicitModuleAccess, isDualRoleStaff } from "@/lib/navigation.jsx";
+
+const normalizeAttendanceStatus = (status) => String(status || "").toLowerCase();
+const toStudentAttendanceApiStatus = (status) => normalizeAttendanceStatus(status).toUpperCase();
+const ATTENDANCE_EDIT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 const Attendance = () => {
   const { toast } = useToast();
@@ -46,9 +51,10 @@ const Attendance = () => {
 
   const currentUser = queryClient.getQueryData(["currentUser"]);
   const isTeacher = currentUser?.role === "TEACHER" || currentUser?.role === "Teacher";
+  const dualRoleStaff = isDualRoleStaff(currentUser);
   const isSuperAdmin = currentUser?.role === "SUPER_ADMIN";
-  const hasAttendancePermission = currentUser?.permissions?.modules?.includes("Attendance");
-  const canUseAllClasses = isSuperAdmin || hasAttendancePermission;
+  const hasAttendancePermission = hasExplicitModuleAccess(currentUser, "Attendance");
+  const canUseAllClasses = isSuperAdmin || (!isTeacher && hasAttendancePermission) || (dualRoleStaff && hasAttendancePermission);
   const isTeacherScoped = isTeacher && !canUseAllClasses;
   const canMarkAttendance = isTeacher || isSuperAdmin || hasAttendancePermission;
   const canViewAllReports = isSuperAdmin || hasAttendancePermission;
@@ -409,7 +415,50 @@ const Attendance = () => {
     refetchIndividualReport();
   };
 
-  const handleStatusChange = (studentId, status) => {
+  const handleStatusChange = async (student, status) => {
+    const studentId = student?.id;
+    const att = student?.attendance?.[0];
+    const dbStatus = normalizeAttendanceStatus(att?.status);
+    const draftStatus = normalizeAttendanceStatus(attendanceChanges[studentId]);
+    const currentStatus = draftStatus || dbStatus;
+
+    if (currentStatus === status) {
+      if (att?.id && dbStatus === status) {
+        try {
+          const sectionId = selectedSectionId && selectedSectionId !== "*"
+            ? Number(selectedSectionId)
+            : Number(student?.section?.id ?? student?.sectionId ?? 0) || null;
+          await deleteStudentAttendanceRecord({
+            studentId: String(studentId),
+            classId: Number(selectedClassId),
+            sectionId,
+            subjectId: Number(selectedSubjectId),
+            date: markDate,
+            attendanceId: att.id,
+          });
+          setAttendanceChanges(prev => {
+            const next = { ...prev };
+            delete next[studentId];
+            return next;
+          });
+          const result = await refetchAttendance({ throwOnError: true });
+          setFetchedStudents(result?.data?.attendance || []);
+          setHasLoadedStudents(true);
+          toast({ title: "Attendance removed", description: "Student row is now Not Marked.", variant: "success" });
+        } catch (error) {
+          toast({ title: "Failed to remove attendance", description: error?.message, variant: "destructive" });
+        }
+        return;
+      }
+
+      setAttendanceChanges(prev => {
+        const next = { ...prev };
+        delete next[studentId];
+        return next;
+      });
+      return;
+    }
+
     setAttendanceChanges(prev => ({ ...prev, [studentId]: status }));
     const icons = { present: "present", absent: "absent", leave: "leave", short_leave: "short_leave" };
     const labels = { present: "Present", absent: "Absent", leave: "Leave", short_leave: "Short Leave" };
@@ -470,27 +519,19 @@ const Attendance = () => {
     const editableStudents = fetchedStudents.filter((student) => {
       const att = student.attendance?.[0];
       const lockTimestamp = att?.generatedAt || att?.markedAt;
-      return !lockTimestamp || (Date.now() - new Date(lockTimestamp).getTime()) <= 24 * 60 * 60 * 1000;
+      return !lockTimestamp || (Date.now() - new Date(lockTimestamp).getTime()) <= ATTENDANCE_EDIT_WINDOW_MS;
     });
-    const unmarkedStudents = editableStudents.filter((student) => {
-      const dbStatus = student.attendance?.[0]?.status?.toLowerCase();
-      return !(attendanceChanges[student.id] || dbStatus);
-    });
+    const editableStudentIds = new Set(editableStudents.map((student) => String(student.id)));
 
-    if (unmarkedStudents.length > 0) {
-      toast({ title: "Please mark attendance for every unlocked student before saving", variant: "destructive" });
-      return;
-    }
-
-    const studentsToSave = editableStudents
-      .map((student) => {
-        const status = attendanceChanges[student.id] || student.attendance?.[0]?.status?.toLowerCase();
-        return status ? { studentId: String(student.id), status: status.toUpperCase() } : null;
+    const studentsToSave = Object.entries(attendanceChanges)
+      .map(([studentId, status]) => {
+        if (!editableStudentIds.has(String(studentId)) || !status) return null;
+        return { studentId: String(studentId), status: toStudentAttendanceApiStatus(status) };
       })
       .filter(Boolean);
 
     if (studentsToSave.length === 0) {
-      toast({ title: "No unlocked student statuses available to save", variant: "default" });
+      toast({ title: "No attendance changes to save", variant: "default" });
       return;
     }
 
@@ -913,11 +954,11 @@ const Attendance = () => {
                       {fetchedStudents.some(student => {
                         const att = student.attendance?.[0];
                         const lockTimestamp = att?.generatedAt || att?.markedAt;
-                        return lockTimestamp && (Date.now() - new Date(lockTimestamp).getTime()) > 24 * 60 * 60 * 1000;
+                        return lockTimestamp && (Date.now() - new Date(lockTimestamp).getTime()) > ATTENDANCE_EDIT_WINDOW_MS;
                       }) && (
                         <div className="mb-3 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
                           <LockKeyhole className="w-4 h-4 shrink-0" />
-                          <span>Some records are locked — attendance can only be modified within 24 hours of generation.</span>
+                          <span>Some records are locked — attendance can only be modified within 48 hours of generation.</span>
                         </div>
                       )}
                       <Table>
@@ -950,13 +991,13 @@ const Attendance = () => {
                           ) : (
                             fetchedStudents.map(student => {
                               const att = student.attendance?.[0];
-                              const dbStatus = att?.status?.toLowerCase();
+                              const dbStatus = normalizeAttendanceStatus(att?.status);
                               const currentStatus = attendanceChanges[student.id] || dbStatus;
 
-                              // 24-hour lock: locked if generatedAt (or markedAt) is >24h ago
+                              // 48-hour lock: locked if generatedAt (or markedAt) is >48h ago
                               const lockTimestamp = att?.generatedAt || att?.markedAt;
                               const isLocked = lockTimestamp
-                                ? (Date.now() - new Date(lockTimestamp).getTime()) > 24 * 60 * 60 * 1000
+                                ? (Date.now() - new Date(lockTimestamp).getTime()) > ATTENDANCE_EDIT_WINDOW_MS
                                 : false;
 
                               const auditLines = [];
@@ -990,7 +1031,7 @@ const Attendance = () => {
                                           </span>
                                         </TooltipTrigger>
                                         <TooltipContent className="text-xs max-w-[240px] whitespace-pre-line">
-                                          Locked — attendance can only be modified within 24 hours of generation.{auditTitle ? `\n${auditTitle}` : ""}
+                                          Locked — attendance can only be modified within 48 hours of generation.{auditTitle ? `\n${auditTitle}` : ""}
                                         </TooltipContent>
                                       </Tooltip>
                                     )}
@@ -1010,35 +1051,35 @@ const Attendance = () => {
                                   <div className="flex gap-1">
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <Button size="sm" variant={currentStatus === "present" ? "default" : "outline"} disabled={isLocked} onClick={() => handleStatusChange(student.id, "present")}>
+                                        <Button size="sm" variant={currentStatus === "present" ? "default" : "outline"} disabled={isLocked} onClick={() => handleStatusChange(student, "present")}>
                                           <CheckCircle2 className="w-4 h-4" />
                                         </Button>
                                       </TooltipTrigger>
-                                      <TooltipContent>{isLocked ? "Locked — 24h window has passed" : "Present"}</TooltipContent>
+                                      <TooltipContent>{isLocked ? "Locked — 48h window has passed" : "Present"}</TooltipContent>
                                     </Tooltip>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <Button size="sm" variant={currentStatus === "absent" ? "destructive" : "outline"} disabled={isLocked} onClick={() => handleStatusChange(student.id, "absent")}>
+                                        <Button size="sm" variant={currentStatus === "absent" ? "destructive" : "outline"} disabled={isLocked} onClick={() => handleStatusChange(student, "absent")}>
                                           <XCircle className="w-4 h-4" />
                                         </Button>
                                       </TooltipTrigger>
-                                      <TooltipContent>{isLocked ? "Locked — 24h window has passed" : "Absent"}</TooltipContent>
+                                      <TooltipContent>{isLocked ? "Locked — 48h window has passed" : "Absent"}</TooltipContent>
                                     </Tooltip>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <Button size="sm" variant={currentStatus === "leave" || currentStatus === "on-leave" ? "secondary" : "outline"} disabled={isLocked} onClick={() => handleStatusChange(student.id, "leave")}>
+                                        <Button size="sm" variant={currentStatus === "leave" || currentStatus === "on-leave" ? "secondary" : "outline"} disabled={isLocked} onClick={() => handleStatusChange(student, "leave")}>
                                           <Clock className="w-4 h-4" />
                                         </Button>
                                       </TooltipTrigger>
-                                      <TooltipContent>{isLocked ? "Locked — 24h window has passed" : "Leave"}</TooltipContent>
+                                      <TooltipContent>{isLocked ? "Locked — 48h window has passed" : "Leave"}</TooltipContent>
                                     </Tooltip>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <Button size="sm" variant={currentStatus === "short_leave" ? "secondary" : "outline"} disabled={isLocked} className={currentStatus === "short_leave" ? "bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200" : ""} onClick={() => handleStatusChange(student.id, "short_leave")}>
+                                        <Button size="sm" variant={currentStatus === "short_leave" ? "secondary" : "outline"} disabled={isLocked} className={currentStatus === "short_leave" ? "bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200" : ""} onClick={() => handleStatusChange(student, "short_leave")}>
                                           <Timer className="w-4 h-4" />
                                         </Button>
                                       </TooltipTrigger>
-                                      <TooltipContent>{isLocked ? "Locked — 24h window has passed" : "Short Leave"}</TooltipContent>
+                                      <TooltipContent>{isLocked ? "Locked — 48h window has passed" : "Short Leave"}</TooltipContent>
                                     </Tooltip>
                                   </div>
                                 </TableCell>

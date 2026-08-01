@@ -115,6 +115,29 @@ export class AttendanceController {
     );
   }
 
+  @UseGuards(JwtAccGuard)
+  @Delete('student/record')
+  async deleteStudentAttendanceRecord(
+    @Req() req: any,
+    @Query('studentId') studentId: string,
+    @Query('classId') classId: string,
+    @Query('sectionId') sectionId: string,
+    @Query('subjectId') subjectId: string,
+    @Query('date') date: string,
+    @Query('attendanceId') attendanceId?: string,
+  ) {
+    const { user } = req;
+    return await this.attendanceService.deleteStudentAttendanceRecord(
+      Number(classId),
+      sectionId ? Number(sectionId) : null,
+      Number(subjectId),
+      studentId,
+      date,
+      user,
+      attendanceId ? Number(attendanceId) : undefined,
+    );
+  }
+
   // leaves
   @Get('leaves/get')
   async allLeaves(

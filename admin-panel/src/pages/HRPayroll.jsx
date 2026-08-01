@@ -21,13 +21,15 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient, useQueries } from "@tanstack/react-query";
-import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff, getProgramNames, getAttendanceSkips, deleteAttendanceSkip, getStaffAttendance, markStaffAttendance, bulkMarkStaffAttendance, markDateAsHoliday, getHrLeavesReport, getHrPayrollReport, getHrAdvanceReport, getHrStaffAttendanceReport, getHrDepartmentsReport, getHrReportsAnalytics, getStaffLeaveBalance } from "../../config/apis";
+import { getDepartments, createDepartment, deleteDepartment, updateDepartment, getTeacherNames, createEmp, getEmp, updateEmp, deleteEmp, getEmployeesByDept, getPayrollSettings, updatePayrollSettings, createHoliday, getHolidays, deleteHoliday, createAdvanceSalary, getAdvanceSalaries, deleteAdvanceSalary, updateAdvanceSalary, getDefaultStaffIDCardTemplate, getAttendanceSummary, getPayrollSheet, getAllStaff, getProgramNames, getAttendanceSkips, deleteAttendanceSkip, getStaffAttendance, markStaffAttendance, bulkMarkStaffAttendance, deleteStaffAttendanceRecord, markDateAsHoliday, getHrLeavesReport, getHrPayrollReport, getHrAdvanceReport, getHrStaffAttendanceReport, getHrDepartmentsReport, getHrReportsAnalytics, getStaffLeaveBalance } from "../../config/apis";
 import { Loader2, ChevronsUpDown } from "lucide-react";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { calculateDuration } from "../lib/dateUtils";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip as RechartsTooltip } from "recharts";
 import { ModernChartCard, ModernTooltip, MODERN_CHART_COLORS } from "@/components/ui/modern-charts";
 import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
+
+const ATTENDANCE_EDIT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 const HRPayroll = () => {
   const {
@@ -220,7 +222,40 @@ const HRPayroll = () => {
     retry: 0,
   });
 
-  const setStaffAttendanceStatus = (staffId, status) => {
+  const setStaffAttendanceStatus = async (staffId, status) => {
+    const row = staffAttendanceRows.find((item) => Number(item.staffId || item.staff?.id) === Number(staffId));
+    const changed = staffAttendanceChanges[staffId];
+    const changedStatus = typeof changed === "string" ? changed : changed?.status;
+    const dbStatus = String(row?.status || "").toLowerCase();
+    const currentStatus = changedStatus || dbStatus;
+
+    if (currentStatus === status) {
+      if (row?.id && dbStatus === status) {
+        try {
+          await deleteStaffAttendanceRecord({ staffId, date: staffAttendanceDate, attendanceId: row.id });
+          setStaffAttendanceChanges(prev => {
+            const next = { ...prev };
+            delete next[staffId];
+            return next;
+          });
+          await queryClient.invalidateQueries({ queryKey: ["staffLeaveBalance"] });
+          await queryClient.invalidateQueries({ queryKey: ["payrollSheet"] });
+          await refetchStaffAttendance();
+          toast({ title: "Attendance removed", description: "Staff row is now Not Marked.", variant: "success" });
+        } catch (error) {
+          toast({ title: "Failed to remove staff attendance", description: error.message, variant: "destructive" });
+        }
+        return;
+      }
+
+      setStaffAttendanceChanges(prev => {
+        const next = { ...prev };
+        delete next[staffId];
+        return next;
+      });
+      return;
+    }
+
     setStaffAttendanceChanges(prev => {
       const prevRow = prev?.[staffId];
       const prevLeaveType = typeof prevRow === "object" && prevRow !== null ? prevRow.leaveType : undefined;
@@ -267,7 +302,7 @@ const HRPayroll = () => {
 
   const isStaffAttendanceLocked = (record) => {
     const lockTimestamp = record?.generatedAt || record?.markedAt;
-    return lockTimestamp ? (Date.now() - new Date(lockTimestamp).getTime()) > 24 * 60 * 60 * 1000 : false;
+    return lockTimestamp ? (Date.now() - new Date(lockTimestamp).getTime()) > ATTENDANCE_EDIT_WINDOW_MS : false;
   };
 
   const handleSaveStaffAttendance = async () => {
@@ -1135,7 +1170,7 @@ const HRPayroll = () => {
                                   {isLocked && (
                                     <Tooltip>
                                       <TooltipTrigger asChild><LockKeyhole className="w-3.5 h-3.5 text-amber-500 cursor-help" /></TooltipTrigger>
-                                      <TooltipContent className="text-xs max-w-[240px] whitespace-pre-line">Locked - attendance can only be modified within 24 hours.{auditLines.length ? `\n${auditLines.join('\n')}` : ""}</TooltipContent>
+                                      <TooltipContent className="text-xs max-w-[240px] whitespace-pre-line">Locked - attendance can only be modified within 48 hours.{auditLines.length ? `\n${auditLines.join('\n')}` : ""}</TooltipContent>
                                     </Tooltip>
                                   )}
                                 </div>
@@ -1152,13 +1187,13 @@ const HRPayroll = () => {
                                     <TooltipTrigger asChild>
                                       <Button size="sm" variant={currentStatus === "present" ? "default" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(row.staffId || s.id, "present")}><CheckCircle2 className="w-4 h-4" /></Button>
                                     </TooltipTrigger>
-                                    <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Present"}</TooltipContent>
+                                    <TooltipContent>{isLocked ? "Locked - 48h window has passed" : "Mark Present"}</TooltipContent>
                                   </Tooltip>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <Button size="sm" variant={currentStatus === "absent" ? "destructive" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(row.staffId || s.id, "absent")}><XCircle className="w-4 h-4" /></Button>
                                     </TooltipTrigger>
-                                    <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Absent"}</TooltipContent>
+                                    <TooltipContent>{isLocked ? "Locked - 48h window has passed" : "Mark Absent"}</TooltipContent>
                                   </Tooltip>
                                   <Popover
                                     open={leaveTypePopover.staffId === (row.staffId || s.id)}
@@ -1173,12 +1208,22 @@ const HRPayroll = () => {
                                     <Tooltip>
                                       <TooltipTrigger asChild>
                                         <PopoverTrigger asChild>
-                                          <Button size="sm" variant={currentStatus === "leave" ? "secondary" : "outline"} disabled={isLocked}>
+                                          <Button
+                                            size="sm"
+                                            variant={currentStatus === "leave" ? "secondary" : "outline"}
+                                            disabled={isLocked}
+                                            onClick={(event) => {
+                                              if (currentStatus === "leave") {
+                                                event.preventDefault();
+                                                setStaffAttendanceStatus(row.staffId || s.id, "leave");
+                                              }
+                                            }}
+                                          >
                                             <Clock className="w-4 h-4" />
                                           </Button>
                                         </PopoverTrigger>
                                       </TooltipTrigger>
-                                      <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Leave (Select Type)"}</TooltipContent>
+                                      <TooltipContent>{isLocked ? "Locked - 48h window has passed" : "Mark Leave (Select Type)"}</TooltipContent>
                                     </Tooltip>
                                     <PopoverContent side="right" align="start" className="w-64 p-3 space-y-2">
                                       <p className="text-xs text-muted-foreground">Choose leave type for {s.name}</p>
@@ -1205,7 +1250,7 @@ const HRPayroll = () => {
                                     <TooltipTrigger asChild>
                                       <Button size="sm" variant={currentStatus === "half_day" ? "secondary" : "outline"} disabled={isLocked} onClick={() => setStaffAttendanceStatus(row.staffId || s.id, "half_day")}>1/2</Button>
                                     </TooltipTrigger>
-                                    <TooltipContent>{isLocked ? "Locked - 24h window has passed" : "Mark Half Day"}</TooltipContent>
+                                    <TooltipContent>{isLocked ? "Locked - 48h window has passed" : "Mark Half Day"}</TooltipContent>
                                   </Tooltip>
                                   {currentStatus === "leave" && <Badge variant="outline">{String(currentLeaveType || "casual").toUpperCase()}</Badge>}
                                   {currentStatus === "leave" && !!row.leaveReason && (

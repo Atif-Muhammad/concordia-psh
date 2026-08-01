@@ -21,6 +21,8 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class HrService {
+  private readonly attendanceEditWindowHours = 48;
+
   constructor(private prismService: PrismaService) { }
   private readonly defaultStaffIdPrefixes = {
     teaching: 'TCR-',
@@ -44,6 +46,25 @@ export class HrService {
       byName: name,
       at: new Date().toISOString(),
     };
+  }
+
+  private getAttendanceLockTimestamp(record: { generatedAt?: Date | null; markedAt?: Date | null }) {
+    return record.generatedAt || record.markedAt;
+  }
+
+  private assertAttendanceEditable(record: { generatedAt?: Date | null; markedAt?: Date | null }, date: string) {
+    const lockedAt = this.getAttendanceLockTimestamp(record);
+    if (!lockedAt) return;
+    const hoursSince = (Date.now() - new Date(lockedAt).getTime()) / (1000 * 60 * 60);
+    if (hoursSince > this.attendanceEditWindowHours) {
+      throw new BadRequestException(
+        `Attendance for ${date} is locked. Records can only be modified within ${this.attendanceEditWindowHours} hours of generation. Generated at: ${new Date(lockedAt).toLocaleString()}.`,
+      );
+    }
+  }
+
+  private dateKey(date: Date) {
+    return new Date(date).toISOString().split('T')[0];
   }
 
   private async resolveAttendanceAdminMarker(value: any) {
@@ -2373,14 +2394,7 @@ export class HrService {
     });
 
     if (existing) {
-      // 24-hour lock: prevent updates if attendance was generated/marked more than 24h ago
-      const lockedAt = existing.generatedAt || existing.markedAt;
-      const hoursSince = (Date.now() - new Date(lockedAt).getTime()) / (1000 * 60 * 60);
-      if (hoursSince > 24) {
-        throw new BadRequestException(
-          `Attendance for ${formattedDate} is locked. Records can only be modified within 24 hours of generation. Generated at: ${new Date(lockedAt).toLocaleString()}.`,
-        );
-      }
+      this.assertAttendanceEditable(existing, formattedDate);
 
       // Update existing attendance
       const updated = await this.prismService.staffAttendance.update({
@@ -2483,6 +2497,48 @@ export class HrService {
     };
   }
 
+  async deleteStaffAttendanceRecord(staffId: number, date: string, attendanceId?: number) {
+    if (!staffId || Number.isNaN(staffId)) {
+      throw new BadRequestException('Valid staffId is required for attendance.');
+    }
+
+    const formattedDate = new Date(date).toISOString().split('T')[0];
+    const targetDate = new Date(formattedDate);
+    targetDate.setUTCHours(0, 0, 0, 0);
+
+    const existing = attendanceId
+      ? await this.prismService.staffAttendance.findUnique({ where: { id: attendanceId } })
+      : await this.prismService.staffAttendance.findUnique({
+          where: {
+            staffId_date: {
+              staffId,
+              date: targetDate,
+            },
+          },
+        });
+
+    if (!existing) {
+      throw new BadRequestException('Attendance record was not found or is already removed.');
+    }
+
+    if (existing.staffId !== staffId || this.dateKey(existing.date) !== this.dateKey(targetDate)) {
+      throw new BadRequestException('Attendance record does not match the requested staff/date.');
+    }
+
+    this.assertAttendanceEditable(existing, formattedDate);
+
+    await this.prismService.staffAttendance.delete({
+      where: { id: existing.id },
+    });
+    await this.syncPayrollLeaveDeductionForMonth(staffId, formattedDate.slice(0, 7));
+
+    return {
+      success: true,
+      deleted: true,
+      message: 'Attendance record removed.',
+    };
+  }
+
   async deleteAttendanceByDate(date: string, role: 'teaching' | 'non-teaching' | 'all' = 'all') {
     const formattedDate = new Date(date).toISOString().split('T')[0];
     const targetDate = new Date(formattedDate);
@@ -2500,6 +2556,14 @@ export class HrService {
         select: { id: true },
       });
       staffIdFilter = { staffId: { in: matchingStaff.map(s => s.id) } };
+    }
+
+    const existingRows = await this.prismService.staffAttendance.findMany({
+      where: { date: targetDate, ...staffIdFilter },
+      select: { generatedAt: true, markedAt: true },
+    });
+    for (const record of existingRows) {
+      this.assertAttendanceEditable(record, formattedDate);
     }
 
     const result = await this.prismService.staffAttendance.deleteMany({
@@ -2623,14 +2687,7 @@ export class HrService {
         });
 
         if (existing) {
-          const lockedAt = existing.generatedAt || existing.markedAt;
-          const hoursSince =
-            (Date.now() - new Date(lockedAt).getTime()) / (1000 * 60 * 60);
-          if (hoursSince > 24) {
-            throw new BadRequestException(
-              `Attendance for ${formattedDate} is locked. Records can only be modified within 24 hours of generation.`,
-            );
-          }
+          this.assertAttendanceEditable(existing, formattedDate);
 
           await tx.staffAttendance.update({
             where: { id: existing.id },

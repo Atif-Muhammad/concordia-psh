@@ -86,7 +86,7 @@ import {
   getTeacherClasses,
   getAcademicSessions
 } from "../../config/apis";
-import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
+import { getRouteSubmoduleId, hasExplicitModuleAccess, isDualRoleStaff } from "@/lib/navigation.jsx";
 
 const Examination = () => {
   const { toast } = useToast();
@@ -250,8 +250,11 @@ const Examination = () => {
 
   // === REACT QUERY DATA FETCHING ===
   const currentUser = queryClient.getQueryData(["currentUser"]);
-  const isTeacher =
+  const isTeacherRole =
     currentUser?.role === "TEACHER" || currentUser?.role === "Teacher";
+  const dualRoleStaff = isDualRoleStaff(currentUser);
+  const hasExaminationPermission = hasExplicitModuleAccess(currentUser, "Examination");
+  const isTeacher = isTeacherRole && (!dualRoleStaff || !hasExaminationPermission);
 
   const { data: teacherClassMappings = [] } = useQuery({
     queryKey: ["teacherClasses"],

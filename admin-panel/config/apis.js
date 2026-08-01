@@ -697,6 +697,24 @@ export const updateStudentAttendance = async (data) => {
   }
 };
 
+export const deleteStudentAttendanceRecord = async ({ studentId, classId, sectionId, subjectId, date, attendanceId }) => {
+  try {
+    const response = await axios.delete(`${base_url}/attendance/student/record`, {
+      params: { studentId, classId, sectionId, subjectId, date, attendanceId },
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 // programs
 export const getProgramNames = async () => {
   try {
@@ -3956,6 +3974,27 @@ export const getStaffAttendance = async (date, role = 'all') => {
 export const markStaffAttendance = async (data) => {
   try {
     const response = await axios.post(`${base_url}/hr/staff-attendance`, data, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      'Something went wrong';
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteStaffAttendanceRecord = async (staffIdOrPayload, dateArg) => {
+  try {
+    const payload = typeof staffIdOrPayload === "object"
+      ? staffIdOrPayload
+      : { staffId: staffIdOrPayload, date: dateArg };
+    const response = await axios.delete(`${base_url}/hr/staff-attendance/record`, {
+      params: payload,
       withCredentials: true,
     });
     return response.data;

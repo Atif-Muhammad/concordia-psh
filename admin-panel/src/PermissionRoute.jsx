@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Navigate, useNavigate } from "react-router-dom";
 import { refreshTokens, userWho } from "../config/apis";
+import { hasModuleAccess } from "@/lib/navigation.jsx";
 
 export default function PermissionRoute({ children, moduleName }) {
   const navigate = useNavigate();
@@ -31,13 +32,7 @@ export default function PermissionRoute({ children, moduleName }) {
     return <Navigate to="/" replace />;
   }
 
-  const modulePermissions = currentUser?.permissions?.modules ?? [];
-  const hasModuleList = Array.isArray(modulePermissions) && modulePermissions.length > 0;
-  const isTeacher = currentUser?.role === "TEACHER";
-
-  const canAccess = hasModuleList
-    ? modulePermissions.includes(moduleName)
-    : isTeacher && ["Attendance", "Examination"].includes(moduleName);
+  const canAccess = hasModuleAccess(currentUser, moduleName);
 
   if (!canAccess) {
     return <Navigate to="/dashboard" replace />;

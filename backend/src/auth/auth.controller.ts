@@ -72,13 +72,15 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const clientType = req.headers['client-type'] || 'web';
-    const { id, name, email, role, permissions, isStaff } = req.user as {
+    const { id, name, email, role, permissions, isStaff, isTeaching, isNonTeaching } = req.user as {
       id: string | number;
       name: string;
       email: string;
       role: string;
       permissions: any;
       isStaff: boolean;
+      isTeaching?: boolean;
+      isNonTeaching?: boolean;
     };
     const { access_token, refresh_token } =
       await this.authService.refreshTokens({
@@ -88,6 +90,8 @@ export class AuthController {
         role,
         permissions,
         isStaff,
+        isTeaching,
+        isNonTeaching,
       });
     // for web
     if (clientType === 'web') {
@@ -141,6 +145,9 @@ export class AuthController {
       designation,
       email: user.email,
       permissions: (user as any).permissions || {},
+      isStaff,
+      isTeaching: Boolean((user as any).isTeaching),
+      isNonTeaching: Boolean((user as any).isNonTeaching),
     };
   }
 }

@@ -11,7 +11,28 @@ import { LeaveDto } from './dtos/leave.dto';
 
 @Injectable()
 export class AttendanceService {
+  private readonly attendanceEditWindowHours = 48;
+
   constructor(private prismaService: PrismaService) {}
+
+  private getAttendanceLockTimestamp(record: { generatedAt?: Date | null; markedAt?: Date | null }) {
+    return record.generatedAt || record.markedAt;
+  }
+
+  private assertAttendanceEditable(record: { generatedAt?: Date | null; markedAt?: Date | null }, date: string) {
+    const lockedAt = this.getAttendanceLockTimestamp(record);
+    if (!lockedAt) return;
+    const hoursSince = (Date.now() - new Date(lockedAt).getTime()) / (1000 * 60 * 60);
+    if (hoursSince > this.attendanceEditWindowHours) {
+      throw new BadRequestException(
+        `Attendance for ${date} is locked. Records can only be modified within ${this.attendanceEditWindowHours} hours of generation. Generated at: ${new Date(lockedAt).toLocaleString()}.`,
+      );
+    }
+  }
+
+  private dateKey(date: Date) {
+    return new Date(date).toISOString().split('T')[0];
+  }
 
   private monthNameFromDate(date: Date): string {
     return date.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
@@ -228,7 +249,17 @@ export class AttendanceService {
   private canManageAllAttendance(user?: any) {
     const role = String(user?.role || '').toUpperCase();
     const modules = user?.permissions?.modules || [];
-    return role === 'SUPER_ADMIN' || modules.includes('Attendance') || user?.permissions?.all === true;
+    const attendanceSubmodules = user?.permissions?.subModules?.Attendance || [];
+    const hasExplicitAttendanceAccess =
+      modules.includes('Attendance') || attendanceSubmodules.includes('mark');
+    const isTeacher = role === 'TEACHER';
+    const isDualRoleStaff = Boolean(user?.isStaff && user?.isTeaching && user?.isNonTeaching);
+    return (
+      role === 'SUPER_ADMIN' ||
+      user?.permissions?.all === true ||
+      (!isTeacher && hasExplicitAttendanceAccess) ||
+      (isDualRoleStaff && hasExplicitAttendanceAccess)
+    );
   }
 
   private isTeacherUser(user?: any) {
@@ -469,14 +500,7 @@ export class AttendanceService {
       });
 
       if (existing) {
-        // 24-hour lock: prevent updates if attendance was generated/marked more than 24h ago
-        const lockedAt = existing.generatedAt || existing.markedAt;
-        const hoursSince = (Date.now() - new Date(lockedAt).getTime()) / (1000 * 60 * 60);
-        if (hoursSince > 24) {
-          throw new BadRequestException(
-            `Attendance for ${date} is locked. Records can only be modified within 24 hours of generation. Generated at: ${new Date(lockedAt).toLocaleString()}.`,
-          );
-        }
+        this.assertAttendanceEditable(existing, date);
 
         await this.prismaService.attendance.update({
           where: { id: existing.id },
@@ -518,6 +542,62 @@ export class AttendanceService {
     }
 
     return { success: true, generatedCount: payload.length };
+  }
+
+  async deleteStudentAttendanceRecord(
+    classId: number,
+    sectionId: number | null,
+    subjectId: number,
+    studentId: string,
+    date: string,
+    requestingUser?: any,
+    attendanceId?: number,
+  ) {
+    const targetDate = this.parseDateOnly(date);
+    const sid = Number(studentId);
+    if (!sid || Number.isNaN(sid)) {
+      throw new BadRequestException('Valid studentId is required.');
+    }
+
+    const existing = attendanceId
+      ? await this.prismaService.attendance.findUnique({ where: { id: attendanceId } })
+      : await this.prismaService.attendance.findFirst({
+          where: {
+            studentId: sid,
+            classId,
+            sectionId: sectionId ?? null,
+            subjectId,
+            date: targetDate,
+          },
+        });
+
+    if (!existing) {
+      throw new BadRequestException('Attendance record was not found or is already removed.');
+    }
+
+    await this.ensureTeacherAttendanceScope(requestingUser, existing.classId, existing.sectionId ?? null, existing.subjectId);
+
+    if (
+      existing.studentId !== sid ||
+      existing.classId !== classId ||
+      existing.subjectId !== subjectId ||
+      this.dateKey(existing.date) !== this.dateKey(targetDate)
+    ) {
+      throw new BadRequestException('Attendance record does not match the requested student/date/class/subject.');
+    }
+
+    this.assertAttendanceEditable(existing, date);
+
+    await this.prismaService.attendance.delete({
+      where: { id: existing.id },
+    });
+    await this.syncStudentAttendanceToFeeInstallment(sid, targetDate);
+
+    return {
+      success: true,
+      deleted: true,
+      message: 'Attendance record removed.',
+    };
   }
 
   async getAttendanceReport(
@@ -988,6 +1068,18 @@ export class AttendanceService {
     });
     if (existing) {
       throw new ConflictException(`A skip already exists for this class/section on ${date}.`);
+    }
+
+    const existingAttendance = await this.prismaService.attendance.findMany({
+      where: {
+        classId,
+        ...(sectionId ? { sectionId } : {}),
+        date: targetDate,
+      },
+      select: { generatedAt: true, markedAt: true },
+    });
+    for (const record of existingAttendance) {
+      this.assertAttendanceEditable(record, date);
     }
 
     return this.prismaService.attendanceSkip.create({

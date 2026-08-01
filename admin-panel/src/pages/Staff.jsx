@@ -44,6 +44,7 @@ import {
     getPayrollHistory,
     getStaffAttendance,
     bulkMarkStaffAttendance,
+    deleteStaffAttendanceRecord,
     markDateAsHoliday,
     undoGenerateAttendance,
     undoMarkHoliday,
@@ -100,6 +101,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { NAV_MODULES, getRouteSubmoduleId } from "@/lib/navigation.jsx";
 
 // Constants
+const ATTENDANCE_EDIT_WINDOW_MS = 48 * 60 * 60 * 1000;
+
 const STAFF_DOCUMENTS = [
     { key: "bsDegree", label: "BS/BSc Degree" },
     { key: "msDegree", label: "MS/MSc Degree" },
@@ -348,9 +351,13 @@ export default function Staff() {
             : deduped;
     }, [attendanceDraftRows, attendanceRoleFilter]);
 
-    const fixedModuleAccess = (moduleLabel) =>
-        (formData.isTeaching && ["Attendance", "Examination", "Complaints"].includes(moduleLabel)) ||
-        (formData.isNonTeaching && moduleLabel === "Complaints");
+    const fixedModuleAccess = (moduleLabel) => {
+        const isDualRole = formData.isTeaching && formData.isNonTeaching;
+        if (moduleLabel === "Attendance") return formData.isTeaching && !isDualRole;
+        if (moduleLabel === "Examination") return formData.isTeaching && !isDualRole;
+        if (moduleLabel === "Complaints") return formData.isTeaching || formData.isNonTeaching;
+        return false;
+    };
 
     const getModuleChildIds = (module) => module.subModules?.map((subModule) => subModule.id) || [];
 
@@ -415,6 +422,56 @@ export default function Staff() {
         }
     });
 
+    const handleAttendanceStatusChange = async (record, val) => {
+        const staffId = record.staff?.id ?? record.staffId;
+        if (!staffId) return;
+
+        if (val === "UNMARKED") {
+            if (record.id) {
+                try {
+                    await deleteStaffAttendanceRecord({ staffId, date: attendanceDateStr, attendanceId: record.id });
+                    setAttendanceDraftRows((prev) =>
+                        prev.map((r) =>
+                            (r.staff?.id ?? r.staffId) === staffId
+                                ? { ...r, id: undefined, status: null, leaveType: null, notes: "", markedAt: null, markedBy: null, admin: null }
+                                : r
+                        )
+                    );
+                    await queryClient.invalidateQueries({ queryKey: ["staffLeaveBalance"] });
+                    await queryClient.invalidateQueries({ queryKey: ["payrollSheet"] });
+                    await refetchAttendance();
+                    toast({ title: "Attendance removed", description: "Staff row is now Not Marked.", variant: "success" });
+                } catch (error) {
+                    toast({ title: "Failed to remove attendance", description: error.message, variant: "destructive" });
+                }
+                return;
+            }
+
+            setAttendanceDraftRows((prev) =>
+                prev.map((r) =>
+                    (r.staff?.id ?? r.staffId) === staffId
+                        ? { ...r, status: null, leaveType: null, notes: "" }
+                        : r
+                )
+            );
+            return;
+        }
+
+        setAttendanceDraftRows((prev) =>
+            prev.map((r) =>
+                (r.staff?.id ?? r.staffId) === staffId
+                    ? {
+                        ...r,
+                        status: val,
+                        leaveType: String(val).toUpperCase() === "LEAVE"
+                            ? String(r.leaveType || "CASUAL").toUpperCase()
+                            : null,
+                    }
+                    : r
+            )
+        );
+    };
+
     const buildAttendancePayloadRows = () => {
         const filtered = attendanceDraftRows.filter((record) => {
             if (attendanceRoleFilter === "all") return true;
@@ -425,9 +482,11 @@ export default function Staff() {
             return true;
         });
 
-        return filtered.map((record) => ({
+        return filtered
+            .filter((record) => record.status)
+            .map((record) => ({
             staffId: record.staff?.id ?? record.staffId,
-            status: record.status || "PRESENT",
+            status: record.status,
             leaveType: String(record.status || "").toUpperCase() === "LEAVE"
                 ? String(record.leaveType || "CASUAL").toUpperCase()
                 : undefined,
@@ -1354,11 +1413,11 @@ export default function Staff() {
                             <CardContent>
                                 {attendanceDraftRows.some(r => {
                                     const ts = r.generatedAt || r.markedAt;
-                                    return ts && (Date.now() - new Date(ts).getTime()) > 24 * 60 * 60 * 1000;
+                                    return ts && (Date.now() - new Date(ts).getTime()) > ATTENDANCE_EDIT_WINDOW_MS;
                                 }) && (
                                     <div className="mb-3 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
                                         <LockKeyhole className="w-4 h-4 shrink-0" />
-                                        <span>Some records are locked — attendance can only be modified within 24 hours of generation.</span>
+                                        <span>Some records are locked — attendance can only be modified within 48 hours of generation.</span>
                                     </div>
                                 )}
                                 <div className="rounded-md border">
@@ -1378,7 +1437,7 @@ export default function Staff() {
                                                 .map((record) => {
                                                     const lockTimestamp = record.generatedAt || record.markedAt;
                                                     const isLocked = lockTimestamp
-                                                        ? (Date.now() - new Date(lockTimestamp).getTime()) > 24 * 60 * 60 * 1000
+                                                        ? (Date.now() - new Date(lockTimestamp).getTime()) > ATTENDANCE_EDIT_WINDOW_MS
                                                         : false;
                                                     const auditLines = [];
                                                     if (record.generatedAt) auditLines.push(`Generated: ${new Date(record.generatedAt).toLocaleString()}`);
@@ -1418,28 +1477,15 @@ export default function Staff() {
                                                         <TableCell className="py-2 px-3 text-sm">
                                                             <div className="flex items-center gap-1.5">
                                                                 <Select
-                                                                    value={record.status}
+                                                                    value={record.status || "UNMARKED"}
                                                                     disabled={isLocked}
-                                                                    onValueChange={(val) =>
-                                                                        setAttendanceDraftRows((prev) =>
-                                                                            prev.map((r) =>
-                                                                                r.staff?.id === record.staff?.id
-                                                                                    ? {
-                                                                                        ...r,
-                                                                                        status: val,
-                                                                                        leaveType: String(val).toUpperCase() === "LEAVE"
-                                                                                            ? String(r.leaveType || "CASUAL").toUpperCase()
-                                                                                            : null,
-                                                                                    }
-                                                                                    : r
-                                                                            )
-                                                                        )
-                                                                    }
+                                                                    onValueChange={(val) => handleAttendanceStatusChange(record, val)}
                                                                 >
                                                                     <SelectTrigger className="w-[130px]">
                                                                         <SelectValue />
                                                                     </SelectTrigger>
                                                                     <SelectContent>
+                                                                        <SelectItem value="UNMARKED">Not Marked</SelectItem>
                                                                         <SelectItem value="PRESENT">Present</SelectItem>
                                                                         <SelectItem value="ABSENT">Absent</SelectItem>
                                                                         <SelectItem value="LEAVE">Leave</SelectItem>
@@ -1478,7 +1524,7 @@ export default function Staff() {
                                                                             <span className="text-amber-500 cursor-help"><LockKeyhole className="w-3.5 h-3.5" /></span>
                                                                         </TooltipTrigger>
                                                                         <TooltipContent className="text-xs max-w-[240px] whitespace-pre-line">
-                                                                            Locked — attendance can only be modified within 24 hours of generation.{auditTitle ? `\n${auditTitle}` : ""}
+                                                                            Locked — attendance can only be modified within 48 hours of generation.{auditTitle ? `\n${auditTitle}` : ""}
                                                                         </TooltipContent>
                                                                     </Tooltip>
                                                                 ) : auditTitle ? (
@@ -2477,7 +2523,8 @@ function StaffDetailView({ staffId, onBack, onEdit }) {
                                     <div className="flex flex-wrap gap-2">
                                         {[...new Set([
                                             ...(staff.permissions?.modules || []),
-                                            ...(staff.isTeaching ? ["Attendance", "Examination", "Complaints"] : ["Complaints"])
+                                            ...(staff.isTeaching && !staff.isNonTeaching ? ["Attendance"] : []),
+                                            ...(staff.isTeaching && !staff.isNonTeaching ? ["Examination", "Complaints"] : ["Complaints"])
                                         ])].map((module) => (
                                             <Badge key={module} variant="secondary" className="bg-orange-50 text-orange-700 border-orange-100 font-medium">
                                                 {module}
@@ -2485,7 +2532,7 @@ function StaffDetailView({ staffId, onBack, onEdit }) {
                                         ))}
                                     </div>
                                     <p className="text-[10px] text-muted-foreground mt-3 italic">
-                                        * {staff.isTeaching ? "Attendance, Examination, and Complaints" : "Complaints"} are standard rights for this role.
+                                        * {staff.isTeaching && !staff.isNonTeaching ? "Attendance, Examination, and Complaints" : "Complaints"} are standard rights for this role.
                                     </p>
                                 </CardContent>
                             </Card>
