@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { CreateIncomeDto } from './dto/create-income.dto';
@@ -10,6 +10,40 @@ import { CreateClosingDto } from './dto/create-closing.dto';
 @Injectable()
 export class FinanceService {
   constructor(private prisma: PrismaService) {}
+
+  private getActorSnapshot(user: any) {
+    return {
+      id: user?.id ? Number(user.id) : null,
+      name: user?.name || user?.email || 'Unknown',
+      role: user?.role || (user?.isStaff ? 'Staff' : 'ADMIN'),
+      isStaff: Boolean(user?.isStaff),
+    };
+  }
+
+  private hasFinanceExpenseAccess(user: any) {
+    if (user?.role === 'SUPER_ADMIN' || user?.permissions?.all === true) return true;
+    const permissions = user?.permissions || {};
+    const modules = Array.isArray(permissions.modules) ? permissions.modules : [];
+    const financeSubModules = permissions.subModules?.Finance;
+    if (!modules.includes('Finance') && !Array.isArray(financeSubModules)) return false;
+    if (!Array.isArray(financeSubModules)) return true;
+    return financeSubModules.includes('expense');
+  }
+
+  private assertFinanceExpenseApprovalAccess(user: any) {
+    if (!this.hasFinanceExpenseAccess(user)) {
+      throw new ForbiddenException('You do not have permission to approve or reject finance expenses');
+    }
+  }
+
+  private decorateManualExpense(expense: any) {
+    return {
+      ...expense,
+      source: null,
+      sourceId: expense.id,
+      isCounted: expense.status === 'APPROVED',
+    };
+  }
 
   private parseStartOfDay(dateStr: string) {
     const raw = String(dateStr || '').trim();
@@ -269,11 +303,28 @@ export class FinanceService {
   }
 
   // ==================== EXPENSE ====================
-  async createExpense(createExpenseDto: CreateExpenseDto) {
+  async createExpense(createExpenseDto: CreateExpenseDto, user?: any) {
+    const actor = this.getActorSnapshot(user);
     return this.prisma.financeExpense.create({
       data: {
         ...createExpenseDto,
         date: new Date(createExpenseDto.date),
+        status: 'PENDING',
+        createdById: actor.id,
+        createdByName: actor.name,
+        createdByRole: actor.role,
+        createdByIsStaff: actor.isStaff,
+        approvedById: null,
+        approvedByName: null,
+        approvedByRole: null,
+        approvedByIsStaff: null,
+        approvedAt: null,
+        rejectedById: null,
+        rejectedByName: null,
+        rejectedByRole: null,
+        rejectedByIsStaff: null,
+        rejectedAt: null,
+        rejectionReason: null,
       },
     });
   }
@@ -283,8 +334,12 @@ export class FinanceService {
     dateTo?: string;
     category?: string;
     subCategory?: string;
+    status?: 'all' | 'PENDING' | 'APPROVED' | 'REJECTED';
   }) {
     const where: any = {};
+    const status = filters?.status;
+    const includeAutomated =
+      !status || status === 'all' || status === 'APPROVED';
 
     if (filters?.dateFrom || filters?.dateTo) {
       where.date = {};
@@ -306,19 +361,26 @@ export class FinanceService {
     if (filters?.subCategory && filters.subCategory !== 'all') {
       where.subCategory = filters.subCategory;
     }
+    if (!status) {
+      where.status = 'APPROVED';
+    } else if (status !== 'all') {
+      where.status = status;
+    }
 
     // Fetch manual expense records
-    const manualExpenses = await this.prisma.financeExpense.findMany({
+    const manualExpensesRaw = await this.prisma.financeExpense.findMany({
       where,
       orderBy: { date: 'desc' },
     });
+    const manualExpenses = manualExpensesRaw.map((expense) => this.decorateManualExpense(expense));
 
     // If category is 'Payroll' or 'all', fetch paid payrolls
     let payrolls: any[] = [];
     if (
-      !filters?.category ||
-      filters.category === 'all' ||
-      filters.category === 'Payroll'
+      includeAutomated &&
+      (!filters?.category ||
+        filters.category === 'all' ||
+        filters.category === 'Payroll')
     ) {
       const payrollPaymentWhere: any = {};
 
@@ -355,6 +417,8 @@ export class FinanceService {
           updatedAt: payment.paidAt,
           source: 'payroll',
           sourceId: payment.payrollId,
+          status: 'APPROVED',
+          isCounted: true,
         };
       });
     }
@@ -362,9 +426,10 @@ export class FinanceService {
     // Fetch Hostel Expenses
     let hostelExpenses: any[] = [];
     if (
-      !filters?.category ||
-      filters.category === 'all' ||
-      filters.category === 'Hostel'
+      includeAutomated &&
+      (!filters?.category ||
+        filters.category === 'all' ||
+        filters.category === 'Hostel')
     ) {
       const hostelWhere: any = {};
       if (filters?.dateFrom || filters?.dateTo) {
@@ -387,15 +452,18 @@ export class FinanceService {
         updatedAt: h.updatedAt,
         source: 'hostel',
         sourceId: h.id,
+        status: 'APPROVED',
+        isCounted: true,
       }));
     }
 
     // Fetch Inventory Expenses (Purchases + Maintenance)
     let inventoryExpenses: any[] = [];
     if (
-      !filters?.category ||
-      filters.category === 'all' ||
-      filters.category === 'Inventory'
+      includeAutomated &&
+      (!filters?.category ||
+        filters.category === 'all' ||
+        filters.category === 'Inventory')
     ) {
       // 1. SchoolInventory (Purchases)
       const invPurchaseWhere: any = {};
@@ -436,6 +504,8 @@ export class FinanceService {
         updatedAt: p.updatedAt,
         source: 'inventory-purchase',
         sourceId: p.id,
+        status: 'APPROVED',
+        isCounted: true,
       }));
 
       const mappedMaintenance = maintenances.map((m) => ({
@@ -449,6 +519,8 @@ export class FinanceService {
         updatedAt: m.updatedAt,
         source: 'inventory-maintenance',
         sourceId: m.id,
+        status: 'APPROVED',
+        isCounted: true,
       }));
 
       inventoryExpenses = [...mappedPurchases, ...mappedMaintenance];
@@ -480,6 +552,60 @@ export class FinanceService {
   async deleteExpense(id: number) {
     return this.prisma.financeExpense.delete({
       where: { id },
+    });
+  }
+
+  async approveExpense(id: number, user: any) {
+    this.assertFinanceExpenseApprovalAccess(user);
+    const existing = await this.prisma.financeExpense.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Expense not found');
+    if (existing.status !== 'PENDING') {
+      throw new BadRequestException(`Only pending expenses can be approved. Current status: ${existing.status}`);
+    }
+    const actor = this.getActorSnapshot(user);
+    return this.prisma.financeExpense.update({
+      where: { id },
+      data: {
+        status: 'APPROVED',
+        approvedById: actor.id,
+        approvedByName: actor.name,
+        approvedByRole: actor.role,
+        approvedByIsStaff: actor.isStaff,
+        approvedAt: new Date(),
+        rejectedById: null,
+        rejectedByName: null,
+        rejectedByRole: null,
+        rejectedByIsStaff: null,
+        rejectedAt: null,
+        rejectionReason: null,
+      },
+    });
+  }
+
+  async rejectExpense(id: number, user: any, rejectionReason?: string) {
+    this.assertFinanceExpenseApprovalAccess(user);
+    const existing = await this.prisma.financeExpense.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Expense not found');
+    if (existing.status !== 'PENDING') {
+      throw new BadRequestException(`Only pending expenses can be rejected. Current status: ${existing.status}`);
+    }
+    const actor = this.getActorSnapshot(user);
+    return this.prisma.financeExpense.update({
+      where: { id },
+      data: {
+        status: 'REJECTED',
+        rejectedById: actor.id,
+        rejectedByName: actor.name,
+        rejectedByRole: actor.role,
+        rejectedByIsStaff: actor.isStaff,
+        rejectedAt: new Date(),
+        rejectionReason: rejectionReason?.trim() || null,
+        approvedById: null,
+        approvedByName: null,
+        approvedByRole: null,
+        approvedByIsStaff: null,
+        approvedAt: null,
+      },
     });
   }
 
@@ -577,9 +703,10 @@ export class FinanceService {
     }
 
     // Fetch manual records
+    const expenseWhere = { ...where, status: 'APPROVED' };
     const [manualIncomes, manualExpenses] = await Promise.all([
       this.prisma.financeIncome.findMany({ where }),
-      this.prisma.financeExpense.findMany({ where }),
+      this.prisma.financeExpense.findMany({ where: expenseWhere }),
     ]);
 
     // Fetch paid fee payments
@@ -644,7 +771,13 @@ export class FinanceService {
       {} as Record<string, number>,
     );
     if (feeIncome > 0) {
-      incomeByCategory['Fee'] = feeIncome;
+      incomeByCategory['Tuition Fee'] = feeIncome;
+    }
+    if (extraFeeIncome > 0) {
+      incomeByCategory['Extra Challan'] = extraFeeIncome;
+    }
+    if (hostelFeeIncome > 0) {
+      incomeByCategory['Hostel Challan'] = hostelFeeIncome;
     }
 
     // Category breakdown for expenses
@@ -665,8 +798,26 @@ export class FinanceService {
       ...feePayments.map((p) => ({
         id: `fee-${p.id}`,
         date: p.paymentDate,
-        category: 'Fee',
+        category: 'Tuition Fee',
         description: `Fee payment`,
+        amount: Number(p.amount),
+        createdAt: p.createdAt,
+        updatedAt: p.createdAt,
+      })),
+      ...extraFeePayments.map((p) => ({
+        id: `extra-${p.id}`,
+        date: p.paymentDate,
+        category: 'Extra Challan',
+        description: `Extra challan payment`,
+        amount: Number(p.amount),
+        createdAt: p.createdAt,
+        updatedAt: p.createdAt,
+      })),
+      ...hostelFeePayments.map((p) => ({
+        id: `hostel-${p.id}`,
+        date: p.paymentDate,
+        category: 'Hostel Challan',
+        description: `Hostel challan payment`,
         amount: Number(p.amount),
         createdAt: p.createdAt,
         updatedAt: p.createdAt,

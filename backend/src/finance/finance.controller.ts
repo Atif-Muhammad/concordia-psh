@@ -9,6 +9,7 @@ import {
   Query,
   ParseIntPipe,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import { FinanceService } from './finance.service';
 import { CreateIncomeDto } from './dto/create-income.dto';
@@ -53,8 +54,8 @@ export class FinanceController {
 
   // ==================== EXPENSE ====================
   @Post('expense')
-  createExpense(@Body() createExpenseDto: CreateExpenseDto) {
-    return this.financeService.createExpense(createExpenseDto);
+  createExpense(@Body() createExpenseDto: CreateExpenseDto, @Req() req: any) {
+    return this.financeService.createExpense(createExpenseDto, req.user);
   }
 
   @Get('expense')
@@ -63,8 +64,9 @@ export class FinanceController {
     @Query('dateTo') dateTo?: string,
     @Query('category') category?: string,
     @Query('subCategory') subCategory?: string,
+    @Query('status') status?: 'all' | 'PENDING' | 'APPROVED' | 'REJECTED',
   ) {
-    return this.financeService.getExpenses({ dateFrom, dateTo, category, subCategory });
+    return this.financeService.getExpenses({ dateFrom, dateTo, category, subCategory, status });
   }
 
   @Patch('expense/:id')
@@ -78,6 +80,20 @@ export class FinanceController {
   @Delete('expense/:id')
   deleteExpense(@Param('id', ParseIntPipe) id: number) {
     return this.financeService.deleteExpense(id);
+  }
+
+  @Patch('expense/:id/approve')
+  approveExpense(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.financeService.approveExpense(id, req.user);
+  }
+
+  @Patch('expense/:id/reject')
+  rejectExpense(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('rejectionReason') rejectionReason: string | undefined,
+    @Req() req: any,
+  ) {
+    return this.financeService.rejectExpense(id, req.user, rejectionReason);
   }
 
   // ==================== CLOSING ====================

@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import React, { useState, useMemo } from "react";
 import { useLocation } from "react-router-dom";
-import { TrendingUp, TrendingDown, DollarSign, FileText, Trash2, Info, Edit } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, FileText, Trash2, Info, Edit, CheckCircle2, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,13 +25,16 @@ import {
   getFinanceExpenses,
   createFinanceExpense,
   deleteFinanceExpense,
+  approveFinanceExpense,
+  rejectFinanceExpense,
   getFinanceClosings,
   createFinanceClosing,
   updateFinanceClosing,
   deleteFinanceClosing,
-  getFinanceReportsAnalytics
+  getFinanceReportsAnalytics,
+  userWho
 } from "../../config/apis";
-import { getRouteSubmoduleId } from "@/lib/navigation.jsx";
+import { getRouteSubmoduleId, hasSubmoduleAccess } from "@/lib/navigation.jsx";
 
 // Helper to format date as YYYY-MM-DD in local time
 const toLocalDateString = (date) => {
@@ -94,6 +97,7 @@ const Finance = () => {
 
   const [expenseFilterCategory, setExpenseFilterCategory] = useState("all");
   const [expenseFilterSubCategory, setExpenseFilterSubCategory] = useState("all");
+  const [expenseFilterStatus, setExpenseFilterStatus] = useState("all");
   const [expenseDateFrom, setExpenseDateFrom] = useState(() => getCurrentMonthRange().dateFrom);
   const [expenseDateTo, setExpenseDateTo] = useState(() => getCurrentMonthRange().dateTo);
   const [appliedExpenseFilter, setAppliedExpenseFilter] = useState(() => getCurrentMonthRange());
@@ -133,6 +137,7 @@ const Finance = () => {
 
   // Confirmation dialog states
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, id: null, type: '' });
+  const [expenseActionConfirm, setExpenseActionConfirm] = useState({ open: false, action: null, item: null });
 
   // Edit closing state
   const [editClosingData, setEditClosingData] = useState(null);
@@ -149,6 +154,17 @@ const Finance = () => {
   const [reportsDateFrom, setReportsDateFrom] = useState("");
   const [reportsDateTo, setReportsDateTo] = useState("");
   const [appliedReportsFilter, setAppliedReportsFilter] = useState({ dateFrom: "", dateTo: "" });
+
+  const { data: currentUser } = useQuery({
+    queryKey: ["currentUser"],
+    queryFn: userWho,
+    retry: false,
+  });
+
+  const canApproveExpense =
+    currentUser?.role === "SUPER_ADMIN" ||
+    currentUser?.permissions?.all === true ||
+    hasSubmoduleAccess(currentUser, "Finance", "expense");
 
 
   // Helper to get date range based on dashboard period
@@ -206,8 +222,8 @@ const Finance = () => {
   });
 
   const { data: expenseData = [], isLoading: expenseLoading } = useQuery({
-    queryKey: ['financeExpense', appliedExpenseFilter.dateFrom, appliedExpenseFilter.dateTo, expenseFilterCategory, expenseFilterSubCategory],
-    queryFn: () => getFinanceExpenses({ dateFrom: appliedExpenseFilter.dateFrom, dateTo: appliedExpenseFilter.dateTo, category: expenseFilterCategory, subCategory: expenseFilterSubCategory }),
+    queryKey: ['financeExpense', appliedExpenseFilter.dateFrom, appliedExpenseFilter.dateTo, expenseFilterCategory, expenseFilterSubCategory, expenseFilterStatus],
+    queryFn: () => getFinanceExpenses({ dateFrom: appliedExpenseFilter.dateFrom, dateTo: appliedExpenseFilter.dateTo, category: expenseFilterCategory, subCategory: expenseFilterSubCategory, status: expenseFilterStatus }),
     enabled: !!appliedExpenseFilter.dateFrom && !!appliedExpenseFilter.dateTo
   });
 
@@ -292,7 +308,9 @@ const Finance = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['financeExpense'] });
       queryClient.invalidateQueries({ queryKey: ['dashboardExpense'] });
-      toast({ title: "Expense added successfully" });
+      queryClient.invalidateQueries({ queryKey: ['reportsExpense'] });
+      queryClient.invalidateQueries({ queryKey: ['financeReportsAnalytics'] });
+      toast({ title: "Expense submitted for approval" });
       setExpenseOpen(false);
       setExpenseFormData({
         date: new Date().toISOString().split("T")[0],
@@ -312,10 +330,42 @@ const Finance = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['financeExpense'] });
       queryClient.invalidateQueries({ queryKey: ['dashboardExpense'] });
+      queryClient.invalidateQueries({ queryKey: ['reportsExpense'] });
+      queryClient.invalidateQueries({ queryKey: ['financeReportsAnalytics'] });
       toast({ title: "Expense record deleted" });
     },
     onError: (error) => {
       toast({ title: error.message || "Failed to delete expense", variant: "destructive" });
+    }
+  });
+
+  const approveExpenseMutation = useMutation({
+    mutationFn: approveFinanceExpense,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['financeExpense'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboardExpense'] });
+      queryClient.invalidateQueries({ queryKey: ['reportsExpense'] });
+      queryClient.invalidateQueries({ queryKey: ['financeReportsAnalytics'] });
+      queryClient.invalidateQueries({ queryKey: ['financeClosing'] });
+      toast({ title: "Expense approved and added to totals" });
+    },
+    onError: (error) => {
+      toast({ title: error.message || "Failed to approve expense", variant: "destructive" });
+    }
+  });
+
+  const rejectExpenseMutation = useMutation({
+    mutationFn: rejectFinanceExpense,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['financeExpense'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboardExpense'] });
+      queryClient.invalidateQueries({ queryKey: ['reportsExpense'] });
+      queryClient.invalidateQueries({ queryKey: ['financeReportsAnalytics'] });
+      queryClient.invalidateQueries({ queryKey: ['financeClosing'] });
+      toast({ title: "Expense rejected and excluded from totals" });
+    },
+    onError: (error) => {
+      toast({ title: error.message || "Failed to reject expense", variant: "destructive" });
     }
   });
 
@@ -383,6 +433,26 @@ const Finance = () => {
       return;
     }
     addExpenseMutation.mutate(expenseFormData);
+  };
+
+  const getExpenseStatusVariant = (status) => {
+    if (status === "APPROVED") return "default";
+    if (status === "REJECTED") return "destructive";
+    return "secondary";
+  };
+
+  const formatAuditDate = (value) => value ? new Date(value).toLocaleString() : "";
+
+  const getExpenseAuditText = (item) => {
+    if (item.source) return `Automated ${item.source}`;
+    if (item.status === "APPROVED") {
+      return item.approvedAt ? `Approved by ${item.approvedByName || "Unknown"} at ${formatAuditDate(item.approvedAt)}` : "Approved";
+    }
+    if (item.status === "REJECTED") {
+      const reason = item.rejectionReason ? ` - ${item.rejectionReason}` : "";
+      return item.rejectedAt ? `Rejected by ${item.rejectedByName || "Unknown"} at ${formatAuditDate(item.rejectedAt)}${reason}` : `Rejected${reason}`;
+    }
+    return item.createdByName ? `Submitted by ${item.createdByName}` : "Pending approval";
   };
 
   const handleClosing = () => {
@@ -1051,7 +1121,7 @@ const Finance = () => {
                   Add Expense
                 </Button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-6 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-7 gap-4 mt-4">
                 <div className="flex-1">
                   <Label>From</Label>
                   <Input
@@ -1105,6 +1175,20 @@ const Finance = () => {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="flex-1">
+                  <Label>Status</Label>
+                  <Select value={expenseFilterStatus} onValueChange={setExpenseFilterStatus}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Statuses</SelectItem>
+                      <SelectItem value="PENDING">Pending</SelectItem>
+                      <SelectItem value="APPROVED">Approved</SelectItem>
+                      <SelectItem value="REJECTED">Rejected</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="flex items-end">
                   <Button
                     onClick={() => setAppliedExpenseFilter({ dateFrom: expenseDateFrom, dateTo: expenseDateTo })}
@@ -1122,6 +1206,7 @@ const Finance = () => {
                       setAppliedExpenseFilter(current);
                       setExpenseFilterCategory("all");
                       setExpenseFilterSubCategory("all");
+                      setExpenseFilterStatus("all");
                     }}
                   >
                     Clear
@@ -1130,59 +1215,117 @@ const Finance = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
                     <TableRow>
                       <TableHead className="py-2 px-3 text-sm">Date</TableHead>
                       <TableHead className="py-2 px-3 text-sm">Category</TableHead>
                       <TableHead className="py-2 px-3 text-sm">Sub Category</TableHead>
                       <TableHead className="py-2 px-3 text-sm">Description</TableHead>
                       <TableHead className="py-2 px-3 text-sm">Amount</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Status</TableHead>
+                      <TableHead className="py-2 px-3 text-sm">Audit</TableHead>
                       <TableHead className="py-2 px-3 text-sm">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {expenseLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
-                        Loading expense data...
-                      </TableCell>
                     </TableRow>
-                  ) : expenseData.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
-                        No expense records found for selected filters.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    expenseData.map(item => <TableRow key={item.id}>
-                      <TableCell className="py-2 px-3 text-sm">{new Date(item.date).toLocaleDateString()}</TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
-                        <Badge variant="destructive">{item.category}</Badge>
-                      </TableCell>
-                      <TableCell className="py-2 px-3 text-sm">{item.subCategory || "-"}</TableCell>
-                      <TableCell className="py-2 px-3 text-sm">{item.description}</TableCell>
-                      <TableCell className="text-sm px-3 py-2 font-bold text-destructive">PKR {Number(item.amount).toLocaleString()}</TableCell>
-                      <TableCell className="py-2 px-3 text-sm">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => setDeleteConfirm({ open: true, id: item.id, type: 'expense' })}
-                              disabled={!!item.source}
-                              title={!!item.source ? `Cannot delete automated ${item.category} records` : 'Delete'}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Delete</TooltipContent>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>)
-                  )}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {expenseLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                          Loading expense data...
+                        </TableCell>
+                      </TableRow>
+                    ) : expenseData.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                          No expense records found for selected filters.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      expenseData.map(item => {
+                        const isManual = !item.source;
+                        const isPending = item.status === "PENDING";
+                        const isActionLoading =
+                          approveExpenseMutation.isPending ||
+                          rejectExpenseMutation.isPending ||
+                          deleteExpenseMutation.isPending;
+                        return (
+                          <TableRow key={item.id} className={item.status === "PENDING" ? "bg-amber-50/40" : item.status === "REJECTED" ? "bg-destructive/5" : ""}>
+                            <TableCell className="py-2 px-3 text-sm">{new Date(item.date).toLocaleDateString()}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
+                              <Badge variant="destructive">{item.category}</Badge>
+                            </TableCell>
+                            <TableCell className="py-2 px-3 text-sm">{item.subCategory || "-"}</TableCell>
+                            <TableCell className="py-2 px-3 text-sm min-w-[220px]">{item.description}</TableCell>
+                            <TableCell className={`text-sm px-3 py-2 font-bold ${item.isCounted === false ? "text-muted-foreground" : "text-destructive"}`}>
+                              PKR {Number(item.amount).toLocaleString()}
+                            </TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
+                              <Badge variant={getExpenseStatusVariant(item.status)}>
+                                {item.status || "APPROVED"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="py-2 px-3 text-xs text-muted-foreground min-w-[220px]">
+                              {getExpenseAuditText(item)}
+                            </TableCell>
+                            <TableCell className="py-2 px-3 text-sm">
+                              <div className="flex items-center gap-1.5">
+                                {isManual && isPending && canApproveExpense && (
+                                  <>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="text-green-700 border-green-200 hover:bg-green-50"
+                                          disabled={isActionLoading}
+                                          onClick={() => setExpenseActionConfirm({ open: true, action: "approve", item })}
+                                        >
+                                          <CheckCircle2 className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Approve expense</TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="text-destructive"
+                                          disabled={isActionLoading}
+                                          onClick={() => setExpenseActionConfirm({ open: true, action: "reject", item })}
+                                        >
+                                          <XCircle className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Reject expense</TooltipContent>
+                                    </Tooltip>
+                                  </>
+                                )}
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() => setDeleteConfirm({ open: true, id: item.id, type: 'expense' })}
+                                      disabled={!!item.source || isActionLoading}
+                                      title={!!item.source ? `Cannot delete automated ${item.category} records` : 'Delete'}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>{item.source ? "Automated records cannot be deleted here" : "Delete"}</TooltipContent>
+                                </Tooltip>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1515,7 +1658,7 @@ const Finance = () => {
       <Dialog open={expenseOpen} onOpenChange={setExpenseOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Expense</DialogTitle>
+            <DialogTitle>Submit Expense</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -1562,7 +1705,7 @@ const Finance = () => {
             </div>
           </div>
           <Button onClick={handleAddExpense} disabled={addExpenseMutation.isPending}>
-            {addExpenseMutation.isPending ? "Adding..." : "Add Expense"}
+            {addExpenseMutation.isPending ? "Submitting..." : "Submit for Approval"}
           </Button>
         </DialogContent>
       </Dialog>
@@ -1635,6 +1778,56 @@ const Finance = () => {
           </Button>
         </DialogContent>
       </Dialog>
+
+      {/* Expense Approval Confirmation Dialog */}
+      <AlertDialog
+        open={expenseActionConfirm.open}
+        onOpenChange={(open) => !open && setExpenseActionConfirm({ open: false, action: null, item: null })}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {expenseActionConfirm.action === "approve" ? "Approve this expense?" : "Reject this expense?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {expenseActionConfirm.action === "approve"
+                ? "Approving this expense will add its amount to Finance totals, reports, dashboard cards, and future closing calculations."
+                : "Rejecting this expense will keep it excluded from Finance totals, reports, dashboard cards, and future closing calculations."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {expenseActionConfirm.item && (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-1">
+              <div className="font-medium">{expenseActionConfirm.item.description}</div>
+              <div className="text-muted-foreground">
+                {expenseActionConfirm.item.category}
+                {expenseActionConfirm.item.subCategory ? ` / ${expenseActionConfirm.item.subCategory}` : ""} · PKR {Number(expenseActionConfirm.item.amount || 0).toLocaleString()}
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const item = expenseActionConfirm.item;
+                if (!item) return;
+                if (expenseActionConfirm.action === "approve") {
+                  approveExpenseMutation.mutate(item.id);
+                } else if (expenseActionConfirm.action === "reject") {
+                  rejectExpenseMutation.mutate({ id: item.id });
+                }
+                setExpenseActionConfirm({ open: false, action: null, item: null });
+              }}
+              className={
+                expenseActionConfirm.action === "approve"
+                  ? "bg-green-600 text-white hover:bg-green-700"
+                  : "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              }
+            >
+              {expenseActionConfirm.action === "approve" ? "Approve" : "Reject"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteConfirm.open} onOpenChange={(open) => !open && setDeleteConfirm({ open: false, id: null, type: '' })}>

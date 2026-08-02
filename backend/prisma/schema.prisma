@@ -879,8 +879,8 @@ model Position {
   percentage    Float
   gpa           Float
   grade         String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now()) @db.DateTime(0)
+  updatedAt     DateTime @default(now()) @updatedAt @db.DateTime(0)
 
   exam    Exam    @relation(fields: [examId], references: [id])
   class   Class   @relation(fields: [classId], references: [id])
@@ -1322,6 +1322,12 @@ model FinanceIncome {
   @@map("financeincome")
 }
 
+enum FinanceExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model FinanceExpense {
   id          Int      @id @default(autoincrement())
   date        DateTime @db.Date
@@ -1329,6 +1335,25 @@ model FinanceExpense {
   subCategory String?  @db.VarChar(100)
   description String   @db.Text
   amount      Float
+
+  status FinanceExpenseStatus @default(PENDING)
+  createdById      Int?
+  createdByName    String?  @db.VarChar(100)
+  createdByRole    String?  @db.VarChar(50)
+  createdByIsStaff Boolean?
+
+  approvedById      Int?
+  approvedByName    String?   @db.VarChar(100)
+  approvedByRole    String?   @db.VarChar(50)
+  approvedByIsStaff Boolean?
+  approvedAt        DateTime?
+
+  rejectedById      Int?
+  rejectedByName    String?   @db.VarChar(100)
+  rejectedByRole    String?   @db.VarChar(50)
+  rejectedByIsStaff Boolean?
+  rejectedAt        DateTime?
+  rejectionReason   String?   @db.Text
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1336,6 +1361,7 @@ model FinanceExpense {
   @@index([date])
   @@index([category])
   @@index([subCategory])
+  @@index([status])
   @@map("financeexpense")
 }
 

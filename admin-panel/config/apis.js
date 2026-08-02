@@ -2,8 +2,8 @@ import axios from "axios";
 import { format } from "date-fns";
 import { formatLocalDate } from "../src/lib/utils";
 
-const base_url = "http://localhost:3003/api";
-// const base_url = "http://69.62.117.175:3003/api";
+// const base_url = "http://localhost:3003/api";
+const base_url = "http://69.62.117.175:3003/api";
 
 export const userWho = async () => {
   try {
@@ -4399,6 +4399,7 @@ export const getFinanceExpenses = async (filters = {}) => {
     if (filters.dateTo) params.append('dateTo', filters.dateTo);
     if (filters.category && filters.category !== 'all') params.append('category', filters.category);
     if (filters.subCategory && filters.subCategory !== 'all') params.append('subCategory', filters.subCategory);
+    if (filters.status) params.append('status', filters.status);
 
     const url = params.toString()
       ? `${base_url}/finance/expense?${params.toString()}`
@@ -4446,6 +4447,30 @@ export const createFinanceExpense = async (data) => {
 export const deleteFinanceExpense = async (id) => {
   try {
     const response = await axios.delete(`${base_url}/finance/expense/${id}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const approveFinanceExpense = async (id) => {
+  try {
+    const response = await axios.patch(`${base_url}/finance/expense/${id}/approve`, {}, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const rejectFinanceExpense = async ({ id, rejectionReason }) => {
+  try {
+    const response = await axios.patch(`${base_url}/finance/expense/${id}/reject`, { rejectionReason }, {
       withCredentials: true,
     });
     return response.data;
