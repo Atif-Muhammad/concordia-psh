@@ -483,9 +483,10 @@ export class FeeController {
 
     // Fetch all classes for name lookup
     const allClasses = await this.prisma.class.findMany({
-      select: { id: true, name: true },
+      select: { id: true, name: true, program: { select: { name: true } } },
     });
     const classNameMap = new Map(allClasses.map(c => [c.id, c.name]));
+    const programNameMap = new Map(allClasses.map(c => [c.id, c.program?.name]));
 
     // 1. Fetch standard installments
     const installments = await this.prisma.feeInstallment.findMany({
@@ -536,6 +537,7 @@ export class FeeController {
       .map(g => ({
         classId: g.classId,
         name: classNameMap.get(g.classId) ?? `Class ${g.classId}`,
+        programName: programNameMap.get(g.classId),
         collected: g.collected,
         outstanding: g.outstanding,
       }))

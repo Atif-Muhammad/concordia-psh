@@ -593,8 +593,16 @@ const Boarding = () => {
       * This paid challan is system generated and does not require bank/account officer or depositor signatures.
     </div>
   `;
+
+  const assertHostelPrintMatchesChallan = (html, challan) => {
+    if (!challan?.challanNumber) return;
+    if (!String(html || "").includes(String(challan.challanNumber))) {
+      throw new Error("Hostel print HTML did not match the selected challan.");
+    }
+  };
+
   const generateHostelChallanHtml = async (challan, reg) => {
-    const template = await getDefaultFeeChallanTemplate();
+    const template = await getDefaultFeeChallanTemplate("HOSTEL");
     const name = reg.student ? `${reg.student.fName} ${reg.student.lName || ''}`.trim() : reg.externalName;
     const registrationNo = challan.hostelRegNumber || reg.id;
     const rollNo = reg.student?.rollNumber || registrationNo;
@@ -807,6 +815,7 @@ const Boarding = () => {
       `<tr><td>Month</td>${paymentHistoryMonths || `<td>${challan.month}</td>`}</tr><tr><td>Total</td>${paymentHistoryTotals || `<td>PKR ${total.toLocaleString()}</td>`}</tr><tr><td>Paid</td>${paymentHistoryPaid || `<td>PKR ${(challan.paidAmount||0).toLocaleString()}</td>`}</tr>`
     );
 
+    assertHostelPrintMatchesChallan(html, challan);
     return html;
   };
 
@@ -824,12 +833,13 @@ const Boarding = () => {
     const w = window.open('', '_blank');
     if (!w) { toast({ title: "Pop-up blocked", variant: "destructive" }); return; }
 
-    setHostelPrintingId(challan?.id || challan?.challanNumber || null);
+    const loadingKey = `hostel-${challan?.id || challan?.challanNumber || ""}`;
+    setHostelPrintingId(loadingKey);
     try {
       const html = await generateHostelChallanHtml(challan, reg);
       await openManagedPrintWindow({ html, title: "Hostel Challan #" + (challan?.challanNumber || ""), toast, printWindow: w });
     } catch (e) {
-      toast({ title: "Failed to generate print view", variant: "destructive" });
+      toast({ title: "Failed to generate print view", description: e?.message || "Hostel challan print data could not be prepared.", variant: "destructive" });
       w.close?.();
     } finally {
       setHostelPrintingId(null);
@@ -1851,8 +1861,8 @@ const Boarding = () => {
                                     </Tooltip>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <Button size="sm" variant="outline" onClick={() => printHostelChallan(c, challanReg)} disabled={hostelPrintingId === (c.id || c.challanNumber)}>
-                                          {hostelPrintingId === (c.id || c.challanNumber) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                                        <Button size="sm" variant="outline" onClick={() => printHostelChallan(c, challanReg)} disabled={hostelPrintingId === `hostel-${c.id || c.challanNumber}`}>
+                                          {hostelPrintingId === `hostel-${c.id || c.challanNumber}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
                                         </Button>
                                       </TooltipTrigger>
                                       <TooltipContent>Print</TooltipContent>

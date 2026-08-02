@@ -9,6 +9,7 @@ import { Prisma, FeeInstallmentStatus } from '@prisma/client';
 import { LateFeeService } from './late-fee.service';
 import { InstallmentService } from './installment.service';
 import { UpdateFeeChallanDto } from './dtos/update-fee-challan.dto';
+import { resolveFeeChallanTemplate } from './challan-template-resolver';
 
 /**
  * ChallanService — manages feeChallanV2 records.
@@ -1362,33 +1363,8 @@ export class ChallanService {
         );
       }
     } else {
-      // Fall back to the default template (Requirement 16.1)
-      // Prioritize the template that matches the challan's type
       const targetType = c.type || 'INSTALLMENT';
-      template = await this.prisma.feeChallanTemplate.findFirst({
-        where: { type: targetType, isDefault: true },
-        select: { htmlContent: true },
-      });
-
-      if (!template) {
-        template = await this.prisma.feeChallanTemplate.findFirst({
-          where: { type: targetType },
-          select: { htmlContent: true },
-        });
-      }
-
-      if (!template) {
-        template = await this.prisma.feeChallanTemplate.findFirst({
-          where: { isDefault: true },
-          select: { htmlContent: true },
-        });
-      }
-
-      if (!template) {
-        throw new NotFoundException(
-          `No suitable FeeChallanTemplate found for type ${targetType}. Please configure a template in the database.`,
-        );
-      }
+      template = await resolveFeeChallanTemplate(this.prisma, targetType);
     }
 
     // ── Resolve student and context info ─────────────────────────────────────

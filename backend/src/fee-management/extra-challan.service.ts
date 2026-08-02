@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { ExtraChallanDto } from './dtos/extra-challan.dto';
 import { LateFeeService } from './late-fee.service';
+import { resolveFeeChallanTemplate } from './challan-template-resolver';
 
 @Injectable()
 export class ExtraChallanService {
@@ -9,6 +10,28 @@ export class ExtraChallanService {
     private readonly prisma: PrismaService,
     private readonly lateFeeService: LateFeeService,
   ) {}
+
+  private normalizeHeads(heads: Array<{ headName?: string; name?: string; amount: any }> = []) {
+    return heads.map((head) => {
+      const headName = String(head.headName || head.name || '').trim();
+      const amount = Math.round(Number(head.amount));
+
+      if (!headName) {
+        throw new BadRequestException('Fee head name is required');
+      }
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new BadRequestException(`Amount for ${headName} must be greater than zero`);
+      }
+
+      return { headName, amount };
+    });
+  }
+
+  private getHeadsSignature(heads: Array<{ headName: string; amount: any }>) {
+    return this.normalizeHeads(heads)
+      .map((head) => `${head.headName.trim().toLowerCase()}::${head.amount}`)
+      .sort();
+  }
 
   /**
    * Create a new standalone extra challan using the dedicated extra_challan table.
@@ -61,15 +84,15 @@ export class ExtraChallanService {
       const predefined = await this.prisma.feeHead.findMany({
         where: { id: { in: feeHeadIds } },
       });
-      finalHeads = predefined.map(h => ({
+      finalHeads = this.normalizeHeads(predefined.map(h => ({
         headName: h.name,
         amount: Number(h.amount),
-      }));
+      })));
     }
 
     // Add ad-hoc custom heads
     if (heads && heads.length > 0) {
-      finalHeads = [...finalHeads, ...heads];
+      finalHeads = [...finalHeads, ...this.normalizeHeads(heads)];
     }
 
     if (finalHeads.length === 0) {
@@ -94,11 +117,12 @@ export class ExtraChallanService {
     });
 
     for (const existing of existingChallans) {
-      // Compare heads (set equality)
-      const existingHeadNames = existing.heads.map(h => h.headName).sort();
-      const incomingHeadNames = finalHeads.map(h => h.headName).sort();
+      // Compare normalized name+amount pairs. Same name with a different
+      // amount is a new challan, not a duplicate.
+      const existingSignature = this.getHeadsSignature(existing.heads);
+      const incomingSignature = this.getHeadsSignature(finalHeads);
 
-      if (JSON.stringify(existingHeadNames) === JSON.stringify(incomingHeadNames)) {
+      if (JSON.stringify(existingSignature) === JSON.stringify(incomingSignature)) {
         // Exactly same heads for the same month - likely a duplicate request
         return { 
           ...existing, 
@@ -301,18 +325,26 @@ export class ExtraChallanService {
       if (dto.discount !== undefined) data.discount = Number(dto.discount);
 
       if (heads && Array.isArray(heads)) {
+        const normalizedHeads = this.normalizeHeads(heads);
+        if (normalizedHeads.length === 0) {
+          throw new BadRequestException('No fee heads provided for extra challan');
+        }
         // Refresh heads snapshot
         await tx.extraChallanHead.deleteMany({ where: { extraChallanId: id } });
         
-        if (heads.length > 0) {
+        if (normalizedHeads.length > 0) {
           await tx.extraChallanHead.createMany({
-            data: heads.map(h => ({
+            data: normalizedHeads.map(h => ({
               extraChallanId: id,
-              headName: h.headName || h.name,
-              amount: Number(h.amount),
+              headName: h.headName,
+              amount: h.amount,
             })),
           });
         }
+
+        const lateFee = Number(challan.lateFeeFine || 0);
+        const discount = dto.discount !== undefined ? Number(dto.discount) : Number(challan.discount || 0);
+        data.totalAmount = normalizedHeads.reduce((sum, h) => sum + h.amount, 0) + lateFee - discount;
       }
 
       // Sync late fee and update total
@@ -389,18 +421,7 @@ export class ExtraChallanService {
 
     if (!challan) throw new NotFoundException(`ExtraChallan #${id} not found`);
 
-    // Fetch EXTRA type template, or fall back to default
-    let template = await this.prisma.feeChallanTemplate.findFirst({
-      where: { type: 'EXTRA', isDefault: true },
-    });
-    
-    if (!template) {
-      template = await this.prisma.feeChallanTemplate.findFirst({
-        where: { isDefault: true },
-      });
-    }
-
-    if (!template) throw new BadRequestException('No suitable fee challan template found. Please configure an EXTRA or default template.');
+    const template = await resolveFeeChallanTemplate(this.prisma, 'EXTRA');
 
     const s = challan.student;
     const programName = s.class?.program?.name || s.program?.name || '';

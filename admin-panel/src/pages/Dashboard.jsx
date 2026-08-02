@@ -19,6 +19,7 @@ import { Users, DollarSign, TrendingUp, ClipboardCheck, FileText, BookOpen, Grad
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { ModernTooltip, ChartLegendPills, MODERN_CHART_COLORS } from "@/components/ui/modern-charts";
+import { MODULE_BY_LABEL } from "@/lib/navigation.jsx";
 
 // -- Skeleton helpers ----------------------------------------------------------
 const Skeleton = ({ className }) => (
@@ -43,6 +44,22 @@ const ChartSkeleton = ({ height = 200 }) => (
 
 const formatPKR = (amount = 0) => `PKR ${Math.round(Number(amount || 0)).toLocaleString()}`;
 const SOFT_COLORS = ["#4f46e5", "#0ea5a4", "#f59e0b", "#3b82f6", "#a855f7"];
+const subRoute = (moduleLabel, subModuleId) => {
+  const module = MODULE_BY_LABEL[moduleLabel];
+  if (!module) return "/dashboard";
+  return module.subModules?.find((sub) => sub.id === subModuleId)?.path || module.subModules?.[0]?.path || module.path;
+};
+
+const DASHBOARD_ROUTES = {
+  students: subRoute("Students", "ACTIVE"),
+  feeChallans: subRoute("Fee Management", "challans"),
+  extraChallans: subRoute("Fee Management", "extra-challans"),
+  feeReports: subRoute("Fee Management", "reports"),
+  attendance: subRoute("Attendance", "mark"),
+  hostelFees: subRoute("Boarding", "fees"),
+  finance: subRoute("Finance", "dashboard"),
+  staff: subRoute("Staff", "directory"),
+};
 
 // -- Section components --------------------------------------------------------
 
@@ -252,7 +269,7 @@ const Dashboard = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
           <StatCard
             title="Total Students" icon={Users}
-            onClick={() => go("/students")}
+            onClick={() => go(DASHBOARD_ROUTES.students)}
             color="text-primary" bgColor="bg-primary/10"
             loading={studentsLoading}
             value={students ? students.total.toString() : "-"}
@@ -260,7 +277,7 @@ const Dashboard = () => {
           />
           <StatCard
             title="Installment Fees" icon={DollarSign}
-            onClick={() => go("/fee-management")}
+            onClick={() => go(DASHBOARD_ROUTES.feeChallans)}
             color="text-green-600" bgColor="bg-green-500/10"
             loading={feesLoading}
             value={fees ? formatPKR(feeBreakdown.installment.collected) : "---"}
@@ -268,7 +285,7 @@ const Dashboard = () => {
           />
           <StatCard
             title="Hostel Fees" icon={Briefcase}
-            onClick={() => go("/hostel")}
+            onClick={() => go(DASHBOARD_ROUTES.hostelFees)}
             color="text-blue-600" bgColor="bg-blue-500/10"
             loading={feesLoading}
             value={fees ? formatPKR(feeBreakdown.hostel.collected) : "---"}
@@ -276,7 +293,7 @@ const Dashboard = () => {
           />
           <StatCard
             title="Extra Challans" icon={FileText}
-            onClick={() => go("/fee-management")}
+            onClick={() => go(DASHBOARD_ROUTES.extraChallans)}
             color="text-orange-600" bgColor="bg-orange-500/10"
             loading={feesLoading}
             value={fees ? formatPKR(feeBreakdown.extraChallans.collected) : "---"}
@@ -284,7 +301,7 @@ const Dashboard = () => {
           />
           <StatCard
             title="Attendance Rate" icon={ClipboardCheck}
-            onClick={() => go("/attendance")}
+            onClick={() => go(DASHBOARD_ROUTES.attendance)}
             color="text-blue-600" bgColor="bg-blue-500/10"
             loading={attendanceLoading}
             value={attendance ? `${attendance.today.rate}%` : "-"}
@@ -307,7 +324,7 @@ const Dashboard = () => {
             { label: "BS Programs",  key: "bs",            icon: FileText,      color: "text-pink-500",   bg: "bg-pink-500/10" },
             { label: "Short Courses",key: "shortCourse",   icon: Users,         color: "text-orange-500", bg: "bg-orange-500/10" },
           ].map(({ label, key, icon: Icon, color, bg }) => (
-            <Card key={label} onClick={() => go("/students")} className="shadow-sm hover:shadow-md transition-all bg-card/50 border-muted/50 cursor-pointer relative">
+            <Card key={label} onClick={() => go(DASHBOARD_ROUTES.students)} className="shadow-sm hover:shadow-md transition-all bg-card/50 border-muted/50 cursor-pointer relative">
               <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-2 right-2" />
               <CardContent className="pt-4 pb-3 px-4">
                 {studentsLoading ? (
@@ -337,7 +354,7 @@ const Dashboard = () => {
         {/* -- Charts Row -- */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Student Distribution */}
-          <Card onClick={() => go("/students")} className="shadow-sm hover:shadow-md transition-all cursor-pointer relative">
+          <Card onClick={() => go(DASHBOARD_ROUTES.students)} className="shadow-sm hover:shadow-md transition-all cursor-pointer relative">
             <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-3 right-3" />
             <CardHeader><CardTitle>Student Distribution</CardTitle></CardHeader>
             <CardContent className="p-4">
@@ -373,7 +390,7 @@ const Dashboard = () => {
 
           {/* Fee Collection Trend */}
           <div className="lg:col-span-2">
-            <Card onClick={() => go("/fee-management")} className="shadow-sm hover:shadow-md transition-all h-full cursor-pointer relative">
+            <Card onClick={() => go(DASHBOARD_ROUTES.feeReports)} className="shadow-sm hover:shadow-md transition-all h-full cursor-pointer relative">
               <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-3 right-3" />
               <CardHeader><CardTitle>Fee Collection Trend ({sessionLabel})</CardTitle></CardHeader>
               <CardContent className="p-4">
@@ -400,7 +417,7 @@ const Dashboard = () => {
         </div>
 
         {/* -- Attendance Trend -- */}
-        <Card onClick={() => go("/attendance")} className="shadow-sm hover:shadow-md transition-all cursor-pointer relative">
+        <Card onClick={() => go(DASHBOARD_ROUTES.attendance)} className="shadow-sm hover:shadow-md transition-all cursor-pointer relative">
           <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-3 right-3" />
           <CardHeader><CardTitle>Attendance Trend ({sessionLabel})</CardTitle></CardHeader>
           <CardContent className="p-4">
@@ -441,7 +458,7 @@ const Dashboard = () => {
             ].map(({ title, icon: Icon, data, loading }) => (
               <Card
                 key={title}
-                onClick={() => go(title.startsWith("Student") ? "/students" : title.startsWith("Fee") ? "/fee-management" : "/attendance")}
+                onClick={() => go(title.startsWith("Student") ? DASHBOARD_ROUTES.students : title.startsWith("Fee") ? DASHBOARD_ROUTES.feeReports : DASHBOARD_ROUTES.attendance)}
                 className="shadow-sm hover:shadow-md transition-all cursor-pointer relative"
               >
                 <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-3 right-3" />
@@ -501,11 +518,13 @@ const Dashboard = () => {
                   <div
                     key={i}
                     onClick={() => go(
-                      a.action === "Students" ? "/students" :
-                      a.action.includes("Fees") || a.action.includes("Challans") ? "/fee-management" :
-                      a.action === "Attendance" ? "/attendance" :
-                      a.action === "Finance" ? "/finance" :
-                      a.action === "Staff" ? "/staff" : "/dashboard"
+                      a.action === "Students" ? DASHBOARD_ROUTES.students :
+                      a.action === "Installment Fees" ? DASHBOARD_ROUTES.feeChallans :
+                      a.action === "Hostel Fees" ? DASHBOARD_ROUTES.hostelFees :
+                      a.action === "Extra Challans" ? DASHBOARD_ROUTES.extraChallans :
+                      a.action === "Attendance" ? DASHBOARD_ROUTES.attendance :
+                      a.action === "Finance" ? DASHBOARD_ROUTES.finance :
+                      a.action === "Staff" ? DASHBOARD_ROUTES.staff : "/dashboard"
                     )}
                     className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors border border-transparent hover:border-muted cursor-pointer"
                   >
@@ -525,7 +544,7 @@ const Dashboard = () => {
           </Card>
 
           {/* Financial Overview */}
-          <Card onClick={() => go("/finance")} className="shadow-sm hover:shadow-md transition-all cursor-pointer relative">
+          <Card onClick={() => go(DASHBOARD_ROUTES.finance)} className="shadow-sm hover:shadow-md transition-all cursor-pointer relative">
             <ChevronRight className="w-3.5 h-3.5 text-muted-foreground absolute top-3 right-3" />
             <CardHeader><CardTitle>Financial Overview</CardTitle></CardHeader>
             <CardContent>

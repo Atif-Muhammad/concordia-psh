@@ -153,8 +153,8 @@ export class FeeManagementController {
   }
 
   @Get('template/get/default')
-  async getFeeChallanTemplateDefault() {
-    return await this.feeService.getDefaultTemplate();
+  async getFeeChallanTemplateDefault(@Query('type') type?: string) {
+    return await this.feeService.getDefaultTemplate(type);
   }
 
   @Patch('template/update')

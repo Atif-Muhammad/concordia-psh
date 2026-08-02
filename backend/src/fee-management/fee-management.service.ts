@@ -10,6 +10,7 @@ import { UpdateFeeHeadDto } from './dtos/update-fee-head.dto';
 import { ChallanService } from './challan.service';
 import { CreateFeeStructureDto } from './dtos/create-fee-structure.dto';
 import { UpdateFeeStructureDto } from './dtos/update-fee-structure.dto';
+import { resolveFeeChallanTemplate } from './challan-template-resolver';
 
 @Injectable()
 export class FeeManagementService {
@@ -1049,7 +1050,7 @@ export class FeeManagementService {
       select: {
         classId: true,
         paidAmount: true,
-        class: { select: { id: true, name: true } },
+        class: { select: { id: true, name: true, program: { select: { name: true } } } },
       },
     });
 
@@ -1063,12 +1064,13 @@ export class FeeManagementService {
       select: {
         classId: true,
         pendingAmount: true,
+        class: { select: { id: true, name: true, program: { select: { name: true } } } },
       },
     });
 
     const stats: Record<
       number,
-      { classId: number; className: string; collected: number; outstanding: number }
+      { classId: number; className: string; programName?: string; collected: number; outstanding: number }
     > = {};
 
     for (const inst of paidInstallments) {
@@ -1077,6 +1079,7 @@ export class FeeManagementService {
         stats[cid] = {
           classId: cid,
           className: inst.class?.name ?? `Class ${cid}`,
+          programName: inst.class?.program?.name,
           collected: 0,
           outstanding: 0,
         };
@@ -1087,7 +1090,13 @@ export class FeeManagementService {
     for (const inst of outstandingInstallments) {
       const cid = inst.classId;
       if (!stats[cid]) {
-        stats[cid] = { classId: cid, className: `Class ${cid}`, collected: 0, outstanding: 0 };
+        stats[cid] = {
+          classId: cid,
+          className: inst.class?.name ?? `Class ${cid}`,
+          programName: inst.class?.program?.name,
+          collected: 0,
+          outstanding: 0,
+        };
       }
       stats[cid].outstanding += Number(inst.pendingAmount);
     }
@@ -1264,31 +1273,9 @@ export class FeeManagementService {
     return await this.prisma.feeChallanTemplate.delete({ where: { id } });
   }
 
-  async getDefaultTemplate() {
-    const hasTypeColumn = await this.hasFeeTemplateTypeColumn();
-    const template = await this.prisma.feeChallanTemplate.findFirst({
-      where: { isDefault: true },
-      select: hasTypeColumn
-        ? {
-          id: true,
-          name: true,
-          htmlContent: true,
-          isDefault: true,
-          createdAt: true,
-          updatedAt: true,
-          type: true,
-        }
-        : {
-          id: true,
-          name: true,
-          htmlContent: true,
-          isDefault: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-    });
-    if (!template) return null;
-    return hasTypeColumn ? template : { ...template, type: 'INSTALLMENT' };
+  async getDefaultTemplate(type?: string) {
+    const template = await resolveFeeChallanTemplate(this.prisma, type);
+    return template;
   }
 
   private async hasFeeTemplateTypeColumn(): Promise<boolean> {

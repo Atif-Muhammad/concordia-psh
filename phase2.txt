@@ -4,5 +4,9 @@
 2. teacher and employee can be same.
 3. late arrived attendance(maybe implemented with biometric)
 4. exam roll-number -- shuffling etc.
+5. user activities -- who does what
+6. numbers for pie charts in dashboard
+done:
 1. undo attendance
 2. module wise access -- more granular access control
+

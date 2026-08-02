@@ -10,6 +10,7 @@ import { UpdateRegistrationDto } from './dtos/update-registration.dto';
 import { CreateFeePaymentDto } from './dtos/create-fee-payment.dto';
 import { CreateHostelChallanDto } from './dtos/create-hostel-challan.dto';
 import { UpdateHostelChallanDto } from './dtos/update-hostel-challan.dto';
+import { resolveFeeChallanTemplate } from '../fee-management/challan-template-resolver';
 
 @Injectable()
 export class HostelService implements OnModuleInit {
@@ -1208,18 +1209,7 @@ export class HostelService implements OnModuleInit {
 
     if (!challan) throw new NotFoundException(`HostelChallan #${id} not found`);
 
-    // Fetch HOSTEL type template, or fall back to default
-    let template = await this.prisma.feeChallanTemplate.findFirst({
-      where: { type: 'HOSTEL', isDefault: true },
-    });
-    
-    if (!template) {
-      template = await this.prisma.feeChallanTemplate.findFirst({
-        where: { isDefault: true },
-      });
-    }
-
-    if (!template) throw new BadRequestException('No suitable fee challan template found. Please configure a HOSTEL or default template.');
+    const template = await resolveFeeChallanTemplate(this.prisma, 'HOSTEL');
 
     const s = challan.student;
     const programName = s?.class?.program?.name || s?.program?.name || '';

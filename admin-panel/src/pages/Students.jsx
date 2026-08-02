@@ -457,6 +457,27 @@ const Students = () => {
     queryFn: getAcademicSessions,
   });
 
+  const getStudentAcademicPath = (student = {}) => {
+    const program =
+      student.program ||
+      programData.find((p) => Number(p.id) === Number(student.programId)) ||
+      classesData.find((c) => Number(c.id) === Number(student.classId))?.program;
+    const classObj =
+      student.class ||
+      program?.classes?.find((c) => Number(c.id) === Number(student.classId)) ||
+      classesData.find((c) => Number(c.id) === Number(student.classId));
+    const section =
+      student.section ||
+      classObj?.sections?.find((s) => Number(s.id) === Number(student.sectionId)) ||
+      sectionsData.find((s) => Number(s.id) === Number(student.sectionId));
+    const parts = [
+      program?.name || student.programName,
+      classObj?.name || student.className,
+      section?.name || student.sectionName,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" / ") : "-";
+  };
+
 
   const {
     data: infiniteStudentsData,
@@ -797,7 +818,7 @@ const Students = () => {
 
   const { data: defaultChallanTemplate } = useQuery({
     queryKey: ['defaultChallanTemplate'],
-    queryFn: getDefaultFeeChallanTemplate,
+    queryFn: () => getDefaultFeeChallanTemplate("INSTALLMENT"),
   });
 
 
@@ -831,7 +852,6 @@ const Students = () => {
   const generateIdCardHtml = (template, student) => {
     if (!template || !student) return "";
     let html = template;
-    const programName = programData.find(p => p.id === student.programId)?.name || "";
     // Default logo if not in config (you might want to fetch this from config in a real app)
     const logoUrl = "/logo.png";
 
@@ -840,7 +860,7 @@ const Students = () => {
       "{{studentPhoto}}": student.photo_url || "https://placehold.co/150",
       "{{name}}": `${student.fName} ${student.lName || ""}`,
       "{{admissionNo}}": student.rollNumber,
-      "{{classGroup}}": `${programName}`,
+      "{{classGroup}}": getStudentAcademicPath(student),
       "{{issueDate}}": new Date().toLocaleDateString(),
       "{{expiryDate}}": new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toLocaleDateString(),
       "{{fatherName}}": student.fatherOrguardian || "",
@@ -1356,7 +1376,7 @@ const Students = () => {
 
     setStudentChallanPrinting(true);
     try {
-      const template = await getDefaultFeeChallanTemplate();
+      const template = await getDefaultFeeChallanTemplate("INSTALLMENT");
       if (!template?.htmlContent) {
         toast({ title: "Template Missing", description: "Please mark a template as 'Default' in the Templates tab.", variant: "destructive" });
         printWindow.close?.();
@@ -1845,9 +1865,7 @@ const Students = () => {
                   <TableHead className="py-2 px-3 text-sm">Roll No</TableHead>
                   <TableHead className="py-2 px-3 text-sm">Name</TableHead>
                   <TableHead className="py-2 px-3 text-sm">Admission Date</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Program</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">{selectedStatus === "ACTIVE" ? "Class" : "Last Class"}</TableHead>
-                  <TableHead className="py-2 px-3 text-sm">Section</TableHead>
+                  <TableHead className="py-2 px-3 text-sm">Program / Class / Section</TableHead>
                   <TableHead className="py-2 px-3 text-sm">Status</TableHead>
                   {selectedStatus !== "GRADUATED" && <TableHead className="py-2 px-3 text-sm">Actions</TableHead>}
                 </TableRow>
@@ -1855,7 +1873,7 @@ const Students = () => {
               <TableBody>
                 {currentStudents?.length === 0 ? (
                   <TableRow>
-                  <TableCell colSpan={selectedStatus === "ACTIVE" ? 9 : 8} className="py-2 px-3 text-sm text-center py-8">
+                  <TableCell colSpan={selectedStatus !== "GRADUATED" ? 7 : 6} className="py-2 px-3 text-sm text-center py-8">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <p className="text-muted-foreground">
                           {selectedStatus === "ACTIVE"
@@ -1877,9 +1895,7 @@ const Students = () => {
                   </TableRow>
                 ) : (
                   currentStudents?.map((student) => {
-                    const prog = programData.find((p) => p.id === student.programId);
-                    const cls = prog?.classes.find((c) => c.id === student.classId);
-                    const sec = cls?.sections.find((s) => s.id === student.sectionId);
+                    const academicPath = getStudentAcademicPath(student);
 
                     return (
                       <TableRow key={student.id}>
@@ -1896,6 +1912,9 @@ const Students = () => {
                               <span title="Boarding Student" className="inline-block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
                             )}
                           </div>
+                          <div className="mt-0.5 text-[11px] font-normal text-muted-foreground leading-snug">
+                            {academicPath}
+                          </div>
                         </TableCell>
                         <TableCell className="py-2 px-3 text-sm">
                           <div className="flex items-center gap-1.5">
@@ -1910,11 +1929,11 @@ const Students = () => {
                         <TableCell className="py-2 px-3 text-sm">
                           {(student.admissionDate || student.createdAt) ? format(new Date(student.admissionDate || student.createdAt), "dd MMM yyyy") : "-"}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm"><Badge variant="outline">{prog?.name || "-"}</Badge></TableCell>
                         <TableCell className="py-2 px-3 text-sm">
-                          {cls?.name || "-"}
+                          <Badge variant="outline" className="whitespace-normal text-left leading-snug">
+                            {academicPath}
+                          </Badge>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-sm">{sec?.name || <span className="text-muted-foreground">N/A</span>}</TableCell>
                         <TableCell className="py-2 px-3 text-sm">
                           <Badge variant={
                             student.status === "ACTIVE" ? "default" :
@@ -2097,16 +2116,12 @@ const Students = () => {
                         <p className="font-medium text-sm ">{viewStudent.fatherOrguardian}</p>
                       </div>
                       <p className="text-muted-foreground">{viewStudent.rollNumber}</p>
+                      <p className="text-sm text-muted-foreground">{getStudentAcademicPath(viewStudent)}</p>
                     </div>
                   </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div><span className="font-semibold">Admission Date:</span> {(viewStudent.admissionDate || viewStudent.createdAt) ? format(new Date(viewStudent.admissionDate || viewStudent.createdAt), "dd MMMM yyyy") : "-"}</div>
-                      <div><span className="font-semibold">Program:</span> {(() => {
-                        const prog = programData.find((p) => p.id === viewStudent.programId);
-                        return prog ? `${prog.name} - ${prog.department?.name}` : "-";
-                      })()}</div>
-                      <div><span className="font-semibold">Class:</span> {programData.flatMap((p) => p.classes).find((c) => c.id === viewStudent.classId)?.name}</div>
-                      <div><span className="font-semibold">Section:</span> {programData.flatMap((p) => p.classes).flatMap((c) => c.sections).find((s) => s.id === viewStudent.sectionId)?.name || "N/A"}</div>
+                      <div><span className="font-semibold">Program / Class / Section:</span> {getStudentAcademicPath(viewStudent)}</div>
                       <div><span className="font-semibold">Session:</span> {viewStudent.session || "-"}</div>
                       <div><span className="font-semibold">Gender:</span> {viewStudent.gender || "-"}</div>
                       <div><span className="font-semibold">Religion:</span> {viewStudent.religion || "-"}</div>
@@ -2261,7 +2276,7 @@ const Students = () => {
                             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                               <p className="text-sm text-yellow-800">
                                 <strong>No fee structure for current session.</strong> Student is in{" "}
-                                <strong>{viewStudent.class?.name} - {viewStudent.program?.name}</strong> but no fees assigned yet.
+                                <strong>{getStudentAcademicPath(viewStudent)}</strong> but no fees assigned yet.
                               </p>
                             </div>
                           )}
@@ -3536,8 +3551,10 @@ const Students = () => {
                         <div className="h-2 w-2 bg-destructive rounded-full animate-pulse" />
                         Outstanding Fees (Current Session)
                       </div>
-                      <p className="text-sm"><strong>Class:</strong> {promotionDialog.arrears?.className}</p>
-                      <p className="text-sm"><strong>Program:</strong> {promotionDialog.arrears?.programName}</p>
+                      <p className="text-sm">
+                        <strong>Program / Class / Section:</strong>{" "}
+                        {[promotionDialog.arrears?.programName, promotionDialog.arrears?.className, promotionDialog.arrears?.sectionName].filter(Boolean).join(" / ") || "-"}
+                      </p>
 
                       {promotionDialog.arrears?.unpaidInstallments?.length > 0 && (
                         <div className="mt-2 space-y-1 border-t pt-2 border-border">

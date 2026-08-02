@@ -2,8 +2,8 @@ import axios from "axios";
 import { format } from "date-fns";
 import { formatLocalDate } from "../src/lib/utils";
 
-// const base_url = "http://localhost:3003/api";
-const base_url = "http://69.62.117.175:3003/api";
+const base_url = "http://localhost:3003/api";
+// const base_url = "http://69.62.117.175:3003/api";
 
 export const userWho = async () => {
   try {
@@ -4638,9 +4638,10 @@ export const getFeeChallanTemplates = async () => {
   }
 };
 
-export const getDefaultFeeChallanTemplate = async () => {
+export const getDefaultFeeChallanTemplate = async (type) => {
   try {
-    const response = await axios.get(`${base_url}/fee-management/template/get/default`, {
+    const params = type ? `?type=${encodeURIComponent(type)}` : "";
+    const response = await axios.get(`${base_url}/fee-management/template/get/default${params}`, {
       withCredentials: true,
     });
     return response.data;
@@ -5191,6 +5192,16 @@ export const updateHostelChallanDedicated = async (id, dto) => {
 export const deleteHostelChallanDedicated = async (id) => {
   try {
     const { data } = await axios.delete(`${base_url}/hostel/challans/${id}`, { withCredentials: true });
+    return data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const printHostelChallanDedicated = async (id) => {
+  try {
+    const { data } = await axios.get(`${base_url}/hostel/challans/${id}/print`, { withCredentials: true });
     return data;
   } catch (error) {
     const message = error.response?.data?.message || error.response?.data?.error || error.message || "Something went wrong";

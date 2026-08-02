@@ -43,8 +43,7 @@ import {
   getFeeInstallmentChallan,
   getExtraChallansDedicated,
   updateExtraChallanDedicated,
-  deleteExtraChallanDedicated,
-  printExtraChallan
+  deleteExtraChallanDedicated
 } from "../../config/apis";
 import { computeOutstandingBalance } from "@/lib/hostelUtils";
 import { openManagedPrintWindow, renderAndPrintChallans } from "@/lib/managedPrint";
@@ -212,6 +211,7 @@ const FeeManagement = () => {
     arrearsSelections: [],
     isOtherEnabled: false,
     otherAmount: "0",
+    customHeads: [],
     discount: 0,
     paidDate: format(new Date(), "yyyy-MM-dd"),
     paidTime: getCurrentPaidTime(),
@@ -693,6 +693,33 @@ const FeeManagement = () => {
     queryFn: getClasses
   });
 
+  const getAcademicPath = (student = {}) => {
+    const classObj =
+      student.class ||
+      student.studentClass ||
+      classes.find((c) => Number(c.id) === Number(student.classId));
+    const program =
+      student.program ||
+      student.studentProgram ||
+      classObj?.program ||
+      programs.find((p) => Number(p.id) === Number(student.programId));
+    const section =
+      student.section ||
+      student.studentSection ||
+      classObj?.sections?.find((s) => Number(s.id) === Number(student.sectionId));
+    const parts = [
+      program?.name || student.programName,
+      classObj?.name || student.className,
+      section?.name || student.sectionName,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" / ") : "-";
+  };
+
+  const getClassChartLabel = (row = {}) => {
+    const parts = [row.programName, row.className || row.name].filter(Boolean);
+    return parts.length ? parts.join(" / ") : row.name || row.className || "-";
+  };
+
   const [reportFilter, setReportFilter] = useState('month');
   const [reportSessionFilter, setReportSessionFilter] = useState('all');
   const [reportTypeFilter, setReportTypeFilter] = useState('all'); // 'all' | 'installment' | 'extra'
@@ -815,6 +842,7 @@ const FeeManagement = () => {
       arrearsSelections: [],
       isOtherEnabled: false,
       otherAmount: "0",
+      customHeads: [],
       discount: 0,
       paidDate: format(new Date(), "yyyy-MM-dd"),
       paidTime: getCurrentPaidTime(),
@@ -1107,6 +1135,10 @@ const FeeManagement = () => {
     onError: (error) => toast({ title: error.message, variant: "destructive" })
   });
 
+  const toWholePkrAmount = (value) => Math.max(0, Math.round(Number(value) || 0));
+  const getEditCustomHeadsTotal = (heads = challanForm.customHeads || []) =>
+    heads.reduce((sum, head) => sum + toWholePkrAmount(head.amount), 0);
+
   const handleSubmitChallan = () => {
     const isExtraOnly = editingChallan?.challanType === 'FEE_HEADS_ONLY' || editingChallan?.installmentNumber === 0;
     if (!challanForm.studentId || (!challanForm.amount && !isExtraOnly)) {
@@ -1146,12 +1178,20 @@ const FeeManagement = () => {
 
     if (editingChallan) {
       if (editingChallan.isExtra) {
+        const extraCustomHeadDetails = (challanForm.customHeads || [])
+          .map(h => ({ headName: String(h.headName || '').trim(), amount: toWholePkrAmount(h.amount) }))
+          .filter(h => h.headName && h.amount > 0);
+        const extraHeadsPayload = [
+          ...allFeeHeadDetails.map(h => ({ headName: h.name, amount: h.amount })),
+          ...extraCustomHeadDetails,
+        ];
+
         updateExtraChallanMutation.mutate({
           id: editingChallan.id,
           data: {
             dueDate: challanForm.dueDate ? format(challanForm.dueDate, "yyyy-MM-dd") : undefined,
             remarks: challanForm.remarks,
-            heads: allFeeHeadDetails.map(h => ({ headName: h.name, amount: h.amount }))
+            heads: extraHeadsPayload
           }
         });
         setChallanOpen(false);
@@ -2375,7 +2415,7 @@ const FeeManagement = () => {
       }
 
       // Legacy challans: use the default template with preview flow
-      const template = await getDefaultFeeChallanTemplate();
+      const template = await getDefaultFeeChallanTemplate("INSTALLMENT");
       if (!template || !template.htmlContent) {
         toast({ title: "Template Missing", description: "No default challan template found.", variant: "destructive" });
         return;
@@ -2410,7 +2450,7 @@ const FeeManagement = () => {
   const finalizeBulkPrint = async () => {
     setBulkPreviewPrinting(true);
     try {
-      const template = await getDefaultFeeChallanTemplate();
+      const template = await getDefaultFeeChallanTemplate("INSTALLMENT");
       if (!template || !template.htmlContent) {
         toast({ title: "Template Missing", description: "No default challan template found.", variant: "destructive" });
         return;
@@ -2435,50 +2475,33 @@ const FeeManagement = () => {
     const html = generateChallanHtml(normalized || fallbackChallan);
     return applyPaidChallanPrintTreatment(html, normalized || fallbackChallan || {});
   };
-  const printChallan = async challanId => {
-    let challan = feeChallans.find(c => c.id === challanId);
-    let isDedicatedExtra = false;
 
-    if (!challan) {
-      challan = extraChallans.find(c => c.id === challanId);
-      if (challan) isDedicatedExtra = true;
-    }
+  const htmlIncludesChallanNumber = (html, challanNumber) => {
+    if (!challanNumber) return true;
+    return String(html || "").includes(String(challanNumber));
+  };
 
-    if (!challan) return;
-
+  const printPreparedChallanHtml = async ({ html, renderHtml, challan, title, loadingKey }) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
       toast({ title: "Pop-up blocked", description: "Please allow pop-ups to print challans.", variant: "destructive" });
       return;
     }
 
-    setPrintingChallanId(challanId);
+    setPrintingChallanId(loadingKey);
     try {
-      let html = "";
-
-      if (isDedicatedExtra) {
-        html = applyPaidChallanPrintTreatment(await printExtraChallan(challanId), challan);
-      } else {
-        const isNewSchema = challan.snapshotTotalDue != null || challan.installmentId != null;
-
-        if (isNewSchema) {
-          html = await renderInstallmentChallanForPrint(challanId, challan);
-        } else {
-          const template = await getDefaultFeeChallanTemplate();
-          if (!template || !template.htmlContent) {
-            toast({
-              title: "Template Missing",
-              description: "No default challan template found. Please mark a template as default first.",
-              variant: "destructive",
-            });
-            printWindow.close?.();
-            return;
-          }
-          html = generateChallanHtml(challan, template.htmlContent);
-        }
+      const resolvedHtml = html ?? await renderHtml?.();
+      if (!htmlIncludesChallanNumber(resolvedHtml, challan?.challanNumber)) {
+        toast({
+          title: "Print data mismatch",
+          description: "The print view did not match the selected challan. Please refresh and try again.",
+          variant: "destructive",
+        });
+        printWindow.close?.();
+        return;
       }
 
-      await openManagedPrintWindow({ html, title: "Challan #" + (challan.challanNumber || ""), toast, printWindow });
+      await openManagedPrintWindow({ html: resolvedHtml, title, toast, printWindow });
     } catch (error) {
       console.error("Print failed:", error);
       toast({ title: "Print error", description: "Failed to generate print view.", variant: "destructive" });
@@ -2486,6 +2509,41 @@ const FeeManagement = () => {
     } finally {
       setPrintingChallanId(null);
     }
+  };
+
+  const printInstallmentChallan = async (challanId, fallbackChallan = null) => {
+    const challan = fallbackChallan || feeChallans.find(c => c.id === challanId);
+    if (!challan) return;
+
+    const isNewSchema = challan.snapshotTotalDue != null || challan.installmentId != null;
+    await printPreparedChallanHtml({
+      renderHtml: async () => {
+        if (isNewSchema) {
+          return await renderInstallmentChallanForPrint(challanId, challan);
+        }
+
+        const template = await getDefaultFeeChallanTemplate("INSTALLMENT");
+        if (!template || !template.htmlContent) {
+          throw new Error("No default challan template found. Please mark a template as default first.");
+        }
+        return generateChallanHtml(challan, template.htmlContent);
+      },
+      challan,
+      title: "Challan #" + (challan.challanNumber || ""),
+      loadingKey: `installment-${challanId}`,
+    });
+  };
+
+  const printExtraChallanById = async (challanId, fallbackChallan = null) => {
+    const challan = fallbackChallan || extraChallans.find(c => c.id === challanId);
+    if (!challan) return;
+
+    await printPreparedChallanHtml({
+      renderHtml: async () => applyPaidChallanPrintTreatment(generateChallanHtml({ ...challan, isExtra: true, challanType: 'FEE_HEADS_ONLY' }), challan),
+      challan,
+      title: "Extra Challan #" + (challan.challanNumber || ""),
+      loadingKey: `extra-${challanId}`,
+    });
   };
 
   const printGeneratedChallan = async (result) => {
@@ -3217,7 +3275,7 @@ const FeeManagement = () => {
 
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <Button size="sm" variant="outline" onClick={() => printChallan(challan.id)} disabled={printingChallanId === challan.id}>
+                                  <Button size="sm" variant="outline" onClick={() => printInstallmentChallan(challan.id, challan)} disabled={printingChallanId === `installment-${challan.id}`}>
                                     <Printer className="w-4 h-4" />
                                   </Button>
                                 </TooltipTrigger>
@@ -3455,7 +3513,7 @@ const FeeManagement = () => {
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <Button size="sm" variant="ghost" onClick={() => printChallan(challan.id)} disabled={printingChallanId === challan.id}>
+                                  <Button size="sm" variant="ghost" onClick={() => printExtraChallanById(challan.id, challan)} disabled={printingChallanId === `extra-${challan.id}`}>
                                     <Printer className="w-4 h-4" />
                                   </Button>
                                 </TooltipTrigger>
@@ -3486,7 +3544,13 @@ const FeeManagement = () => {
                                   <TooltipTrigger asChild>
                                     <Button size="sm" variant="ghost" onClick={async () => {
                                   setEditingChallan({ ...challan, isExtra: true });
-                                  const isExtraChallan = true; // Always true for this table
+                                  const matchesGlobalHead = (head) => feeHeads.some(gh => gh.name === head.headName && Number(gh.amount) === Number(head.amount));
+                                  const customHeads = (challan.heads || [])
+                                    .filter(h => !matchesGlobalHead(h))
+                                    .map(h => ({
+                                      headName: h.headName || h.name || "",
+                                      amount: Number(h.amount || 0).toString(),
+                                    }));
                                   
                                   setChallanForm({
                                     ...challanForm,
@@ -3502,10 +3566,9 @@ const FeeManagement = () => {
                                       return globalHead ? globalHead.id : null;
                                     }).filter(id => id !== null),
                                     month: challan.month || "",
-                                    isOtherEnabled: (challan.heads || []).some(h => !feeHeads.some(gh => gh.name === h.headName && Number(gh.amount) === Number(h.amount))),
-                                    otherAmount: (challan.heads || [])
-                                      .filter(h => !feeHeads.some(gh => gh.name === h.headName && Number(gh.amount) === Number(h.amount)))
-                                      .reduce((sum, h) => sum + Number(h.amount), 0).toString(),
+                                    isOtherEnabled: false,
+                                    otherAmount: "0",
+                                    customHeads,
                                     fineAmount: (challan.totalAmount || 0).toString(),
                                     discount: 0
                                   });
@@ -4041,7 +4104,11 @@ const FeeManagement = () => {
                 </CardHeader>
                 <CardContent>
                   {(() => {
-                    const chartData = newFeeAnalytics?.classComparison?.length ? newFeeAnalytics.classComparison : newClassStats.length > 0 ? newClassStats : classCollectionData;
+                    const rawChartData = newFeeAnalytics?.classComparison?.length ? newFeeAnalytics.classComparison : newClassStats.length > 0 ? newClassStats : classCollectionData;
+                    const chartData = (rawChartData || []).map((row) => ({
+                      ...row,
+                      name: getClassChartLabel(row),
+                    }));
                     if (!chartData || chartData.length === 0) {
                       return (
                         <div className="flex items-center justify-center h-[320px] text-muted-foreground text-sm">
@@ -4220,8 +4287,7 @@ const FeeManagement = () => {
                 <div className="mt-4 p-3 rounded-lg bg-muted/40 border text-sm flex flex-wrap gap-4">
                   <span><span className="font-medium">Name:</span> {selectedStudent.fName} {selectedStudent.lName || ''}</span>
                   <span><span className="font-medium">Roll No:</span> {selectedStudent.rollNumber}</span>
-                  {selectedStudent.class?.name && <span><span className="font-medium">Class:</span> {selectedStudent.class.name}</span>}
-                  {selectedStudent.section?.name && <span><span className="font-medium">Section:</span> {selectedStudent.section.name}</span>}
+                  <span><span className="font-medium">Program / Class / Section:</span> {getAcademicPath(selectedStudent)}</span>
                 </div>
               )}
             </CardContent>
@@ -5324,7 +5390,7 @@ const FeeManagement = () => {
                      // Add custom heads
                      extraCustomHeads.forEach(ch => {
                        if (ch.headName && parseFloat(ch.amount) > 0) {
-                         headsPayload.push({ headName: ch.headName, amount: parseFloat(ch.amount) });
+                         headsPayload.push({ headName: ch.headName, amount: toWholePkrAmount(ch.amount) });
                        }
                      });
 
@@ -5410,8 +5476,8 @@ const FeeManagement = () => {
                               variant="ghost"
                               size="icon"
                               className="h-6 w-6"
-                              onClick={() => printChallan(res.id)}
-                              disabled={printingChallanId === res.id}
+                              onClick={() => printExtraChallanById(res.id, res)}
+                              disabled={printingChallanId === `extra-${res.id}`}
                             >
                               <Printer className="w-3 h-3" />
                             </Button>
@@ -5616,7 +5682,9 @@ const FeeManagement = () => {
                       })()}
                       onClick={async () => {
                         setIsGenerating(true);
-                        const headsPayload = extraCustomHeads.filter(ch => ch.headName && parseFloat(ch.amount) > 0).map(ch => ({ headName: ch.headName, amount: parseFloat(ch.amount) }));
+                        const headsPayload = extraCustomHeads
+                          .filter(ch => ch.headName && parseFloat(ch.amount) > 0)
+                          .map(ch => ({ headName: ch.headName, amount: toWholePkrAmount(ch.amount) }));
 
                         bulkGenerateExtraChallansMutation.mutate({
                           studentIds: selectedBulkExtraStudents,
@@ -5752,11 +5820,12 @@ const FeeManagement = () => {
                                 const additionalSum = feeHeads
                                   .filter(h => selected.includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
                                   .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+                                const customHeadsSum = editingChallan?.isExtra ? getEditCustomHeadsTotal() : 0;
                                 
                                 setChallanForm({
                                   ...challanForm,
                                   selectedHeads: selected,
-                                  fineAmount: (additionalSum + (challanForm.isOtherEnabled ? parseFloat(challanForm.otherAmount || "0") : 0)).toString()
+                                  fineAmount: (additionalSum + customHeadsSum + (!editingChallan?.isExtra && challanForm.isOtherEnabled ? parseFloat(challanForm.otherAmount || "0") : 0)).toString()
                                 });
                               }}
                             />
@@ -5767,7 +5836,7 @@ const FeeManagement = () => {
                       })}
 
                       {/* Other Charges Option */}
-                      <div className="mt-1 pt-1 border-t border-blue-200">
+                      {!editingChallan?.isExtra && <div className="mt-1 pt-1 border-t border-blue-200">
                         <div className="flex items-center space-x-2 p-1 hover:bg-blue-50/50 rounded transition-colors group">
                           <input
                             type="checkbox"
@@ -5815,7 +5884,91 @@ const FeeManagement = () => {
                             </div>
                           </div>
                         )}
-                      </div>
+                      </div>}
+
+                      {editingChallan?.isExtra && (
+                        <div className="mt-1 pt-2 border-t border-blue-200 space-y-1.5">
+                          <div className="flex items-center justify-between px-1">
+                            <Label className="text-[10px] font-bold text-orange-700 uppercase">Custom Fee Heads</Label>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-[10px] font-bold text-orange-700"
+                              onClick={() => {
+                                const customHeads = [...(challanForm.customHeads || []), { headName: "", amount: "" }];
+                                const currentHeadsSum = feeHeads
+                                  .filter(h => (challanForm.selectedHeads || []).includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
+                                  .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+                                setChallanForm({
+                                  ...challanForm,
+                                  customHeads,
+                                  fineAmount: (currentHeadsSum + getEditCustomHeadsTotal(customHeads)).toString()
+                                });
+                              }}
+                            >
+                              + Add
+                            </Button>
+                          </div>
+                          {(challanForm.customHeads || []).map((head, idx) => (
+                            <div key={idx} className="flex gap-1.5 items-center px-1">
+                              <Input
+                                placeholder="Head name"
+                                value={head.headName}
+                                onChange={(e) => {
+                                  const customHeads = [...(challanForm.customHeads || [])];
+                                  customHeads[idx] = { ...customHeads[idx], headName: e.target.value };
+                                  const currentHeadsSum = feeHeads
+                                    .filter(h => (challanForm.selectedHeads || []).includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
+                                    .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+                                  setChallanForm({
+                                    ...challanForm,
+                                    customHeads,
+                                    fineAmount: (currentHeadsSum + getEditCustomHeadsTotal(customHeads)).toString()
+                                  });
+                                }}
+                                className="h-7 text-[10px] flex-1"
+                              />
+                              <Input
+                                type="number"
+                                min="1"
+                                placeholder="Amount"
+                                value={head.amount}
+                                onChange={(e) => {
+                                  const customHeads = [...(challanForm.customHeads || [])];
+                                  customHeads[idx] = { ...customHeads[idx], amount: e.target.value };
+                                  const currentHeadsSum = feeHeads
+                                    .filter(h => (challanForm.selectedHeads || []).includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
+                                    .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+                                  setChallanForm({
+                                    ...challanForm,
+                                    customHeads,
+                                    fineAmount: (currentHeadsSum + getEditCustomHeadsTotal(customHeads)).toString()
+                                  });
+                                }}
+                                className="h-7 text-[10px] w-24"
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-red-500"
+                                onClick={() => {
+                                  const customHeads = (challanForm.customHeads || []).filter((_, i) => i !== idx);
+                                  const currentHeadsSum = feeHeads
+                                    .filter(h => (challanForm.selectedHeads || []).includes(Number(h.id)) && !h.isTuition && !h.isDiscount)
+                                    .reduce((sum, h) => sum + (parseFloat(h.amount) || 0), 0);
+                                  setChallanForm({
+                                    ...challanForm,
+                                    customHeads,
+                                    fineAmount: (currentHeadsSum + getEditCustomHeadsTotal(customHeads)).toString()
+                                  });
+                                }}
+                              >
+                                <MinusCircle className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -6111,7 +6264,19 @@ const FeeManagement = () => {
             <DialogTitle className="flex justify-between items-center">
               <span>Challan Preview & Details</span>
               {selectedChallanDetails && (
-                <Button variant="outline" size="sm" onClick={() => printChallan(selectedChallanDetails.id)} className="gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (selectedChallanDetails.isExtra || selectedChallanDetails.challanType === 'FEE_HEADS_ONLY') {
+                      printExtraChallanById(selectedChallanDetails.id, selectedChallanDetails);
+                    } else {
+                      printInstallmentChallan(selectedChallanDetails.id, selectedChallanDetails);
+                    }
+                  }}
+                  disabled={printingChallanId === `${selectedChallanDetails.isExtra || selectedChallanDetails.challanType === 'FEE_HEADS_ONLY' ? 'extra' : 'installment'}-${selectedChallanDetails.id}`}
+                  className="gap-2"
+                >
                   <Printer className="w-4 h-4" /> Print Challan
                 </Button>
               )}
