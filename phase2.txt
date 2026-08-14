@@ -1,12 +1,21 @@
  ------ Phase 2 ------
 
-1. granular access for modules.
-2. teacher and employee can be same.
-3. late arrived attendance(maybe implemented with biometric)
-4. exam roll-number -- shuffling etc.
-5. user activities -- who does what
-6. numbers for pie charts in dashboard
-done:
-1. undo attendance
-2. module wise access -- more granular access control
+my recommended flow of execution in phase 2 - Most important to Least important modules
+1. student promot should auto fetch prev month's agreed fee + an input box to add %age amount to it, to 
+make final agreed tuition fee for the student. student fetch should not effect total students card on top in student management.
+2. student print detail, i.e., info, fee info, academic info.
+3. staff attendance with biometric + integrate it with admin-panel's payroll. allow 100 minute late arrival per month. 
+4. move terminate, resigned, retired out of edit dialog. also store the end 
+date as well(date of termination, resignation, retirement)
+5. user activities + more detailed access allow lists -- who does what in the system
+6. executive dashboard(expense related data should also be visible) -- access for executive dashboard's module info
+7. allow generate student fee challan in student history page. month restrictions should be applied as well.
+8. Reports in the entire system
+9. shuffled roll-no. in Exams
 
+
+-------------------------------------------------------------------------------------------------------------
+already done phase 2 points 
+1. granular access for modules. (already done, partially)
+2. teacher and employee can be same. (already done)
+6. undo attendance (already done)

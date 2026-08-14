@@ -16,6 +16,20 @@ export const createMockPrismaService = () => ({
     update: jest.fn(),
     delete: jest.fn(),
   },
+  program: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  },
+  academicSession: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  },
   teacher: {
     findUnique: jest.fn(),
     findMany: jest.fn(),

@@ -75,7 +75,7 @@ import {
   rejoinStudent,
   getDefaultStudentIDCardTemplate,
   getStudentById,
-  getLatestRollNumber,
+  getLatestRollNumbersBatch,
   getClasses,
   getSections,
   getAcademicSessions,
@@ -455,6 +455,17 @@ const Students = () => {
   const { data: academicSessions = [] } = useQuery({
     queryKey: ["academic-sessions"],
     queryFn: getAcademicSessions,
+  });
+
+  const defaultRollSessionId = useMemo(
+    () => academicSessions.find((s) => s.isActive)?.id || academicSessions[0]?.id || "",
+    [academicSessions]
+  );
+
+  const { data: rollNumberMap = {} } = useQuery({
+    queryKey: ["latest-roll-numbers-batch", defaultRollSessionId],
+    queryFn: () => getLatestRollNumbersBatch(defaultRollSessionId),
+    enabled: !!defaultRollSessionId && programData.length > 0,
   });
 
   const getStudentAcademicPath = (student = {}) => {
@@ -2067,7 +2078,7 @@ const Students = () => {
               classes={classesData}
               sections={sectionsData}
               academicSessions={academicSessions}
-              getLatestRollNumber={getLatestRollNumber}
+              rollNumberMap={rollNumberMap}
               onCancel={() => {
                 setOpen(false);
                 resetForm();

@@ -3,7 +3,7 @@ import { format } from "date-fns";
 import { formatLocalDate } from "../src/lib/utils";
 
 // const base_url = "http://localhost:3003/api";
-const base_url = "http://69.62.117.175:3003/api";
+const base_url = "https://beams.hayatfoundation.org.pk./api";
 
 export const userWho = async () => {
   try {
@@ -1564,6 +1564,22 @@ export const getStudentById = async (studentId) => {
 export const getLatestRollNumber = async (prefix) => {
   try {
     const { data } = await axios.get(`${base_url}/student/roll-number/latest?prefix=${encodeURIComponent(prefix)}`, {
+      withCredentials: true,
+    });
+    return data;
+  } catch (error) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+export const getLatestRollNumbersBatch = async (sessionId) => {
+  try {
+    const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+    const { data } = await axios.get(`${base_url}/student/roll-number/latest/batch${query}`, {
       withCredentials: true,
     });
     return data;

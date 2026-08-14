@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
     Upload, X, Eye, Edit, Trash2, IdCard, Check, Plus,
     Trash, TrendingUp, Calendar as CalendarIcon, Undo2,
@@ -40,7 +40,7 @@ const StudentForm = ({
     classes = [],
     sections = [],
     headerExtra = null,
-    getLatestRollNumber, // function to fetch latest roll number
+    rollNumberMap = {},
     isSubmitting = false,
     academicSessions = []
 }) => {
@@ -177,6 +177,18 @@ const StudentForm = ({
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState(initialData.photo_url || "");
     const [fieldErrors, setFieldErrors] = useState({});
+    const clearFieldError = useCallback((field) => {
+        setFieldErrors(prev => {
+            if (!prev[field]) return prev;
+            const next = { ...prev };
+            delete next[field];
+            return next;
+        });
+    }, []);
+    const updateField = useCallback((field, value) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+        clearFieldError(field);
+    }, [clearFieldError]);
 
     // === CALCULATED FIELDS ===
 
@@ -230,6 +242,15 @@ const StudentForm = ({
         return `${pPrefix}${cPrefix}`;
     }, [formData.classId, formData.programId, programs, classes]);
 
+    const selectedYearSub = useMemo(() => {
+        if (formData.sessionId) {
+            const sessionRecord = academicSessions.find(s => s.id.toString() === formData.sessionId.toString());
+            const match = sessionRecord?.name?.match(/(\d{4})/);
+            if (match) return match[1].slice(-2);
+        }
+        return new Date().getFullYear().toString().slice(-2);
+    }, [academicSessions, formData.sessionId]);
+
     const [prevPrefix, setPrevPrefix] = useState("");
 
     const rollNumberSuffix = useMemo(() => {
@@ -245,6 +266,7 @@ const StudentForm = ({
     }, [formData.rollNumber, calculatedPrefix, prevPrefix]);
     const sessionManuallySet = useRef(isEditing ? true : false);
     const prevPrefixRef = useRef("");
+    const lastAutoRollNumberRef = useRef("");
     // Helper to extract year gap from program duration (e.g., "4 years" -> 4)
     const getProgramGap = (prog) => {
         if (!prog?.duration) return 1;
@@ -265,7 +287,7 @@ const StudentForm = ({
 
     useEffect(() => {
         const prevPrefix = prevPrefixRef.current;
-        if (calculatedPrefix && calculatedPrefix !== prevPrefix) {
+        if (calculatedPrefix && (calculatedPrefix !== prevPrefix || (!isEditing && rollNumberMap[calculatedPrefix]))) {
             if (isEditing) {
                 const currentRoll = formData.rollNumber || "";
                 if (prevPrefix && currentRoll.startsWith(prevPrefix)) {
@@ -275,44 +297,21 @@ const StudentForm = ({
                     setFormData(prev => ({ ...prev, rollNumber: calculatedPrefix }));
                 }
             } else {
-                // Auto-generate for NEW students
-                const generate = async () => {
-                    if (!getLatestRollNumber) return;
-                    try {
-                        // Use the first year of the selected session (e.g. "2025-2026" -> "25")
-                        // Fall back to current year if no session selected
-                        let yearSub = new Date().getFullYear().toString().slice(-2);
-                        if (formData.sessionId) {
-                            const sessionRecord = academicSessions.find(s => s.id.toString() === formData.sessionId.toString());
-                            if (sessionRecord?.name) {
-                                // Session name format: "2025-2026" or "2025" — take first 4-digit year
-                                const match = sessionRecord.name.match(/(\d{4})/);
-                                if (match) yearSub = match[1].slice(-2);
-                            }
-                        }
-                        const searchPrefix = `${calculatedPrefix}${yearSub}-`;
-                        const latestFull = await getLatestRollNumber(searchPrefix);
-
-                        let nextSuffix = `${yearSub}-001`;
-                        if (latestFull) {
-                            const parts = latestFull.split("-");
-                            const lastPart = parts[parts.length - 1];
-                            if (!isNaN(parseInt(lastPart))) {
-                                const nextNum = parseInt(lastPart, 10) + 1;
-                                const nextNumStr = nextNum.toString().padStart(3, '0');
-                                nextSuffix = `${yearSub}-${nextNumStr}`;
-                            }
-                        }
-                        setFormData(prev => ({ ...prev, rollNumber: `${calculatedPrefix}${nextSuffix}` }));
-                    } catch (error) {
-                        setFormData(prev => ({ ...prev, rollNumber: calculatedPrefix }));
-                    }
-                };
-                generate();
+                const cachedRoll = rollNumberMap[calculatedPrefix];
+                const nextRollNumber = cachedRoll?.nextSuffix?.startsWith(`${selectedYearSub}-`)
+                    ? cachedRoll.nextRollNumber
+                    : `${calculatedPrefix}${selectedYearSub}-001`;
+                const currentRoll = formData.rollNumber || "";
+                if (nextRollNumber !== currentRoll && (calculatedPrefix !== prevPrefix || !currentRoll || currentRoll === lastAutoRollNumberRef.current || currentRoll === prevPrefix)) {
+                    lastAutoRollNumberRef.current = nextRollNumber;
+                    setFormData(prev => ({ ...prev, rollNumber: nextRollNumber }));
+                    clearFieldError("rollNumber");
+                }
             }
             setPrevPrefix(calculatedPrefix);
+            prevPrefixRef.current = calculatedPrefix;
         }
-    }, [calculatedPrefix, isEditing, getLatestRollNumber, formData.rollNumber, prevPrefix, formData.sessionId, academicSessions]);
+    }, [calculatedPrefix, isEditing, formData.rollNumber, prevPrefix, rollNumberMap, selectedYearSub, clearFieldError]);
 
     useEffect(() => {
         if (!formData.programId || !formData.admissionDate || sessionManuallySet.current || isEditing || !academicSessions.length) return;
@@ -484,6 +483,8 @@ const StudentForm = ({
                 sessionId: prev.sessionId || inst.sessionId || null,
             })))
         }));
+        clearFieldError("installments");
+        clearFieldError("numberOfInstallments");
     };
 
     const handleRemoveInstallment = (index) => {
@@ -493,6 +494,8 @@ const StudentForm = ({
             numberOfInstallments: newInstallments.length.toString(),
             installments: redistributeInstallments(prev.tuitionFee, newInstallments)
         }));
+        clearFieldError("installments");
+        clearFieldError("numberOfInstallments");
     };
 
     const handleInstallmentChange = (index, field, value) => {
@@ -523,6 +526,8 @@ const StudentForm = ({
                     installments: newInstallments,
                     tuitionFee: cappedTotal.toString()
                 }));
+                clearFieldError("installments");
+                clearFieldError("tuitionFee");
                 return;
             }
 
@@ -531,10 +536,13 @@ const StudentForm = ({
                 installments: newInstallments,
                 tuitionFee: newTotal.toString()
             }));
+            clearFieldError("installments");
+            clearFieldError("tuitionFee");
             return;
         }
 
         setFormData(prev => ({ ...prev, installments: newInstallments }));
+        clearFieldError("installments");
     };
 
     const toggleDocument = (key) => {
@@ -548,102 +556,36 @@ const StudentForm = ({
     };
 
     const internalSubmit = () => {
-        // Validation
-        const required = [
-            'fName', 'sessionId', 'fatherOrguardian', 'programId', 
-            'classId', 'parentOrGuardianPhone', 'gender', 'dob', 'admissionDate'
-        ];
-        const missing = required.filter(k => !formData[k]);
-
-        if (missing.length > 0) {
-            toast({ title: "Please fill all required fields", variant: "destructive" });
-            return;
-        }
-
-        if (!formData.rollNumber) {
-            toast({ title: "Roll number is required", variant: "destructive" });
-            return;
-        }
-
-        // Installment plan existence validation
         const prog = programs.find(p => p.id.toString() === formData.programId.toString());
         const clsWithFee = prog?.classes?.find(c => c.id.toString() === formData.classId.toString());
         const fee = clsWithFee?.feeStructures?.[0];
-
-        if (!fee) {
-            toast({
-                title: "Incomplete Configuration",
-                description: "Cannot proceed without an installment plan for the selected class. Please define it in Fee Management.",
-                variant: "destructive"
-            });
-            return;
-        }
-
-        // Installments validation
-        if (!formData.installments || formData.installments.length === 0) {
-            toast({
-                title: "Validation Error",
-                description: "Please define at least one installment in the fee plan.",
-                variant: "destructive"
-            });
-            return;
-        }
-
-        // Date validation for installments
-        const hasInvalidDates = formData.installments.some(inst => !inst.dueDate || isNaN(new Date(inst.dueDate).getTime()));
-        if (hasInvalidDates) {
-            toast({
-                title: "Validation Error",
-                description: "All installments must have a valid due date.",
-                variant: "destructive"
-            });
-            return;
-        }
-
         const standardFee = selectedClass?.feeStructures?.[0]?.totalAmount || 0;
-        if (standardFee > 0 && Number(formData.tuitionFee) > standardFee) {
-            toast({
-                title: "Invalid Tuition Fee",
-                description: `Agreed fee (Rs. ${formData.tuitionFee}) cannot exceed standard fee (Rs. ${standardFee}).`,
-                variant: "destructive"
-            });
-            return;
-        }
-
-        // Installments validation
-        if (!formData.installments || formData.installments.length === 0) {
-            toast({
-                title: "Validation Error",
-                description: "Please define at least one installment in the fee plan.",
-                variant: "destructive"
-            });
-            return;
-        }
-
-        const totalInstallmentsAmount = formData.installments.reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
+        const totalInstallmentsAmount = (formData.installments || []).reduce((sum, inst) => sum + (Number(inst.amount) || 0), 0);
         const agreedTuitionFee = Number(formData.tuitionFee) || 0;
-
-        if (totalInstallmentsAmount !== agreedTuitionFee) {
-            toast({
-                title: "Installment Mismatch",
-                description: `Total of installments (Rs. ${totalInstallmentsAmount}) must equal the agreed tuition fee (Rs. ${agreedTuitionFee}).`,
-                variant: "destructive"
-            });
-            return;
-        }
-
+        const hasInvalidDates = (formData.installments || []).some(inst => !inst.dueDate || isNaN(new Date(inst.dueDate).getTime()));
         const validationErrors = {
             fName: firstError(validateRequired(formData.fName, "First name"), validateMaxLength(formData.fName, INPUT_LIMITS.name, "First name")),
             lName: validateMaxLength(formData.lName, INPUT_LIMITS.name, "Last name"),
+            sessionId: validateRequired(formData.sessionId, "Session"),
             fatherOrguardian: firstError(validateRequired(formData.fatherOrguardian, "Father/Guardian"), validateMaxLength(formData.fatherOrguardian, INPUT_LIMITS.name, "Father/Guardian")),
             rollNumber: firstError(validateRequired(formData.rollNumber, "Roll number"), validateMaxLength(formData.rollNumber, INPUT_LIMITS.roll, "Roll number")),
             parentOrGuardianEmail: validateEmail(formData.parentOrGuardianEmail),
             parentOrGuardianPhone: firstError(validateRequired(formData.parentOrGuardianPhone, "Parent phone"), validatePkPhone(formData.parentOrGuardianPhone)),
             parentCNIC: validateCnic(formData.parentCNIC),
             studentCnic: validateCnic(formData.studentCnic),
+            programId: validateRequired(formData.programId, "Program"),
+            classId: validateRequired(formData.classId, "Class"),
+            gender: validateRequired(formData.gender, "Gender"),
+            dob: validateRequired(formData.dob, "Date of birth"),
+            admissionDate: validateRequired(formData.admissionDate, "Admission date"),
             address: validateMaxLength(formData.address, INPUT_LIMITS.longText, "Address"),
             religion: validateMaxLength(formData.religion, INPUT_LIMITS.name, "Religion"),
-            tuitionFee: validateNonNegativeNumber(formData.tuitionFee, "Tuition fee"),
+            tuitionFee: firstError(
+                validateNonNegativeNumber(formData.tuitionFee, "Tuition fee"),
+                standardFee > 0 && Number(formData.tuitionFee) > standardFee
+                    ? `Agreed fee cannot exceed standard fee (Rs. ${standardFee}).`
+                    : ""
+            ),
             numberOfInstallments: validateNonNegativeNumber(formData.numberOfInstallments, "Number of installments"),
             lateFeeFine: validateNonNegativeNumber(formData.lateFeeFine, "Late fee fine"),
             previousBoardName: validateMaxLength(formData.previousBoardName, INPUT_LIMITS.name, "Previous board name"),
@@ -651,6 +593,14 @@ const StudentForm = ({
             obtainedMarks: validateNonNegativeNumber(formData.obtainedMarks, "Obtained marks"),
             totalMarks: validateNonNegativeNumber(formData.totalMarks, "Total marks"),
             photo: validateImageFile(imageFile),
+            feePlan: !fee ? "Installment plan is required for the selected class." : "",
+            installments: !formData.installments?.length
+                ? "Please define at least one installment."
+                : hasInvalidDates
+                    ? "All installments must have a valid due date."
+                    : totalInstallmentsAmount !== agreedTuitionFee
+                        ? `Installment total must equal agreed tuition fee (Rs. ${agreedTuitionFee}).`
+                        : "",
         };
         Object.keys(validationErrors).forEach(key => {
             if (!validationErrors[key]) delete validationErrors[key];
@@ -761,7 +711,7 @@ const StudentForm = ({
                             <Label>First Name *</Label>
                             <Input
                                 value={formData.fName}
-                                onChange={(e) => setFormData({ ...formData, fName: e.target.value })}
+                                onChange={(e) => updateField("fName", e.target.value)}
                                 placeholder="John"
                                 className={fieldErrors.fName ? "border-destructive" : ""}
                             />
@@ -771,7 +721,7 @@ const StudentForm = ({
                             <Label>Last Name <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <Input
                                 value={formData.lName}
-                                onChange={(e) => setFormData({ ...formData, lName: e.target.value })}
+                                onChange={(e) => updateField("lName", e.target.value)}
                                 placeholder="Doe"
                                 className={fieldErrors.lName ? "border-destructive" : ""}
                             />
@@ -794,9 +744,10 @@ const StudentForm = ({
                                             sessionId: v
                                         }))
                                     }));
+                                    clearFieldError("sessionId");
                                 }}
                             >
-                                <SelectTrigger className="w-full">
+                                <SelectTrigger className={`w-full ${fieldErrors.sessionId ? "border-destructive" : ""}`}>
                                     <SelectValue placeholder="Select Session" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -807,35 +758,7 @@ const StudentForm = ({
                                     ))}
                                 </SelectContent>
                             </Select>
-                        </div>
-
-                        {/* Guardian + Roll */}
-                        <div>
-                            <Label>Father/Guardian *</Label>
-                            <Input
-                                value={formData.fatherOrguardian}
-                                onChange={(e) => setFormData({ ...formData, fatherOrguardian: e.target.value })}
-                                placeholder="Father's name"
-                                className={fieldErrors.fatherOrguardian ? "border-destructive" : ""}
-                            />
-                            <FieldError message={fieldErrors.fatherOrguardian} />
-                        </div>
-                        <div>
-                            <Label>Roll Number *</Label>
-                            <div className="flex items-center">
-                                {calculatedPrefix && (
-                                    <div className="bg-muted px-3 py-2 border border-r-0 rounded-l-md text-xs font-mono text-muted-foreground h-10 flex items-center whitespace-nowrap">
-                                        {calculatedPrefix}
-                                    </div>
-                                )}
-                                <Input
-                                    className={`${calculatedPrefix ? "rounded-l-none" : ""} ${fieldErrors.rollNumber ? "border-destructive" : ""}`}
-                                    value={rollNumberSuffix}
-                                    onChange={(e) => setFormData({ ...formData, rollNumber: `${calculatedPrefix}${e.target.value}` })}
-                                    placeholder="e.g. 26-001"
-                                />
-                            </div>
-                            <FieldError message={fieldErrors.rollNumber} />
+                            <FieldError message={fieldErrors.sessionId} />
                         </div>
 
                         {/* Program, Class, Section */}
@@ -843,9 +766,13 @@ const StudentForm = ({
                             <Label>Program *</Label>
                             <Select
                                 value={formData.programId.toString()}
-                                onValueChange={(v) => setFormData({ ...formData, programId: v, classId: "", sectionId: "" })}
+                                onValueChange={(v) => {
+                                    setFormData(prev => ({ ...prev, programId: v, classId: "", sectionId: "" }));
+                                    clearFieldError("programId");
+                                    clearFieldError("classId");
+                                }}
                             >
-                                <SelectTrigger><SelectValue placeholder="Select Program" /></SelectTrigger>
+                                <SelectTrigger className={fieldErrors.programId ? "border-destructive" : ""}><SelectValue placeholder="Select Program" /></SelectTrigger>
                                 <SelectContent>
                                     {programs.map(p => (
                                         <SelectItem key={p.id} value={p.id.toString()}>
@@ -854,6 +781,7 @@ const StudentForm = ({
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <FieldError message={fieldErrors.programId} />
                         </div>
                         <div>
                             <Label>Class *</Label>
@@ -890,10 +818,13 @@ const StudentForm = ({
                                                 : prev.installments
                                         };
                                     });
+                                    clearFieldError("classId");
+                                    clearFieldError("feePlan");
+                                    clearFieldError("installments");
                                 }}
                                 disabled={!formData.programId}
                             >
-                                <SelectTrigger>
+                                <SelectTrigger className={fieldErrors.classId ? "border-destructive" : ""}>
                                     <SelectValue placeholder="Select Class" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -902,12 +833,13 @@ const StudentForm = ({
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <FieldError message={fieldErrors.classId || fieldErrors.feePlan} />
                         </div>
                         <div>
                             <Label>Section (Optional)</Label>
                             <Select
                                 value={formData.sectionId?.toString() || ""}
-                                onValueChange={(v) => setFormData({ ...formData, sectionId: v === "none" ? "" : v })}
+                                onValueChange={(v) => updateField("sectionId", v === "none" ? "" : v)}
                                 disabled={!formData.classId || !hasSections}
                             >
                                 <SelectTrigger><SelectValue placeholder="Select Section" /></SelectTrigger>
@@ -917,79 +849,115 @@ const StudentForm = ({
                                 </SelectContent>
                             </Select>
                         </div>
+                        <div>
+                            <Label>Roll Number *</Label>
+                            <div className="flex items-center">
+                                {calculatedPrefix && (
+                                    <div className="bg-muted px-3 py-2 border border-r-0 rounded-l-md text-xs font-mono text-muted-foreground h-10 flex items-center whitespace-nowrap">
+                                        {calculatedPrefix}
+                                    </div>
+                                )}
+                                <Input
+                                    className={`${calculatedPrefix ? "rounded-l-none" : ""} ${fieldErrors.rollNumber ? "border-destructive" : ""}`}
+                                    value={rollNumberSuffix}
+                                    onChange={(e) => updateField("rollNumber", `${calculatedPrefix}${e.target.value}`)}
+                                    placeholder="e.g. 26-001"
+                                />
+                            </div>
+                            <FieldError message={fieldErrors.rollNumber} />
+                        </div>
+                        <div>
+                            <Label>Father/Guardian *</Label>
+                            <Input
+                                value={formData.fatherOrguardian}
+                                onChange={(e) => updateField("fatherOrguardian", e.target.value)}
+                                placeholder="Father's name"
+                                className={fieldErrors.fatherOrguardian ? "border-destructive" : ""}
+                            />
+                            <FieldError message={fieldErrors.fatherOrguardian} />
+                        </div>
 
                         {/* Parent Info & Demo */}
                         <div>
                             <Label>Parent Email <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                            <Input type="email" value={formData.parentOrGuardianEmail} onChange={e => setFormData({ ...formData, parentOrGuardianEmail: e.target.value })} className={fieldErrors.parentOrGuardianEmail ? "border-destructive" : ""} />
+                            <Input type="email" value={formData.parentOrGuardianEmail} onChange={e => updateField("parentOrGuardianEmail", e.target.value)} className={fieldErrors.parentOrGuardianEmail ? "border-destructive" : ""} />
                             <FieldError message={fieldErrors.parentOrGuardianEmail} />
                         </div>
                         <div>
                             <Label>Parent Phone *</Label>
-                            <Input autoComplete="off" value={formData.parentOrGuardianPhone} onChange={e => setFormData({ ...formData, parentOrGuardianPhone: e.target.value })} className={fieldErrors.parentOrGuardianPhone ? "border-destructive" : ""} placeholder="0300-1234567" />
+                            <Input autoComplete="off" value={formData.parentOrGuardianPhone} onChange={e => updateField("parentOrGuardianPhone", e.target.value)} className={fieldErrors.parentOrGuardianPhone ? "border-destructive" : ""} placeholder="0300-1234567" />
                             <FieldError message={fieldErrors.parentOrGuardianPhone} />
                         </div>
                         <div>
                             <Label>Parent CNIC <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                            <Input value={formData.parentCNIC} onChange={e => setFormData({ ...formData, parentCNIC: formatCnic(e.target.value) })} placeholder="e.g. 12345-6789012-3" className={fieldErrors.parentCNIC ? "border-destructive" : ""} />
+                            <Input value={formData.parentCNIC} onChange={e => updateField("parentCNIC", formatCnic(e.target.value))} placeholder="e.g. 12345-6789012-3" className={fieldErrors.parentCNIC ? "border-destructive" : ""} />
                             <FieldError message={fieldErrors.parentCNIC} />
                         </div>
                         <div>
                             <Label>Student CNIC <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                            <Input value={formData.studentCnic} onChange={e => setFormData({ ...formData, studentCnic: formatCnic(e.target.value) })} placeholder="e.g. 12345-6789012-3" className={fieldErrors.studentCnic ? "border-destructive" : ""} />
+                            <Input value={formData.studentCnic} onChange={e => updateField("studentCnic", formatCnic(e.target.value))} placeholder="e.g. 12345-6789012-3" className={fieldErrors.studentCnic ? "border-destructive" : ""} />
                             <FieldError message={fieldErrors.studentCnic} />
                         </div>
                         <div>
                             <Label>Gender *</Label>
-                            <Select value={formData.gender} onValueChange={v => setFormData({ ...formData, gender: v })}>
-                                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                            <Select value={formData.gender} onValueChange={v => updateField("gender", v)}>
+                                <SelectTrigger className={fieldErrors.gender ? "border-destructive" : ""}><SelectValue placeholder="Select" /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="Male">Male</SelectItem>
                                     <SelectItem value="Female">Female</SelectItem>
                                 </SelectContent>
                             </Select>
+                            <FieldError message={fieldErrors.gender} />
                         </div>
                         <div>
                             <Label>Religion <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <Input
                                 value={formData.religion}
-                                onChange={(e) => setFormData({ ...formData, religion: e.target.value })}
+                                onChange={(e) => updateField("religion", e.target.value)}
                                 placeholder="e.g. Islam"
+                                className={fieldErrors.religion ? "border-destructive" : ""}
                             />
+                            <FieldError message={fieldErrors.religion} />
                         </div>
                         <div>
                             <Label>Date of Birth *</Label>
-                            <Input type="date" value={formData.dob} onChange={e => setFormData({ ...formData, dob: e.target.value })} />
+                            <Input type="date" value={formData.dob} onChange={e => updateField("dob", e.target.value)} className={fieldErrors.dob ? "border-destructive" : ""} />
+                            <FieldError message={fieldErrors.dob} />
                         </div>
                         <div>
                             <Label>Admission Date *</Label>
-                            <Input type="date" value={formData.admissionDate} onChange={e => setFormData({ ...formData, admissionDate: e.target.value })} />
+                            <Input type="date" value={formData.admissionDate} onChange={e => updateField("admissionDate", e.target.value)} className={fieldErrors.admissionDate ? "border-destructive" : ""} />
+                            <FieldError message={fieldErrors.admissionDate} />
                         </div>
                         <div className="col-span-1">
                             <Label>Address <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                            <Input value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} placeholder="Full address" />
+                            <Input value={formData.address} onChange={e => updateField("address", e.target.value)} placeholder="Full address" className={fieldErrors.address ? "border-destructive" : ""} />
+                            <FieldError message={fieldErrors.address} />
                         </div>
 
                         {/* Previous Academic Info */}
                         <div>
                             <Label>Admission Form # <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                            <Input value={formData.admissionFormNumber} onChange={e => setFormData({ ...formData, admissionFormNumber: e.target.value })} placeholder="e.g. AF-2025-001" />
+                            <Input value={formData.admissionFormNumber} onChange={e => updateField("admissionFormNumber", e.target.value)} placeholder="e.g. AF-2025-001" />
                         </div>
                         <div>
                             <Label>Previous Board Name <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                            <Input value={formData.previousBoardName} onChange={e => setFormData({ ...formData, previousBoardName: e.target.value })} placeholder="e.g. BISE Peshawar" />
+                            <Input value={formData.previousBoardName} onChange={e => updateField("previousBoardName", e.target.value)} placeholder="e.g. BISE Peshawar" className={fieldErrors.previousBoardName ? "border-destructive" : ""} />
+                            <FieldError message={fieldErrors.previousBoardName} />
                         </div>
                         <div>
                             <Label>Previous Board Roll # <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                            <Input value={formData.previousBoardRollNumber} onChange={e => setFormData({ ...formData, previousBoardRollNumber: e.target.value })} placeholder="e.g. 123456" />
+                            <Input value={formData.previousBoardRollNumber} onChange={e => updateField("previousBoardRollNumber", e.target.value)} placeholder="e.g. 123456" className={fieldErrors.previousBoardRollNumber ? "border-destructive" : ""} />
+                            <FieldError message={fieldErrors.previousBoardRollNumber} />
                         </div>
                         <div>
                             <Label>Obtained Marks <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <div className="flex items-center gap-1">
-                                <Input type="number" value={formData.obtainedMarks} onChange={e => setFormData({ ...formData, obtainedMarks: e.target.value })} placeholder="e.g. 850" />
+                                <Input type="number" value={formData.obtainedMarks} onChange={e => updateField("obtainedMarks", e.target.value)} placeholder="e.g. 850" className={fieldErrors.obtainedMarks ? "border-destructive" : ""} />
                                 <span className="text-muted-foreground text-sm font-medium px-1">/</span>
-                                <Input type="number" value={formData.totalMarks} onChange={e => setFormData({ ...formData, totalMarks: e.target.value })} placeholder="e.g. 1100" />
+                                <Input type="number" value={formData.totalMarks} onChange={e => updateField("totalMarks", e.target.value)} placeholder="e.g. 1100" className={fieldErrors.totalMarks ? "border-destructive" : ""} />
                             </div>
+                            <FieldError message={fieldErrors.obtainedMarks || fieldErrors.totalMarks} />
                         </div>
                     </div>
                 </div>
@@ -1020,7 +988,7 @@ const StudentForm = ({
                         <div className="relative">
                             <Input
                                 type="number"
-                                className="pl-8 font-bold text-primary"
+                                className={`pl-8 font-bold text-primary ${fieldErrors.tuitionFee ? "border-destructive" : ""}`}
                                 value={formData.tuitionFee}
                                 onChange={e => {
                                     const standardFee = selectedClass?.feeStructures?.[0]?.totalAmount || 0;
@@ -1041,12 +1009,17 @@ const StudentForm = ({
                                         tuitionFee: val,
                                         installments: redistributeInstallments(val, prev.installments)
                                     }));
+                                    clearFieldError("tuitionFee");
+                                    clearFieldError("installments");
                                 }}
                             />
                             <span className="absolute left-3 top-2.5 text-muted-foreground text-sm font-medium">Rs.</span>
                         </div>
+                        <FieldError message={fieldErrors.tuitionFee} />
                     </div>
                 </div>
+
+                <FieldError message={fieldErrors.installments} />
 
                 {formData.installments.length > 0 ? (
                     <div className="border rounded-lg overflow-hidden">
@@ -1100,6 +1073,7 @@ const StudentForm = ({
                                                         month: monthName,
                                                     };
                                                     setFormData({ ...formData, installments: newInstallments });
+                                                    clearFieldError("installments");
                                                 }}
                                             />
                                         </td>

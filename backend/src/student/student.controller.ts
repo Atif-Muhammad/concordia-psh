@@ -105,6 +105,13 @@ export class StudentController {
     return await this.studentService.getLatestRollNumber(prefix);
   }
 
+  @Get('roll-number/latest/batch')
+  async getLatestRollNumbersBatch(@Query('sessionId') sessionId?: string) {
+    return await this.studentService.getLatestRollNumbersBatch(
+      sessionId ? Number(sessionId) : undefined,
+    );
+  }
+
   @Get(':id')
   async getStudentById(@Param('id') id: string) {
     const student = await this.studentService.findOne(Number(id));

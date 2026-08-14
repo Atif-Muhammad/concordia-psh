@@ -12,6 +12,44 @@ export class StudentService {
     private prismaService: PrismaService,
   ) { }
 
+  private buildRollPrefix(programPrefix?: string | null, classPrefix?: string | null) {
+    const pPrefix = programPrefix || '';
+    const cPrefix = classPrefix || '';
+
+    if (pPrefix && cPrefix && cPrefix.startsWith(pPrefix)) {
+      return cPrefix;
+    }
+
+    return `${pPrefix}${cPrefix}`;
+  }
+
+  private getSessionYearSuffix(sessionName?: string | null) {
+    const match = sessionName?.match(/(\d{4})/);
+    if (match) return match[1].slice(-2);
+    return new Date().getFullYear().toString().slice(-2);
+  }
+
+  private getNextRollInfo(prefix: string, yearSub: string, rolls: { rollNumber: string }[]) {
+    let maxSuffix = 0;
+    let latestRollNumber: string | null = null;
+
+    for (const student of rolls) {
+      const suffix = Number.parseInt(student.rollNumber.split('-').pop() || '', 10);
+      if (!Number.isNaN(suffix) && suffix > maxSuffix) {
+        maxSuffix = suffix;
+        latestRollNumber = student.rollNumber;
+      }
+    }
+
+    const nextSuffix = `${yearSub}-${(maxSuffix + 1).toString().padStart(3, '0')}`;
+
+    return {
+      latestRollNumber,
+      nextSuffix,
+      nextRollNumber: `${prefix}${nextSuffix}`,
+    };
+  }
+
   async findOne(id: number) {
     return await this.prismaService.student.findFirst({
       where: { id },
@@ -33,49 +71,7 @@ export class StudentService {
   }
 
   async getLatestRollNumber(prefix: string) {
-    // 1. Try to extract year from prefix (e.g., "PSH-CS-BS26-")
-    // We expect the suffix to be appended after the last hyphen
-    const parts = prefix.split('-').filter((p) => p.length > 0);
-    if (parts.length > 0) {
-      const lastPart = parts[parts.length - 1]; // e.g. "BS26" or "26"
-      const yearMatch = lastPart.match(/\d{2}$/);
-      if (yearMatch) {
-        const year = yearMatch[0];
-        const yearSearchPattern = `${year}-`;
-
-        // Find all students for this year across all prefixes
-        const students = await this.prismaService.student.findMany({
-          where: {
-            rollNumber: {
-              contains: yearSearchPattern,
-            },
-          },
-          select: {
-            rollNumber: true,
-          },
-        });
-
-        if (students.length > 0) {
-          let maxSuffix = -1;
-          let latestRoll: string | null = null;
-
-          for (const s of students) {
-            const sParts = s.rollNumber.split('-');
-            const sSuffixStr = sParts[sParts.length - 1];
-            const sSuffix = parseInt(sSuffixStr, 10);
-            if (!isNaN(sSuffix) && sSuffix > maxSuffix) {
-              maxSuffix = sSuffix;
-              latestRoll = s.rollNumber;
-            }
-          }
-
-          if (latestRoll) return latestRoll;
-        }
-      }
-    }
-
-    // Fallback to the specific prefix if year detection fails or no students found
-    const student = await this.prismaService.student.findFirst({
+    const students = await this.prismaService.student.findMany({
       where: {
         rollNumber: {
           startsWith: prefix,
@@ -84,12 +80,65 @@ export class StudentService {
       select: {
         rollNumber: true,
       },
-      orderBy: {
-        rollNumber: 'desc',
+    });
+
+    return this.getNextRollInfo('', '', students).latestRollNumber;
+  }
+
+  async getLatestRollNumbersBatch(sessionId?: number) {
+    const session = sessionId
+      ? await this.prismaService.academicSession.findUnique({
+          where: { id: sessionId },
+          select: { name: true },
+        })
+      : null;
+    const yearSub = this.getSessionYearSuffix(session?.name);
+
+    const programs = await this.prismaService.program.findMany({
+      select: {
+        rollPrefix: true,
+        classes: {
+          select: {
+            rollPrefix: true,
+          },
+        },
       },
     });
 
-    return student?.rollNumber || null;
+    const prefixes = Array.from(
+      new Set(
+        programs
+          .flatMap((program) =>
+            (program.classes || []).map((cls) =>
+              this.buildRollPrefix(program.rollPrefix, cls.rollPrefix),
+            ),
+          )
+          .filter(Boolean),
+      ),
+    );
+
+    const result: Record<string, {
+      latestRollNumber: string | null;
+      nextSuffix: string;
+      nextRollNumber: string;
+    }> = {};
+
+    await Promise.all(
+      prefixes.map(async (prefix) => {
+        const rolls = await this.prismaService.student.findMany({
+          where: {
+            rollNumber: {
+              startsWith: `${prefix}${yearSub}-`,
+            },
+          },
+          select: { rollNumber: true },
+        });
+
+        result[prefix] = this.getNextRollInfo(prefix, yearSub, rolls);
+      }),
+    );
+
+    return result;
   }
 
   async search(query: string, status?: string) {
