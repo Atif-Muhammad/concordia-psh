@@ -2,7 +2,7 @@
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Request } from 'express';
-import { UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 
 const refreshTokenExtractor = (req: Request): string | null => {
   // Mobile:
@@ -18,6 +18,7 @@ const refreshTokenExtractor = (req: Request): string | null => {
   return null;
 };
 
+@Injectable()
 export class JwtRefreshStrategy extends PassportStrategy(
   Strategy,
   'jwt-refresh',
@@ -36,6 +37,13 @@ export class JwtRefreshStrategy extends PassportStrategy(
 
     if (!refreshToken) throw new UnauthorizedException();
 
-    return payload;
+    return {
+      id: payload.id,
+      email: payload.email,
+      role: payload.role,
+      isStaff: Boolean(payload.isStaff),
+      isTeaching: Boolean(payload.isTeaching),
+      isNonTeaching: Boolean(payload.isNonTeaching),
+    };
   }
 }

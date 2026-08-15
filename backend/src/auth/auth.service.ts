@@ -5,6 +5,15 @@ import { CreateAdminDto } from './dtos/create-admin.dto';
 import { LoginAdminDto } from './dtos/login-admin.dto';
 import { JwtService } from '@nestjs/jwt';
 
+export type CompactAuthPayload = {
+  id: number | string;
+  email: string;
+  role: string;
+  isStaff: boolean;
+  isTeaching?: boolean;
+  isNonTeaching?: boolean;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -12,40 +21,70 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  async generateTokens(payload: {
-    id: number | string;
-    name: string;
-    email: string;
-    role?: string;
-    permissions: any;
-    isStaff?: boolean;
-    isTeaching?: boolean;
-    isNonTeaching?: boolean;
-  }) {
-    if (!payload.role) {
-      payload = { ...payload, role: payload.isStaff ? 'Staff' : 'ADMIN' };
+  private normalizeRole(user: any): string {
+    return String(user?.role || (user?.isTeaching ? 'Teacher' : 'Staff'));
+  }
+
+  private isStaffUser(user: any): boolean {
+    return !this.normalizeRole(user).includes('ADMIN');
+  }
+
+  buildCompactAuthPayload(user: any): CompactAuthPayload {
+    const role = this.normalizeRole(user);
+    return {
+      id: user.id,
+      email: user.email,
+      role,
+      isStaff: !role.includes('ADMIN'),
+      isTeaching: Boolean(user.isTeaching),
+      isNonTeaching: Boolean(user.isNonTeaching),
+    };
+  }
+
+  buildSafeUserResponse(user: any) {
+    const isStaff = user?.isStaff ?? this.isStaffUser(user);
+    const role = this.normalizeRole(user);
+    let designation: string | undefined;
+
+    if (isStaff) {
+      if (user.designation) {
+        designation = user.designation;
+      } else if (user.isTeaching) {
+        designation = user.specialization
+          ? `Teacher - ${user.specialization}`
+          : 'Teacher';
+      } else {
+        designation = 'Staff';
+      }
     }
-    const accessToken = await this.jwtService.signAsync(payload, {
+
+    return {
+      id: user.id,
+      name: user.name,
+      role,
+      designation,
+      email: user.email,
+      permissions: user.permissions || {},
+      isStaff,
+      isTeaching: Boolean(user.isTeaching),
+      isNonTeaching: Boolean(user.isNonTeaching),
+    };
+  }
+
+  async generateTokens(payload: CompactAuthPayload) {
+    const compactPayload = this.buildCompactAuthPayload(payload);
+    const accessToken = await this.jwtService.signAsync(compactPayload, {
       secret: process.env.JWT_ACCESS_SECRET!,
       expiresIn: '1d',
     });
-    const refresh_token = await this.jwtService.signAsync(payload, {
+    const refresh_token = await this.jwtService.signAsync(compactPayload, {
       secret: process.env.JWT_REFRESH_SECRET!,
       expiresIn: '7d',
     });
     return { access_token: accessToken, refresh_token: refresh_token };
   }
 
-  async refreshTokens(payload: {
-    id: number | string;
-    name: string;
-    email: string;
-    role?: string;
-    permissions: any;
-    isStaff?: boolean;
-    isTeaching?: boolean;
-    isNonTeaching?: boolean;
-  }) {
+  async refreshTokens(payload: CompactAuthPayload) {
     return this.generateTokens(payload);
   }
 
@@ -113,18 +152,15 @@ export class AuthService {
       throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
     }
 
-    if (!admin.role) {
-      admin.role = admin.isTeaching ? 'Teacher' : 'Staff';
-    }
-    admin.isStaff = !admin.role.includes('ADMIN'); // Staff if not ADMIN/SUPER_ADMIN
-
-    // Ensure isStaff flag is correctly set based on which table user was found in
-    // Note: this is a bit redundant if role is already set correctly, but safe
-    const isActuallyStaff =
-      !admin.role.includes('SUPER_ADMIN') && !admin.role.includes('ADMIN');
-    admin.isStaff = isActuallyStaff;
+    admin.role = this.normalizeRole(admin);
+    admin.isStaff = this.isStaffUser(admin);
 
     return admin;
+  }
+
+  async getAuthenticatedUser(payload: CompactAuthPayload) {
+    const user = await this.findUserById(payload.id, payload.isStaff);
+    return user ? this.buildSafeUserResponse(user) : null;
   }
 
   async findUserById(id: number | string, isStaff?: boolean) {

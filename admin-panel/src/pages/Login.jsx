@@ -96,7 +96,7 @@ const Login = () => {
     onSuccess: (res) => {
       toast({ title: "Login Successful 🎉", description: "Welcome back!" });
       queryClient.invalidateQueries(["currentUser"]);
-      const target = res?.user?.role === "Teacher" ? "/attendance" : "/dashboard";
+      const target = res?.data?.user?.role === "Teacher" ? "/attendance" : "/dashboard";
       navigate(target);
     },
     onError: (error) => {

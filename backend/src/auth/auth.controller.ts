@@ -34,9 +34,12 @@ export class AuthController {
   @Post('login')
   async loginAdmin(@Body() payload: LoginAdminDto, @Res() res: Response) {
     const admin = await this.authService.login(payload);
+    const user = this.authService.buildSafeUserResponse(admin);
 
     const { access_token, refresh_token } =
-      await this.authService.generateTokens(admin);
+      await this.authService.generateTokens(
+        this.authService.buildCompactAuthPayload(admin),
+      );
     res.cookie('access_token', access_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -51,10 +54,7 @@ export class AuthController {
     });
     return res.status(200).json({
       message: 'Login successful',
-      user: {
-        ...admin,
-        role: admin.role || 'Staff',
-      },
+      user,
     });
   }
 
@@ -72,12 +72,10 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const clientType = req.headers['client-type'] || 'web';
-    const { id, name, email, role, permissions, isStaff, isTeaching, isNonTeaching } = req.user as {
+    const { id, email, role, isStaff, isTeaching, isNonTeaching } = req.user as {
       id: string | number;
-      name: string;
       email: string;
       role: string;
-      permissions: any;
       isStaff: boolean;
       isTeaching?: boolean;
       isNonTeaching?: boolean;
@@ -85,10 +83,8 @@ export class AuthController {
     const { access_token, refresh_token } =
       await this.authService.refreshTokens({
         id,
-        name,
         email,
         role,
-        permissions,
         isStaff,
         isTeaching,
         isNonTeaching,
@@ -116,38 +112,9 @@ export class AuthController {
   @UseGuards(JwtAccGuard)
   @Get('user-who')
   async userWho(@Req() req: any) {
-    const user = await this.authService.findUserById(
-      req.user.id,
-      req.user.isStaff,
-    );
-    if (!user) {
+    if (!req.user) {
       throw new HttpException('User not found', HttpStatus.NOT_FOUND);
     }
-    const isStaff = (user as any).isStaff;
-    let designation: string | undefined;
-    if (isStaff) {
-      const staff = user as any;
-      // If a specific designation is set, use it. 
-      // Otherwise fallback to Teaching/Non-Teaching logic
-      if (staff.designation) {
-        designation = staff.designation;
-      } else if (staff.isTeaching) {
-        designation = staff.specialization ? `Teacher - ${staff.specialization}` : 'Teacher';
-      } else {
-        designation = 'Staff';
-      }
-    }
-
-    return {
-      id: user.id,
-      name: user.name,
-      role: (user as any).role || (isStaff ? 'Staff' : 'ADMIN'),
-      designation,
-      email: user.email,
-      permissions: (user as any).permissions || {},
-      isStaff,
-      isTeaching: Boolean((user as any).isTeaching),
-      isNonTeaching: Boolean((user as any).isNonTeaching),
-    };
+    return req.user;
   }
 }
