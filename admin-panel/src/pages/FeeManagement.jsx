@@ -2405,10 +2405,16 @@ const FeeManagement = () => {
       const hasNewSchema = challans.some(c => c.snapshotTotalDue != null || c.installmentId != null);
 
       if (hasNewSchema) {
+        // Use generateChallanHtml directly on the already-normalized in-memory challans
+        // so the bulk print matches the preview (same single source of truth).
+        const normalizedChallans = challans.map(normalizeChallan);
         await renderAndPrintChallans({
           title: "Monthly Challans",
           toast,
-          renderers: challans.map(challan => () => renderInstallmentChallanForPrint(challan.id, challan)),
+          renderers: normalizedChallans.map(challan => () => {
+            const html = generateChallanHtml(challan);
+            return applyPaidChallanPrintTreatment(html, challan);
+          }),
         });
         setBulkPrintOpen(false);
         return;
@@ -2459,7 +2465,11 @@ const FeeManagement = () => {
       await renderAndPrintChallans({
         title: "Monthly Challans",
         toast,
-        renderers: bulkChallansList.map(challan => () => generateChallanHtml(challan, template.htmlContent)),
+        // Apply paid treatment to match the preview rendering exactly
+        renderers: bulkChallansList.map(challan => () => {
+          const html = generateChallanHtml(challan, template.htmlContent);
+          return applyPaidChallanPrintTreatment(html, challan);
+        }),
       });
     } catch (error) {
       console.error("Finalize print failed:", error);
@@ -2515,18 +2525,16 @@ const FeeManagement = () => {
     const challan = fallbackChallan || feeChallans.find(c => c.id === challanId);
     if (!challan) return;
 
-    const isNewSchema = challan.snapshotTotalDue != null || challan.installmentId != null;
     await printPreparedChallanHtml({
+      // Use generateChallanHtml directly on the in-memory normalized challan —
+      // the exact same function used by the preview — so print and preview are
+      // always a single source of truth. The previous path called
+      // renderInstallmentChallanForPrint which re-fetched the challan from a
+      // leaner single-record API endpoint that omits challanHeads, causing fee
+      // head rows (Prospectus Fee, Allied Charges, etc.) to be missing in print.
       renderHtml: async () => {
-        if (isNewSchema) {
-          return await renderInstallmentChallanForPrint(challanId, challan);
-        }
-
-        const template = await getDefaultFeeChallanTemplate("INSTALLMENT");
-        if (!template || !template.htmlContent) {
-          throw new Error("No default challan template found. Please mark a template as default first.");
-        }
-        return generateChallanHtml(challan, template.htmlContent);
+        const html = generateChallanHtml(challan);
+        return applyPaidChallanPrintTreatment(html, challan);
       },
       challan,
       title: "Challan #" + (challan.challanNumber || ""),
