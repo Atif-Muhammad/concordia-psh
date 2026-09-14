@@ -8,6 +8,7 @@ services:
       - "3003:3003"
     env_file:
       - .env
+    network_mode: "host"
     environment:
       ENVIRONMENT: production
       UPLOAD_ROOT: /opt/portal/uploads
