@@ -999,10 +999,11 @@ const Configuration = () => {
     };
   };
 
-  // Fetch admins using React Query
+  // Fetch admins using React Query (only when on admins tab)
   const { data: adminsRaw = [], isLoading: adminsLoading } = useQuery({
     queryKey: ["admins"],
     queryFn: getAdmins,
+    enabled: routeTab === "admins",
   });
 
   const admins = Array.isArray(adminsRaw)
@@ -1089,21 +1090,23 @@ const Configuration = () => {
   const [marksheetTemplates, setMarksheetTemplates] = useState([]);
   const [payrollTemplates, setPayrollTemplates] = useState([]);
 
+  // Fetch Templates on-demand (only when on templates tab)
   useEffect(() => {
+    if (routeTab !== "templates") return;
     const fetchTemplates = async () => {
       try {
-        const [feeChallanData, marksheetData, payrollData, staffIdCardData, studentIdCardData] = await Promise.all([
+        const [feeChallanRes, marksheetRes, payrollRes, staffIdCardRes, studentIdCardRes] = await Promise.allSettled([
           getFeeChallanTemplates(),
           getReportCardTemplates(),
           getPayrollTemplates(),
           getStaffIDCardTemplates(),
           getStudentIDCardTemplates()
         ]);
-        setFeeChallanTemplates(feeChallanData);
-        setMarksheetTemplates(marksheetData);
-        setPayrollTemplates(payrollData);
-        setTeacherIdCardTemplates(staffIdCardData);
-        setStudentIdCardTemplates(studentIdCardData);
+        if (feeChallanRes.status === "fulfilled") setFeeChallanTemplates(Array.isArray(feeChallanRes.value) ? feeChallanRes.value : []);
+        if (marksheetRes.status === "fulfilled") setMarksheetTemplates(Array.isArray(marksheetRes.value) ? marksheetRes.value : []);
+        if (payrollRes.status === "fulfilled") setPayrollTemplates(Array.isArray(payrollRes.value) ? payrollRes.value : []);
+        if (staffIdCardRes.status === "fulfilled") setTeacherIdCardTemplates(Array.isArray(staffIdCardRes.value) ? staffIdCardRes.value : []);
+        if (studentIdCardRes.status === "fulfilled") setStudentIdCardTemplates(Array.isArray(studentIdCardRes.value) ? studentIdCardRes.value : []);
       } catch (error) {
         console.error("Error fetching templates:", error);
         toast({
@@ -1114,7 +1117,7 @@ const Configuration = () => {
       }
     };
     fetchTemplates();
-  }, []);
+  }, [routeTab]);
 
   // Payroll Templates state
   const [payrollDialog, setPayrollDialog] = useState(false);
@@ -1127,39 +1130,24 @@ const Configuration = () => {
   const [editingPayroll, setEditingPayroll] = useState(null);
   const [previewPayroll, setPreviewPayroll] = useState(null);
 
-  // Fetch Payroll Templates on component mount
+  // Fetch Institute Settings on-demand (only when on institute tab)
   useEffect(() => {
-    const loadPayrollTemplates = async () => {
-      try {
-        const templates = await getPayrollTemplates();
-        setPayrollTemplates(templates);
-      } catch (error) {
-        console.error("Failed to fetch payroll templates:", error);
-        toast({
-          title: "Error",
-          description: error.message || "Failed to fetch payroll templates",
-          variant: "destructive",
-        });
-      }
-    };
-    loadPayrollTemplates();
-  }, []);
-
-  // Fetch Institute Settings on component mount
-  useEffect(() => {
+    if (routeTab !== "institute") return;
     const loadInstituteSettings = async () => {
       try {
         const settings = await getInstituteSettings();
-        setConfigForm({
-          instituteName: settings.instituteName || '',
-          email: settings.email || '',
-          phone: settings.phone || '',
-          address: settings.address || '',
-          facebook: settings.facebook || '',
-          instagram: settings.instagram || '',
-          logo: settings.logo || '',
-          challanPrefix: settings.challanPrefix || '',
-        });
+        if (settings) {
+          setConfigForm({
+            instituteName: settings.instituteName || '',
+            email: settings.email || '',
+            phone: settings.phone || '',
+            address: settings.address || '',
+            facebook: settings.facebook || '',
+            instagram: settings.instagram || '',
+            logo: settings.logo || '',
+            challanPrefix: settings.challanPrefix || '',
+          });
+        }
       } catch (error) {
         console.error("Failed to fetch institute settings:", error);
         toast({
@@ -1170,7 +1158,7 @@ const Configuration = () => {
       }
     };
     loadInstituteSettings();
-  }, []);
+  }, [routeTab]);
 
   const handleConfigUpdate = async () => {
     setSavingConfig(true);

@@ -588,12 +588,42 @@ const PayrollManagementDialog = ({ open, onOpenChange }) => {
       <div className="flex items-center gap-4 mb-4 flex-wrap">
         <div className="flex items-center gap-2">
           <Label>Month:</Label>
-          <Input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="w-40"
-          />
+          <Select
+            value={String(parseInt(month.split("-")[1] || "1", 10))}
+            onValueChange={(m) => {
+              const y = month.split("-")[0] || String(new Date().getFullYear());
+              setMonth(`${y}-${String(m).padStart(2, "0")}`);
+            }}
+          >
+            <SelectTrigger className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <SelectItem key={m} value={String(m)}>
+                  {new Date(2000, m - 1).toLocaleString("default", { month: "long" })}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={month.split("-")[0] || String(new Date().getFullYear())}
+            onValueChange={(y) => {
+              const m = month.split("-")[1] || "01";
+              setMonth(`${y}-${m}`);
+            }}
+          >
+            <SelectTrigger className="w-24">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Array.from({ length: 15 }, (_, i) => 2020 + i).map((y) => (
+                <SelectItem key={y} value={String(y)}>
+                  {y}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex items-center gap-2">
           <Label>Role:</Label>
